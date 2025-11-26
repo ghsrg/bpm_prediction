@@ -81,7 +81,7 @@ flowchart TD
     subgraph Data Sources
         XES[XES / CSV Logs]
         SQL[Camunda SQL]
-        BPMN[BPMN XML]
+        BPMN[BPMN XML / bulck XES]
     end
 
     subgraph Layer 1: Data Access
@@ -166,27 +166,62 @@ flowchart TD
 
 **Файл `config/processes/<proc_name>/features.yaml`:**
 
+
 ```yaml
 # Конфігурація фіч для Fusion Graph
-node_features:
-  # Динамічні атрибути (з логу)
-  - input: "DURATION"
-    type: "numerical"
-    processing: { method: "log_norm", fill_na: 0 }
+# 1. Визначення джерел даних (Mapping сирих колонок)
+sources:
+  log_attributes:
+    - name: "DURATION_"
+      dtype: "float"
+    - name: "user_compl_position"
+      dtype: "string"
+    - name: "taskaction_code"
+      dtype: "categorical"
   
-  # Контекстні атрибути (з POKG через Fusion)
-  - input: "user_role_id"
-    type: "categorical"
-    processing: { method: "embedding", params: { vocab_size: 50, dim: 16 } }
-  
-  - input: "bpmn_node_type" # (Task, XOR-Gateway, etc.)
-    type: "categorical"
-    processing: { method: "onehot", params: { num_classes: 8 } }
+  pokg_attributes: # Те, що підтягується з Neo4j
+    - name: "avg_duration"
+      dtype: "float"
+    - name: "role_embedding" # Вже готовий вектор з графа
+      dtype: "vector"
 
+# 2. Визначення фіч для Вузлів (Node Features -> tensor X)
+node_features:
+  - input: "DURATION_"
+    output_name: "norm_duration"
+    type: "numerical"
+    processing:
+      method: "minmax" # або "standard", "log"
+      params: { min: 0, max: 86400 } # Можна задати межі, або вирахувати автоматично
+      missing_value: 0.0
+
+  - input: "user_compl_position"
+    output_name: "user_role_emb"
+    type: "categorical"
+    processing:
+      method: "embedding" # Створює learnable embedding шар в моделі
+      params: { vocab_size: 50, embedding_dim: 8 }
+      
+  - input: "taskaction_code"
+    output_name: "action_onehot"
+    type: "categorical"
+    processing:
+      method: "onehot"
+      params: { num_classes: 10 }
+
+# 3. Визначення фіч для Ребер (Edge Features -> tensor edge_attr)
 edge_features:
-  - input: "historical_transition_prob" # Статистика з POKG
+  - input: "avg_duration" # З POKG
+    output_name: "historical_speed"
     type: "numerical"
     processing: { method: "minmax" }
+
+# 4. Глобальні фічі графа (Global Features -> tensor u)
+global_features:
+  - input: "proc_def_version"
+    output_name: "version_emb"
+    type: "categorical"
+    processing: { method: "embedding", params: { vocab_size: 10, embedding_dim: 4 } }
 ```
 
   * **`FeaturePreprocessor`:** Клас, який зчитує цей YAML, навчається (Fit) на тренувальному датасеті (зберігає min/max, словники) і трансформує (Transform) графи у об'єкти `torch_geometric.data.Data`.

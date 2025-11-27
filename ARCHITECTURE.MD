@@ -11,6 +11,14 @@
     - [1.1. Основні бізнес-функції](#11-основні-бізнес-функції)
     - [1.2. Зацікавлені сторони (Stakeholders)](#12-зацікавлені-сторони-stakeholders)
   - [2. System Context (Контекстна діаграма)](#2-system-context-контекстна-діаграма)
+  - [3. Вимоги (Requirements)](#3-вимоги-requirements)
+    - [3.1. Функціональні вимоги](#31-функціональні-вимоги)
+    - [3.2. Нефункціональні вимоги (NFR)](#32-нефункціональні-вимоги-nfr)
+  - [4. Архітектурне бачення](#4-архітектурне-бачення)
+    - [4.1. Архітектурний стиль](#41-архітектурний-стиль)
+    - [4.2. Принципи](#42-принципи)
+  - [5. Логічна архітектура (Logical View)](#5-логічна-архітектура-logical-view)
+    - [Діаграма взаємодії (Inference Flow)](#діаграма-взаємодії-inference-flow)
   - [6. Фізична архітектура та Інфраструктура](#6-фізична-архітектура-та-інфраструктура)
     - [6.1. Container Model (C4)](#61-container-model-c4)
     - [6.2. Топологія розгортання (Deployment)](#62-топологія-розгортання-deployment)
@@ -48,6 +56,7 @@
 
 Система `bpm_prediction` є "інтелектуальним ядром", яке вбудовується в ландшафт підприємства.
 
+
 ```mermaid
 C4Context
     title System Context Diagram for BPM Prediction Platform
@@ -63,6 +72,7 @@ C4Context
     Rel(bpm_pred, camunda, "Reads Logs (SQL/API), Returns Predictions (REST)")
     Rel(bpm_pred, neo4j, "Reads Context, Updates Statistics")
     Rel(bpm_pred, files, "Reads XES/BPMN, Saves Models")
+````
 
 -----
 

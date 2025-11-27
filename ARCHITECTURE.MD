@@ -18,6 +18,9 @@
     - [4.1. Стиль та Принципи](#41-стиль-та-принципи)
   - [5. Логічна архітектура](#5-логічна-архітектура)
     - [Діаграма взаємодії (Inference Flow)](#діаграма-взаємодії-inference-flow)
+      - [Component: Feature Engineering Layer](#component-feature-engineering-layer)
+      - [Component: Fusion Engine](#component-fusion-engine)
+      - [Component: Model Registry (Inference)](#component-model-registry-inference)
   - [6. Фізична архітектура та Інфраструктура](#6-фізична-архітектура-та-інфраструктура)
     - [6.1. Середовище розгортання (Deployment Topology)](#61-середовище-розгортання-deployment-topology)
   - [7. Дані](#7-дані)
@@ -27,8 +30,7 @@
     - [Етап 1: PoC (Manual / CLI)](#етап-1-poc-manual--cli)
     - [Етап 2: Strategic (REST API)](#етап-2-strategic-rest-api)
   - [9. Observability (Спостережуваність)](#9-observability-спостережуваність)
-  - [10. Ризики та Обмеження](#10-ризики-та-обмеження)
-  - [11. Roadmap (Розвиток)](#11-roadmap-розвиток)
+  - [10. Roadmap](#10-roadmap)
 
 
 ---
@@ -125,38 +127,73 @@ C4Context
       * `Pipelines`: Сценарії навчання/тестування.
       * `Inference Service`: Обробка одиничних запитів.
 
+
 ### Діаграма взаємодії (Inference Flow)
 
 *Показано цільовий потік обробки запиту на прогноз.*
 
 ```mermaid
 sequenceDiagram
-    participant Client as Client (CLI / BPMS)
+    participant Client as Client (BPMS/CLI)
     participant Ctrl as Inference Controller
     participant Orch as Orchestrator
     participant Fusion as Fusion Engine
     participant Neo4j as Neo4j DB
-    participant Model as GNN Model
+    participant Reg as Model Registry
+    participant Feat as Feat. Preprocessor
 
-    Client->>Ctrl: Predict(ProcessID, TraceID)
+    Note over Client, Reg: 1. Initialization (Lazy)
+    Client->>Ctrl: POST /predict (Trace + ProcessID)
     Ctrl->>Orch: Handle Request
     
-    par Data Gathering
-        Orch->>Fusion: Build IG(Runtime Data)
-        Fusion->>Neo4j: Fetch Context(Version, Structure)
-        Neo4j-->>Fusion: Graph Subgraph
+    Orch->>Reg: GetModel(ProcessID)
+    alt Model not loaded
+        Reg->>Reg: Load Checkpoint (.pt)
+        Reg->>Reg: Load Preprocessor State (.json)
+    end
+    Reg-->>Orch: Model Instance + Preprocessor
+    
+    Note over Orch, Neo4j: 2. Data Gathering & Fusion
+    par Prepare Inputs
+        Orch->>Fusion: Build IG(Runtime Trace)
+        Fusion->>Neo4j: Fetch Context & ValidTransitions
+        Neo4j-->>Fusion: Subgraph + Mask
     end
     
-    Fusion->>Fusion: Merge(IG + Context)
-    Fusion-->>Orch: FusionGraph (Tensors)
+    Fusion->>Fusion: Merge (IG + POKG)
+    Fusion-->>Orch: Raw FusionGraph (NetworkX) + AllowMask
     
-    Orch->>Model: Forward Pass(FusionGraph)
-    Model-->>Orch: Logits / Time
+    Note over Orch, Feat: 3. Feature Engineering
+    Orch->>Feat: Transform(RawGraph, State)
+    Feat-->>Orch: Tensors (X, Edge_Index)
     
-    Orch->>Orch: Post-processing (OOS Check)
-    Orch-->>Ctrl: Prediction Result
-    Ctrl-->>Client: JSON Response
+    Note over Orch, Reg: 4. Prediction & Logic
+    Orch->>Reg: Forward(Tensors)
+    Reg-->>Orch: Raw Logits / Time
+    
+    Orch->>Orch: Apply AllowMask (Filter OOS)
+    Orch->>Orch: Softmax -> Final Prediction
+    
+    Orch-->>Ctrl: Result JSON
+    Ctrl-->>Client: Response
 ```
+
+#### Component: Feature Engineering Layer
+
+  * **Відповідальність:** Перетворення атрибутів графа у тензори.
+  * **Принцип роботи:** Stateless-трансформація, яка використовує стан (`min/max`, `vocab`), зафіксований під час навчання.
+  * **Artifacts:** `preprocessor_state.json` — зберігається разом з версією моделі. Це гарантує, що інференс математично ідентичний навчанню.
+
+#### Component: Fusion Engine
+
+  * **Відповідальність:** Побудова графа для моделі та валідація переходів.
+  * **OOS Handling:** Разом із графом повертає `AllowMask` — маску допустимих переходів згідно з поточною версією процесу в POKG. Це дозволяє фільтрувати галюцинації моделі.
+
+#### Component: Model Registry (Inference)
+
+  * **Стратегія:** Lazy Loading (LRU Cache).
+  * **Поведінка:** Моделі завантажуються в RAM лише при першому зверненні до конкретного `process_id`. Це дозволяє підтримувати десятки процесів на обмеженому обладнанні (Dev VM).
+
 
 -----
 
@@ -166,12 +203,12 @@ sequenceDiagram
 
 **Поточний стан (Dev / PoC):**
 
-  * **Infrastructure:** Корпоративна Windows VM.
+  * **Infrastructure:** Windows VM.
   * **Execution:**
-      * Python-код запускається через **PyCharm** (Local Interpreter / venv).
+      * Python-код запускається через Local Interpreter / venv.
       * **Neo4j:** Desktop/Server версія, встановлена локально (localhost:7687).
       * **MLFlow:** Локальний запуск (`mlflow ui`), збереження артефактів у локальну папку `./mlruns`.
-  * **Integration:** Прямий доступ до MSSQL (через VPN/Intranet).
+  * **Integration:** Прямий доступ до MSSQL через sql.
 
 **Цільовий стан (Production / Scaling):**
 
@@ -227,7 +264,7 @@ POKG моделюється як Labeled Property Graph.
 Через обмеження мережі (Proxy) використовується локальний стек.
 
 1.  **Logging:**
-      * Бібліотека `loguru` або стандартний `logging`.
+      * Бібліотека `loguru`.
       * Логи пишуться у файли з ротацією (`logs/app.log`) та дублюються в stdout.
 2.  **Experiment Tracking (MLFlow):**
       * Логування параметрів (`learning_rate`, `hidden_dim`, `fusion_mode`).
@@ -236,18 +273,10 @@ POKG моделюється як Labeled Property Graph.
 
 -----
 
-## 10\. Ризики та Обмеження
+## 10\. Roadmap
 
-1.  **Network/Proxy:** Складність встановлення пакетів та доступу до зовнішніх API. *Рішення:* Використання локальних дзеркал або offline-installation пакетів.
-2.  **Performance (Neo4j):** При зростанні EPOKG запити можуть сповільнюватися. *Рішення:* Використання Neo4j GDS projection (in-memory graphs).
-3.  **Data Latency:** Затримка між подією в Camunda і її появою в MSSQL/прогнозі. *Рішення:* Для PoC допустимо (Near Real-time).
-
------
-
-## 11\. Roadmap (Розвиток)
-
-  * **Phase 1 (Current):** Реалізація Fusion Pipeline на локальній машині. Навчання на XES. Тест на одному процесі Camunda.
-  * **Phase 2:** Розгортання REST API. Підтримка мульти-версійності в Neo4j.
+  * **Phase 1 (Current):** Реалізація Fusion Pipeline на локальній машині. Навчання на XES. Тест через СLI.
+  * **Phase 2:** Розгортання REST API. 
   * **Phase 3:** Контейнеризація та перехід на серверне середовище.
 
 <!-- end list -->

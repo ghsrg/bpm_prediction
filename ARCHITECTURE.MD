@@ -16,6 +16,7 @@
     - [3.2. Нефункціональні вимоги (NFR)](#32-нефункціональні-вимоги-nfr)
   - [4. Архітектурне бачення](#4-архітектурне-бачення)
     - [4.1. Стиль та Принципи](#41-стиль-та-принципи)
+    - [4.2. Technology Stack](#42-technology-stack)
   - [5. Логічна архітектура](#5-логічна-архітектура)
     - [Діаграма взаємодії (Inference Flow)](#діаграма-взаємодії-inference-flow)
       - [Component: Feature Engineering Layer](#component-feature-engineering-layer)
@@ -109,6 +110,15 @@ C4Context
   * **Modular Monolith (Layered):** Обрано для спрощення розробки та дебагу в умовах локального розгортання.
   * **Config-Driven Development:** Вся конфігурація (фічі, гіперпараметри, шляхи) винесена у YAML файли. Хардкод заборонено.
   * **Separation of Concerns:** Моделі (Neural Networks) нічого не знають про джерела даних (SQL/XES). Вони працюють виключно з тензорами.
+
+### 4.2. Technology Stack
+
+  * **Python: 3.10
+  * **ML: PyTorch 2.x, PyTorch Geometric
+  * **Data: Pandas, Polars (для швидкої обробки логів)
+  * **Storage: Neo4j 5.x + GDS Library
+  * **Connectors: neo4j (driver), pyodbc (MSSQL)
+  * **інструмент для трекінгу експериментів MLflow
 
 -----
 

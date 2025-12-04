@@ -1,174 +1,168 @@
-
 # Data Model & Knowledge Graph Specification (DM-KGS)
 
 **Project:** BPM Prediction Platform  
-**Version:** 1.0 (Draft)  
-**Status:** Architecture Baseline
+**Status:** Draft v1.1  
+**Scope:** POKG, Instance Graph, Fusion Logic, Tensor Structures  
 
-Цей документ визначає схеми даних для збереження знань (Neo4j), динамічного відображення (IG) та навчання моделей (Tensors).
+Цей документ описує схему даних системи. Атрибути поділено на три рівні для забезпечення гнучкості та масштабованості.
 
------
+---
 
-## 1\. Концепція Потоку Даних
+## 1. Класифікація Атрибутів (Attribute Stratification)
 
-Перетворення даних відбувається у три етапи:
+Щоб система була одночасно жорсткою (для коду) і гнучкою (для бізнесу), ми розділяємо всі дані на три категорії:
 
-1.  **Raw Data:** SQL (Camunda) або XES $\to$ Табличний вигляд (DataFrame).
-2.  **Graph Construction:**
-      * **Static:** BPMN XML $\to$ **POKG** (Neo4j).
-      * **Dynamic:** DataFrame $\to$ **Instance Graph** (NetworkX).
-3.  **Fusion & Vectorization:** Merge(IG, POKG) $\to$ **Fusion Graph** $\to$ **PyTorch Tensors**.
+1.  **🔴 Fundamental (System Core)**
+    * **Опис:** Критичні поля, без яких система впаде (Hardcoded логіка). Використовуються для зв'язування графів, ідентифікації вузлів та побудови топології.
+    * **Приклади:** `node_id`, `process_id`, `source`, `target`.
+    * **Налаштування:** Не змінюються.
 
------
+2.  **🟡 Base (Standard BPM)**
+    * **Опис:** Стандартні атрибути, притаманні будь-якому бізнес-процесу (і в XES, і в Camunda). Система має дефолтну логіку для них (наприклад, розрахунок часу), але їх назви можна переназначити.
+    * **Приклади:** `timestamp`, `duration`, `resource`, `role`.
+    * **Налаштування:** Мапяться у `data_sources.yaml`.
 
-## 2\. POKG: Process Organizational Knowledge Graph (Neo4j)
+3.  **🟢 Custom (Business Specific)**
+    * **Опис:** Унікальні поля конкретного процесу (наприклад, "сума замовлення", "тип скарги"). Система про них не знає, поки вони не описані в конфігу.
+    * **Приклади:** `amount`, `risk_level`, `customer_type`.
+    * **Налаштування:** Описуються у `features.yaml` для перетворення в тензори.
 
-Це "холодне" сховище структури та контексту.
+---
 
-### 2.1. Вузли (Nodes & Labels)
+## 2. POKG: Схема Бази Знань (Neo4j)
 
-| Label | Джерело (BPMN/Code) | Атрибути (Properties) | Опис |
+Це граф, що зберігає структуру та контекст. Вузли створюються парсером BPMN, атрибути наповнюються з логів (офлайн).
+
+### 2.1. Вузли (Nodes)
+
+| Label | Fundamental (Обов'язкові) | Base (Стандартні) | Custom (Приклад) |
 | :--- | :--- | :--- | :--- |
-| **`ProcessDef`** | Root Process | `process_key`, `version_tag`, `name` | Визначення процесу (напр., "OrderHandling"). |
-| **`Task`** | `<userTask>`, `<serviceTask>` | `bpmn_id`, `name`, `type` | Елементарна дія. |
-| **`Gateway`** | `<exclusiveGateway>`, `<parallelGateway>` | `bpmn_id`, `type`, `direction` | Точка прийняття рішень (Converging/Diverging). |
-| **`Event`** | `<startEvent>`, `<endEvent>` | `bpmn_id`, `type` | Початок/кінець або проміжна подія. |
-| **`Role`** | `user_compl_position` (Code) | `name`, `code` | Посада виконавця (напр., "Manager"). |
-| **`User`** | `user_compl_login` (Code) | `login_hash` | Конкретний виконавець (анонімізований). |
-| **`Action`** | `taskaction_code` (Code) | `code`, `description` | Результат виконання задачі (напр., "Approve", "Reject"). |
+| **`:Task`** | `bpmn_id` (з XML)<br>`element_type` (Task) | `name` (Human readable)<br>`lane` (Swimlane) | `risk_weight` |
+| **`:Gateway`** | `bpmn_id`<br>`gateway_type` (XOR/AND) | `direction` (Diverging) | - |
+| **`:Event`** | `bpmn_id`<br>`event_type` (Start/End) | - | - |
+| **`:Role`** | `role_id` (Hash/Code) | `name` (e.g. "Manager") | `hourly_rate` |
+| **`:Version`** | `tag` (v1.0) | `valid_from`<br>`valid_to` | `deployer_id` |
 
 ### 2.2. Зв'язки (Relationships)
 
-| Type | Від (Source) | До (Target) | Атрибути ребра |
+| Type | Source $\to$ Target | Fundamental Attrs | Base / Statistical Attrs |
 | :--- | :--- | :--- | :--- |
-| **`FLOWS_TO`** | Task/Gateway | Task/Gateway | `prob_v1` (ймовірність переходу), `avg_time` |
-| **`PERFORMED_BY`** | Task | Role | `frequency` |
-| **`POSSIBLE_ACTION`**| Task | Action | - |
-| **`CONTAINS`** | ProcessDef | Task/Event | - |
-| **`CALLS`** | Task (CallActivity) | ProcessDef | Зв'язок підпроцесів (SubProcess) |
+| **`:FLOWS_TO`** | Task $\to$ Task | - | `count` (скільки разів йшли)<br>`avg_duration` (сер. час переходу)<br>`probability` (вага) |
+| **`:PERFORMED_BY`** | Task $\to$ Role | - | `frequency` |
+| **`:BELONGS_TO`** | Task $\to$ Version | - | - |
 
------
+> **Примітка:** Статистичні атрибути (`avg_duration`, `probability`) оновлюються спеціальним Worker-ом, який агрегує історичні Instance Graphs.
 
-## 3\. Instance Graph (Runtime Data)
+---
 
-Це "гаряче" представлення конкретного трейсу (Case), побудоване з `camunda_actions`.
+## 3. Instance Graph (IG) Specification
 
-### 3.1. Вхідний DataFrame (Log Schema)
+Це граф конкретного виконання (Trace), що будується в пам'яті (NetworkX).
 
-Ці поля повинні бути забезпечені адаптером (`mssql_connector`):
+### 3.1. Вхідний DataFrame (Mapping)
+Адаптери (`CamundaAdapter` / `XESAdapter`) повинні привести сирі дані до внутрішнього стандарту.
 
-  * `PROC_INST_ID_`: ID кейсу.
-  * `ACT_ID_`: ID активності (мапиться на `bpmn_id` у POKG).
-  * `START_TIME_`, `END_TIME_`: Часові мітки.
-  * `DURATION_`: Тривалість (фактична).
-  * `SEQUENCE_COUNTER_`: Порядковий номер у трейсі.
-  * **Бізнес-атрибути (з вашого коду):**
-      * `user_compl_position`: Роль.
-      * `user_compl_login`: Користувач.
-      * `taskaction_code`: Код результату.
-      * `task_status`: Статус задачі.
-      * `overdue_work`: Флаг прострочення (Boolean).
-
-### 3.2. Графова структура IG
-
-  * **Вузли:** Події, що *вже відбулися*.
-  * **Ребра:** `DIRECTLY_FOLLOWS` (послідовність виконання у часі).
-  * **Тимчасові атрибути:** `time_since_start`, `time_since_prev`.
-
------
-
-## 4\. Fusion Graph: Логіка Злиття (Mapping)
-
-Це ключовий етап перетворення даних для AI.
-
-### 4.1. Алгоритм злиття (Merge Logic)
-
-Для кожного вузла $u$ в Instance Graph:
-
-1.  Знайти відповідний вузол $v$ у POKG (за `ACT_ID_` == `bpmn_id`).
-2.  **Enrichment (Збагачення):**
-      * Додати ембеддінг типу вузла з POKG (напр., вектор для `UserTask`).
-      * Додати ембеддінг Ролі з POKG (вектор для `Manager`).
-      * Додати глобальні статистики з POKG (напр., "середній час виконання цієї задачі").
-3.  **Handling OOS:** Якщо вузол є в IG, але немає в POKG (напр., стара версія процесу), використовувати спеціальний токен `<UNK_TASK>`.
-
------
-
-## 5\. Tensor Interface (Spec for PyTorch)
-
-Це формат, який очікує модель (`BaseModel.forward`).
-
-### 5.1. Матриця ознак вузлів ($X$)
-
-Розмірність: `[N_nodes, Input_Dim]`. Вектор кожного вузла складається з конкатенації:
-
-| Секція | Джерело | Тип | Розмірність (Приклад) |
+| Internal Field | Camunda Column (Source) | XES Attribute (Source) | Тип |
 | :--- | :--- | :--- | :--- |
-| **Numerical** | IG | `Float` | 4 (`norm_duration`, `active_execs`, `overdue_flag`, `time_since_start`) |
-| **Positional** | IG | `Sinusoidal` | 8 (Time2Vec encoding часу) |
-| **Struct Emb** | POKG | `Embedding` | 16 (Node2Vec вектор вузла з графа знань) |
-| **Type Emb** | POKG | `OneHot` | 8 (Task vs Gateway vs Event) |
-| **Role Emb** | Fusion | `Embedding` | 8 (Вектор для `user_compl_position`) |
-| **Action Emb** | Fusion | `Embedding` | 4 (Вектор для `taskaction_code`) |
-| **TOTAL** | - | - | **48** (Input Dimension моделі) |
+| **`case_id`** 🔴 | `PROC_INST_ID_` | `trace:concept:name` | String |
+| **`activity_id`** 🔴 | `ACT_ID_` | `concept:name` | String |
+| **`seq_num`** 🔴 | `SEQUENCE_COUNTER_` | *Index in trace* | Int |
+| **`timestamp`** 🟡 | `END_TIME_` | `time:timestamp` | Datetime |
+| **`duration`** 🟡 | `DURATION_` | *Calc: end - start* | Float |
+| **`resource`** 🟡 | `user_compl_login` | `org:resource` | String |
+| **`role`** 🟡 | `user_compl_position` | `org:role` | String |
+| **`result_code`** 🟢 | `taskaction_code` | `lifecycle:transition` | Cat |
+| **`is_overdue`** 🟢 | `overdue_work` | - | Bool |
 
-### 5.2. Атрибути Ребер ($E_{attr}$)
+### 3.2. Графова структура
+* **Вузли:** Відповідають подіям у лозі. ID вузла = `case_id` + `seq_num`.
+* **Ребра:** `DIRECTLY_FOLLOWS` ($Node_t \to Node_{t+1}$).
+* **Атрибути вузла:** Всі поля з таблиці вище зберігаються як properties словника `networkx`.
 
-Розмірність: `[N_edges, Edge_Dim]`.
+---
 
-  * `norm_duration_between`: Час переходу.
-  * `structural_probability`: Ймовірність переходу з POKG (апріорне знання).
+## 4. Fusion Graph & Tensor Mapping
 
-### 5.3. Цільові змінні ($Y$)
+Це найважливіша частина для ML. Тут описується, як атрибути перетворюються на матрицю $X$.
 
-1.  **Classification Head:** `Next_Activity_Index` (Long).
-2.  **Regression Head:** `Remaining_Time_Normalized` (Float).
+### 4.1. Вектор Вузла ($X$)
+Вектор формується конкатенацією (Concat) оброблених фіч. Конфігурація задається в `features.yaml`.
 
------
+| Feature Group | Source | Attribute Name | Processing Method | Output Dim (Приклад) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Structural** | **POKG** | `node2vec_embedding` | *Pre-calculated in Neo4j* | 16 |
+| **Org Context** | **Fusion** | `role` (`user_compl_position`) | `Embedding(Vocab)` | 8 |
+| **Dynamic** | **IG** | `duration` (`DURATION_`) | `LogNorm` ($\ln(x+1)$) | 1 |
+| **Dynamic** | **IG** | `timestamp` | `Time2Vec` (Sin/Cos) | 8 |
+| **Custom** | **IG** | `result_code` (`taskaction_code`) | `OneHot` | 5 |
+| **Custom** | **IG** | `is_overdue` | `Identity` (0/1) | 1 |
+| **Total** | | | | **39** |
 
-## 6\. Feature Configuration Strategy
-
-Замість хардкоду в `graph_creator.py`, ми використовуємо `features.yaml`.
-
-**Приклад конфігурації для вашого процесу:**
+### 4.2. Конфігурація (`features.yaml`)
+Цей файл керує тим, які **Custom** та **Base** поля потрапляють у модель.
 
 ```yaml
-# features.yaml
+# features.yaml example
+
+system_config:
+  # Fundamental mapping (Hardwired logic uses these keys)
+  activity_id_col: "ACT_ID_"
+  case_id_col: "PROC_INST_ID_"
+
 features:
-  node:
-    # Числові з логу (IG)
-    - name: "DURATION_"
-      type: "numerical"
-      preprocessing: "log_norm" # ln(x+1)
-      fill_na: 0.0
-    
-    - name: "active_executions"
-      type: "numerical"
-      preprocessing: "standard_scaler"
+  # Base & Custom features definition
+  - name: "DURATION_"           # Колонка в DataFrame
+    type: "numerical"
+    source: "log"               # Брати з поточного логу
+    preprocessing: "log_norm"
+  
+  - name: "user_compl_position"
+    type: "categorical"
+    source: "log"
+    preprocessing: "embedding"
+    params: { dim: 8, vocab_key: "roles" }
 
-    - name: "overdue_work"
-      type: "categorical" # Хоча це bool, краще як категорію 0/1
-      preprocessing: "identity"
+  - name: "avg_duration"        # Атрибут з POKG (Context)
+    type: "numerical"
+    source: "pokg"              # Підтягується через Fusion
+    preprocessing: "minmax"
+````
 
-    # Категоріальні з логу (Fusion -> POKG)
-    - name: "user_compl_position"
-      type: "categorical"
-      preprocessing: "embedding"
-      params: { embedding_dim: 8, vocab_source: "pokg_roles" }
+-----
 
-    - name: "taskaction_code"
-      type: "categorical"
-      preprocessing: "embedding"
-      params: { embedding_dim: 4 }
+## 5\. Tensor Specifications (PyTorch Geometric)
 
-  edge:
-    - name: "DURATION_E" # З вашого коду (тривалість переходу)
-      type: "numerical"
-      preprocessing: "log_norm"
+Інтерфейс, який очікують моделі (`GNN.forward()`).
+
+1.  **`x` (Node Features):**
+
+      * Type: `torch.float32`
+      * Shape: `[num_nodes, feature_dim]` (наприклад, `[N, 39]`)
+
+2.  **`edge_index` (Adjacency):**
+
+      * Type: `torch.long`
+      * Shape: `[2, num_edges]`
+      * Format: COO (Coordinate format)
+
+3.  **`edge_attr` (Edge Features):**
+
+      * Type: `torch.float32`
+      * Shape: `[num_edges, edge_dim]`
+      * Content: `[probability, avg_time_norm]` (з POKG).
+
+4.  **`batch` (Graph Indicator):**
+
+      * Type: `torch.long`
+      * Shape: `[num_nodes]`
+      * Description: Індекс графа в батчі, до якого належить вузол.
+
+5.  **`y` (Target):**
+
+      * *Next Activity:* `torch.long`, Shape `[1]` (Class Index).
+      * *Time:* `torch.float32`, Shape `[1]` (Normalized Duration).
+
+<!-- end list -->
+
 ```
-
-### Наступні кроки для реалізації:
-
-1.  Створити **Schema Migration Script** для Neo4j (створення констрейнтів та індексів для `bpmn_id`).
-2.  Написати **BPMN-to-Cypher Parser** (адаптація вашого XML-парсера для генерації Cypher-запитів).
-3.  Реалізувати клас `FeaturePreprocessor`, який читає цей YAML.
+```

@@ -1,41 +1,95 @@
-
-###  `ADAPTER_CAMUNDA_SQL.md`
-
 *(Технічна специфікація витягування даних з Camunda 7 + Custom Tables)*
 
 # Adapter Specification: Camunda SQL & BPMS
 
 **Status:** Draft v1.0
 **Source System:** Camunda BPM 7.x (MSSQL) + Custom `bpm_tasks` table.
-**Target Interface:** `InternalEventLog` (див. DATA_MODEL.md).
 
 ## 1. Огляд джерел даних
 
 Адаптер працює з трьома групами таблиць:
 1.  **Repository (`ACT_RE_*`):** Статичні визначення процесів та XML-файли.
 2.  **History (`ACT_HI_*`):** Стандартний лог виконання Camunda.
-3.  **Business Data (`bpm_tasks`):** Кастомна таблиця збагачення (KPI, реальні посади).
+3.  **Business Data (`bpm_tasks`):** Кастомні таблиці збагаченна процесів бізнес даними та додатковими атрибутами.
 
 ## 2. Логіка Екстракції (Extraction Logic)
 
-### 2.1. Flow A: Отримання BPMN (Structure)
-Використовується для наповнення POKG.
+### 2.1. Flow A: POKG Structure Discovery (Recursion)
+Цей потік відповідає за побудова топології процесів та відновлення зв'язків `Parent-Child`.
 
-**SQL Query:**
+**Алгоритм роботи:**
+1.  **Entry Point:** Отримання списку кореневих процесів (з конфігу або авто-пошук).
+2.  **Recursive Fetch:** Завантаження BPMN, парсинг, пошук тегів `<callActivity>`, додавання дочірніх процесів у чергу завантаження.
+3.  **Linkage:** Створення ребер `(:Task)-[:CALLS]->(:ProcessDef)` у POKG.
+
+#### Крок 1: Discovery (Звідки знати process_key?)
+Система підтримує два режими виявлення точок входу:
+
+* **Mode 1: Config-Driven (Recommended)**
+    Список кореневих процесів задається явно в `config/ingestion.yaml`. Це дозволяє обмежити POKG тільки релевантними процесами.
+    ```yaml
+    root_processes:
+      - "order_process"
+      - "invoice_approval"
+    ```
+
+* **Mode 2: Auto-Discovery (Scan)**
+    Якщо конфіг порожній, адаптер сканує БД на предмет усіх унікальних ключів процесів.
+    ```sql
+    SELECT DISTINCT KEY_ FROM ACT_RE_PROCDEF;
+    ```
+
+#### Крок 2: BPMN Extraction Query
+Запит оновлено для отримання назви та версії. Виконується ітеративно для кожного `process_key` з черги.
+
 ```sql
 SELECT 
-    P.KEY_ AS process_key,
-    P.VERSION_ AS version,
-    P.ID_ AS proc_def_id,
-    B.BYTES_ AS bpmn_xml_content
+    P.KEY_       AS process_key,
+    P.VERSION_   AS process_version,
+    P.NAME_      AS process_name,      -- Додано для читабельності в графі
+    P.ID_        AS proc_def_id,       -- Унікальний ID версії (напр., order:1:123)
+    B.BYTES_     AS bpmn_xml_content
 FROM ACT_RE_PROCDEF P
 JOIN ACT_GE_BYTEARRAY B 
     ON P.DEPLOYMENT_ID_ = B.DEPLOYMENT_ID_
     AND P.RESOURCE_NAME_ = B.NAME_
-WHERE P.KEY_ = :process_key
-ORDER BY P.VERSION_ DESC;
+WHERE P.KEY_ = :target_process_key
+-- Опційно: брати тільки останню версію або всі
+ORDER BY P.VERSION_ DESC; 
 
 ```
+
+#### Крок 3: Parsing & Child Discovery Strategy
+
+Це критичний етап відновлення зв'язків, який виконується на стороні Python (`POKGBuilder`).
+
+1. Отриманий `bpmn_xml_content` передається в парсер.
+2. Парсер шукає елементи типу `callActivity`.
+3. Витягує атрибут `calledElement` (це `process_key` дочірнього процесу).
+* *Приклад:* `<bpmn:callActivity id="Activity_CheckRisk" calledElement="risk_assessment_v1" />`
+
+
+4. Якщо `risk_assessment_v1` ще немає в графі, цей ключ додається в чергу **To-Do List** для виконання SQL-запиту (Крок 2).
+5. Після завантаження обох процесів у Neo4j створюється зв'язок:
+```cypher
+MATCH (parent:Task {bpmn_id: 'Activity_CheckRisk'})
+MATCH (child:ProcessDef {key: 'risk_assessment_v1'})
+MERGE (parent)-[:CALLS]->(child)
+
+```
+
+
+
+> **Важливо про версійність Call Activity:**
+> Camunda дозволяє викликати дочірній процес двома способами:
+> 1. *Binding "latest":* Викликається найсвіжіша версія. У графі лінкуємо на вузол `ProcessDef` (abstract).
+> 2. *Binding "version":* Викликається конкретна версія. У графі лінкуємо на конкретний `ProcessVersion`.
+> 
+> 
+> Адаптер має зчитувати атрибут `camunda:processBinding` з XML, щоб створити правильний зв'язок.
+
+```
+
 
 * **Mapping:** `bpmn_xml_content` передається в `BPMNParser` для розбору топології.
 

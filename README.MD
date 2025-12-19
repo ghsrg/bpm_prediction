@@ -14,8 +14,8 @@
 * **[Принципи побудови архітектури системи (ARCHITECTURE_GUIDELINES.MD)](./ARCHITECTURE_GUIDELINES.MD)** —  Керівні принципи для відтворюваних систем BPM.*
 * **[Архітектура Системи (ARCHITECTURE.MD)](./ARCHITECTURE.MD)** —  Детальний опис шарів, компонентів та технологічного стеку.
 * **[Модель Даних (DATA_MODEL.MD)](./DATA_MODEL.MD)** —  Специфікація графів та схем даних.
-** **[ADAPTER CAMUNDA (ADAPTER_CAMUNDA_SQL.MD)](./ADAPTER_CAMUNDA_SQL.MD)** —  Специфікація для завантаження даних з бази Camunda.
-** **[ADAPTER XES файлів (ADAPTER_XES.MD)](./ADAPTER_XES.MD)** —  Специфікація для завантаження відкритих даних для наукового тестування.
+  * **[ADAPTER CAMUNDA (ADAPTER_CAMUNDA_SQL.MD)](./ADAPTER_CAMUNDA_SQL.MD)** —  Специфікація для завантаження даних з бази Camunda.
+  * **[ADAPTER XES файлів (ADAPTER_XES.MD)](./ADAPTER_XES.MD)** —  Специфікація для завантаження відкритих даних для наукового тестування.
 * **[Algorithm & Logic Specification (ALS) / LLD  (LLD.MD)](./LLD.MD)** —  Детальний опис алгоритмів та схем даних.
 * **[Experimentation & Validation Framework (EVF)  (EVF.MD)](./EVF.MD)** —  Пайплайни навчання, Метрики (OOS Rate, Consistency), Сценарії тестів.
 ---

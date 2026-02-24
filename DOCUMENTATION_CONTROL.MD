@@ -16,14 +16,14 @@
 | --- | --- | --- | --- |
 | Розд. 2 (аналітичний синтез, GAP) | Проблематика, мотивація, терміни | `README.MD`, `GLOSSARY.MD` | Частково |
 | Розд. 3.1 (принципи методології) | Structural Awareness / Epistemic Caution / Continual Adaptation / Goal-Oriented Execution | `ARCHITECTURE_GUIDELINES.MD`, `ARCHITECTURE.MD` | Частково |
-| Розд. 3.2 (графова модель) | POKG/IG/Fusion Graph, сутності/зв'язки, фічі | `DATA_MODEL.MD`, `VARIABLES.MD` | Частково |
+| Розд. 3.2 (графова модель) | POKG/IG/FusionGraph, сутності/зв'язки, фічі | `DATA_MODEL.MD`, `VARIABLES.MD` | Частково |
 | Розд. 3.3 (алгоритмічне забезпечення) | Пайплайни, абляції, метрики, режими | `README.MD` (огляд) | Частково |
 | Розд. 4 (результати/рекомендації) | Методика оцінювання та застосування | (очікується деталізація) | Низько |
 
 ## План оновлення існуючих файлів
 | Файл | Що оновити | Пріоритет |
 | --- | --- | --- |
-| `GLOSSARY.MD` | Додати/уточнити терміни згідно дисертації: Structural Drift, OOD, Reliability Semaphore, Continual Learning, дуальна архітектура. | Високий |
+| `GLOSSARY.MD` | Додати/уточнити терміни: Structural Drift, OOD, Reliability Semaphore, Continual Learning, Version Embedding, Agent-Critic. | Високий |
 | `VARIABLES.MD` | Узгодити позначення з матмоделлю Розд. 3 (включно з порогами, версійністю $\kappa$). | Високий |
 | `ARCHITECTURE_GUIDELINES.MD` | Зафіксувати 4 принципи як обов'язкові архітектурні інваріанти. | Високий |
 | `ARCHITECTURE.MD` | Уточнити dual-mode контур і closed-loop адаптацію. | Високий |

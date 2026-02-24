@@ -184,7 +184,7 @@ sequenceDiagram
     end
     
     Fusion->>Fusion: Merge (IG + POKG)
-    Fusion-->>Orch: Raw FusionGraph (NetworkX) + AllowMask
+    Fusion-->>Orch: Raw Fusion Graph (NetworkX) + AllowMask
     
     Note over Orch, Feat: 3. Feature Engineering
     Orch->>Feat: Transform(RawGraph, State)

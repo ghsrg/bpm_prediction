@@ -111,7 +111,16 @@ C4Context
   * **Config-Driven Development:** Вся конфігурація (фічі, гіперпараметри, шляхи) винесена у YAML файли. Хардкод заборонено.
   * **Separation of Concerns:** Моделі (Neural Networks) нічого не знають про джерела даних (SQL/XES). Вони працюють виключно з тензорами.
 
-### 4.2. Technology Stack
+### 4.2. Реалізація управлінського циклу (Closed-loop)
+
+Згідно з методологією, архітектура реалізує замкнений контур управління:
+* **Sensor (Сенсор):** Адаптер Camunda/XES, що генерує `Instance Graph`.
+* **Processor (Агент):** GNN-модель, що формує локальний прогноз.
+* **Governor (Критик/Семафор):** * Модуль **Epistemic Caution** (оцінює $\mathcal{W}_1$ відстань).
+    * Модуль **Structural Validator** (перевіряє прогноз на відповідність топології POKG).
+* **Actuator (Механізм адаптації):** Система донавчання (Continual Learning), що оновлює параметри $\theta$ при детекції дрейфу.
+
+### 4.3. Technology Stack
 
   * **Python: 3.10
   * **ML: PyTorch 2.x, PyTorch Geometric
@@ -131,9 +140,13 @@ C4Context
       * `IG Builder`: Будує граф виконання.
       * `Fusion Builder`: Реалізує логіку злиття (Merge).
       * `POKG Manager`: Керує оновленням знань у Neo4j.
-3.  **Feature Layer:** Stateless-трансформери даних у тензори (згідно з `features.yaml`).
-4.  **Model Layer:** GNN архітектури (на базі PyTorch Geometric).
-5.  **Orchestration Layer:**
+3. **Semantic Alignment Layer** (Abstract) Для забезпечення розширюваності системи (XES, SAP, Oracle) вводиться шар семантичного вирівнювання:
+   * **Internal Canonical ID:** Всі вузли всередині системи оперують уніфікованими хешами активностей.
+   * **Mapping Strategy:** Адаптери (CamundaSQL, XES) відповідають за мапінг специфічних імен (наприклад, `UserTask_1` в Camunda) до канонічних назв у `POKG`.
+   * **Scope:** Повна автоматизація мапінгу для зовнішніх систем (Fuzzy Matching) винесена за рамки даного проєкту, проте архітектура підтримує ін'єкцію `mapping_table.json`.
+4.  **Feature Layer:** Stateless-трансформери даних у тензори (згідно з `features.yaml`).
+5 **Model Layer:** GNN архітектури (на базі PyTorch Geometric).
+6 **Orchestration Layer:**
       * `Pipelines`: Сценарії навчання/тестування.
       * `Inference Service`: Обробка одиничних запитів.
 
@@ -203,7 +216,6 @@ sequenceDiagram
 
   * **Стратегія:** Lazy Loading (LRU Cache).
   * **Поведінка:** Моделі завантажуються в RAM лише при першому зверненні до конкретного `process_id`. Це дозволяє підтримувати десятки процесів на обмеженому обладнанні (Dev VM).
-
 
 -----
 

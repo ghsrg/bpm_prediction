@@ -82,3 +82,27 @@
 2. Між файлами немає термінологічних та символічних суперечностей.
 3. Документація явно підтримує 5 дослідницьких задач зі вступу.
 4. Після цього можна переходити до `Contracts & ABC` і опису потоків даних.
+
+
+## 6) План подальшого руху по архітектурній документації
+
+### 6.1 Які MD ще не оновлені до цільового рівня DOC-007+
+1. `DATA_MODEL.MD` — потрібна синхронізація з canonical DTO (`EventLogBatch`, `ProcessGraphDTO`, `TensorGraphDTO`).
+2. `ADAPTER_CAMUNDA_SQL.MD` — потрібна синхронізація з портами/ABC з `INTERFACE_CONTRACTS.MD`.
+3. `ADAPTER_XES.MD` — наразі draft; потрібна деталізація mapping-rules і edge-cases.
+4. `LLD.MD` — наразі draft; потрібен розпис алгоритмів Core/Graph Builder/Tensor Adapter.
+5. `EVF.MD` — наразі draft; потрібні формальні протоколи експериментів і acceptance-критерії.
+
+### 6.2 Черговість (рекомендована)
+- **Крок A:** Стабілізувати HLD (`INTERFACE_CONTRACTS.MD`, `DATA_FLOWS.MD`) до статусу READY_FOR_IMPL.
+- **Крок B:** Оновити `DATA_MODEL.MD` під нові DTO + versioning metadata.
+- **Крок C:** Оновити adapter-специфікації (`ADAPTER_CAMUNDA_SQL.MD`, `ADAPTER_XES.MD`) під єдині контракти.
+- **Крок D:** Деталізувати `LLD.MD` (алгоритмічна логіка) і `EVF.MD` (експерименти/валідація).
+- **Крок E:** Завершити синхронізаційний прохід `README.MD` і провести фінальний consistency-check між усіма MD.
+
+### 6.3 Definition of completion для архітектурної хвилі
+Хвиля вважається завершеною, коли:
+1. Усі data adapters описані через один набір портів/ABC.
+2. Між `DATA_MODEL.MD`, `INTERFACE_CONTRACTS.MD`, `DATA_FLOWS.MD` немає schema-конфліктів.
+3. `LLD.MD` і `EVF.MD` мають не draft-каркас, а мінімально повні специфікації для реалізації/валідації.
+4. README містить повний ієрархічний зміст з валідними посиланнями на кожен документаційний файл.

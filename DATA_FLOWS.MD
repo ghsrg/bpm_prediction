@@ -1,5 +1,8 @@
 # DATA_FLOWS.MD
 
+## Статус
+`IN_PROGRESS (DOC-007)`
+
 ## 1) Призначення
 Документ формалізує потоки даних для DOC-007 за правилом `Input/Output/Metadata` між стадіями pipeline.
 

@@ -1,5 +1,8 @@
 # INTERFACE_CONTRACTS.MD
 
+## Статус
+`IN_PROGRESS (DOC-007)`
+
 ## 1) Призначення
 Документ фіксує **мінімальний HLD-комплект контрактів** для DOC-007:
 - порти (interfaces) між Application/Core/Adapters;

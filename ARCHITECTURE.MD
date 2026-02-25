@@ -8,7 +8,7 @@
 
 Документ фіксує реалізаційний профіль системи, а не лише загальні принципи.
 
----
+Документ фіксує реалізаційний профіль системи, а не лише загальні принципи.
 
 ## 2) Mode selected
 **Обраний режим для поточної хвилі реалізації:** `ENTERPRISE_POC`.
@@ -46,10 +46,13 @@ Core оперує лише тензорами/доменними DTO і **не �
 - контроль режимів `semaphore_mode` (`green`/`yellow`/`red`).
 
 ### 4.3 Adapters (Infrastructure)
-- **MSSQL adapter**: витяг event log для PoC.
+- **Camunda7 MSSQL adapter**: спеціалізований адаптер під структуру Camunda 7 (історія, версії process definition, змінні).
+- **XES adapter**: імпорт відкритих логів XES для тестування/бенчмарків (з підтримкою version-tagging при завантаженні в EPOKG).
+- **Data Converter adapter**: нормалізує різні джерела (Camunda/XES/інші) у єдиний внутрішній контракт `EventLogBatch` перед Graph Builder.
 - **Neo4j adapter**: робота з EPOKG/POKG.
 - **Tracker adapter**: MLflow/інший трекер.
 - **Storage adapter**: моделі, конфіги, кеші, артефакти.
+- **REST API adapter (PoC)**: endpoint для запиту по поточному екземпляру виконання з подальшим запуском ingestion+inference через відповідний data adapter.
 
 ---
 
@@ -65,13 +68,16 @@ Core оперує лише тензорами/доменними DTO і **не �
 ---
 
 ## 6) Data Flow (runtime)
-1. `event_stream` + process context формують `process_graph`.
-2. З EPOKG додається нормативний контекст і будується Fusion Graph.
-3. Tensor Adapter формує `node_features`, `adj_matrix`/`edge_index`.
-4. Core обчислює логіти/прогноз + uncertainty/drift сигнали.
-5. `AllowMask` відсікає недопустимі переходи (OOS masking).
-6. Reliability Semaphore обчислює `reliability_score` і встановлює `semaphore_mode`.
-7. Prediction/metadata логуються в tracker.
+1. Запит надходить через CLI або REST API з `process_instance_id` і source-type.
+2. Source-aware adapter (`camunda7_mssql_adapter` / `xes_adapter` / інший) читає сирі події.
+3. `Data Converter` нормалізує вхід у єдиний контракт `EventLogBatch`.
+4. `event_stream` + process context формують `process_graph`.
+5. З EPOKG додається нормативний контекст і будується Fusion Graph.
+6. Tensor Adapter формує `node_features`, `adj_matrix`/`edge_index`.
+7. Core обчислює логіти/прогноз + uncertainty/drift сигнали.
+8. `AllowMask` відсікає недопустимі переходи (OOS masking).
+9. Reliability Semaphore обчислює `reliability_score` і встановлює `semaphore_mode`.
+10. Prediction/metadata логуються в tracker і повертаються у викликаючий контур (CLI/API).
 
 ---
 
@@ -159,19 +165,24 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 ---
 
 ## 13) Enterprise integration strategy (PoC)
-Рекомендований CLI-контур:
-- `--mode prepare`
-- `--mode build_graph`
-- `--mode train`
-- `--mode evaluate`
-- `--mode infer`
+Рекомендований контур запуску:
+- CLI: `--mode prepare/build_graph/train/evaluate/infer`
+- REST API (PoC): `POST /api/v1/infer-by-instance` з `process_instance_id` та `source_type`.
+
+Правило маршрутизації даних:
+1. API/CLI викликає orchestration service.
+2. Orchestration service обирає потрібний data adapter (`camunda7_mssql_adapter` або `xes_adapter`).
+3. Дані проходять через `Data Converter` до єдиного контракту.
+4. Далі запускається стандартний pipeline до inference.
 
 Інтеграція в існуючу екосистему:
-- MSSQL (обов'язково для PoC);
+- MSSQL Camunda 7 (обов'язково для PoC);
+- XES-файли в директорії даних для відкритих датасетів;
 - Neo4j (за наявності);
 - існуючий трекер/registry (якщо є).
 
 Не допускається:
+- прямий зв'язок raw-джерела з EPOKG без конвертора контракту;
 - мікросервісний оверінжиніринг;
 - побудова повного MLOps-stack у PoC-фазі.
 
@@ -195,19 +206,24 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 ```mermaid
 flowchart TD
     subgraph Infrastructure [Adapters / Infrastructure Layer]
-        MSSQL[(MSSQL Log DB)]
+        CamundaDB[(MSSQL Camunda 7 DB)]
+        XESFiles[(XES Datasets Storage)]
         Neo4j[(Neo4j EPOKG)]
         MLflow[MLflow Tracker]
         Reports[(Research Reports Storage)]
+        RestAPI[REST API Adapter]
     end
 
     subgraph Application [Application / Orchestration Layer]
         CLI[CLI / Pipeline Runner]
+        APIOrch[API/CLI Orchestrator]
         Eval[Evaluation & Reporting Stage]
     end
 
     subgraph Ports [Ports / Interfaces]
         IDataReader[[IDataReader]]
+        IXESReader[[IXESReader]]
+        IDataConverter[[IDataConverter]]
         IGraphStorage[[IGraphStorage]]
         ITracker[[ITracker]]
         IReportWriter[[IReportWriter]]
@@ -216,22 +232,29 @@ flowchart TD
     subgraph Core [Domain Core / Math]
         direction TB
         Builder[EPOKG Graph Builder]
+        Converter[EventLog Converter]
         TensorConv[Tensor Adapter]
         GNN[Agent-Critic Module]
         Semaphore[Reliability Semaphore]
     end
 
-    MSSQL -.implements.-> IDataReader
+    CamundaDB -.implements.-> IDataReader
+    XESFiles -.implements.-> IXESReader
     Neo4j -.implements.-> IGraphStorage
     MLflow -.implements.-> ITracker
     Reports -.implements.-> IReportWriter
+    RestAPI --> APIOrch
 
-    CLI --> Builder
-    CLI --> GNN
-    CLI --> Eval
+    CLI --> APIOrch
+    APIOrch --> Builder
+    APIOrch --> GNN
+    APIOrch --> Eval
 
     Builder --> IDataReader
+    Builder --> IXESReader
+    Builder --> IDataConverter
     Builder --> IGraphStorage
+    IDataConverter --> Converter
     GNN --> TensorConv
     GNN --> Semaphore
     Semaphore --> ITracker
@@ -245,21 +268,25 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant Log as MSSQL (Tabular)
+    participant API as REST/CLI Trigger
+    participant Src as Camunda Adapter or XES Adapter
+    participant Conv as Data Converter
     participant Graph as Neo4j (EPOKG)
     participant PyG as PyTorch Geometric
     participant Model as GNN (Core)
     participant Eval as Evaluation/Reporting
 
-    Log->>Graph: 1. Raw Events (CaseID, Activity, Timestamp)
-    Note over Graph: 2. Build Instance Graph (IG)<br/>3. Merge with EPOKG -> Fusion Graph
-    Graph->>PyG: 4. Extract Subgraph (Nodes, Edges, Attributes)
-    Note over PyG: 5. Transform to Data(x, edge_index, y)
-    PyG->>Model: 6. Tensor Batch
-    Model-->>Model: 7. Forward Pass (Knowledge Infusion Γ)
-    Model->>PyG: 8. Logits / Embeddings
-    PyG->>Eval: 9. Metrics Inputs (pred/target/drift)
-    Eval->>Eval: 10. Build charts/tables for dissertation section 4
+    API->>Src: 1. process_instance_id + source_type
+    Src->>Conv: 2. Raw events in source format
+    Conv->>Graph: 3. Normalized EventLogBatch
+    Note over Graph: 4. Build Instance Graph (IG)<br/>5. Merge with EPOKG -> Fusion Graph
+    Graph->>PyG: 6. Extract Subgraph (Nodes, Edges, Attributes)
+    Note over PyG: 7. Transform to Data(x, edge_index, y)
+    PyG->>Model: 8. Tensor Batch
+    Model-->>Model: 9. Forward Pass (Knowledge Infusion Γ)
+    Model->>PyG: 10. Logits / Embeddings
+    PyG->>Eval: 11. Metrics Inputs (pred/target/drift)
+    Eval->>Eval: 12. Build charts/tables for dissertation section 4
 ```
 
 ---
@@ -300,11 +327,14 @@ bpm_prediction/
 │   │   ├── semaphore/         # OOD math, Wasserstein, Thresholds
 │   │   └── interfaces/        # Abstract Base Classes (Ports)
 │   ├── adapters/              # Infrastructure
-│   │   ├── data/              # MSSQL_Reader, Neo4j_Storage
-│   │   ├── tracking/          # MLflow_Tracker
+│   │   ├── data/              # camunda7_mssql_adapter, xes_adapter, neo4j_storage
+│   │   ├── api/               # rest_api_adapter
+│   │   ├── tracking/          # mlflow_tracker
 │   │   └── reporting/         # report_writer, chart_exporter
 │   ├── pipeline/              # Orchestration (Stages)
+│   │   ├── ingestion_router.py
 │   │   ├── graph_builder.py
+│   │   ├── data_converter.py
 │   │   ├── tensor_adapter.py
 │   │   ├── trainer.py
 │   │   ├── evaluator.py

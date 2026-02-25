@@ -8,8 +8,6 @@
 
 Документ фіксує реалізаційний профіль системи, а не лише загальні принципи.
 
-Документ фіксує реалізаційний профіль системи, а не лише загальні принципи.
-
 ## 2) Mode selected
 **Обраний режим для поточної хвилі реалізації:** `ENTERPRISE_POC`.
 
@@ -41,10 +39,10 @@
 Domain оперує лише тензорами/доменними DTO і **не має прямих залежностей** від Neo4j, MSSQL, MLflow, REST/CLI.
 
 ### 4.2 Application Layer (Use Cases)
-- Use cases: `Train Pipeline`, `Inference`, `Drift Monitoring`, `Evaluation`;
-- оркестрація сценаріїв `prepare/build_graph/train/evaluate/infer`;
-- виклик портів доступу до інфраструктури;
-- контроль режимів `semaphore_mode` (`green`/`yellow`/`red`).
+- Use cases: `Train Pipeline`, `Inference`, `Evaluation (Research Mode)`, `Retraining`;
+- оркестрація сценаріїв `prepare/build_graph/train/evaluate/infer/retrain`;
+- виклик **лише Application Ports (interfaces)** із `src/core/interfaces/`;
+- drift detection: вбудована частина inference runtime + optional offline analysis в evaluation.
 
 ### 4.3 Interface Adapters Layer
 - **Camunda SQL Adapter**: читання Camunda7 MSSQL.
@@ -71,23 +69,24 @@ Domain оперує лише тензорами/доменними DTO і **не
 2. **Graph Builder (EPOKG context)** — побудова IG і зв'язок з EPOKG.
 3. **Tensor Adapter** — перехід до `torch_geometric.data.Data`.
 4. **Core ML** — inference/train крок.
-5. **Evaluation** — метрики якості/OOS.
-6. **Drift Monitor** — обчислення drift-індикаторів.
-7. **Inference** — фінальний прогноз + режим семафора.
+5. **Drift + Reliability** — оцінка дрейфу та застосування політики надійності.
+6. **Delivery** — повернення `PredictionDTO` + логування runtime метрик.
+
+> `Evaluation` винесено в окремий **research pipeline** і не входить до runtime-контуру inference.
 
 ---
 
 ## 6) Data Flow (runtime)
-1. Запит надходить через CLI або REST API з `process_instance_id` і source-type.
-2. Source-aware adapter (`camunda7_mssql_adapter` / `xes_adapter` / інший) читає сирі події.
-3. `Data Converter` нормалізує вхід у єдиний контракт `EventLogBatch`.
-4. `event_stream` + process context формують `process_graph`.
-5. З EPOKG додається нормативний контекст і будується Fusion Graph.
-6. Tensor Adapter формує `node_features`, `adj_matrix`/`edge_index`.
-7. Core обчислює логіти/прогноз + uncertainty/drift сигнали.
-8. `AllowMask` відсікає недопустимі переходи (OOS masking).
-9. Reliability Semaphore обчислює `reliability_score` і встановлює `semaphore_mode`.
-10. Prediction/metadata логуються в tracker і повертаються у викликаючий контур (CLI/API).
+1. Запит надходить через CLI або REST API з `process_instance_id` і `source_type`.
+2. Application Use Case звертається до портів `IDataReader` / `IBusinessDataReader`.
+3. Adapter-реалізації через порти повертають нормалізований `EventLogBatch`.
+4. Graph Builder формує `process_graph` та збагачує його EPOKG-контекстом.
+5. Tensor Adapter формує `node_features`, `edge_index`.
+6. Core ML обчислює `prediction` + `confidence`.
+7. Вбудований drift модуль обчислює drift/OOD сигнали.
+8. Reliability Policy обчислює `reliability_score` і `semaphore_mode`.
+9. Use Case логує runtime-метрики через `ITracker`.
+10. Delivery: повернення `PredictionDTO` у CLI/API контур.
 
 ---
 
@@ -216,10 +215,6 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 ```mermaid
 flowchart TB
 
-%% ================================
-%% OUTER LAYER — Frameworks & Drivers
-%% ================================
-
 subgraph Frameworks_and_Drivers["Frameworks & Drivers (Infrastructure)"]
     CamundaDB[(MSSQL Camunda 7 DB)]
     XES[(XES Files Storage)]
@@ -231,59 +226,45 @@ subgraph Frameworks_and_Drivers["Frameworks & Drivers (Infrastructure)"]
     CLI[(CLI Runner)]
 end
 
-%% ================================
-%% INTERFACE ADAPTERS
-%% ================================
-
 subgraph Interface_Adapters["Interface Adapters"]
     SQLReader[Camunda SQL Adapter]
     XESReader[XES Reader Adapter]
     BusinessAdapter[Business Data Adapter]
-
     GraphGateway[Neo4j Gateway]
     TrackerAdapter[MLflow Adapter]
     ReportAdapter[Report Writer Adapter]
-
     APIController[REST Controller]
     CLIController[CLI Controller]
 end
 
-%% ================================
-%% APPLICATION LAYER (USE CASES)
-%% ================================
+subgraph Ports["Application Ports (Interfaces)"]
+    IDataReader[[IDataReader]]
+    IBusinessDataReader[[IBusinessDataReader]]
+    IGraphStorage[[IGraphStorage]]
+    ITracker[[ITracker]]
+    IReportWriter[[IReportWriter]]
+end
 
 subgraph Application_Layer["Application / Use Cases"]
     TrainUC[Train Pipeline Use Case]
     InferUC[Inference Use Case]
-    DriftUC[Drift Monitoring Use Case]
-    EvalUC[Evaluation Use Case]
+    EvalUC[Evaluation Use Case (Research)]
+    RetrainUC[Retraining Use Case]
 end
 
-%% ================================
-%% DOMAIN (ENTITIES + SCIENCE CORE)
-%% ================================
-
 subgraph Domain_Layer["Domain Core (Pure Logic / Math)"]
-
-    %% Core domain models
     EventLog[EventLog Entity]
     EnrichedCase[Case Enrichment Model]
     ProcessGraph[Process Graph Model]
     TensorGraph[TensorGraph Representation]
     Prediction[Prediction Entity]
     DriftSignal[Drift Signal Model]
-
-    %% Scientific components
     EPOKGBuilder[EPOKG Graph Builder]
     FeatureEncoder[Feature Encoding Pipeline]
     AgentCritic[Agent–Critic GNN Module]
     DriftDetector[Drift Detection Module]
     ReliabilityPolicy[Reliability & Semaphore Policy]
 end
-
-%% ================================
-%% INFRASTRUCTURE IMPLEMENTS PORTS
-%% ================================
 
 CamundaDB --> SQLReader
 XES --> XESReader
@@ -294,32 +275,34 @@ Reports --> ReportAdapter
 REST --> APIController
 CLI --> CLIController
 
-%% ================================
-%% ADAPTERS USED BY APPLICATION
-%% ================================
-
-SQLReader --> TrainUC
-XESReader --> TrainUC
-BusinessAdapter --> TrainUC
-
-SQLReader --> InferUC
-BusinessAdapter --> InferUC
-
-GraphGateway --> TrainUC
-GraphGateway --> InferUC
-
-TrackerAdapter --> TrainUC
-TrackerAdapter --> DriftUC
-TrackerAdapter --> EvalUC
-
-ReportAdapter --> EvalUC
+SQLReader -.implements.-> IDataReader
+XESReader -.implements.-> IDataReader
+BusinessAdapter -.implements.-> IBusinessDataReader
+GraphGateway -.implements.-> IGraphStorage
+TrackerAdapter -.implements.-> ITracker
+ReportAdapter -.implements.-> IReportWriter
 
 APIController --> InferUC
 CLIController --> TrainUC
+CLIController --> EvalUC
 
-%% ================================
-%% APPLICATION CALLS DOMAIN
-%% ================================
+TrainUC --> IDataReader
+TrainUC --> IBusinessDataReader
+TrainUC --> IGraphStorage
+TrainUC --> ITracker
+
+InferUC --> IDataReader
+InferUC --> IBusinessDataReader
+InferUC --> IGraphStorage
+InferUC --> ITracker
+
+EvalUC --> IDataReader
+EvalUC --> IGraphStorage
+EvalUC --> ITracker
+EvalUC --> IReportWriter
+
+RetrainUC --> ITracker
+RetrainUC --> TrainUC
 
 TrainUC --> EventLog
 TrainUC --> EnrichedCase
@@ -334,16 +317,13 @@ InferUC --> EPOKGBuilder
 InferUC --> FeatureEncoder
 InferUC --> TensorGraph
 InferUC --> AgentCritic
+InferUC --> DriftDetector
 InferUC --> ReliabilityPolicy
+InferUC --> DriftSignal
 
-DriftUC --> DriftDetector
-DriftUC --> DriftSignal
-
+EvalUC --> AgentCritic
+EvalUC --> DriftDetector
 EvalUC --> Prediction
-
-%% ================================
-%% DOMAIN INTERNAL FLOW
-%% ================================
 
 EventLog --> EnrichedCase
 EnrichedCase --> EPOKGBuilder
@@ -352,8 +332,8 @@ ProcessGraph --> FeatureEncoder
 FeatureEncoder --> TensorGraph
 TensorGraph --> AgentCritic
 AgentCritic --> Prediction
-Prediction --> ReliabilityPolicy
 Prediction --> DriftDetector
+Prediction --> ReliabilityPolicy
 DriftDetector --> DriftSignal
 ```
 
@@ -363,10 +343,6 @@ DriftDetector --> DriftSignal
 
 ```mermaid
 flowchart TB
-
-%% ================================
-%% 1. FRAMEWORKS & DRIVERS (OUTER)
-%% ================================
 
 subgraph Frameworks["Frameworks & Drivers"]
     CamundaDB[(MSSQL Camunda 7 DB)]
@@ -378,42 +354,31 @@ subgraph Frameworks["Frameworks & Drivers"]
     CLI[(CLI)]
 end
 
-%% ================================
-%% 2. INTERFACE ADAPTERS (HEXAGON)
-%% ================================
-
 subgraph Adapters["Interface Adapters (Ports & Adapters)"]
-
-    %% Outbound Adapters
     SQLAdapter[Camunda SQL Adapter]
     XESAdapter[XES Reader Adapter]
     GraphAdapter[Neo4j Adapter]
     TrackerAdapter[MLflow Adapter]
     ReportAdapter[Report Adapter]
-
-    %% Inbound Adapters
     APIController[REST Controller]
     CLIController[CLI Controller]
 end
 
-%% ================================
-%% 3. APPLICATION (USE CASES)
-%% ================================
-
-subgraph Application["Application / Use Cases"]
-
-    TrainUC[Train Use Case]
-    InferUC[Inference Use Case]
-    DriftUC[Drift Monitoring Use Case]
-    EvalUC[Evaluation Use Case]
+subgraph Ports["Application Ports (Interfaces)"]
+    IDataReader[[IDataReader]]
+    IGraphStorage[[IGraphStorage]]
+    ITracker[[ITracker]]
+    IReportWriter[[IReportWriter]]
 end
 
-%% ================================
-%% 4. DOMAIN (PURE CORE)
-%% ================================
+subgraph Application["Application / Use Cases"]
+    TrainUC[Train Use Case]
+    InferUC[Inference Use Case]
+    EvalUC[Evaluation Use Case]
+    RetrainUC[Retraining Use Case]
+end
 
 subgraph Domain["Domain Core (Pure Logic)"]
-
     EventNormalizer[EventLog Normalizer]
     GraphBuilder[EPOKG Graph Builder]
     TensorAdapter[Tensor Adapter]
@@ -421,10 +386,6 @@ subgraph Domain["Domain Core (Pure Logic)"]
     DriftDetector[Drift Detector]
     ReliabilityPolicy[Reliability Policy]
 end
-
-%% ===================================
-%% INFRA IMPLEMENTS ADAPTERS
-%% ===================================
 
 CamundaDB --> SQLAdapter
 XESFiles --> XESAdapter
@@ -434,33 +395,30 @@ Reports --> ReportAdapter
 REST --> APIController
 CLI --> CLIController
 
-%% ===================================
-%% ADAPTERS CALL APPLICATION
-%% ===================================
+SQLAdapter -.implements.-> IDataReader
+XESAdapter -.implements.-> IDataReader
+GraphAdapter -.implements.-> IGraphStorage
+TrackerAdapter -.implements.-> ITracker
+ReportAdapter -.implements.-> IReportWriter
 
 APIController --> InferUC
 CLIController --> TrainUC
+CLIController --> EvalUC
 
-%% ===================================
-%% APPLICATION USES ADAPTERS (OUTBOUND)
-%% ===================================
+TrainUC --> IDataReader
+TrainUC --> IGraphStorage
+TrainUC --> ITracker
 
-TrainUC --> SQLAdapter
-TrainUC --> XESAdapter
-TrainUC --> GraphAdapter
-TrainUC --> TrackerAdapter
+InferUC --> IDataReader
+InferUC --> IGraphStorage
+InferUC --> ITracker
 
-InferUC --> SQLAdapter
-InferUC --> GraphAdapter
-InferUC --> TrackerAdapter
+EvalUC --> IDataReader
+EvalUC --> ITracker
+EvalUC --> IReportWriter
 
-DriftUC --> TrackerAdapter
-EvalUC --> ReportAdapter
-EvalUC --> TrackerAdapter
-
-%% ===================================
-%% APPLICATION CALLS DOMAIN
-%% ===================================
+RetrainUC --> ITracker
+RetrainUC --> TrainUC
 
 TrainUC --> EventNormalizer
 TrainUC --> GraphBuilder
@@ -471,14 +429,11 @@ InferUC --> EventNormalizer
 InferUC --> GraphBuilder
 InferUC --> TensorAdapter
 InferUC --> AgentCritic
+InferUC --> DriftDetector
 InferUC --> ReliabilityPolicy
 
-DriftUC --> DriftDetector
 EvalUC --> AgentCritic
-
-%% ===================================
-%% DOMAIN INTERNAL FLOW
-%% ===================================
+EvalUC --> DriftDetector
 
 EventNormalizer --> GraphBuilder
 GraphBuilder --> TensorAdapter

@@ -19,6 +19,7 @@
 ### 2) Architecture / HLD
 - **[ARCHITECTURE_GUIDELINES.MD](./ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
 - **[ARCHITECTURE.MD](./ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
+- **[ARCHITECTURE_RULES.md](./ARCHITECTURE_RULES.md)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
 - **[INTERFACE_CONTRACTS.MD](./INTERFACE_CONTRACTS.MD)** — контракти портів, ABC і canonical DTO *(DOC-007)*.
 - **[DATA_FLOWS.MD](./DATA_FLOWS.MD)** — stage-by-stage Input/Output/Metadata потоки *(DOC-007)*.
 
@@ -43,6 +44,7 @@
 | `VARIABLES.MD` | DONE | Узгоджено з глосарієм/метриками. |
 | `ARCHITECTURE_GUIDELINES.MD` | DONE | Нормативи зафіксовані. |
 | `ARCHITECTURE.MD` | DONE | Цільовий профіль архітектури зафіксовано. |
+| `ARCHITECTURE_RULES.md` | IN_PROGRESS | Нормативи автоматизованого архітектурного контролю. |
 | `INTERFACE_CONTRACTS.MD` | IN_PROGRESS | Мінімальний HLD-комплект створено, потрібна деталізація. |
 | `DATA_FLOWS.MD` | IN_PROGRESS | Базові потоки й контракти описані, потрібна деталізація сценаріїв. |
 | `DATA_MODEL.MD` | TODO_REVIEW | Потребує ревізії на узгодження з новими DTO/flows. |

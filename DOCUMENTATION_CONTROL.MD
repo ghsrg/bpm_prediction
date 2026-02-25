@@ -64,9 +64,17 @@
 | DOC-004 | `ARCHITECTURE_GUIDELINES.MD` | Оновити набір стандартів/правил/принципів побудови системи | Розд. 3.1–3.3 | DONE | Немає неузгоджених або неоднозначних правил; canonical principles 1–6 зафіксовано явно | DOC-003 |
 | DOC-005 | `ARCHITECTURE.MD` | Синхронізувати архітектурний опис із guidelines | Розд. 3.1–3.3 | DONE | Додано узгоджені компоненти, Mermaid-схеми, Camunda/XES adapters, data converter, REST API блок і reporting-блок для розд. 4 | DOC-004 |
 | DOC-006 | `README.MD` | Синхронізувати огляд проєкту з актуальною документацією | Вступ + Розд. 3 | DONE | Додано статус `etalon/` як reference baseline, зафіксовано операційні правила Sprint A | DOC-005 |
-| DOC-007 | Contracts/ABC/Flows | Створити специфікації інтерфейсів і потоків даних | Розд. 3.2–3.3 | TODO | Є первинний завершений комплект | DOC-006 |
+| DOC-007 | Contracts/ABC/Flows | Створити специфікації інтерфейсів і потоків даних | Розд. 3.2–3.3 | IN_PROGRESS | Створено мінімальний HLD-комплект: INTERFACE_CONTRACTS, DATA_FLOWS, ADAPTER_XES, LLD, EVF | DOC-006 |
 
 ---
+
+
+### 4.1 Артефакти DOC-007 (поточний мінімальний комплект)
+- `INTERFACE_CONTRACTS.MD` — контракти портів, ABC, DTO.
+- `DATA_FLOWS.MD` — формалізація Input/Output/Metadata між stage.
+- `ADAPTER_XES.MD` — мінімальна специфікація XES adapter.
+- `LLD.MD` — стартовий каркас low-level design.
+- `EVF.MD` — стартовий каркас experimentation/validation.
 
 ## 5) Definition of Done для хвилі оновлення поточних файлів
 Хвиля вважається завершеною, якщо:

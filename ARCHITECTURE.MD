@@ -21,38 +21,48 @@
 ---
 
 ## 3) Архітектурний стиль (узгоджено)
-1. **Pipeline (Pipes & Filters)** — основний каркас виконання.
-2. **Hexagonal (Ports & Adapters)** — ізоляція ядра від БД/тулінгу.
-3. **Clean Architecture** — залежності спрямовані до доменного ядра.
+1. **Clean Architecture (Layered)** — базова модель розділення відповідальностей.
+2. **Hexagonal (Ports & Adapters)** — механізм інверсії залежностей для зовнішніх інтеграцій.
+3. **Pipeline (Pipes & Filters)** — основний каркас виконання use-case сценаріїв.
 4. **Strategy Pattern** — для drift/conditioning/loss у місцях варіативності.
 
 ---
 
-## 4) High-Level Architecture (шари)
+## 4) High-Level Architecture (Clean Architecture view)
 
-### 4.1 Core (Domain, math-only)
+### 4.1 Domain Layer (Entities + Science Core)
 Містить:
+- доменні сутності (`EventLog`, `ProcessGraph`, `TensorGraph`, `Prediction`, `DriftSignal`);
 - GNN-моделі прогнозування;
 - Actor–Critic/Constraint-Critic логіку;
-- OOD-логіку і структурний regularization;
+- OOD/drift-логіку і структурний regularization;
 - функції втрат (`loss_task`, `loss_reg`) і контроль `beta_relax`.
 
-Core оперує лише тензорами/доменними DTO і **не має прямих залежностей** від Neo4j, MSSQL, MLflow.
+Domain оперує лише тензорами/доменними DTO і **не має прямих залежностей** від Neo4j, MSSQL, MLflow, REST/CLI.
 
-### 4.2 Application (Orchestration)
-- Сценарії `prepare/build_graph/train/evaluate/infer`;
-- запуск pipeline-stage;
+### 4.2 Application Layer (Use Cases)
+- Use cases: `Train Pipeline`, `Inference`, `Drift Monitoring`, `Evaluation`;
+- оркестрація сценаріїв `prepare/build_graph/train/evaluate/infer`;
 - виклик портів доступу до інфраструктури;
 - контроль режимів `semaphore_mode` (`green`/`yellow`/`red`).
 
-### 4.3 Adapters (Infrastructure)
-- **Camunda7 MSSQL adapter**: спеціалізований адаптер під структуру Camunda 7 (історія, версії process definition, змінні).
-- **XES adapter**: імпорт відкритих логів XES для тестування/бенчмарків (з підтримкою version-tagging при завантаженні в EPOKG).
-- **Data Converter adapter**: нормалізує різні джерела (Camunda/XES/інші) у єдиний внутрішній контракт `EventLogBatch` перед Graph Builder.
-- **Neo4j adapter**: робота з EPOKG/POKG.
-- **Tracker adapter**: MLflow/інший трекер.
-- **Storage adapter**: моделі, конфіги, кеші, артефакти.
-- **REST API adapter (PoC)**: endpoint для запиту по поточному екземпляру виконання з подальшим запуском ingestion+inference через відповідний data adapter.
+### 4.3 Interface Adapters Layer
+- **Camunda SQL Adapter**: читання Camunda7 MSSQL.
+- **XES Reader Adapter**: імпорт XES логів.
+- **Business Data Adapter**: читання зовнішніх бізнес-даних (за наявності).
+- **Neo4j Gateway**: доступ до EPOKG/POKG.
+- **MLflow Adapter**: трекінг метрик/артефактів.
+- **Report Writer Adapter**: генерація звітів.
+- **REST/CLI Controllers**: вхідні контролери для use cases.
+
+### 4.4 Frameworks & Drivers (Infrastructure)
+- MSSQL Camunda 7 DB;
+- XES Files Storage;
+- External Business Data System;
+- Neo4j Storage;
+- MLflow Tracker;
+- Research Reports Storage;
+- REST API/CLI runtime.
 
 ---
 
@@ -201,7 +211,155 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 
 ---
 
-## 16) Component Architecture (Hexagonal View)
+## 16) Clean Architecture (Layered View)
+
+```mermaid
+flowchart TB
+
+%% ================================
+%% OUTER LAYER — Frameworks & Drivers
+%% ================================
+
+subgraph Frameworks_and_Drivers["Frameworks & Drivers (Infrastructure)"]
+    CamundaDB[(MSSQL Camunda 7 DB)]
+    XES[(XES Files Storage)]
+    BusinessSys[(External Business Data System)]
+    Neo4j[(Neo4j EPOKG Storage)]
+    MLflow[(MLflow Tracker)]
+    Reports[(Research Reports Storage)]
+    REST[(REST API)]
+    CLI[(CLI Runner)]
+end
+
+%% ================================
+%% INTERFACE ADAPTERS
+%% ================================
+
+subgraph Interface_Adapters["Interface Adapters"]
+    SQLReader[Camunda SQL Adapter]
+    XESReader[XES Reader Adapter]
+    BusinessAdapter[Business Data Adapter]
+
+    GraphGateway[Neo4j Gateway]
+    TrackerAdapter[MLflow Adapter]
+    ReportAdapter[Report Writer Adapter]
+
+    APIController[REST Controller]
+    CLIController[CLI Controller]
+end
+
+%% ================================
+%% APPLICATION LAYER (USE CASES)
+%% ================================
+
+subgraph Application_Layer["Application / Use Cases"]
+    TrainUC[Train Pipeline Use Case]
+    InferUC[Inference Use Case]
+    DriftUC[Drift Monitoring Use Case]
+    EvalUC[Evaluation Use Case]
+end
+
+%% ================================
+%% DOMAIN (ENTITIES + SCIENCE CORE)
+%% ================================
+
+subgraph Domain_Layer["Domain Core (Pure Logic / Math)"]
+
+    %% Core domain models
+    EventLog[EventLog Entity]
+    EnrichedCase[Case Enrichment Model]
+    ProcessGraph[Process Graph Model]
+    TensorGraph[TensorGraph Representation]
+    Prediction[Prediction Entity]
+    DriftSignal[Drift Signal Model]
+
+    %% Scientific components
+    EPOKGBuilder[EPOKG Graph Builder]
+    FeatureEncoder[Feature Encoding Pipeline]
+    AgentCritic[Agent–Critic GNN Module]
+    DriftDetector[Drift Detection Module]
+    ReliabilityPolicy[Reliability & Semaphore Policy]
+end
+
+%% ================================
+%% INFRASTRUCTURE IMPLEMENTS PORTS
+%% ================================
+
+CamundaDB --> SQLReader
+XES --> XESReader
+BusinessSys --> BusinessAdapter
+Neo4j --> GraphGateway
+MLflow --> TrackerAdapter
+Reports --> ReportAdapter
+REST --> APIController
+CLI --> CLIController
+
+%% ================================
+%% ADAPTERS USED BY APPLICATION
+%% ================================
+
+SQLReader --> TrainUC
+XESReader --> TrainUC
+BusinessAdapter --> TrainUC
+
+SQLReader --> InferUC
+BusinessAdapter --> InferUC
+
+GraphGateway --> TrainUC
+GraphGateway --> InferUC
+
+TrackerAdapter --> TrainUC
+TrackerAdapter --> DriftUC
+TrackerAdapter --> EvalUC
+
+ReportAdapter --> EvalUC
+
+APIController --> InferUC
+CLIController --> TrainUC
+
+%% ================================
+%% APPLICATION CALLS DOMAIN
+%% ================================
+
+TrainUC --> EventLog
+TrainUC --> EnrichedCase
+TrainUC --> EPOKGBuilder
+TrainUC --> FeatureEncoder
+TrainUC --> TensorGraph
+TrainUC --> AgentCritic
+
+InferUC --> EventLog
+InferUC --> EnrichedCase
+InferUC --> EPOKGBuilder
+InferUC --> FeatureEncoder
+InferUC --> TensorGraph
+InferUC --> AgentCritic
+InferUC --> ReliabilityPolicy
+
+DriftUC --> DriftDetector
+DriftUC --> DriftSignal
+
+EvalUC --> Prediction
+
+%% ================================
+%% DOMAIN INTERNAL FLOW
+%% ================================
+
+EventLog --> EnrichedCase
+EnrichedCase --> EPOKGBuilder
+EPOKGBuilder --> ProcessGraph
+ProcessGraph --> FeatureEncoder
+FeatureEncoder --> TensorGraph
+TensorGraph --> AgentCritic
+AgentCritic --> Prediction
+Prediction --> ReliabilityPolicy
+Prediction --> DriftDetector
+DriftDetector --> DriftSignal
+```
+
+---
+
+## 17) Component Architecture (Hexagonal View)
 
 ```mermaid
 flowchart TD
@@ -264,7 +422,7 @@ flowchart TD
 
 ---
 
-## 17) Data Flow & Transformation Schema
+## 18) Data Flow & Transformation Schema
 
 ```mermaid
 sequenceDiagram
@@ -291,7 +449,7 @@ sequenceDiagram
 
 ---
 
-## 18) Reliability Semaphore State Machine
+## 19) Reliability Semaphore State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -316,7 +474,7 @@ stateDiagram-v2
 
 ---
 
-## 19) Physical Directory Structure
+## 20) Physical Directory Structure
 Обов'язкова структура репозиторію для дотримання Clean Architecture:
 
 ```text
@@ -348,16 +506,16 @@ bpm_prediction/
 
 ---
 
-## 20) Research Reporting & Section 4 Outputs
+## 21) Research Reporting & Section 4 Outputs
 Для підтримки розділу 4 дисертації в pipeline обов'язковий окремий `Evaluation & Reporting` крок.
 
-### 20.1 Обов'язкові артефакти
+### 21.1 Обов'язкові артефакти
 1. Таблиці метрик по режимах (Baseline vs Augmented).
 2. Графіки динаміки дрейфу (`wasserstein_drift`, `data_drift_score`, `concept_drift_score`).
 3. Графіки стабільності семафора (`semaphore_mode` у часі).
 4. Порівняльні графіки якості (Accuracy/F1/OOS) для різних `process_version (κ)`.
 
-### 20.2 Вимоги до трасованості звітів
+### 21.2 Вимоги до трасованості звітів
 Кожен згенерований звіт має містити metadata:
 - `experiment_id`
 - `dataset_id`
@@ -366,7 +524,7 @@ bpm_prediction/
 - `model_version`
 - `git_commit`
 
-### 20.3 Розміщення звітів
+### 21.3 Розміщення звітів
 - Локально: `reports/`.
 - У трекері: artifacts в MLflow (або сумісному tracker).
 

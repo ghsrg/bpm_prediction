@@ -1,307 +1,372 @@
-# System Architecture Document (SAD)
+# ARCHITECTURE.MD
 
-**Project:** BPM Prediction Platform (`bpm_prediction`)  
-**Status:** Draft v1.0  
-**Authors:** Serhii Korotenko  
+## 1) Призначення
+Цей документ описує цільову архітектуру `bpm_prediction` і синхронізований з:
+- `ARCHITECTURE_GUIDELINES.MD` (головний набір правил);
+- `GLOSSARY.MD` (канон термінів);
+- `VARIABLES.MD` (канон позначень і змінних).
 
-Цей документ надає всебічний архітектурний огляд платформи прогнозування бізнес-процесів. Він призначений для розробників, архітекторів та дослідників.
-
-- [System Architecture Document (SAD)](#system-architecture-document-sad)
-  - [1. Business Context (Бізнес-контекст)](#1-business-context-бізнес-контекст)
-    - [1.1. Основні бізнес-функції](#11-основні-бізнес-функції)
-    - [1.2. Зацікавлені сторони (Stakeholders)](#12-зацікавлені-сторони-stakeholders)
-  - [2. System Context (Контекстна діаграма)](#2-system-context-контекстна-діаграма)
-  - [3. Вимоги (Requirements)](#3-вимоги-requirements)
-    - [3.1. Функціональні вимоги](#31-функціональні-вимоги)
-    - [3.2. Нефункціональні вимоги (NFR)](#32-нефункціональні-вимоги-nfr)
-  - [4. Архітектурне бачення](#4-архітектурне-бачення)
-    - [4.1. Стиль та Принципи](#41-стиль-та-принципи)
-    - [4.2. Technology Stack](#42-technology-stack)
-  - [5. Логічна архітектура](#5-логічна-архітектура)
-    - [Діаграма взаємодії (Inference Flow)](#діаграма-взаємодії-inference-flow)
-      - [Component: Feature Engineering Layer](#component-feature-engineering-layer)
-      - [Component: Fusion Engine](#component-fusion-engine)
-      - [Component: Model Registry (Inference)](#component-model-registry-inference)
-  - [6. Фізична архітектура та Інфраструктура](#6-фізична-архітектура-та-інфраструктура)
-    - [6.1. Середовище розгортання (Deployment Topology)](#61-середовище-розгортання-deployment-topology)
-  - [7. Дані](#7-дані)
-    - [7.1. Сховище (Neo4j)](#71-сховище-neo4j)
-    - [7.2. Вхідні дані](#72-вхідні-дані)
-  - [8. Інтеграція (Phasing)](#8-інтеграція-phasing)
-    - [Етап 1: PoC (Manual / CLI)](#етап-1-poc-manual--cli)
-    - [Етап 2: Strategic (REST API)](#етап-2-strategic-rest-api)
-  - [9. Observability (Спостережуваність)](#9-observability-спостережуваність)
-  - [10. Roadmap](#10-roadmap)
-
+Документ фіксує реалізаційний профіль системи, а не лише загальні принципи.
 
 ---
 
-## 1. Business Context (Бізнес-контекст)
+## 2) Mode selected
+**Обраний режим для поточної хвилі реалізації:** `ENTERPRISE_POC`.
 
-### 1.1. Основні бізнес-функції
-Система виступає інтелектуальним ядром для BPMS і вирішує завдання:
-1.  **Predictive Monitoring:** Прогнозування наступної активності (Next Activity) та часу завершення (Time Prediction) для запущених процесів.
-2.  **Anomaly Detection:** Виявлення відхилень від нормативного шляху (POKG) у реальному часі.
-3.  **Knowledge Consolidation:** Об'єднання розрізнених версій процесів у єдиний граф знань (EPOKG).
-4.  **Scientific Benchmarking:** Забезпечення відтворюваних експериментів для порівняння Logs-only vs BPMN-aware підходів.
-
-### 1.2. Зацікавлені сторони (Stakeholders)
-* **Бізнес-користувачі:** Отримують ранні попередження про затримки або порушення процесу.
-* **Data Scientists:** Використовують платформу як лабораторний стенд для перевірки гіпотез (GAPs).
-* **IT/DevOps:** Забезпечують інтеграцію з Camunda та розгортання в корпоративному контурі.
+Причина вибору:
+1. Потрібен працюючий PoC в існуючому enterprise-контурі.
+2. Потрібно зберегти наукову відтворюваність і трасованість для розділу 4 дисертації.
+3. Не будуємо нову інфраструктуру з нуля, але ізолюємо математичне ядро.
 
 ---
 
-## 2. System Context (Контекстна діаграма)
+## 3) Архітектурний стиль (узгоджено)
+1. **Pipeline (Pipes & Filters)** — основний каркас виконання.
+2. **Hexagonal (Ports & Adapters)** — ізоляція ядра від БД/тулінгу.
+3. **Clean Architecture** — залежності спрямовані до доменного ядра.
+4. **Strategy Pattern** — для drift/conditioning/loss у місцях варіативності.
 
-Діаграма відображає місце системи в ландшафті підприємства та її зв'язки.
+---
+
+## 4) High-Level Architecture (шари)
+
+### 4.1 Core (Domain, math-only)
+Містить:
+- GNN-моделі прогнозування;
+- Actor–Critic/Constraint-Critic логіку;
+- OOD-логіку і структурний regularization;
+- функції втрат (`loss_task`, `loss_reg`) і контроль `beta_relax`.
+
+Core оперує лише тензорами/доменними DTO і **не має прямих залежностей** від Neo4j, MSSQL, MLflow.
+
+### 4.2 Application (Orchestration)
+- Сценарії `prepare/build_graph/train/evaluate/infer`;
+- запуск pipeline-stage;
+- виклик портів доступу до інфраструктури;
+- контроль режимів `semaphore_mode` (`green`/`yellow`/`red`).
+
+### 4.3 Adapters (Infrastructure)
+- **Camunda7 MSSQL adapter**: спеціалізований адаптер під структуру Camunda 7 (історія, версії process definition, змінні).
+- **XES adapter**: імпорт відкритих логів XES для тестування/бенчмарків (з підтримкою version-tagging при завантаженні в EPOKG).
+- **Data Converter adapter**: нормалізує різні джерела (Camunda/XES/інші) у єдиний внутрішній контракт `EventLogBatch` перед Graph Builder.
+- **Neo4j adapter**: робота з EPOKG/POKG.
+- **Tracker adapter**: MLflow/інший трекер.
+- **Storage adapter**: моделі, конфіги, кеші, артефакти.
+- **REST API adapter (PoC)**: endpoint для запиту по поточному екземпляру виконання з подальшим запуском ingestion+inference через відповідний data adapter.
+
+---
+
+## 5) Pipeline stages (обов'язковий каркас)
+1. **Ingestion** — читання логу процесу/батча.
+2. **Graph Builder (EPOKG context)** — побудова IG і зв'язок з EPOKG.
+3. **Tensor Adapter** — перехід до `torch_geometric.data.Data`.
+4. **Core ML** — inference/train крок.
+5. **Evaluation** — метрики якості/OOS.
+6. **Drift Monitor** — обчислення drift-індикаторів.
+7. **Inference** — фінальний прогноз + режим семафора.
+
+---
+
+## 6) Data Flow (runtime)
+1. Запит надходить через CLI або REST API з `process_instance_id` і source-type.
+2. Source-aware adapter (`camunda7_mssql_adapter` / `xes_adapter` / інший) читає сирі події.
+3. `Data Converter` нормалізує вхід у єдиний контракт `EventLogBatch`.
+4. `event_stream` + process context формують `process_graph`.
+5. З EPOKG додається нормативний контекст і будується Fusion Graph.
+6. Tensor Adapter формує `node_features`, `adj_matrix`/`edge_index`.
+7. Core обчислює логіти/прогноз + uncertainty/drift сигнали.
+8. `AllowMask` відсікає недопустимі переходи (OOS masking).
+9. Reliability Semaphore обчислює `reliability_score` і встановлює `semaphore_mode`.
+10. Prediction/metadata логуються в tracker і повертаються у викликаючий контур (CLI/API).
+
+---
+
+## 7) Reliability Semaphore (узгодження порогів)
+
+### 7.1 Вхідні сигнали
+- `wasserstein_drift` (`\mathcal{W}_1`) — структурний дрейф;
+- `data_drift_score` (`D_data`);
+- `concept_drift_score` (`D_concept`);
+- додаткові сигнали невизначеності моделі.
+
+### 7.2 Ієрархія порогів
+1. `ood_threshold` (`\tau_{ood}`) — локальний поріг структурного OOD (по `\mathcal{W}_1`).
+2. `warning_threshold` (`\tau_{warn}`) — агрегований жовтий режим.
+3. `critical_threshold` (`\tau_{crit}`) — агрегований червоний режим.
+
+Інваріант: `\tau_{warn} < \tau_{crit}`.
+
+### 7.3 Поведінка за режимами
+- **green:** стандартний inference.
+- **yellow:** обмежений inference + сигнал на адаптацію.
+- **red:** Human-in-the-Loop / призупинка авто-рішення.
+
+---
+
+## 8) Adaptation strategy
+1. **Zero-Shot Structural Adaptation** — для мінорного дрейфу (оновлення графового контексту без перенавчання).
+2. **Few-Shot Adaptation (Controlled Fine-Tuning)** — для глибокого OOD:
+   - накопичення буфера до `min_buffer_size` (`n_min`);
+   - контрольоване донавчання;
+   - валідація перед поверненням у автоматичний inference.
+
+---
+
+## 9) Knowledge Infusion Operator
+`knowledge_infusion_operator` (`\Gamma`) реалізується як `nn.Module` (або `nn.Sequential`), а не як статичний вектор.
+
+Базова форма:
+```python
+fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_vec)
+```
+
+де:
+- `local_state_vec` (`h_\sigma`) — локальний стан кейсу;
+- `global_context_vec` (`c_\sigma`) — глобальний контекст із EPOKG.
+
+---
+
+## 10) Data contracts (мінімально обов'язкові)
+Між кожними stage визначаються:
+1. Input schema.
+2. Output schema.
+3. Metadata schema.
+
+Не допускається implicit format.
+
+---
+
+## 11) Versioning model
+Кожний артефакт має містити:
+- `dataset_id`
+- `schema_version`
+- `process_version` (`kappa`/`version_id`)
+- `model_version`
+- `git_commit`
+- `experiment_id`
+
+Додатково для експериментів:
+- копії конфігів (`model.yaml`, `features.yaml`, `training.yaml`);
+- `preprocessor_state` для відтворюваності inference.
+
+---
+
+## 12) Observability
+Мінімальний набір логування на `inference/evaluate`:
+- `data_drift_score`
+- `concept_drift_score`
+- `wasserstein_drift`
+- `reliability_score`
+- `semaphore_mode`
+- Accuracy/F1/OOS (де застосовно)
+
+Логування виконується на кожному batch (або іншому атомарному кроці).
+
+---
+
+## 13) Enterprise integration strategy (PoC)
+Рекомендований контур запуску:
+- CLI: `--mode prepare/build_graph/train/evaluate/infer`
+- REST API (PoC): `POST /api/v1/infer-by-instance` з `process_instance_id` та `source_type`.
+
+Правило маршрутизації даних:
+1. API/CLI викликає orchestration service.
+2. Orchestration service обирає потрібний data adapter (`camunda7_mssql_adapter` або `xes_adapter`).
+3. Дані проходять через `Data Converter` до єдиного контракту.
+4. Далі запускається стандартний pipeline до inference.
+
+Інтеграція в існуючу екосистему:
+- MSSQL Camunda 7 (обов'язково для PoC);
+- XES-файли в директорії даних для відкритих датасетів;
+- Neo4j (за наявності);
+- існуючий трекер/registry (якщо є).
+
+Не допускається:
+- прямий зв'язок raw-джерела з EPOKG без конвертора контракту;
+- мікросервісний оверінжиніринг;
+- побудова повного MLOps-stack у PoC-фазі.
+
+---
+
+## 14) Risks & trade-offs
+1. **Trade-off:** чиста ізоляція Core може уповільнювати першу ітерацію, але знижує технічний борг.
+2. **Risk:** неявні схеми між stage спричинять нестабільні inference-помилки.
+3. **Risk:** відсутність трекінгу `kappa` руйнує валідність експериментів дрейфу.
+4. **Risk:** змішування adapter-логіки всередині Core ламає переносимість і тестованість.
+
+---
+
+## 15) Next architectural step
+Наступний крок: деталізувати `Contracts & Abstract Base Classes` для портів/адаптерів і формалізувати схеми потоків даних для кожного pipeline-stage.
+
+---
+
+## 16) Component Architecture (Hexagonal View)
 
 ```mermaid
-C4Context
-    title System Context Diagram
+flowchart TD
+    subgraph Infrastructure [Adapters / Infrastructure Layer]
+        CamundaDB[(MSSQL Camunda 7 DB)]
+        XESFiles[(XES Datasets Storage)]
+        Neo4j[(Neo4j EPOKG)]
+        MLflow[MLflow Tracker]
+        Reports[(Research Reports Storage)]
+        RestAPI[REST API Adapter]
+    end
 
-    Person(researcher, "Researcher / DS", "Runs experiments via PyCharm/CLI, analyzes MLFlow")
-    Person(biz_user, "Business User", "Consumes predictions via BPMS UI")
+    subgraph Application [Application / Orchestration Layer]
+        CLI[CLI / Pipeline Runner]
+        APIOrch[API/CLI Orchestrator]
+        Eval[Evaluation & Reporting Stage]
+    end
 
-    System(bpm_core, "BPM Prediction Core", "Main Logic: Fusion Graph Engine + GNN Models")
+    subgraph Ports [Ports / Interfaces]
+        IDataReader[[IDataReader]]
+        IXESReader[[IXESReader]]
+        IDataConverter[[IDataConverter]]
+        IGraphStorage[[IGraphStorage]]
+        ITracker[[ITracker]]
+        IReportWriter[[IReportWriter]]
+    end
 
-    System_Ext(camunda, "Camunda BPMS", "Source of Runtime Events (SQL) & BPMN Models")
-    System_Ext(neo4j, "Neo4j Graph DB", "Stores EPOKG (Process Knowledge & Context)")
-    System_Ext(mlflow, "MLFlow (Local)", "Experiment Tracking (Metrics, Params, Artifacts)")
-    System_Ext(files, "File Storage", "XES Logs, Cache (.pt), Configs")
+    subgraph Core [Domain Core / Math]
+        direction TB
+        Builder[EPOKG Graph Builder]
+        Converter[EventLog Converter]
+        TensorConv[Tensor Adapter]
+        GNN[Agent-Critic Module]
+        Semaphore[Reliability Semaphore]
+    end
 
-    Rel(researcher, bpm_core, "Configures & Runs Pipelines")
-    Rel(bpm_core, camunda, "Reads Runtime Data (MSSQL/API)")
-    Rel(bpm_core, neo4j, "Queries Context & Updates Stats")
-    Rel(bpm_core, mlflow, "Logs Metrics & Models")
-    Rel(bpm_core, files, "Reads/Writes Data")
-    Rel(camunda, bpm_core, "Sends Prediction Request (Future REST)")
-    Rel(bpm_core, biz_user, "Returns Prediction")
-````
+    CamundaDB -.implements.-> IDataReader
+    XESFiles -.implements.-> IXESReader
+    Neo4j -.implements.-> IGraphStorage
+    MLflow -.implements.-> ITracker
+    Reports -.implements.-> IReportWriter
+    RestAPI --> APIOrch
 
------
+    CLI --> APIOrch
+    APIOrch --> Builder
+    APIOrch --> GNN
+    APIOrch --> Eval
 
-## 3\. Вимоги (Requirements)
+    Builder --> IDataReader
+    Builder --> IXESReader
+    Builder --> IDataConverter
+    Builder --> IGraphStorage
+    IDataConverter --> Converter
+    GNN --> TensorConv
+    GNN --> Semaphore
+    Semaphore --> ITracker
+    Eval --> ITracker
+    Eval --> IReportWriter
+```
 
-### 3.1. Функціональні вимоги
+---
 
-1.  **Data Ingestion:**
-      * Імпорт BPMN моделей (XML) -\> Neo4j.
-      * Імпорт логів (XES для науки, MSSQL для PoC).
-2.  **Knowledge Graph (POKG):** Підтримка версійності процесів та зв'язків з ресурсами.
-3.  **Fusion Engine:** Динамічне збагачення вектора стану процесу (IG) даними з графа знань.
-4.  **Prediction:**
-      * *Mode 1 (PoC):* Користувач вказує `process_instance_id`, система будує прогноз.
-      * *Mode 2 (Target):* REST API приймає запит з ID.
-5.  **Observability:** Трекінг всіх запусків та метрик у MLFlow.
-
-### 3.2. Нефункціональні вимоги (NFR)
-
-  * **Environment Constraints:** Робота в ізольованій корпоративній мережі (Windows VM) з обмеженим доступом до інтернету (Proxy).
-  * **Reproducibility:** Повна повторюваність експериментів (Fixed Seeds, Config-Driven).
-  * **Modularity:** Чітке розділення логіки побудови графів та ML-моделей.
-
------
-
-## 4\. Архітектурне бачення
-
-### 4.1. Стиль та Принципи
-
-  * **Modular Monolith (Layered):** Обрано для спрощення розробки та дебагу в умовах локального розгортання.
-  * **Config-Driven Development:** Вся конфігурація (фічі, гіперпараметри, шляхи) винесена у YAML файли. Хардкод заборонено.
-  * **Separation of Concerns:** Моделі (Neural Networks) нічого не знають про джерела даних (SQL/XES). Вони працюють виключно з тензорами.
-
-### 4.2. Реалізація управлінського циклу (Closed-loop)
-
-Згідно з методологією, архітектура реалізує замкнений контур управління:
-* **Sensor (Сенсор):** Адаптер Camunda/XES, що генерує `Instance Graph`.
-* **Processor (Агент):** GNN-модель, що формує локальний прогноз.
-* **Governor (Критик/Семафор):** * Модуль **Epistemic Caution** (оцінює $\mathcal{W}_1$ відстань).
-    * Модуль **Structural Validator** (перевіряє прогноз на відповідність топології POKG).
-* **Actuator (Механізм адаптації):** Система донавчання (Continual Learning), що оновлює параметри $\theta$ при детекції дрейфу.
-
-### 4.3. Technology Stack
-
-  * **Python: 3.10
-  * **ML: PyTorch 2.x, PyTorch Geometric
-  * **Data: Pandas, Polars (для швидкої обробки логів)
-  * **Storage: Neo4j 5.x + GDS Library
-  * **Connectors: neo4j (driver), pyodbc (MSSQL)
-  * **інструмент для трекінгу експериментів MLflow
-
------
-
-## 5\. Логічна архітектура
-
-Система складається з 5 шарів (Layers):
-
-1.  **Adapters Layer:** "Перехідники" до зовнішнього світу (MSSQL Connector, Neo4j Driver, XES Reader).
-2.  **Graph Engine Layer:** Ядро системи.
-      * `IG Builder`: Будує граф виконання.
-      * `Fusion Builder`: Реалізує логіку злиття (Merge).
-      * `POKG Manager`: Керує оновленням знань у Neo4j.
-3. **Semantic Alignment Layer** (Abstract) Для забезпечення розширюваності системи (XES, SAP, Oracle) вводиться шар семантичного вирівнювання:
-   * **Internal Canonical ID:** Всі вузли всередині системи оперують уніфікованими хешами активностей.
-   * **Mapping Strategy:** Адаптери (CamundaSQL, XES) відповідають за мапінг специфічних імен (наприклад, `UserTask_1` в Camunda) до канонічних назв у `POKG`.
-   * **Scope:** Повна автоматизація мапінгу для зовнішніх систем (Fuzzy Matching) винесена за рамки даного проєкту, проте архітектура підтримує ін'єкцію `mapping_table.json`.
-4.  **Feature Layer:** Stateless-трансформери даних у тензори (згідно з `features.yaml`).
-5 **Model Layer:** GNN архітектури (на базі PyTorch Geometric).
-6 **Orchestration Layer:**
-      * `Pipelines`: Сценарії навчання/тестування.
-      * `Inference Service`: Обробка одиничних запитів.
-
-
-### Діаграма взаємодії (Inference Flow)
-
-*Показано цільовий потік обробки запиту на прогноз.*
+## 17) Data Flow & Transformation Schema
 
 ```mermaid
 sequenceDiagram
-    participant Client as Client (BPMS/CLI)
-    participant Ctrl as Inference Controller
-    participant Orch as Orchestrator
-    participant Fusion as Fusion Engine
-    participant Neo4j as Neo4j DB
-    participant Reg as Model Registry
-    participant Feat as Feat. Preprocessor
+    participant API as REST/CLI Trigger
+    participant Src as Camunda Adapter or XES Adapter
+    participant Conv as Data Converter
+    participant Graph as Neo4j (EPOKG)
+    participant PyG as PyTorch Geometric
+    participant Model as GNN (Core)
+    participant Eval as Evaluation/Reporting
 
-    Note over Client, Reg: 1. Initialization (Lazy)
-    Client->>Ctrl: POST /predict (Trace + ProcessID)
-    Ctrl->>Orch: Handle Request
-    
-    Orch->>Reg: GetModel(ProcessID)
-    alt Model not loaded
-        Reg->>Reg: Load Checkpoint (.pt)
-        Reg->>Reg: Load Preprocessor State (.json)
-    end
-    Reg-->>Orch: Model Instance + Preprocessor
-    
-    Note over Orch, Neo4j: 2. Data Gathering & Fusion
-    par Prepare Inputs
-        Orch->>Fusion: Build IG(Runtime Trace)
-        Fusion->>Neo4j: Fetch Context & ValidTransitions
-        Neo4j-->>Fusion: Subgraph + Mask
-    end
-    
-    Fusion->>Fusion: Merge (IG + POKG)
-    Fusion-->>Orch: Raw Fusion Graph (NetworkX) + AllowMask
-    
-    Note over Orch, Feat: 3. Feature Engineering
-    Orch->>Feat: Transform(RawGraph, State)
-    Feat-->>Orch: Tensors (X, Edge_Index)
-    
-    Note over Orch, Reg: 4. Prediction & Logic
-    Orch->>Reg: Forward(Tensors)
-    Reg-->>Orch: Raw Logits / Time
-    
-    Orch->>Orch: Apply AllowMask (Filter OOS)
-    Orch->>Orch: Softmax -> Final Prediction
-    
-    Orch-->>Ctrl: Result JSON
-    Ctrl-->>Client: Response
+    API->>Src: 1. process_instance_id + source_type
+    Src->>Conv: 2. Raw events in source format
+    Conv->>Graph: 3. Normalized EventLogBatch
+    Note over Graph: 4. Build Instance Graph (IG)<br/>5. Merge with EPOKG -> Fusion Graph
+    Graph->>PyG: 6. Extract Subgraph (Nodes, Edges, Attributes)
+    Note over PyG: 7. Transform to Data(x, edge_index, y)
+    PyG->>Model: 8. Tensor Batch
+    Model-->>Model: 9. Forward Pass (Knowledge Infusion Γ)
+    Model->>PyG: 10. Logits / Embeddings
+    PyG->>Eval: 11. Metrics Inputs (pred/target/drift)
+    Eval->>Eval: 12. Build charts/tables for dissertation section 4
 ```
 
-#### Component: Feature Engineering Layer
+---
 
-  * **Відповідальність:** Перетворення атрибутів графа у тензори.
-  * **Принцип роботи:** Stateless-трансформація, яка використовує стан (`min/max`, `vocab`), зафіксований під час навчання.
-  * **Artifacts:** `preprocessor_state.json` — зберігається разом з версією моделі. Це гарантує, що інференс математично ідентичний навчанню.
+## 18) Reliability Semaphore State Machine
 
-#### Component: Fusion Engine
+```mermaid
+stateDiagram-v2
+    [*] --> Green_Mode: Start Inference
 
-  * **Відповідальність:** Побудова графа для моделі та валідація переходів.
-  * **OOS Handling:** Разом із графом повертає `AllowMask` — маску допустимих переходів згідно з поточною версією процесу в POKG. Це дозволяє фільтрувати галюцинації моделі.
+    Green_Mode --> Yellow_Mode: W_1 > tau_warn
+    Yellow_Mode --> Green_Mode: Drift Stabilized
 
-#### Component: Model Registry (Inference)
+    Yellow_Mode --> Red_Mode: W_1 > tau_crit (Major Drift)
+    Green_Mode --> Red_Mode: W_1 > tau_crit
 
-  * **Стратегія:** Lazy Loading (LRU Cache).
-  * **Поведінка:** Моделі завантажуються в RAM лише при першому зверненні до конкретного `process_id`. Це дозволяє підтримувати десятки процесів на обмеженому обладнанні (Dev VM).
-
------
-
-## 6\. Фізична архітектура та Інфраструктура
-
-### 6.1. Середовище розгортання (Deployment Topology)
-
-**Поточний стан (Dev / PoC):**
-
-  * **Infrastructure:** Windows VM.
-  * **Execution:**
-      * Python-код запускається через Local Interpreter / venv.
-      * **Neo4j:** Desktop/Server версія, встановлена локально (localhost:7687).
-      * **MLFlow:** Локальний запуск (`mlflow ui`), збереження артефактів у локальну папку `./mlruns`.
-  * **Integration:** Прямий доступ до MSSQL через sql.
-
-**Цільовий стан (Production / Scaling):**
-
-  * **Containerization:** Docker Compose.
-      * Service `app`: Python API (FastAPI).
-      * Service `db`: Neo4j Container.
-      * Service `tracking`: MLFlow Server + Postgres (meta).
-
------
-
-## 7\. Дані
-
-### 7.1. Сховище (Neo4j)
-
-POKG моделюється як Labeled Property Graph.
-
-  * **Nodes:** `Task`, `Gateway`, `StartEvent`, `EndEvent`, `Role`, `Lane`.
-  * **Edges:** `FLOWS_TO` (Control Flow), `CANDIDATE_GROUP` (Org link).
-  * **Properties:** `activity_id`, `version_tag`, `avg_duration`, `execution_count`.
-
-### 7.2. Вхідні дані
-
-  * **Науковий режим:** XES файли.
-  * **PoC режим:** Таблиці Camunda (`ACT_HI_ACTINST`, `ACT_RE_PROCDEF`).
-
------
-
-## 8\. Інтеграція (Phasing)
-
-### Етап 1: PoC (Manual / CLI)
-
-  * **Вхід:** Оператор вказує ID активного процесу в конфігурації або через CLI аргумент.
-  * **Процес:** Система підключається до MSSQL, витягує історію цього процесу, будує граф і видає прогноз у консоль/лог.
-
-### Етап 2: Strategic (REST API)
-
-  * **Вхід:** HTTP POST запит.
-  * **API Spec (Draft):**
-    ```http
-    POST /api/v1/prediction
-    Content-Type: application/json
-    {
-        "process_instance_id": "a1b2-c3d4...",
-        "model_version": "production_v1"
+    state Red_Mode {
+        [*] --> Suspend_Auto_Inference
+        Suspend_Auto_Inference --> Human_in_the_Loop: Route to Expert
+        Human_in_the_Loop --> Buffer_Accumulation: Collect n_min samples
+        Buffer_Accumulation --> Controlled_Fine_Tuning: Few-Shot Adaptation
+        Controlled_Fine_Tuning --> [*]: Validation Passed
     }
-    ```
-  * **Вихід:** JSON з прогнозом та confidence score.
 
------
-
-## 9\. Observability (Спостережуваність)
-
-Через обмеження мережі (Proxy) використовується локальний стек.
-
-1.  **Logging:**
-      * Бібліотека `loguru`.
-      * Логи пишуться у файли з ротацією (`logs/app.log`) та дублюються в stdout.
-2.  **Experiment Tracking (MLFlow):**
-      * Логування параметрів (`learning_rate`, `hidden_dim`, `fusion_mode`).
-      * Логування метрик (`accuracy`, `f1_score`, `oos_rate`).
-      * Збереження навчених моделей (Artifacts) для відтворюваності.
-
------
-
-## 10\. Roadmap
-
-  * **Phase 1 (Current):** Реалізація Fusion Pipeline на локальній машині. Навчання на XES. Тест через СLI.
-  * **Phase 2:** Розгортання REST API. 
-  * **Phase 3:** Контейнеризація та перехід на серверне середовище.
-
-<!-- end list -->
-
+    Red_Mode --> Green_Mode: Adaptation Complete (Zero/Few-Shot)
 ```
+
+---
+
+## 19) Physical Directory Structure
+Обов'язкова структура репозиторію для дотримання Clean Architecture:
+
+```text
+bpm_prediction/
+├── src/
+│   ├── core/                  # Domain Math (без інфраструктурних залежностей)
+│   │   ├── models/            # GNN, Agent, Critic (PyTorch)
+│   │   ├── semaphore/         # OOD math, Wasserstein, Thresholds
+│   │   └── interfaces/        # Abstract Base Classes (Ports)
+│   ├── adapters/              # Infrastructure
+│   │   ├── data/              # camunda7_mssql_adapter, xes_adapter, neo4j_storage
+│   │   ├── api/               # rest_api_adapter
+│   │   ├── tracking/          # mlflow_tracker
+│   │   └── reporting/         # report_writer, chart_exporter
+│   ├── pipeline/              # Orchestration (Stages)
+│   │   ├── ingestion_router.py
+│   │   ├── graph_builder.py
+│   │   ├── data_converter.py
+│   │   ├── tensor_adapter.py
+│   │   ├── trainer.py
+│   │   ├── evaluator.py
+│   │   └── report_builder.py
+│   └── cli.py                 # Entry point (--mode train/evaluate/infer)
+├── data/                      # Local cache (.pt files, raw logs)
+├── reports/                   # Tables/plots for dissertation section 4
+├── tests/
+└── ARCHITECTURE.MD
 ```
+
+---
+
+## 20) Research Reporting & Section 4 Outputs
+Для підтримки розділу 4 дисертації в pipeline обов'язковий окремий `Evaluation & Reporting` крок.
+
+### 20.1 Обов'язкові артефакти
+1. Таблиці метрик по режимах (Baseline vs Augmented).
+2. Графіки динаміки дрейфу (`wasserstein_drift`, `data_drift_score`, `concept_drift_score`).
+3. Графіки стабільності семафора (`semaphore_mode` у часі).
+4. Порівняльні графіки якості (Accuracy/F1/OOS) для різних `process_version (κ)`.
+
+### 20.2 Вимоги до трасованості звітів
+Кожен згенерований звіт має містити metadata:
+- `experiment_id`
+- `dataset_id`
+- `schema_version`
+- `process_version (κ)`
+- `model_version`
+- `git_commit`
+
+### 20.3 Розміщення звітів
+- Локально: `reports/`.
+- У трекері: artifacts в MLflow (або сумісному tracker).
+

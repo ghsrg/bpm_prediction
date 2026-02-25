@@ -362,90 +362,278 @@ DriftDetector --> DriftSignal
 ## 17) Component Architecture (Hexagonal View)
 
 ```mermaid
-flowchart TD
-    subgraph Infrastructure [Adapters / Infrastructure Layer]
-        CamundaDB[(MSSQL Camunda 7 DB)]
-        XESFiles[(XES Datasets Storage)]
-        Neo4j[(Neo4j EPOKG)]
-        MLflow[MLflow Tracker]
-        Reports[(Research Reports Storage)]
-        RestAPI[REST API Adapter]
-    end
+flowchart TB
 
-    subgraph Application [Application / Orchestration Layer]
-        CLI[CLI / Pipeline Runner]
-        APIOrch[API/CLI Orchestrator]
-        Eval[Evaluation & Reporting Stage]
-    end
+%% ================================
+%% 1. FRAMEWORKS & DRIVERS (OUTER)
+%% ================================
 
-    subgraph Ports [Ports / Interfaces]
-        IDataReader[[IDataReader]]
-        IXESReader[[IXESReader]]
-        IDataConverter[[IDataConverter]]
-        IGraphStorage[[IGraphStorage]]
-        ITracker[[ITracker]]
-        IReportWriter[[IReportWriter]]
-    end
+subgraph Frameworks["Frameworks & Drivers"]
+    CamundaDB[(MSSQL Camunda 7 DB)]
+    XESFiles[(XES Storage)]
+    Neo4j[(Neo4j EPOKG)]
+    MLflow[(MLflow)]
+    Reports[(Reports Storage)]
+    REST[(REST API)]
+    CLI[(CLI)]
+end
 
-    subgraph Core [Domain Core / Math]
-        direction TB
-        Builder[EPOKG Graph Builder]
-        Converter[EventLog Converter]
-        TensorConv[Tensor Adapter]
-        GNN[Agent-Critic Module]
-        Semaphore[Reliability Semaphore]
-    end
+%% ================================
+%% 2. INTERFACE ADAPTERS (HEXAGON)
+%% ================================
 
-    CamundaDB -.implements.-> IDataReader
-    XESFiles -.implements.-> IXESReader
-    Neo4j -.implements.-> IGraphStorage
-    MLflow -.implements.-> ITracker
-    Reports -.implements.-> IReportWriter
-    RestAPI --> APIOrch
+subgraph Adapters["Interface Adapters (Ports & Adapters)"]
 
-    CLI --> APIOrch
-    APIOrch --> Builder
-    APIOrch --> GNN
-    APIOrch --> Eval
+    %% Outbound Adapters
+    SQLAdapter[Camunda SQL Adapter]
+    XESAdapter[XES Reader Adapter]
+    GraphAdapter[Neo4j Adapter]
+    TrackerAdapter[MLflow Adapter]
+    ReportAdapter[Report Adapter]
 
-    Builder --> IDataReader
-    Builder --> IXESReader
-    Builder --> IDataConverter
-    Builder --> IGraphStorage
-    IDataConverter --> Converter
-    GNN --> TensorConv
-    GNN --> Semaphore
-    Semaphore --> ITracker
-    Eval --> ITracker
-    Eval --> IReportWriter
+    %% Inbound Adapters
+    APIController[REST Controller]
+    CLIController[CLI Controller]
+end
+
+%% ================================
+%% 3. APPLICATION (USE CASES)
+%% ================================
+
+subgraph Application["Application / Use Cases"]
+
+    TrainUC[Train Use Case]
+    InferUC[Inference Use Case]
+    DriftUC[Drift Monitoring Use Case]
+    EvalUC[Evaluation Use Case]
+end
+
+%% ================================
+%% 4. DOMAIN (PURE CORE)
+%% ================================
+
+subgraph Domain["Domain Core (Pure Logic)"]
+
+    EventNormalizer[EventLog Normalizer]
+    GraphBuilder[EPOKG Graph Builder]
+    TensorAdapter[Tensor Adapter]
+    AgentCritic[Agent-Critic GNN]
+    DriftDetector[Drift Detector]
+    ReliabilityPolicy[Reliability Policy]
+end
+
+%% ===================================
+%% INFRA IMPLEMENTS ADAPTERS
+%% ===================================
+
+CamundaDB --> SQLAdapter
+XESFiles --> XESAdapter
+Neo4j --> GraphAdapter
+MLflow --> TrackerAdapter
+Reports --> ReportAdapter
+REST --> APIController
+CLI --> CLIController
+
+%% ===================================
+%% ADAPTERS CALL APPLICATION
+%% ===================================
+
+APIController --> InferUC
+CLIController --> TrainUC
+
+%% ===================================
+%% APPLICATION USES ADAPTERS (OUTBOUND)
+%% ===================================
+
+TrainUC --> SQLAdapter
+TrainUC --> XESAdapter
+TrainUC --> GraphAdapter
+TrainUC --> TrackerAdapter
+
+InferUC --> SQLAdapter
+InferUC --> GraphAdapter
+InferUC --> TrackerAdapter
+
+DriftUC --> TrackerAdapter
+EvalUC --> ReportAdapter
+EvalUC --> TrackerAdapter
+
+%% ===================================
+%% APPLICATION CALLS DOMAIN
+%% ===================================
+
+TrainUC --> EventNormalizer
+TrainUC --> GraphBuilder
+TrainUC --> TensorAdapter
+TrainUC --> AgentCritic
+
+InferUC --> EventNormalizer
+InferUC --> GraphBuilder
+InferUC --> TensorAdapter
+InferUC --> AgentCritic
+InferUC --> ReliabilityPolicy
+
+DriftUC --> DriftDetector
+EvalUC --> AgentCritic
+
+%% ===================================
+%% DOMAIN INTERNAL FLOW
+%% ===================================
+
+EventNormalizer --> GraphBuilder
+GraphBuilder --> TensorAdapter
+TensorAdapter --> AgentCritic
+AgentCritic --> DriftDetector
+AgentCritic --> ReliabilityPolicy
 ```
+
+### Ключова вводна (операційна модель)
+Архітектура підтримує **єдині операційні сценарії** (`Train`, `Inference`, `Evaluation`), але допускає багатовимірну конфігурацію дослідницьких режимів через стратегії:
+- структурного кодування;
+- латентного кондиціонування версій;
+- детекції дрейфу;
+- політики надійності.
 
 ---
 
-## 18) Data Flow & Transformation Schema
+## 18) Data Flow (Use Case Scenarios)
 
+### 18.1 TRAIN DATA FLOW
 ```mermaid
 sequenceDiagram
-    participant API as REST/CLI Trigger
-    participant Src as Camunda Adapter or XES Adapter
-    participant Conv as Data Converter
-    participant Graph as Neo4j (EPOKG)
-    participant PyG as PyTorch Geometric
-    participant Model as GNN (Core)
-    participant Eval as Evaluation/Reporting
+    participant CLI
+    participant TrainUC
+    participant DataAdapter
+    participant BusinessAdapter
+    participant DomainPipeline
+    participant GNN
+    participant Tracker
 
-    API->>Src: 1. process_instance_id + source_type
-    Src->>Conv: 2. Raw events in source format
-    Conv->>Graph: 3. Normalized EventLogBatch
-    Note over Graph: 4. Build Instance Graph (IG)<br/>5. Merge with EPOKG -> Fusion Graph
-    Graph->>PyG: 6. Extract Subgraph (Nodes, Edges, Attributes)
-    Note over PyG: 7. Transform to Data(x, edge_index, y)
-    PyG->>Model: 8. Tensor Batch
-    Model-->>Model: 9. Forward Pass (Knowledge Infusion Γ)
-    Model->>PyG: 10. Logits / Embeddings
-    PyG->>Eval: 11. Metrics Inputs (pred/target/drift)
-    Eval->>Eval: 12. Build charts/tables for dissertation section 4
+    CLI->>TrainUC: run(dataset_id, ExperimentConfig)
+
+    TrainUC->>DataAdapter: read_logs(source_type)
+    TrainUC->>BusinessAdapter: enrich_cases()
+
+    TrainUC->>DomainPipeline: normalize_events(config.structure_mode)
+
+    DomainPipeline->>DomainPipeline: build_EPOKG(config.structure_mode)
+
+    DomainPipeline->>DomainPipeline: encode_features(config.kappa_conditioning)
+
+    DomainPipeline->>GNN: train_step(config.architecture_type)
+
+    GNN-->>TrainUC: loss, metrics
+
+    TrainUC->>Tracker: log_metrics()
+    TrainUC->>Tracker: save_model()
 ```
+
+### 18.2 INFERENCE (CLI / REST API)
+```mermaid
+sequenceDiagram
+    participant API
+    participant InferUC
+    participant DataAdapter
+    participant BusinessAdapter
+    participant DomainPipeline
+    participant GNN
+    participant Drift
+    participant Reliability
+    participant Tracker
+
+    API->>InferUC: predict(instance_id, model_version)
+
+    InferUC->>DataAdapter: read_prefix()
+    InferUC->>BusinessAdapter: enrich_case()
+
+    InferUC->>DomainPipeline: build_subgraph()
+
+    DomainPipeline->>DomainPipeline: encode_features()
+
+    DomainPipeline->>GNN: forward_pass()
+
+    GNN-->>InferUC: prediction, confidence
+
+    InferUC->>Drift: evaluate(config.drift_strategy)
+
+    InferUC->>Reliability: apply_policy(config.reliability_strategy)
+
+    InferUC->>Tracker: log_inference()
+
+    InferUC-->>API: PredictionDTO
+```
+
+### 18.3 EXPERIMENTAL EVALUATION
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant EvalUC
+    participant Dataset
+    participant DomainPipeline
+    participant GNN
+    participant Metrics
+    participant Tracker
+    participant Report
+
+    CLI->>EvalUC: evaluate(dataset_id, ExperimentConfig)
+
+    EvalUC->>Dataset: load_test_split()
+
+    loop for each prefix
+        EvalUC->>DomainPipeline: build_graph()
+        DomainPipeline->>GNN: forward_pass()
+        GNN-->>EvalUC: prediction
+    end
+
+    EvalUC->>Metrics: compute(Accuracy, MacroF1, AUC, OOS)
+
+    EvalUC->>Tracker: log_metrics()
+
+    EvalUC->>Report: generate_report()
+```
+
+### 18.4 RETRAINING FLOW
+```mermaid
+sequenceDiagram
+    participant DriftMonitor
+    participant RetrainUC
+    participant TrainUC
+    participant Tracker
+
+    DriftMonitor->>RetrainUC: trigger_if_threshold()
+
+    RetrainUC->>TrainUC: run(new_dataset, ExperimentConfig)
+
+    TrainUC-->>RetrainUC: new_model_version
+
+    RetrainUC->>Tracker: log_retraining_event()
+```
+
+### 18.5 Research Axes (частина `ExperimentConfig`)
+
+```python
+class ExperimentConfig:
+    structure_mode: Literal["logs_only", "bpmn", "epokg"]
+    kappa_conditioning: Literal["none", "static", "latent"]
+    drift_strategy: Literal["off", "data", "structural", "wasserstein", "multi"]
+    reliability_strategy: Literal["off", "threshold", "adaptive"]
+    architecture_type: Literal["single_gnn", "agent_critic", "ablation"]
+```
+
+#### Як інтегрується
+- `Train` / `Experimental Evaluation` / `Retraining` приймають `ExperimentConfig` явно.
+- `Inference` працює або в `production config`, або в `experimental config` (для research).
+
+#### Ключова архітектурна ідея
+- **Use Cases не множаться.**
+- **Стратегії множаться.**
+
+| Use Case                | Конфігурований? | Мета               |
+| ----------------------- | --------------- | ------------------ |
+| Train                   | ✅               | Навчання           |
+| Inference               | частково        | Runtime prediction |
+| Experimental Evaluation | ✅               | Порівняння режимів |
+| Retraining              | ✅               | Adaptive update    |
 
 ---
 

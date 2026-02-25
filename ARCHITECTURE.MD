@@ -187,3 +187,156 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 
 ## 15) Next architectural step
 Наступний крок: деталізувати `Contracts & Abstract Base Classes` для портів/адаптерів і формалізувати схеми потоків даних для кожного pipeline-stage.
+
+---
+
+## 16) Component Architecture (Hexagonal View)
+
+```mermaid
+flowchart TD
+    subgraph Infrastructure [Adapters / Infrastructure Layer]
+        MSSQL[(MSSQL Log DB)]
+        Neo4j[(Neo4j EPOKG)]
+        MLflow[MLflow Tracker]
+        Reports[(Research Reports Storage)]
+    end
+
+    subgraph Application [Application / Orchestration Layer]
+        CLI[CLI / Pipeline Runner]
+        Eval[Evaluation & Reporting Stage]
+    end
+
+    subgraph Ports [Ports / Interfaces]
+        IDataReader[[IDataReader]]
+        IGraphStorage[[IGraphStorage]]
+        ITracker[[ITracker]]
+        IReportWriter[[IReportWriter]]
+    end
+
+    subgraph Core [Domain Core / Math]
+        direction TB
+        Builder[EPOKG Graph Builder]
+        TensorConv[Tensor Adapter]
+        GNN[Agent-Critic Module]
+        Semaphore[Reliability Semaphore]
+    end
+
+    MSSQL -.implements.-> IDataReader
+    Neo4j -.implements.-> IGraphStorage
+    MLflow -.implements.-> ITracker
+    Reports -.implements.-> IReportWriter
+
+    CLI --> Builder
+    CLI --> GNN
+    CLI --> Eval
+
+    Builder --> IDataReader
+    Builder --> IGraphStorage
+    GNN --> TensorConv
+    GNN --> Semaphore
+    Semaphore --> ITracker
+    Eval --> ITracker
+    Eval --> IReportWriter
+```
+
+---
+
+## 17) Data Flow & Transformation Schema
+
+```mermaid
+sequenceDiagram
+    participant Log as MSSQL (Tabular)
+    participant Graph as Neo4j (EPOKG)
+    participant PyG as PyTorch Geometric
+    participant Model as GNN (Core)
+    participant Eval as Evaluation/Reporting
+
+    Log->>Graph: 1. Raw Events (CaseID, Activity, Timestamp)
+    Note over Graph: 2. Build Instance Graph (IG)<br/>3. Merge with EPOKG -> Fusion Graph
+    Graph->>PyG: 4. Extract Subgraph (Nodes, Edges, Attributes)
+    Note over PyG: 5. Transform to Data(x, edge_index, y)
+    PyG->>Model: 6. Tensor Batch
+    Model-->>Model: 7. Forward Pass (Knowledge Infusion Γ)
+    Model->>PyG: 8. Logits / Embeddings
+    PyG->>Eval: 9. Metrics Inputs (pred/target/drift)
+    Eval->>Eval: 10. Build charts/tables for dissertation section 4
+```
+
+---
+
+## 18) Reliability Semaphore State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Green_Mode: Start Inference
+
+    Green_Mode --> Yellow_Mode: W_1 > tau_warn
+    Yellow_Mode --> Green_Mode: Drift Stabilized
+
+    Yellow_Mode --> Red_Mode: W_1 > tau_crit (Major Drift)
+    Green_Mode --> Red_Mode: W_1 > tau_crit
+
+    state Red_Mode {
+        [*] --> Suspend_Auto_Inference
+        Suspend_Auto_Inference --> Human_in_the_Loop: Route to Expert
+        Human_in_the_Loop --> Buffer_Accumulation: Collect n_min samples
+        Buffer_Accumulation --> Controlled_Fine_Tuning: Few-Shot Adaptation
+        Controlled_Fine_Tuning --> [*]: Validation Passed
+    }
+
+    Red_Mode --> Green_Mode: Adaptation Complete (Zero/Few-Shot)
+```
+
+---
+
+## 19) Physical Directory Structure
+Обов'язкова структура репозиторію для дотримання Clean Architecture:
+
+```text
+bpm_prediction/
+├── src/
+│   ├── core/                  # Domain Math (без інфраструктурних залежностей)
+│   │   ├── models/            # GNN, Agent, Critic (PyTorch)
+│   │   ├── semaphore/         # OOD math, Wasserstein, Thresholds
+│   │   └── interfaces/        # Abstract Base Classes (Ports)
+│   ├── adapters/              # Infrastructure
+│   │   ├── data/              # MSSQL_Reader, Neo4j_Storage
+│   │   ├── tracking/          # MLflow_Tracker
+│   │   └── reporting/         # report_writer, chart_exporter
+│   ├── pipeline/              # Orchestration (Stages)
+│   │   ├── graph_builder.py
+│   │   ├── tensor_adapter.py
+│   │   ├── trainer.py
+│   │   ├── evaluator.py
+│   │   └── report_builder.py
+│   └── cli.py                 # Entry point (--mode train/evaluate/infer)
+├── data/                      # Local cache (.pt files, raw logs)
+├── reports/                   # Tables/plots for dissertation section 4
+├── tests/
+└── ARCHITECTURE.MD
+```
+
+---
+
+## 20) Research Reporting & Section 4 Outputs
+Для підтримки розділу 4 дисертації в pipeline обов'язковий окремий `Evaluation & Reporting` крок.
+
+### 20.1 Обов'язкові артефакти
+1. Таблиці метрик по режимах (Baseline vs Augmented).
+2. Графіки динаміки дрейфу (`wasserstein_drift`, `data_drift_score`, `concept_drift_score`).
+3. Графіки стабільності семафора (`semaphore_mode` у часі).
+4. Порівняльні графіки якості (Accuracy/F1/OOS) для різних `process_version (κ)`.
+
+### 20.2 Вимоги до трасованості звітів
+Кожен згенерований звіт має містити metadata:
+- `experiment_id`
+- `dataset_id`
+- `schema_version`
+- `process_version (κ)`
+- `model_version`
+- `git_commit`
+
+### 20.3 Розміщення звітів
+- Локально: `reports/`.
+- У трекері: artifacts в MLflow (або сумісному tracker).
+

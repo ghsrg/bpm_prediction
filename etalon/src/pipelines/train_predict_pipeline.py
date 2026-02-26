@@ -243,6 +243,7 @@ def train_model_pr(
                 val_stats = core_module.calculate_statistics(model, val_data, global_node_dict, global_statistics, batch_size, train_activity_counter = train_activity_counter)
                 #print(val_stats["activity_train_vs_val_accuracy"])
                 #print(val_stats)
+
                 if "val_accuracy" in stats: stats["val_accuracy"].append(val_stats["accuracy"])
                 if "val_top_k_accuracy" in stats: stats["val_top_k_accuracy"].append(val_stats["top_k_accuracy"])
                 if "val_precision" in stats: stats["val_precision"].append(val_stats.get("precision", 0))

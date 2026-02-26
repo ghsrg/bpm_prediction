@@ -75,12 +75,13 @@ flowchart TB
     ReliabilityModule --> Evaluator
 ```
 
-Пояснення
-Frameworks — зовнішні джерела (XES).
-Adapters — конвертація логів у внутрішній контракт.
-Application — orchestration пайплайна.
-Domain — математичне ядро (граф + Γ + GNN).
+Пояснення:
+- Frameworks — зовнішні джерела (XES).
+- Adapters — конвертація логів у внутрішній контракт.
+- Application — orchestration пайплайна.
+- Domain — математичне ядро (граф + Γ + GNN).
 Domain не залежить від XES.
+
 У MVP1 MaskLayer, Critic та ReliabilityModule не змінюють результат прогнозу,
 але входять до пайплайну як архітектурні елементи майбутніх розширень.
 
@@ -226,23 +227,75 @@ In MVP1:
 
 ---
 
-## 5.3 GNN Model
+## 5.3 GNN Model (Port-Based Architecture)
 
-Single `torch_geometric` model.
+MVP1 implements architecture-agnostic graph prediction via pluggable GNN backbones.
 
-### Recommended Architecture
-
-- `GCN` or `GraphSAGE`
-- global pooling layer
-- linear classification head
-
-### Output
-
-- `logits` over next activity space
-
-(Модель повертає сирі логіти для задачі прогнозування наступної активності.)
+Model selection is externalized and resolved in the **Application layer**.  
+The **Domain layer remains independent of concrete GNN implementations**.
 
 ---
+
+### 5.3.1 Domain-Level Abstraction
+
+The Domain depends only on an abstract interface:
+
+```python
+class GNNModelPort:
+    def forward(self, graph_tensor) -> logits:
+        ...
+```
+The Domain layer does not depend on:
+- specific GNN architectures (GCN, GraphSAGE, GAT, etc.)
+- torch_geometric
+- CLI arguments
+- configuration system
+
+Domain logic operates strictly on GraphTensorContract.
+
+### 5.3.2 Model Selection Mechanism
+
+Concrete GNN implementation is injected via the Application layer.
+
+Model selection may be defined through:
+- CLI argument (--model_type)
+- configuration file (architecture_type)
+- experiment configuration object (ModelConfig)
+
+Selection occurs before training begins and remains immutable during experiment execution.
+
+### 5.3.3 Architectural Invariants
+
+All GNN implementations MUST:
+- accept GraphTensorContract
+- output logits
+- support batch processing
+- be deterministic under fixed random seed
+- be compatible with PrefixPolicy
+- follow naming conventions defined in VARIABLES.MD
+
+### 5.3.4 Architectural Constraint
+
+The Domain layer MUST NOT:
+- import concrete GNN classes
+- instantiate models directly
+- depend on torch_geometric
+- depend on external experiment configuration
+
+Concrete implementations belong to the Adapters layer.
+
+### 5.3.5 Scientific Role
+
+MVP1 is not a single-architecture baseline.
+
+It is an architecture-agnostic experimental framework for evaluating:
+- graph-based next activity prediction
+- prefix sensitivity
+- minimal sufficient context
+- structural augmentation readiness (MVP2+)
+
+This ensures fair comparison between multiple graph architectures under identical data contracts and training protocols.
+
 ## 5.4 Inference Pipeline Components (MVP1)
 ### MaskLayer (IdentityMask)
 

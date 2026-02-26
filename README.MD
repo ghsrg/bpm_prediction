@@ -20,13 +20,14 @@
 - **[ARCHITECTURE_GUIDELINES.MD](./ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
 - **[ARCHITECTURE.MD](./ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
 - **[ARCHITECTURE_RULES.md](./ARCHITECTURE_RULES.md)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
-- **[INTERFACE_CONTRACTS.MD](./INTERFACE_CONTRACTS.MD)** — контракти портів, ABC і canonical DTO *(DOC-007)*.
-- **[DATA_FLOWS.MD](./DATA_FLOWS.MD)** — stage-by-stage Input/Output/Metadata потоки *(DOC-007)*.
+- **[DATA_FLOWS.MD](./DATA_FLOWS.MD)** — stage-by-stage Input/Output/Metadata потоки.
+- **[INTERFACE_CONTRACTS.MD](./INTERFACE_CONTRACTS.MD)** — контракти портів, ABC і canonical DTO.
+
 
 ### 3) Data specifications
 - **[DATA_MODEL.MD](./DATA_MODEL.MD)** — модель даних і структури графів.
 - **[ADAPTER_CAMUNDA_SQL.MD](./ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
-- **[ADAPTER_XES.MD](./ADAPTER_XES.MD)** — специфікація XES-адаптера *(DOC-007, draft).* 
+- **[ADAPTER_XES.MD](./ADAPTER_XES.MD)** — специфікація XES-адаптера.* 
 
 ### 4) Algorithm / Validation
 - **[LLD.MD](./LLD.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 

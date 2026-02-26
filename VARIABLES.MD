@@ -29,6 +29,7 @@
   * **Кодова форма:** `fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_vec)`.
 * **$c_\sigma$** | `global_context_vec` — Вектор релевантного глобального контексту, екстрагований для поточного екземпляра.
 * **$h_\sigma$** | `local_state_vec` — Локальне векторне подання поточного стану кейсу (trace).
+* **$z_{fused}$** | z_fused  fused representation після **$\Gamma$**.
 
 ### 5. Дрейфи, пороги семафора та режими адаптації
 * **$D_{data}$** | `data_drift_score` — Індекс дрейфу даних (зміна атрибутивних розподілів).

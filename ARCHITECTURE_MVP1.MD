@@ -1,7 +1,14 @@
 # ARCHITECTURE_MVP1.MD
 
 ## 1. Scope
+### Mathematical Scope Clarification
 
+MVP1 operates on $G_{obs}$ only.
+
+Structural graph $G_{struct}$ (EPOKG), multi-perspective fusion $G_{fusion}$,
+and structural conditioning are intentionally excluded.
+
+(У цій версії використовується лише спостережуваний граф. Нормативний контекст інтегрується з MVP2.)
 MVP1 is a research-only baseline implementation.
 
 Goal:
@@ -22,8 +29,7 @@ This version:
 - drift module absent (introduced in MVP4).
 - 
 У MVP1 повний inference-пайплайн вже закладено архітектурно,
-але Mask та Critic реалізовані як заглушки.
-Це дозволяє уникнути рефакторингу в наступних етапах.
+але інші реалізовані як заглушки, ще дозволяє уникнути рефакторингу в наступних етапах.
 
 ---
 
@@ -172,9 +178,12 @@ sequenceDiagram
 
 ## 5.1 InstanceGraph
 
-Represents executed prefix.
+Represents executed prefix. (Граф представляє виконаний префікс траси без нормативного збагачення, реалізує спостережуваний граф виконання.)
 
-(Граф представляє виконаний префікс траси без нормативного збагачення.)
+InstanceGraph corresponds to observed_graph (see VARIABLES.MD). 
+
+
+Normative graph $G_{struct}$ is not active in MVP1.
 
 ### Node Attributes
 
@@ -197,18 +206,23 @@ Represents executed prefix.
 
 ## 5.2 Fusion Operator Γ (MVP1)
 
-In MVP1:
-
 z_fused = MLP([h_sigma || c_sigma])
+- h_sigma → local_state_vec
+- c_sigma → global_context_vec
+- z_fused → fused_representation
+- 
 Where:
-
 - `h_sigma` — prefix representation (латентне представлення виконаного префіксу)
 - `c_sigma` — static κ embedding (заглушка версії процесу)
 
 Γ implemented as simple linear layer.
 
-(Оператор Γ реалізовано як простий лінійний шар + активація.
-Повноцінна мультимодальна інтеграція з’явиться у наступних MVP.)
+In MVP1:
+- h_graph = GNN(InstanceGraph)
+- z_fused = Γ([h_graph || context_embedding])
+- logits = Linear(z_fused)
+
+(Γ застосовується після глобального пулінгу, що чітко пов’язує математичний оператор з архітектурою.)
 
 ---
 
@@ -247,7 +261,8 @@ Single `torch_geometric` model.
 ---
 ### ReliabilityModule (StaticReliability)
 Formal definition:
-- confidence = max(softmax(logits))
+- confidence_score = max(softmax(logits)) 
+//confidence_score corresponds to VARIABLES.MD definition.
 
 (У MVP1 рівень довіри визначається як максимальна  ймовірність після softmax.)
 
@@ -274,7 +289,7 @@ and `torch_geometric.data.Data`.
 
 InstanceGraph → PyG Data:
 
-- `x` → node feature matrix  
+- `x` → node feature matrix  //x corresponds to node_features (see VARIABLES.MD)
   (матриця ознак вузлів, розмір [N_nodes × d_features])
 
 - `edge_index` → sequential edges  
@@ -328,6 +343,28 @@ Where:
 та перед фінальною класифікацією.)
 
 This explicitly binds Γ to the GNN computational graph.
+
+## 5.7 Dissertation-Level Objects (Planned Extensions)
+
+The following mathematical objects are defined in the dissertation
+but not activated in MVP1:
+
+- $G_{struct}$ (EPOKG)
+- $G_{fusion}$
+- structural_mask ($M_{struct}$)
+- critic_loss ($L_{critic}$)
+- drift_signal ($\delta_{drift}$)
+- macro_stability_state ($s_{macro}$)
+- reliability_state ($S_{rel}$)
+- version_transition_operator
+
+All variable names follow VARIABLES.MD conventions.
+
+These components are introduced progressively in MVP2–MVP4.
+
+(Таким чином MVP1 є першим шаром повної методології.)
+
+---
 
 # 6. PrefixPolicy (Research Module)
 
@@ -399,6 +436,12 @@ Primary objective:
 
 Loss is computed at graph level.
 
+In MVP1:
+
+total_loss (see VARIABLES.MD) = prediction_loss
+
+Multi-objective loss components are inactive.
+
 ---
 
 # 7.3 Evaluation Metrics
@@ -447,39 +490,220 @@ This is baseline for structural hypothesis testing.
 
 # 9. Out of Scope (MVP1)
 
-he following components are architecturally предусмотрені, 
-але не активні або не реалізовані в MVP1:
+## Логіка еволюції /  Evolution Logic
 
-- **Active structural masking**  
-  (структурна κ-залежна маска буде введена у MVP2)
-- **Neo4j integration and structural storage**  
-  (інтеграція нормативного графа та версій процесу — MVP2)
-- **Trained Critic model**  
-  (навчений критик з’явиться у MVP3; у MVP1 використовується NullCritic)
-- **Drift detection mechanisms**  
-  (data / structural / Wasserstein drift — MVP4)
-- **Reliability Semaphore (green / yellow / red)**  
-  (формальна система сигналізації довіри — MVP4)
-- **Enterprise API layer**  
-  (REST / async / integration — MVP5)
+MVP1 → Pure prediction (G_obs only)  
+MVP2 → Structure-aware prediction (G_obs + G_struct)  
+MVP3 → Agent–Critic global validation  
+MVP4 → Adaptive self-regulating system  
+MVP5 → Enterprise PoC layer  
 
-Note:
+The following components are architecturally defined
+but not active in MVP1.
 
-MaskLayer, Critic interface and ReliabilityModule are present in Domain layer but implemented as pass-through components in MVP1.
-
-(Ці компоненти знаходяться в математичному ядрі, але не активні у цій версії.)
-
-Жодної бізнес-інфраструктури в архітектурі MVP1 немає.
 ---
 
-# 10. Success Criteria
+## MVP2 — Structural Integration Layer
 
-MVP1 is considered complete when:
+- **Active structural_mask (M_struct)**  
+  κ-залежна детермінована маска допустимих переходів.
 
-- prefix experiments reproducible
-- κ logged explicitly
-- model converges
-- metrics stable across seeds
-- config snapshot saved
-- no domain–infrastructure leakage
+- **Structural graph integration (G_struct / EPOKG)**  
+  Інтеграція нормативного графа в inference pipeline.
 
+- **Neo4j structural storage**  
+  Зберігання та версіонування нормативного графа.
+
+- **κ-conditioning (static structural context)**  
+  Підтримка версії процесу на рівні inference,
+  без автоматичного переходу між версіями.
+
+---
+
+## MVP3 — Agent–Critic Layer
+
+- **Trained Critic model**  
+  NullCritic замінюється на навчений модуль глобальної валідації.
+
+- **multi-objective loss (critic term)**  
+  L_total = L_pred + λ₁ L_critic
+
+- **macro_stability_state (s_macro)**  
+  Глобальний стан системи (0 — стабільність, 1 — реконфігурація).
+
+(Drift ще не активується — система поки що статична.)
+
+---
+
+## MVP4 — Adaptive Layer
+
+- **drift_signal (δ_drift)**  
+  Виявлення розподільчого або структурного зсуву.
+
+- **Wasserstein-1 distance monitoring**
+
+- **OOD detection (latent / structural)**
+
+- **multi-objective loss (drift term)**  
+  L_total = L_pred + λ₁ L_critic + λ₂ L_drift
+
+- **automatic version_transition_operator (κ → κ+1)**  
+  Автоматичний перехід версії при детекції drift.
+
+- **Reliability semaphore (S_rel)**  
+  Green / Yellow / Red режим довіри.
+
+- **continual learning loop**  
+  Механізм ініціації перенавчання.
+
+---
+
+## MVP5 — Enterprise Layer
+
+- **Enterprise API layer**
+  REST / async / system integration.
+
+---
+
+## Architectural Note
+
+MaskLayer, Critic interface and ReliabilityModule 
+are present in Domain layer in MVP1,
+but implemented as pass-through components.
+
+(Ці компоненти входять до математичного каркасу,
+але не впливають на результат у базовій версії.)
+
+MVP1 does not include any enterprise infrastructure.
+---
+
+# 10. Success Criteria (MVP1 Execution Contract)
+
+MVP1 is considered complete when the following operational conditions are satisfied.
+
+This section defines implementation-level constraints for the Codex agent.
+
+---
+
+## 1. Deterministic Experiment Setup
+
+The system MUST:
+
+- use fixed random seed
+- use random split with fixed seed
+- log seed value
+- log dataset name
+- log prefix_length
+- log process_version (κ)
+- save configuration snapshot (JSON/YAML)
+
+No experiment is valid without these logs.
+
+---
+
+## 2. Functional Training Loop
+
+The system MUST:
+
+- perform forward pass
+- compute prediction_loss (CrossEntropy)
+- perform backward pass
+- update model_parameters
+- log train_loss and validation_loss per epoch
+
+Training MUST converge without:
+- NaN values
+- exploding gradients
+- runtime errors
+
+---
+
+## 3. Prefix Experiment Support
+
+The system MUST support:
+
+- fixed_length prefixes
+- full_prefix mode
+- sliding_window mode
+- random_prefix mode
+
+Each prefix strategy MUST be independently executable.
+
+---
+
+## 4. Inference Pipeline Integrity
+
+The full pipeline MUST execute in this order:
+
+InstanceGraph  
+→ FusionOperator  
+→ GNNModel  
+→ Predictor // Predictor outputs: logits, predicted_activity, confidence_score (see VARIABLES.MD)
+→ MaskLayer (IdentityMask)  
+→ Critic (NullCritic)  
+→ ReliabilityModule  
+→ Output
+
+
+MaskLayer and Critic MUST exist in code,
+even if they do not modify logits.
+
+Removing them is not allowed.
+
+---
+
+## 5. Metrics Logging
+
+Each experiment MUST log:
+
+- accuracy
+- top_k_accuracy
+- precision
+- recall
+- f1_score
+- mae
+- rmse
+- r2
+- out_of_scope_rate
+- confusion_matrix
+- train_loss
+- validation_loss
+- training_time
+
+Missing metrics invalidate the run.
+
+---
+
+## 6. Clean Architecture Constraint
+
+The Domain layer MUST:
+
+- not import XES libraries
+- not depend on Neo4j
+- not depend on external APIs
+
+Adapters MAY depend on external libraries.
+Domain MUST remain pure.
+
+---
+
+## 7. No Structural Logic Activation
+
+In MVP1 the following MUST remain inactive:
+
+- structural_mask
+- critic_loss
+- drift_signal
+- continual_learning
+- version_transition_operator (automatic)
+
+These components may exist as stubs only.
+
+---
+
+MVP1 is complete when:
+
+- all components compile
+- experiments execute end-to-end
+- logs reproducible
+- no architectural violations detected

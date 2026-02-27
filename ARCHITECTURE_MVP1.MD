@@ -296,6 +296,18 @@ It is an architecture-agnostic experimental framework for evaluating:
 
 This ensures fair comparison between multiple graph architectures under identical data contracts and training protocols.
 
+### 5.3.6 Model Resolution Flow
+
+Model selection follows this resolution order:
+
+1. CLI argument (`--model_type`) if provided.
+2. Configuration file (`architecture_type`) otherwise.
+3. Default model defined in ExperimentConfig.
+
+Resolution is handled by `ModelFactory` in Application layer.
+
+Domain layer receives only an instance implementing `GNNModelPort`.
+
 ## 5.4 Inference Pipeline Components (MVP1)
 ### MaskLayer (IdentityMask)
 

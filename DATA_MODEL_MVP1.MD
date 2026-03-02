@@ -212,7 +212,61 @@ training:
 
 ---
 
-## 10. Target Enterprise Architecture (Vision for MVP2+)
+## 10. Object Composition Schema (Що є частиною чого)
+
+Діаграма відображає структурну залежність (композицію) об'єктів моделі даних.
+
+```mermaid
+classDiagram
+    %% Adapters & DTOs
+    RawTrace *-- EventRecord : contains (1..N)
+    PrefixSlice *-- EventRecord : contains (1..N)
+    PredictionRequest *-- PrefixSlice : wraps (1)
+    
+    %% Graph & Tensors
+    InstanceGraph *-- EventRecord : built from
+    GraphTensorContract *-- InstanceGraph : encoded from
+    TrainingBatch *-- GraphTensorContract : contains (1..N)
+    
+    %% Configs
+    ExperimentRunConfig *-- ExperimentConfig : contains
+    ExperimentRunConfig *-- ModelConfig : contains
+    ExperimentRunConfig *-- SplitConfig : contains
+```
+
+---
+
+## 11. Data Flow Overview (Lifecycle)
+
+Ця діаграма відображає динамічний життєвий цикл об'єктів від сирих логів до тензорів моделі залежно від режиму виконання.
+
+> **Важливо:** Детальний опис потоків даних, трансформацій DTO та процесів інференсу/навчання розглядається в окремому документі: `DATA_FLOWS_MVP1.MD`.
+
+```mermaid
+flowchart TD
+    subgraph 1. Ingestion Layer
+        ER[EventRecord] -->|Grouped by case_id| RT[RawTrace]
+    end
+    
+    subgraph 2. Prefix Generation Layer
+        RT -->|Sliced by PrefixPolicy| PS[PrefixSlice]
+    end
+    
+    subgraph 3. Graph Engineering Layer
+        PS -->|GraphBuilder| IG[InstanceGraph]
+        IG -->|FeatureEncoder| GTC[GraphTensorContract]
+    end
+    
+    subgraph 4. Execution Modes
+        GTC -->|Train Mode: Batched| TB[TrainingBatch]
+        
+        PR[PredictionRequest] -.->|API Entry Point| PS
+        PR -.->|Infer Mode: Single| GTC
+    end
+```
+
+---
+## 12. Target Enterprise Architecture (Vision for MVP2+)
 
 > **Note:** Цей розділ описує цільовий стан (Post-MVP1) і НЕ реалізується в межах MVP1.
 
@@ -248,24 +302,3 @@ flowchart TD
 
 ---
 
-## 11. Object Composition Schema (Що є частиною чого)
-
-Діаграма відображає структурну залежність (композицію) об'єктів моделі даних.
-
-```mermaid
-classDiagram
-    %% Adapters & DTOs
-    RawTrace *-- EventRecord : contains (1..N)
-    PrefixSlice *-- EventRecord : contains (1..N)
-    PredictionRequest *-- PrefixSlice : wraps (1)
-    
-    %% Graph & Tensors
-    InstanceGraph *-- EventRecord : built from
-    GraphTensorContract *-- InstanceGraph : encoded from
-    TrainingBatch *-- GraphTensorContract : contains (1..N)
-    
-    %% Configs
-    ExperimentRunConfig *-- ExperimentConfig : contains
-    ExperimentRunConfig *-- ModelConfig : contains
-    ExperimentRunConfig *-- SplitConfig : contains
-```

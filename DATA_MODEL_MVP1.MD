@@ -218,6 +218,80 @@ training:
 
 ```mermaid
 classDiagram
+    class EventRecord {
+        +String case_id
+        +String activity_id
+        +Datetime timestamp
+        +Int position_in_trace
+        +String event_index
+        +String resource_id
+        +String lifecycle_transition
+        +Float duration
+        +Float time_since_case_start
+        +Float time_since_previous_event
+    }
+    
+    class RawTrace {
+        +String case_id
+        +List~EventRecord~ events
+        +Dict trace_meta
+    }
+    
+    class PrefixSlice {
+        +String case_id
+        +List~EventRecord~ prefix_events
+        +Int prefix_length
+    }
+    
+    class PredictionRequest {
+        +String process_version
+        +PrefixSlice prefix_slice
+    }
+    
+    class InstanceGraph {
+        +List nodes
+        +List edges
+    }
+    
+    class GraphTensorContract {
+        +Tensor x
+        +Tensor edge_index
+        +Tensor batch
+        +Tensor y
+    }
+    
+    class TrainingBatch {
+        +Batch graph_batch
+    }
+
+    class ExperimentRunConfig {
+        +ExperimentConfig experiment
+        +SplitConfig split
+        +ModelConfig model
+        +Dict training
+    }
+
+    class ExperimentConfig {
+        +String dataset
+        +Int seed
+        +String prefix_policy
+        +Int prefix_length
+        +String process_version
+    }
+
+    class ModelConfig {
+        +String model_type
+        +Int hidden_dim
+        +Int num_layers
+        +Float dropout
+    }
+
+    class SplitConfig {
+        +Float train_ratio
+        +Float val_ratio
+        +Float test_ratio
+    }
+
     %% Adapters & DTOs
     RawTrace *-- EventRecord : contains (1..N)
     PrefixSlice *-- EventRecord : contains (1..N)

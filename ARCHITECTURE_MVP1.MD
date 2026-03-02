@@ -337,12 +337,12 @@ In the target state, the system fuses execution data ($G_{obs}$) with structural
 
 ```mermaid
 flowchart TD
-    subgraph Execution Layer [Execution Layer (Dynamic)]
+    subgraph Execution Layer [Execution Layer]
         XESExec[XES Adapter]
         CamExec[Camunda Adapter]
     end
 
-    subgraph Structural Layer [Structural Layer (Static)]
+    subgraph Structural Layer [Structural Layer]
         BPMN[BPMN Parser]
         Discovery[Process Discovery]
     end

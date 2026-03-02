@@ -1,0 +1,318 @@
+# ARCHITECTURE_MVP1.MD
+Project: bpm_prediction  
+Scope: MVP1 — Logs-only Baseline (Observed Graph Only)  
+Mode: EXPERIMENT
+
+---
+
+# 1. Scope
+
+## 1.1 Mathematical Scope Clarification
+
+MVP1 operates strictly on the observed execution graph:
+
+G_obs → observed_graph
+
+Inactive in MVP1:
+- G_struct (EPOKG)
+- G_fusion
+- structural_mask
+- critic_loss
+- drift_signal
+- reliability_state
+
+Це означає, що MVP1 є чистим execution-based baseline без нормативного або адаптивного збагачення.
+
+---
+
+## 1.2 Наукова роль MVP1
+
+MVP1 використовується для:
+
+- перевірки гіпотези, що графове представлення ефективне для next activity prediction;
+- аналізу чутливості до prefix_length;
+- визначення мінімального достатнього контексту;
+- створення контрольної точки перед структурним збагаченням (MVP2).
+
+Це фундамент, без якого неможливо обґрунтувати подальші ускладнення.
+
+---
+
+# 2. Clean Architecture (Layered View)
+
+```mermaid
+flowchart TB
+    subgraph Frameworks
+        XES[XES Files]
+    end
+
+    subgraph Adapters
+        XESAdapter[XES Adapter]
+    end
+
+    subgraph Application
+        TracePreprocessor[TracePreprocessor]
+        PrefixPolicy[PrefixPolicy]
+        GraphBuilder[GraphBuilder]
+        Trainer[Trainer]
+        Evaluator[Evaluator]
+    end
+
+    subgraph Domain
+        InstanceGraph[InstanceGraph]
+        FeatureEncoder[FeatureEncoder]
+        FusionOperator[Γ Operator]
+        GNNModel[GNNModelPort]
+        Predictor[Predictor]
+        MaskLayer[MaskLayer]
+        Critic[Critic]
+        ReliabilityModule[ReliabilityModule]
+    end
+
+    XES --> XESAdapter
+    XESAdapter --> TracePreprocessor
+    TracePreprocessor --> PrefixPolicy
+    PrefixPolicy --> GraphBuilder
+    GraphBuilder --> InstanceGraph
+    InstanceGraph --> FeatureEncoder
+    FeatureEncoder --> FusionOperator
+    FusionOperator --> GNNModel
+    GNNModel --> Predictor
+    Predictor --> MaskLayer
+    MaskLayer --> Critic
+    Critic --> ReliabilityModule
+    ReliabilityModule --> Evaluator
+```
+
+### Пояснення шарів
+
+Frameworks — зовнішні джерела (XES).  
+Adapters — нормалізація до канонічних об’єктів (EventRecord, RawTrace).  
+Application — orchestration логіки експерименту.  
+Domain — математичне ядро (граф, Γ, GNN, inference).
+
+Domain НЕ має залежати від XES, CLI або конкретних GNN реалізацій.
+
+---
+
+# 3. Component Architecture (Hexagonal View)
+
+```mermaid
+flowchart LR
+    subgraph Core
+        Graph[InstanceGraph]
+        Encoder[FeatureEncoder]
+        Fusion[Γ]
+        Model[GNNModelPort]
+        Mask[MaskLayer]
+        Critic[Critic]
+        Reliability[ReliabilityModule]
+    end
+
+    subgraph Ports
+        DataPort[EventDataPort]
+        TrainPort[TrainingPort]
+        PredictPort[PredictionPort]
+    end
+
+    subgraph Adapters
+        XESAdapter[XESAdapter]
+        CLIAdapter[CLI Runner]
+    end
+
+    XESAdapter --> DataPort
+    CLIAdapter --> TrainPort
+    CLIAdapter --> PredictPort
+
+    DataPort --> Graph
+    Graph --> Encoder
+    Encoder --> Fusion
+    Fusion --> Model
+    Model --> PredictPort
+```
+
+### Пояснення
+
+Core — повністю ізольований математичний центр.  
+Ports — абстрактні інтерфейси для взаємодії.  
+Adapters — конкретні реалізації для XES або CLI.
+
+Це забезпечує інверсію залежностей і можливість розширення без рефакторингу ядра.
+
+---
+
+# 4. Data Flow (Use Case Scenarios)
+
+## 4.1 Training Flow
+
+```mermaid
+sequenceDiagram
+    participant XES
+    participant Adapter
+    participant PrefixPolicy
+    participant GraphBuilder
+    participant Model
+    participant Trainer
+
+    XES->>Adapter: load()
+    Adapter->>PrefixPolicy: traces
+    PrefixPolicy->>GraphBuilder: sliced prefixes
+    GraphBuilder->>Model: graph tensors
+    Model->>Trainer: forward()
+    Trainer->>Model: backward()
+```
+
+### Логіка
+
+1. Лог зчитується та нормалізується.
+2. Формується префікс σ.
+3. Будується InstanceGraph.
+4. Кодуються ознаки.
+5. Формується GraphTensorContract.
+6. Модель навчається через CrossEntropy.
+
+---
+
+## 4.2 Inference Flow
+
+```mermaid
+sequenceDiagram
+    participant InputTrace
+    participant PrefixPolicy
+    participant GraphBuilder
+    participant Model
+    participant Predictor
+    participant Mask
+    participant Critic
+    participant Reliability
+
+    InputTrace->>PrefixPolicy: partial trace
+    PrefixPolicy->>GraphBuilder: prefix graph
+    GraphBuilder->>Model: graph tensor
+    Model->>Predictor: logits
+    Predictor->>Mask: raw logits
+    Mask->>Critic: masked logits
+    Critic->>Reliability: validated logits
+    Reliability->>Output: prediction + confidence
+```
+
+Порядок Predictor → Mask → Critic є фіксованим та відповідає архітектурній конституції.
+
+---
+
+## 4.3 End-to-End Pipeline
+
+```mermaid
+flowchart TD
+    Adapter --> RawTrace
+    RawTrace --> TracePreprocessor
+    TracePreprocessor --> PrefixPolicy
+    PrefixPolicy --> PrefixSlice
+    PrefixSlice --> InstanceGraph
+    InstanceGraph --> FeatureEncoder
+    FeatureEncoder --> GraphTensorContract
+    GraphTensorContract --> Model
+```
+
+TracePreprocessor у MVP1 — identity.  
+У MVP2 тут з’явиться фільтрація технічних вузлів.
+
+---
+
+# 5. Domain Core (Aligned with DATA_MODEL_MVP1)
+
+## 5.1 InstanceGraph
+
+Represents observed_graph.  
+Містить лише sequential_relation.
+
+Node attributes:
+- activity_id
+- timestamp
+- resource_id
+- duration
+- position_in_trace
+
+---
+
+## 5.2 GraphTensorContract
+
+Required tensors:
+- x
+- edge_index
+- batch
+- y
+
+Reserved (MVP2+):
+- edge_attr
+- doc_features
+- structural_mask
+
+Інваріант: формування x ідентичне для train та inference.
+
+---
+
+## 5.3 Fusion Operator Γ
+
+z_fused = Γ(h_graph, c_sigma)
+
+- h_graph — pooled embedding
+- c_sigma — κ embedding
+
+Γ знаходиться в Domain шарі.
+
+---
+
+## 5.4 Inference Components
+
+MaskLayer — IdentityMask  
+Critic — NullCritic  
+Reliability — max softmax
+
+Ці компоненти закладені архітектурно, але не активні логічно.
+
+---
+
+# 6. PrefixPolicy
+
+Supports:
+- fixed_length
+- full_prefix
+- sliding_window
+- random_prefix
+
+Відповідає за σ construction та експериментальний аналіз forgetting effect.
+
+---
+
+# 7. Experiment Integrity
+
+MVP1 валідний лише якщо:
+
+- використовується fixed seed
+- split trace-level
+- логуються κ, dataset, prefix_length
+- немає leakage
+- Domain ізольований
+
+---
+
+# 8. Evolution Path
+
+MVP1 → Pure prediction  
+MVP2 → Structural mask + κ conditioning  
+MVP3 → Critic activation  
+MVP4 → Drift & reliability  
+MVP5 → Enterprise wrapper  
+
+---
+
+# 9. Success Criteria
+
+- стабільне навчання
+- відтворюваність
+- повний inference pipeline
+- відсутність структурної логіки
+- відповідність DATA_MODEL_MVP1
+
+END OF ARCHITECTURE_MVP1

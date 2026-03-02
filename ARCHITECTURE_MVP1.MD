@@ -204,7 +204,8 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Adapter --> RawTrace
+    Event --> NormalizedEvent
+    NormalizedEvent --> RawTrace
     RawTrace --> TracePreprocessor
     TracePreprocessor --> PrefixPolicy
     PrefixPolicy --> PrefixSlice
@@ -215,7 +216,18 @@ flowchart TD
 ```
 
 TracePreprocessor у MVP1 — identity.  
-У MVP2 тут з’явиться фільтрація технічних вузлів.
+У MVP2 тут з’явиться фільтрація технічних вузлів і буде реалізовуваитсь TracePreprocessor.
+Орієнтовна структура на майбутнє
+
+TracePreprocessor
+
+├── TechnicalNodeFilter
+
+├── LifecycleCollapser
+
+├── NoiseFilter
+
+└── Future DriftHooks
 
 ---
 
@@ -314,5 +326,99 @@ MVP5 → Enterprise wrapper
 - повний inference pipeline
 - відсутність структурної логіки
 - відповідність DATA_MODEL_MVP1
+
+
+# 10. Target Enterprise Architecture (Vision for MVP2+)
+
+> **Note:** This section describes the future state (Post-MVP1). It is strictly informative for architectural alignment and MUST NOT be implemented in MVP1.
+
+## 10.1 Knowledge Integration Layers
+In the target state, the system fuses execution data ($G_{obs}$) with structural definitions ($G_{struct}$) into the unified EPOKG.
+
+```mermaid
+flowchart TD
+    subgraph Execution Layer [Execution Layer (Dynamic)]
+        XESExec[XES Adapter]
+        CamExec[Camunda Adapter]
+    end
+
+    subgraph Structural Layer [Structural Layer (Static)]
+        BPMN[BPMN Parser]
+        Discovery[Process Discovery]
+    end
+
+    subgraph Knowledge Integration [Knowledge Fusion]
+        Gobs[G_obs: Observed Graph]
+        Gstruct[G_struct: Normative Graph]
+        Gdata[G_data: Data Schema]
+        EPOKG[EPOKG: Enterprise Knowledge Graph]
+    end
+
+    %% Data Flow
+    XESExec --> Gobs
+    CamExec --> Gobs
+    
+    BPMN --> Gstruct
+    Discovery --> Gstruct
+    
+    Gobs --> EPOKG
+    Gstruct --> EPOKG
+    Gdata --> EPOKG
+    
+    %% Styling
+    style EPOKG fill:#f96,stroke:#333,stroke-width:2px
+    style Gobs fill:#bbf,stroke:#333
+    style Gstruct fill:#dfd,stroke:#333
+```
+## 10.2 Planned Camunda Adapter Strategy
+For future enterprise integration, the Camunda adapter will decompose the source data into three graph layers before fusion.
+
+Source Data:
+
+BPMN XML (process_definition_id)
+
+Execution History (history_stream)
+
+Process Variables (variable_scope)
+
+**Transformation Pipeline:**
+
+```mermaid
+flowchart TD
+    subgraph Input
+        XML[BPMN XML]
+        Hist[History Stream]
+        Vars[Variables]
+    end
+
+    subgraph Adapters
+        BPMNParser[BPMN Parser]
+        HistAgg[History Aggregator]
+        SchemaExt[Variable Schema Extractor]
+    end
+
+    subgraph Graph Components
+        StructBuilder[StructuralGraphBuilder]
+        Weights[Edge Frequency Weights]
+        PerfStats[Performance Stats]
+        DataGraph[Data Schema Graph]
+    end
+
+    %% Flow
+    XML --> BPMNParser
+    BPMNParser --> StructBuilder
+    
+    Hist --> HistAgg
+    HistAgg --> Weights
+    Weights --> PerfStats
+    
+    Vars --> SchemaExt
+    SchemaExt --> DataGraph
+
+    %% Fusion
+    StructBuilder -.-> EPOKG
+    PerfStats -.-> EPOKG
+    DataGraph -.-> EPOKG
+```
 
 END OF ARCHITECTURE_MVP1

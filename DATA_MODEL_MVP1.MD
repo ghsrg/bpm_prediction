@@ -1,191 +1,271 @@
-# DATA_MODEL_MVP1
+# DATA_MODEL_MVP1.MD
 
-**Project:** bpm_prediction\
-**Scope:** MVP1 (G_obs only)\
-**Purpose:** Formal data model specification for implementation.
+**Project:** bpm_prediction  
+**Scope:** MVP1 (G_obs only)  
+**Purpose:** Formal data model specification for implementation and strict layer boundaries.
 
-------------------------------------------------------------------------
+---
 
 ## 0. Canon & Naming Rules
+- Усі змінні використовують `snake_case`.
+- Канонічні назви строго відповідають `VARIABLES.MD`.
+- MVP1 оперує виключно `observed_graph` ($G_{obs}$).
 
--   All variables use snake_case.
--   Canonical names must match VARIABLES.MD.
--   MVP1 operates only on observed_graph (G_obs).
+> **Архітектурний коментар:** Ці правила діють наскрізно через усі шари системи.
 
-------------------------------------------------------------------------
+---
 
 ## 1. Attribute Tiering (Класифікація атрибутів)
 
 ### 1.1 Fundamental (System Core)
+Критичні ідентифікатори та поля впорядкування.
+- `case_id` — ID траси/кейсу (мапиться з XES через YAML-конфіг).
+- `activity_id` — назва/код активності.
+- `timestamp` — час події.
+- `position_in_trace` — позиція події у трасі (0-indexed, обчислюється).
+- `event_index` — стабільний детермінований хеш події.
 
-Critical identifiers and ordering fields:
+**Invariant:** Без цих полів побудова графа неможлива. Адаптер генерує виняток.
 
--   case_id - ID траси/кейсу (джерело: XES trace concept:name)
--   activity_id — назва/код активності (XES event concept:name)
--   timestamp — час події (XES time:timestamp)
--   position_in_trace — позиція події у трасі (обчислюється)
--   event_index - стабільний індекс події у межах траси (обчислюється)
+### 1.2 Base & Research (Standard BPM + Derived)
+Метрики виконання та похідні часові ознаки.
+- `process_version` (κ) — мітка версії процесу.
+- `case_type` — бізнес-варіант процесу.
+- `resource_id` — виконавець події.
+- `lifecycle_transition` — статус (`start`, `complete`).
+- `duration` — тривалість активності (float).
+- `time_since_case_start` — час від початку кейсу.
+- `time_since_previous_event` — час від попередньої події.
 
-Invariant: Without these fields graph construction is impossible.
-
-### 1.2 Base (Standard BPM)
-
--   duration
--   resource_id
-
-Must be available at time t (no leakage).
+**Invariant:** Base фічі не можуть порушувати Anti-Leakage Rule. Відсутні значення = `null` або `0.0`.
 
 ### 1.3 Custom (Disabled in MVP1)
-
-Business-specific fields (not part of node_features in MVP1).
+Доменні специфічні поля. У MVP1 існують лише як пасивні метадані.
 
 ### 1.4 Anti-Leakage Rule
+Ознака $f(t)$ має бути доступною на момент події $t$. Агрегати, що заглядають у майбутнє, суворо заборонені у всіх шарах.
 
-Any feature must be available at event time t.\
-No future-dependent aggregates allowed.
-
-------------------------------------------------------------------------
+---
 
 ## 2. Identification & Hierarchy
 
 ### 2.1 IDs in MVP1
+- `case_id` (Trace ID)
+- `event_id` (deterministic hash: `hash(case_id, position_in_trace, activity_id, timestamp)`)
+- `activity_id` (Activity template ID)
 
--   case_id (Trace ID)
--   event_id (deterministic hash)
--   activity_id (activity template ID)
+---
 
-Invariant: event_id must be reproducible.
+## 3. External Boundary Objects (Adapters Layer)
 
-------------------------------------------------------------------------
+> **Архітектурний коментар:** Об'єкти цього розділу існують виключно на етапі Data Ingestion. Domain Core про них нічого не знає.
 
-## 3. External Boundary Objects
+### 3.0 Adapter Configuration (Mapping Contract)
+Зовнішній конфігураційний файл, який керує мапінгом сирих XES-полів у канонічні для [EventRecord](#31-eventrecord).
+
+**Приклад `mapping_xes.yaml`:**
+```yaml
+dataset_name: "bpi_challenge_2015"
+trace_level:
+  case_id_key: "case:concept:name"
+  version_key: "case:municipality"    # Мапиться у process_version (κ)
+event_level:
+  activity_key: "concept:name"
+  timestamp_key: "time:timestamp"
+  resource_key: "org:resource"
+  lifecycle_key: "lifecycle:transition"
+```
 
 ### 3.1 EventRecord
-
-Normalized event from XES.
-
-Fields: - case_id - event_id - activity_id - timestamp - resource_id
-(optional) - duration (optional) - position_in_trace
+Нормалізована подія з XES після мапінгу та розрахунку похідних ознак.  
+**Fields:** Включає всі поля з 1.1 та 1.2.
 
 ### 3.2 RawTrace
+Впорядкований список подій одного кейсу.  
+**Fields:**
+- `case_id`: string
+- `events`: List[[EventRecord](#31-eventrecord)]
+- `trace_meta`: Dict (містить `process_version`, `case_type`)
 
-Ordered list of EventRecord.
+**Invariant:** Події відсортовані за `timestamp`.
 
-Fields: - case_id - events: List\[EventRecord\]
+---
 
-Invariant: events sorted by timestamp.
+## 4. Experiment-Level Objects (Application Layer)
 
-------------------------------------------------------------------------
+> **Архітектурний коментар:** Ці конфіги ініціалізують пайплайн навчання та тестування.
 
-## 4. Experiment-Level Objects
+### 4.0 Training & Evaluation Configuration
+Єдиний конфіг для запуску експериментів, який об'єднує [ExperimentConfig](#41-experimentconfig), [ModelConfig](#42-modelconfig) та [SplitConfig](#43-splitconfig).
+
+**Приклад `experiment_run.yaml`:**
+```yaml
+experiment:
+  name: "baseline_gnn_bpic2015"
+  dataset_name: "bpi_challenge_2015"
+  seed: 42
+  prefix_policy: "fixed_length"
+  prefix_length: 5
+  process_version: "kappa_1"
+split:
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+model:
+  model_type: "agent_critic_dual"
+  hidden_dim: 64
+  num_layers: 3
+  dropout: 0.2
+training:
+  batch_size: 128
+  learning_rate: 0.001
+  epochs: 50
+```
 
 ### 4.1 ExperimentConfig
-
-Fields: - dataset - seed - split_strategy - prefix_policy -
-prefix_length - process_version
+**Fields:** `dataset`, `seed`, `prefix_policy`, `prefix_length`, `process_version` (κ).
 
 ### 4.2 ModelConfig
-
-Fields: - model_type - hidden_dim - num_layers - dropout
+**Fields:** `model_type`, `hidden_dim`, `num_layers`, `dropout`.
 
 ### 4.3 SplitConfig
+**Fields:** `train_ratio`, `val_ratio`, `test_ratio`.  
+**Invariant:** Split виконується строго на рівні [RawTrace](#32-rawtrace) (по `case_id`), щоб уникнути витоку даних.
 
-Fields: - train_ratio - val_ratio - test_ratio - split_seed
+---
 
-Invariant: trace-level split only.
+## 5. Application DTO (Application Layer)
 
-------------------------------------------------------------------------
-
-## 5. Application DTO
+> **Архітектурний коментар:** Транзитні об'єкти для обміну між генератором префіксів, білдером графів та тренером.
 
 ### 5.1 PrefixSlice
-
-Fields: - case_id - prefix_events - prefix_length
+Нарізаний префікс однієї траси.  
+**Fields:**
+- `case_id`: string
+- `prefix_events`: List[[EventRecord](#31-eventrecord)]
+- `prefix_length`: int
 
 ### 5.2 PredictionRequest
-
-Fields: - process_version - prefix_slice
+Стандартизований запит на інференс.  
+**Fields:**
+- `process_version`: string (κ)
+- `prefix_slice`: [PrefixSlice](#51-prefixslice)
 
 ### 5.3 TrainingBatch
+Батч для навчання.  
+**Fields:**
+- `graph_batch`: PyTorch Geometric `Batch` (містить набір [GraphTensorContract](#62-graphtensorcontract)).
 
-Fields: - graph_batch (PyG Batch)
+---
 
-------------------------------------------------------------------------
+## 6. Domain Core Objects (Domain Layer)
 
-## 6. Domain Core Objects
+> **Архітектурний коментар:** Математичне ядро. Повна ізоляція від XES/Pandas. Оперує лише тензорами.
 
-### 6.1 InstanceGraph (observed_graph)
-
-Graph representation of prefix execution.
-
-Nodes: - activity_id - timestamp - resource_id - duration -
-position_in_trace
-
-Edges: - sequential_relation only
+### 6.1 InstanceGraph (observed_graph, $G_{obs}$)
+Графове подання виконаного префікса.  
+**Nodes:** `activity_id`, `timestamp`, `resource_id`, `duration`, `position_in_trace`.  
+**Edges:** Лише `sequential_relation`.
 
 ### 6.2 GraphTensorContract
+Строгий тензорний контракт для `forward()`.  
+**Required tensors:**
+- `x` (`node_features`): `[num_nodes, node_dim]`, float32
+- `edge_index`: `[2, num_edges]`, int64
+- `batch`: `[num_nodes]`, int64
+- `y`: `[batch_size]`, int64 (клас цільової активності)
 
-Required tensors:
+**Invariant:** Логіка формування `x` є ідентичною для train та inference.
 
--   x (node_features) \[num_nodes, node_dim\]
--   edge_index \[2, num_edges\]
--   batch \[num_nodes\]
--   y \[batch_size\]
+---
 
-Optional (MVP2+): - edge_attr - doc_features
+## 7. Modeling & Inference Objects (Domain Layer)
 
-Invariant: identical construction for train and inference.
-
-------------------------------------------------------------------------
-
-## 7. Modeling & Inference Objects
-
-### 7.1 GNNModel
-
-Input: graph_batch\
-Output: logits
+### 7.1 GNNModel (GNNModelPort)
+**Input:** [TrainingBatch](#53-trainingbatch)  
+**Output:** `logits`
 
 ### 7.2 FusionOperator (Γ)
-
-Input: prefix_embedding + context_embedding\
-Output: fused_representation
+**Input:** `prefix_embedding` + `context_embedding`  
+**Output:** `fused_representation`
 
 ### 7.3 ContextEmbedding
+Ембеддінг `process_version` (κ).
 
-Embedding of process_version (κ).
+### 7.4 ReliabilityModule
+**Output:** `confidence_score = max(softmax(logits))`
 
-### 7.4 MaskLayer (IdentityMask)
+---
 
-No-op in MVP1.
-
-### 7.5 Critic (NullCritic)
-
-No-op in MVP1.
-
-### 7.6 ReliabilityModule
-
-confidence_score = max(softmax(logits))
-
-------------------------------------------------------------------------
-
-## 8. Training Objects
+## 8. Training Objects (Application Layer)
 
 ### 8.1 LossBundle
-
-prediction_loss only in MVP1.
+У MVP1: лише `prediction_loss` (CrossEntropy).
 
 ### 8.2 MetricBundle
+**Required:** `accuracy`, `precision`, `recall`, `f1_score`, `train_loss`, `validation_loss`.
 
-Required: - accuracy - top_k\_accuracy - precision - recall - f1_score -
-confusion_matrix - train_loss - validation_loss - training_time
-
-------------------------------------------------------------------------
+---
 
 ## 9. Planned Placeholders (Inactive in MVP1)
+Зарезервовані сутності для MVP2/MVP3: `structural_mask`, `critic_loss`, `drift_signal`, `macro_stability_state`, `version_transition_operator`.
 
--   structural_mask
--   critic_loss
--   drift_signal
--   macro_stability_state
--   reliability_state
--   version_transition_operator
+---
+
+## 10. Target Enterprise Architecture (Vision for MVP2+)
+
+> **Note:** Цей розділ описує цільовий стан (Post-MVP1) і НЕ реалізується в межах MVP1.
+
+Система інтегруватиме лог виконання ($G_{obs}$), BPMN-структуру ($G_{struct}$) та схему даних ($G_{data}$) у єдиний нормативний простір (EPOKG).
+
+```mermaid
+flowchart TD
+    subgraph Execution Layer [Execution Layer (Dynamic)]
+        XESExec[XES Adapter]
+        CamExec[Camunda Adapter]
+    end
+
+    subgraph Structural Layer [Structural Layer (Static)]
+        BPMN[BPMN Parser]
+        Discovery[Process Discovery]
+    end
+
+    subgraph Knowledge Integration [Knowledge Fusion]
+        Gobs[G_obs: Observed Graph]
+        Gstruct[G_struct: Normative Graph]
+        Gdata[G_data: Data Schema]
+        EPOKG[EPOKG: Enterprise Knowledge Graph]
+    end
+
+    XESExec --> Gobs
+    CamExec --> Gobs
+    BPMN --> Gstruct
+    Discovery --> Gstruct
+    Gobs --> EPOKG
+    Gstruct --> EPOKG
+    Gdata --> EPOKG
+```
+
+---
+
+## 11. Object Composition Schema (Що є частиною чого)
+
+Діаграма відображає структурну залежність (композицію) об'єктів моделі даних.
+
+```mermaid
+classDiagram
+    %% Adapters & DTOs
+    RawTrace *-- EventRecord : contains (1..N)
+    PrefixSlice *-- EventRecord : contains (1..N)
+    PredictionRequest *-- PrefixSlice : wraps (1)
+    
+    %% Graph & Tensors
+    InstanceGraph *-- EventRecord : built from
+    GraphTensorContract *-- InstanceGraph : encoded from
+    TrainingBatch *-- GraphTensorContract : contains (1..N)
+    
+    %% Configs
+    ExperimentRunConfig *-- ExperimentConfig : contains
+    ExperimentRunConfig *-- ModelConfig : contains
+    ExperimentRunConfig *-- SplitConfig : contains
+```

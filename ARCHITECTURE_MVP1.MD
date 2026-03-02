@@ -174,6 +174,18 @@ sequenceDiagram
     Critic->>Reliability: validated logits
     Reliability->>Output: prediction + confidence
 ```
+## 4.3 End-to-End Pipeline
+```mermaid
+flowchart TD
+    Adapter --> RawTrace
+    RawTrace --> TracePreprocessor
+    TracePreprocessor --> PrefixPolicy
+    PrefixPolicy --> PrefixSlice
+    PrefixSlice --> InstanceGraph
+    InstanceGraph --> FeatureEncoder
+    FeatureEncoder --> GraphTensorContract
+    GraphTensorContract --> Model
+```
 
 # 5. Domain Model (MVP1)
 

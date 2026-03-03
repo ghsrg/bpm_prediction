@@ -61,8 +61,8 @@ class IXESAdapter(Protocol):
 **TracePreprocessor** Відповідає за очищення від шуму. У MVP1 може бути Identity-функцією (нічого не змінює), у MVP2 — видалятиме технічні події.
 ```python
 class ITracePreprocessor(Protocol):
-    def clean(self, trace: RawTrace) -> RawTrace:
-        """Видаляє шум, залишаючи валідні EventRecord."""
+    def process(self, raw_traces: Iterator[RawTrace]) -> List[RawTrace]: # Або EventLogBatch
+        """Виконує глобальне очищення логу та формує фінальний батч для нарізки."""
         ...
 ```
 

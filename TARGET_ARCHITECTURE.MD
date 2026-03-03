@@ -1,4 +1,5 @@
-# ARCHITECTURE.MD
+# TRAGET ARCHITECTURE.MD
+(Пункт призначення): Описує фінальний вигляд системи (з Критиком, Семафором і Фабрикою Моделей, яку ми щойно додали).
 
 ## 1) Призначення
 Цей документ описує цільову архітектуру `bpm_prediction` і синхронізований з:
@@ -30,7 +31,7 @@
 
 ### 4.1 Domain Layer (Entities + Science Core)
 Містить:
-- доменні сутності (`EventLog`, `ProcessGraph`, `TensorGraph`, `Prediction`, `DriftSignal`);
+- доменні сутності (RawTrace / PrefixSlice як заміна абстрактного `EventLog`, `InstanceGraph`, `GraphTensorContract`, `Prediction`, `DriftSignal`);
 - GNN-моделі прогнозування;
 - Actor–Critic/Constraint-Critic логіку;
 - OOD/drift-логіку і структурний regularization;
@@ -160,8 +161,21 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 
 ---
 
-## 12) Observability
-Мінімальний набір логування на `inference/evaluate`:
+## 12) Observability & Logging
+Для розуміння роботи системи та дебагу використовується структуроване логування.
+
+### 12.1 Console & File Logging (Cross-Cutting Concern)
+- **Бібліотека:** `loguru`.
+- **Архітектурне правило:** Логер є кроссекційною утилітою. Прямий імпорт `from loguru import logger` **дозволено у всіх шарах**, включаючи Domain Core.
+- **Конфігурація:** Налаштування форматів виводу та файлових ротацій (sinks) виконується одноразово на старті системи (у точці входу, наприклад, `cli.py`).
+- **Рівні логування:**
+  - `DEBUG`: розмірності тензорів, проміжні результати формування графів.
+  - `INFO`: старти епох, завантаження датасетів, метрики (Accuracy, OOS).
+  - `WARNING`: спрацювання семафора надійності (Yellow/Red mode), дрейф.
+  - `ERROR`: помилки валідації конфігів, збої пайплайну.
+
+### 12.2 Experiment Tracking
+Мінімальний набір логування на `inference/evaluate` (зберігається в MLflow або локальних файлах через `ITracker`):
 - `data_drift_score`
 - `concept_drift_score`
 - `wasserstein_drift`
@@ -170,6 +184,7 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 - Accuracy/F1/OOS (де застосовно)
 
 Логування виконується на кожному batch (або іншому атомарному кроці).
+Ті кроки, по яким очікується тривале виконання більше ніж 10 секунд повинні мати progressbar і далі ієрархічно по атомарим крокам також
 
 ---
 
@@ -248,21 +263,22 @@ end
 subgraph Application_Layer["Application / Use Cases"]
     TrainUC[Train Pipeline Use Case]
     InferUC[Inference Use Case]
-    EvalUC[Evaluation Use Case  - Research]
+    EvalUC[Evaluation Use Case - Research]
     RetrainUC[Retraining Use Case]
 end
 
 subgraph Domain_Layer["Domain Core (Pure Logic / Math)"]
-    EventLog[EventLog Entity]
-    EnrichedCase[Case Enrichment Model]
-    ProcessGraph[Process Graph Model]
-    TensorGraph[TensorGraph Representation]
-    Prediction[Prediction Entity]
-    DriftSignal[Drift Signal Model]
-    EPOKGBuilder[EPOKG Graph Builder]
+    RawTrace[RawTrace DTO]
+    PrefixPolicy[PrefixPolicy Module]
+    PrefixSlice[PrefixSlice DTO]
+    GraphBuilder[InstanceGraph Builder]
+    InstanceGraph[InstanceGraph Model]
     FeatureEncoder[Feature Encoding Pipeline]
-    AgentCritic[Agent–Critic GNN Module]
+    GraphTensorContract[GraphTensorContract]
+    AgentCritic[Agent-Critic GNN Module]
+    Prediction[Prediction Entity]
     DriftDetector[Drift Detection Module]
+    DriftSignal[Drift Signal Model]
     ReliabilityPolicy[Reliability & Semaphore Policy]
 end
 
@@ -304,33 +320,18 @@ EvalUC --> IReportWriter
 RetrainUC --> ITracker
 RetrainUC --> TrainUC
 
-TrainUC --> EventLog
-TrainUC --> EnrichedCase
-TrainUC --> EPOKGBuilder
-TrainUC --> FeatureEncoder
-TrainUC --> TensorGraph
-TrainUC --> AgentCritic
+%% Flow Application -> Domain
+TrainUC --> RawTrace
+InferUC --> RawTrace
 
-InferUC --> EventLog
-InferUC --> EnrichedCase
-InferUC --> EPOKGBuilder
-InferUC --> FeatureEncoder
-InferUC --> TensorGraph
-InferUC --> AgentCritic
-InferUC --> DriftDetector
-InferUC --> ReliabilityPolicy
-InferUC --> DriftSignal
-
-EvalUC --> AgentCritic
-EvalUC --> DriftDetector
-EvalUC --> Prediction
-
-EventLog --> EnrichedCase
-EnrichedCase --> EPOKGBuilder
-EPOKGBuilder --> ProcessGraph
-ProcessGraph --> FeatureEncoder
-FeatureEncoder --> TensorGraph
-TensorGraph --> AgentCritic
+%% Domain Data Flow
+RawTrace --> PrefixPolicy
+PrefixPolicy --> PrefixSlice
+PrefixSlice --> GraphBuilder
+GraphBuilder --> InstanceGraph
+InstanceGraph --> FeatureEncoder
+FeatureEncoder --> GraphTensorContract
+GraphTensorContract --> AgentCritic
 AgentCritic --> Prediction
 Prediction --> DriftDetector
 Prediction --> ReliabilityPolicy

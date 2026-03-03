@@ -164,7 +164,15 @@ training:
 
 ### 6.1 InstanceGraph (observed_graph, $G_{obs}$)
 Графове подання виконаного префікса.  
-**Nodes:** `activity_id`, `timestamp`, `resource_id`, `duration`, `position_in_trace`.  
+**Nodes:**  
+- `activity_id` (categorical)  
+- `timestamp` (Unix epoch float — вже нормалізовано в адаптері)  
+- `resource_id`  
+- `duration`  
+- `position_in_trace`  
+- `time_since_case_start`  
+- `time_since_previous_event`
+
 **Edges:** Лише `sequential_relation`.
 
 ### 6.2 GraphTensorContract

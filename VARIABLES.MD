@@ -79,8 +79,14 @@
 * **$\text{logits}$** | `logits` — Нормалізовані значення перед softmax.
 * **$\text{confidence}$** | `confidence_score` — Максимальна ймовірність після softmax.
 
+### 12. Data Structures Mapping
+- $e_i$ : `EventRecord` (Подія на індексі $i$).
+- $\sigma$ : `RawTrace` (Повна історія кейсу).
+- $\sigma_{\leq k}$ : `PrefixSlice` (Префікс траси до кроку $k$, де $e_{k+1}$ є цільовим $y$).
+- $G_{obs}$ : `InstanceGraph` (Граф, побудований на основі $\sigma_{\leq k}$).
+- $T$ : `GraphTensorContract` (Тензорне представлення графа $G_{obs}$ та структурної маски).
 
-### 12. Трекінг для експериментів (MLflow)
+### 13. Трекінг для експериментів (MLflow)
 * Для режимів `inference` та `evaluate` логувати в трекер (MLflow):
   - `data_drift_score`
   - `concept_drift_score`

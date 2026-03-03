@@ -18,16 +18,15 @@
 
 ### 2) Architecture / HLD
 - **[ARCHITECTURE_GUIDELINES.MD](./ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
-- **[ARCHITECTURE.MD](./ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[ARCHITECTURE_RULES.md](./ARCHITECTURE_RULES.md)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
-- **[DATA_FLOWS.MD](./DATA_FLOWS.MD)** — stage-by-stage Input/Output/Metadata потоки.
-- **[INTERFACE_CONTRACTS.MD](./INTERFACE_CONTRACTS.MD)** — контракти портів, ABC і canonical DTO.
-
+- **[TARGET_ARCHITECTURE.MD](./TARGET_ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
+- **[ARCHITECTURE_RULES.md](./ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
 
 ### 3) Data specifications
-- **[DATA_MODEL.MD](./DATA_MODEL.MD)** — модель даних і структури графів.
-- **[ADAPTER_CAMUNDA_SQL.MD](./ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
+- **[ARCHITECTURE_MVP1.MD](./ARCHITECTURE_MVP1.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
+- **[DATA_MODEL_MVP1.MD](./DATA_MODEL_MVP1.MD)** — опис моделі даних та їх труктурні залежності.
+- **[DATA_FLOWS_MVP1.MD](./DATA_FLOWS_MVP1.MD)** — контракти функції, та флоу даних.
 - **[ADAPTER_XES.MD](./ADAPTER_XES.MD)** — специфікація XES-адаптера.* 
+- **[ADAPTER_CAMUNDA_SQL.MD](./ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
 
 ### 4) Algorithm / Validation
 - **[LLD.MD](./LLD.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 
@@ -36,39 +35,6 @@
 ### 5) Legacy reference
 - **[etalon/README.md](./etalon/README.md)** — попередня реалізація (legacy baseline), використовується як референс.
 
-### 6) Статус актуалізації документації (поточний зріз)
-| Файл | Статус | Примітка |
-|---|---|---|
-| `README.MD` | IN_PROGRESS | Упорядкування ієрархії та правил Sprint A. |
-| `DOCUMENTATION_CONTROL.MD` | DONE | Master-трекер актуальний. |
-| `GLOSSARY.MD` | DONE | Узгоджено з дисертацією. |
-| `VARIABLES.MD` | DONE | Узгоджено з глосарієм/метриками. |
-| `ARCHITECTURE_GUIDELINES.MD` | DONE | Нормативи зафіксовані. |
-| `ARCHITECTURE.MD` | DONE | Цільовий профіль архітектури зафіксовано. |
-| `ARCHITECTURE_RULES.md` | IN_PROGRESS | Нормативи автоматизованого архітектурного контролю. |
-| `INTERFACE_CONTRACTS.MD` | IN_PROGRESS | Мінімальний HLD-комплект створено, потрібна деталізація. |
-| `DATA_FLOWS.MD` | IN_PROGRESS | Базові потоки й контракти описані, потрібна деталізація сценаріїв. |
-| `DATA_MODEL.MD` | TODO_REVIEW | Потребує ревізії на узгодження з новими DTO/flows. |
-| `ADAPTER_CAMUNDA_SQL.MD` | TODO_REVIEW | Потрібна синхронізація з контрактами DOC-007. |
-| `ADAPTER_XES.MD` | DRAFT | Мінімальна заглушка створена в DOC-007. |
-| `LLD.MD` | DRAFT | Каркас створено, деталізація після стабілізації HLD. |
-| `EVF.MD` | DRAFT | Каркас створено, деталізація експериментального контуру. |
-| `etalon/README.md` | LEGACY_REFERENCE | Референс попередньої реалізації. |
-
----
-
-## 🧭 Контроль оновлення документації
-
-Детальний план оновлення існуючих `.MD` (без створення нових файлів на цьому етапі) винесено в окремий документ: **[DOCUMENTATION_CONTROL.MD](./DOCUMENTATION_CONTROL.MD)**.
-
-### Операційні правила Sprint A (обов'язково)
-1. **Після кожного оновлення коду або архітектури** виконуємо перевірку, чи потрібні зміни в документації (`README.MD`, `ARCHITECTURE*.MD`, контракти, моделі даних).
-2. **Результати поточного аналізу не зберігаємо в окремі службові `.MD` файли** в репозиторії (щоб не заважали комітам). Оперативні висновки публікуємо в чаті.
-
-## 0. Статус реалізацій у репозиторії
-
-### Поточна цільова реалізація
-- Основна гілка документації та архітектурні контракти орієнтовані на цільовий профіль `ENTERPRISE_POC` з clean/hexagonal підходом (див. `ARCHITECTURE_GUIDELINES.MD` та `ARCHITECTURE.MD`).
 
 ### `etalon/` — попередня реалізація (reference baseline)
 - `etalon/` зафіксований як **попередня (legacy) реалізація**, яку використовуємо як референс.
@@ -90,7 +56,6 @@
 ### 1.2. Епістемічна впевненість та структурний дрейф (GAP 2.4.2)
 * **Проблема:** ML-моделі схильні до «галюцинацій» та помилкової впевненості при зміні регламентів (Structural Drift). Класичні системи не мають механізму самодіагностики меж власної компетенції в умовах еволюції підприємства.
 * **Рішення (Принцип Epistemic Caution):** Розробка **«Семафора надійності» (Reliability Semaphore)** на основі аналізу станів поза розподілом (Out-of-Distribution, OOD). Система використовує метрику відстані Вассерштейна ($\mathcal{W}_1$) для ідентифікації дрейфу та безпечної маршрутизації управління на експерта (Human-in-the-Loop).
-
 
 
 ### 1.3. «Жадібність» прогнозів та стратегічна цілісність (GAP 2.4.3)

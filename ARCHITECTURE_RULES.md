@@ -37,13 +37,16 @@ Forbidden:
 
 ## 5) Infrastructure leakage policy
 Domain layer must not import infrastructure technologies (examples):
-- `mlflow`
+- `mlflow` (tracking calls must go through `ITracker` port)
 - `neo4j`
 - `sqlalchemy`
 - `fastapi`
 - concrete adapter/pipeline modules
 
 No direct infrastructure types are allowed inside Domain contracts.
+
+**Exceptions (Cross-Cutting Concerns):**
+Standard libraries (`datetime`, `typing`, `math`), ML frameworks (`torch`, `torch_geometric`), and global cross-cutting utilities (`loguru`) are **ALLOWED** across all layers.---
 
 ---
 

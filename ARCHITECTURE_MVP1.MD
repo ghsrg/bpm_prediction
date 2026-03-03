@@ -61,27 +61,21 @@ flowchart TB
     subgraph Domain
         InstanceGraph[InstanceGraph]
         FeatureEncoder[FeatureEncoder]
-        FusionOperator[Γ Operator]
         GNNModel[GNNModelPort]
         Predictor[Predictor]
-        MaskLayer[MaskLayer]
-        Critic[Critic]
-        ReliabilityModule[ReliabilityModule]
     end
 
+    %% Data Flow
     XES --> XESAdapter
     XESAdapter --> TracePreprocessor
     TracePreprocessor --> PrefixPolicy
     PrefixPolicy --> GraphBuilder
     GraphBuilder --> InstanceGraph
     InstanceGraph --> FeatureEncoder
-    FeatureEncoder --> FusionOperator
-    FusionOperator --> GNNModel
+    FeatureEncoder --> GNNModel
     GNNModel --> Predictor
-    Predictor --> MaskLayer
-    MaskLayer --> Critic
-    Critic --> ReliabilityModule
-    ReliabilityModule --> Evaluator
+    Predictor --> Trainer
+    Predictor --> Evaluator
 ```
 
 ### Пояснення шарів

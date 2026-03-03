@@ -251,8 +251,8 @@ classDiagram
     }
     
     class InstanceGraph {
-        +nodes: List
-        +edges: List
+        +nodes: EventRecord[]
+        +edges: Tuple~Int, Int~[]
     }
     
     class GraphTensorContract {

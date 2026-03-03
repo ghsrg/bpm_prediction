@@ -7,7 +7,11 @@ Mode: EXPERIMENT
 
 # 1. Scope
 
-## 1.1 Mathematical Scope Clarification
+### 1.1 Mathematical Scope Clarification
+
+MVP1 реалізує **нативне графове подання** ($G_{obs}$) як фундаментальне рішення проблеми **топологічної невідповідності** (розділ 1.1.1 дисертації).  
+Він усуває лінеаризацію паралелізму та втрату long-term dependencies, що притаманні sequence-based та image-based моделям.  
+Це створює чистий baseline для подальшого порівняння з семантично збагаченими графами (MVP2+).
 
 MVP1 operates strictly on the observed execution graph:
 
@@ -35,6 +39,17 @@ MVP1 використовується для:
 - створення контрольної точки перед структурним збагаченням (MVP2).
 
 Це фундамент, без якого неможливо обґрунтувати подальші ускладнення.
+
+---
+
+### 1.3 Algorithmic Constraints from Tragets Architecture for MVP1
+
+- Reliability Semaphore (Mahalanobis + Wasserstein + P_diag) — НЕ реалізується в MVP1  
+- Динамічний β-релаксація — НЕ реалізується в MVP1  
+- Trust-Aware Inference — НЕ реалізується в MVP1 (тільки logits)  
+- Prioritized Experience Replay — НЕ реалізується в MVP1 (звичайний DataLoader)  
+
+Усе це з’явиться в MVP2+ (Reliability Layer та Version Control Layer).
 
 ---
 

@@ -175,6 +175,8 @@ training:
 
 **Edges:** Лише `sequential_relation`.
 
+MVP1 готує InstanceGraph як підграф $G_\sigma \subseteq G^{(\kappa)}$ для майбутнього вкладення в EPOKG.
+
 ### 6.2 GraphTensorContract
 Строгий тензорний контракт для `forward()`.  
 **Required tensors:**

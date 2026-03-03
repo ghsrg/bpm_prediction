@@ -128,3 +128,10 @@ class IGNNModelPort(Protocol):
 3. `IFeatureEncoder` $\to$ `GraphTensorContract`.
 4. `IGNNModelPort.forward()` (в режимі `eval()`, без бекпропагації) $\to$ логіти.
 5. Розподіл `softmax` та вибір активності з найбільшим `confidence_score`.
+
+### 3.3 Future Extension (MVP2+)
+
+- Додати ReliabilitySemaphore → повертає (s_micro, s_macro, P_diag, M_gap)
+- Додати динамічний β в loss: loss = L_task + β(t) * L_reg
+- Додати PrioritizedExperienceReplay для фонового донавчання
+- Forward повертає не тільки ŷ, а й O = (ŷ, Trust Score)

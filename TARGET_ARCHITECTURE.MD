@@ -31,13 +31,19 @@
 
 ### 4.1 Domain Layer (Entities + Science Core)
 Містить:
-- доменні сутності (RawTrace / PrefixSlice як заміна абстрактного `EventLog`, `InstanceGraph`, `GraphTensorContract`, `Prediction`, `DriftSignal`);
+- доменні сутності (`RawTrace`, `PrefixSlice`, `InstanceGraph`, `GraphTensorContract`, `Prediction`);  
+- EPOKG як вирішення онтологічного розриву (Ontological Gap) — інтеграція нормативних обмежень та compliance rules у графову структуру.
 - GNN-моделі прогнозування;
 - Actor–Critic/Constraint-Critic логіку;
 - OOD/drift-логіку і структурний regularization;
 - функції втрат (`loss_task`, `loss_reg`) і контроль `beta_relax`.
 
 Domain оперує лише тензорами/доменними DTO і **не має прямих залежностей** від Neo4j, MSSQL, MLflow, REST/CLI.
+
+**Наукове обґрунтування:**
+- **EPOKG** — реалізує принцип структурної обізнаності (Structural Awareness) та усуває онтологічний розрив (Ontological Gap), інтегруючи нормативні обмеження, compliance rules та версійність (κ) у єдиний графовий простір.
+- **Knowledge-Infusion Operator (Γ)** — забезпечує злиття емпіричного префіксу ($G_{obs}$) з глобальним нормативним контекстом ($H^{(\kappa)}$), реалізуючи Zero-Shot Structural Adaptation при мінорному дрейфі та Few-Shot Adaptation при мажорному.
+- **Single Generalized Model** — єдина параметрична модель $\theta_{base}$ з conditioning на версію $\kappa$, що запобігає фрагментації знань та катастрофічному забуванню.
 
 ### 4.2 Application Layer (Use Cases)
 - Use cases: `Train Pipeline`, `Inference`, `Evaluation (Research Mode)`, `Retraining`;
@@ -133,6 +139,22 @@ fusion_repr = self.knowledge_infusion_operator(local_state_vec, global_context_v
 де:
 - `local_state_vec` (`h_\sigma`) — локальний стан кейсу;
 - `global_context_vec` (`c_\sigma`) — глобальний контекст із EPOKG.
+
+**Наукове обґрунтування:** Оператор Γ реалізує **knowledge injection**, усуваючи онтологічну неповноту репрезентації. Він забезпечує Zero-Shot Structural Adaptation при переході між версіями регламентів, як описано в динамічному розриві (Dynamic Gap).
+
+### 9.1 Fusion Operator Γ та динамічна регуляризація
+
+**Математика:**
+z_fused = δ( W_f [h_σ ∥ c_σ] + b_f )
+
+**Динамічна регуляризація β:**
+β^(t) = β₀ · max(0, 1 - W₁^(t) / τ_W)
+
+- β₀ — базова вага регуляризатора (стабільний режим)
+- W₁ — 1-Wasserstein між P^(κ) та P_window
+- τ_W — поріг макро-дрейфу
+
+Коли W₁ → τ_W, β → 0 → модель може вільно адаптуватися до нового режиму.
 
 ---
 

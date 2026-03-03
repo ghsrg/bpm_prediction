@@ -248,7 +248,7 @@ end
 subgraph Application_Layer["Application / Use Cases"]
     TrainUC[Train Pipeline Use Case]
     InferUC[Inference Use Case]
-    EvalUC[Evaluation Use Case - Research]
+    EvalUC[Evaluation Use Case  - Research]
     RetrainUC[Retraining Use Case]
 end
 

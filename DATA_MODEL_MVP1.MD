@@ -219,13 +219,15 @@ training:
 ```mermaid
 classDiagram
     class EventRecord {
+        %% --- Mandatory ---
         +String case_id
         +String activity_id
         +Datetime timestamp
         +Int position_in_trace
         +String event_index
-        +String resource_id
-        +String lifecycle_transition
+        %% --- Optional / Calculated (Base & Research) ---
+        +Optional~String~ resource_id
+        +Optional~String~ lifecycle_transition
         +Float duration
         +Float time_since_case_start
         +Float time_since_previous_event
@@ -234,7 +236,7 @@ classDiagram
     class RawTrace {
         +String case_id
         +List~EventRecord~ events
-        +Dict trace_meta
+        +Dict trace_meta  %% Містить process_version (kappa) та case_type
     }
     
     class PrefixSlice {

@@ -219,79 +219,79 @@ training:
 ```mermaid
 classDiagram
     class EventRecord {
-        %% --- Mandatory ---
-        +String case_id
-        +String activity_id
-        +Datetime timestamp
-        +Int position_in_trace
-        +String event_index
-        %% --- Optional / Calculated (Base & Research) ---
-        +Optional~String~ resource_id
-        +Optional~String~ lifecycle_transition
-        +Float duration
-        +Float time_since_case_start
-        +Float time_since_previous_event
+        %% --- Fundamental (Mandatory) ---
+        +case_id: String
+        +activity_id: String
+        +timestamp: Datetime
+        +position_in_trace: Int
+        +event_index: String
+        %% --- Base & Research (Optional / Calculated) ---
+        +resource_id: String?
+        +lifecycle_transition: String?
+        +duration: Float
+        +time_since_case_start: Float
+        +time_since_previous_event: Float
     }
     
     class RawTrace {
-        +String case_id
-        +List~EventRecord~ events
-        +Dict trace_meta  %% Містить process_version (kappa) та case_type
+        +case_id: String
+        +events: EventRecord[]
+        +trace_meta: Dict
     }
     
     class PrefixSlice {
-        +String case_id
-        +List~EventRecord~ prefix_events
-        +Int prefix_length
+        +case_id: String
+        +prefix_events: EventRecord[]
+        +prefix_length: Int
     }
     
     class PredictionRequest {
-        +String process_version
-        +PrefixSlice prefix_slice
+        +process_version: String
+        +prefix_slice: PrefixSlice
     }
     
     class InstanceGraph {
-        +List nodes
-        +List edges
+        +nodes: List
+        +edges: List
     }
     
     class GraphTensorContract {
-        +Tensor x
-        +Tensor edge_index
-        +Tensor batch
-        +Tensor y
+        +x: Tensor
+        +edge_index: Tensor
+        +batch: Tensor
+        +y: Tensor
     }
     
     class TrainingBatch {
-        +Batch graph_batch
+        +graph_batch: Batch
     }
 
     class ExperimentRunConfig {
-        +ExperimentConfig experiment
-        +SplitConfig split
-        +ModelConfig model
-        +Dict training
+        +experiment: ExperimentConfig
+        +split: SplitConfig
+        +model: ModelConfig
+        +training: Dict
     }
 
     class ExperimentConfig {
-        +String dataset
-        +Int seed
-        +String prefix_policy
-        +Int prefix_length
-        +String process_version
+        +dataset: String
+        +seed: Int
+        +prefix_policy: String
+        +prefix_length: Int
+        +process_version: String
     }
 
     class ModelConfig {
-        +String model_type
-        +Int hidden_dim
-        +Int num_layers
-        +Float dropout
+        +model_type: String
+        +hidden_dim: Int
+        +num_layers: Int
+        +dropout: Float
     }
 
     class SplitConfig {
-        +Float train_ratio
-        +Float val_ratio
-        +Float test_ratio
+        +train_ratio: Float
+        +val_ratio: Float
+        +test_ratio: Float
     }
 
     %% Adapters & DTOs

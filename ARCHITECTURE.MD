@@ -671,3 +671,70 @@ bpm_prediction/
 - Локально: `reports/`.
 - У трекері: artifacts в MLflow (або сумісному tracker).
 
+---
+
+## 22) Extensibility: ML Model Registry & Factory Pattern
+
+Для дотримання **Open/Closed Principle (OCP)** при розробці нових архітектур нейромереж (GCN, GAT, Agent-Critic) система використовує патерн динамічного реєстру.
+
+### 22.1 Правила розширення математичного ядра (Core)
+1. **Заборонено:** Хардкодити імпорти конкретних моделей у файлах пайплайнів (наприклад, `train_pipeline.py`).
+2. **Заборонено:** Використовувати стастичні словники (`MODEL_MAP`) або `if/else` для маршрутизації типів моделей.
+3. **Обов'язково:** Кожна нова GNN-модель створюється в окремому файлі у `src/core/models/`, і реєструє себе через декоратор `@register_model("name")`.
+4. **Жорсткий контракт ініціалізації (__init__):** Всі моделі повинні приймати строго визначений набір параметрів із `ModelConfig`. Будь-які специфічні для архітектури гіперпараметри повинні передаватися через `**kwargs` або оброблятися всередині.
+5. **Жорсткий контракт виконання (forward):** Всі моделі приймають єдиний об'єкт `TrainingBatch` і повертають тензор логітів.
+
+**Еталонний інтерфейс (Port), якого мають дотримуватись усі моделі:**
+```python
+class IGNNModelPort(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int, num_layers: int, dropout: float, num_classes: int, **kwargs):
+        """Контракт конструктора єдиний для ВСІХ архітектур."""
+        super().__init__()
+        ...
+
+    def forward(self, batch: TrainingBatch) -> torch.Tensor:
+        """Контракт forward єдиний для ВСІХ архітектур."""
+        ...
+```
+### 22.2 Механіка інстанціювання (Factory)
+Пайплайн навчання та інференсу не знає про конкретні класи моделей. Він взаємодіє виключно з Фабрикою, передаючи їй текстовий ідентифікатор із конфігурації (наприклад, `architecture_type: "agent_critic_dual"`).
+
+```mermaid
+classDiagram
+    class IGNNModelPort {
+        <<Interface>>
+        +forward(batch: TrainingBatch) Tensor
+    }
+    
+    class ModelFactory {
+        -Dict registry
+        +register(name: String)
+        +create(config: ModelConfig) IGNNModelPort
+    }
+    
+    class BaselineGNN {
+        +forward()
+    }
+    
+    class AgentCriticGNN {
+        +forward()
+    }
+    
+    IGNNModelPort <|.. BaselineGNN : implements
+    IGNNModelPort <|.. AgentCriticGNN : implements
+    ModelFactory --> IGNNModelPort : creates via registry
+```
+
+**Приклад контракту для агента-розробника:**
+```python
+# 1. Створення нової моделі (src/core/models/agent_critic.py)
+from src.core.interfaces.model_port import IGNNModelPort
+from src.core.registry import register_model
+
+@register_model("agent_critic_dual")
+class AgentCriticGNN(IGNNModelPort):
+    ...
+
+# 2. Виклик у пайплайні (src/pipeline/trainer.py)
+model = ModelFactory.create(config.architecture_type) # Динамічне підключення
+```

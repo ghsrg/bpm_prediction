@@ -6,32 +6,33 @@ This document makes Clean Architecture + Hexagonal rules **enforceable** for `bp
 ---
 
 ## 2) Layer responsibilities
-- **Domain (`src/core/`)**: pure business/scientific logic, entities, policies, interfaces.
-- **Application (`src/pipeline/`)**: use-case orchestration and workflow coordination.
-- **Adapters (`src/adapters/`)**: infrastructure implementations for DB, API, tracking, reporting.
+- **Domain (`src/domain/`)**: pure business/scientific logic, entities (DTOs like `RawTrace`, `EventRecord`), and domain services (Feature Engineering, Prefix Policy).
+- **Application (`src/application/`)**: use-case orchestration (Trainer, Evaluator) and interface definitions (Ports).
+- **Adapters (`src/adapters/`)**: infrastructure implementations for DB, API, tracking, reporting (e.g., `XESAdapter`, `MLflowTracker`).
 - **Frameworks & Drivers**: external systems and runtimes.
 
 ---
 
 ## 3) Allowed dependency directions
-- `src/core/` → standard libs, math/ML libs, internal core modules only.
-- `src/pipeline/` → `src/core/interfaces/` (ports) only.
-- `src/adapters/` → infrastructure libraries + `src/core/interfaces/`.
+- `src/domain/` → standard libs, math/ML libs, internal domain modules only. MUST NOT import `application` or `adapters`.
+- `src/application/` → depends on `src/domain/` (entities/services) and standard libs. MUST NOT import `adapters`.
+- `src/adapters/` → infrastructure libraries + `src/application/ports/` + `src/domain/entities/`.
 - Dependency inversion is mandatory:
-  - Application depends on Ports.
-  - Adapters implement Ports.
+  - Application defines Ports (`src/application/ports/`).
+  - Adapters implement those Ports.
 
 Forbidden:
-- Domain importing adapters/pipeline.
-- Pipeline importing concrete adapters.
-- Adapters importing concrete pipeline logic.
+- Domain importing adapters/application.
+- Application importing concrete adapters.
+- Adapters importing concrete application use-cases.
 
 ---
 
 ## 4) Ports rules
-- All ports live in `src/core/interfaces/`.
+- All ports live in `src/application/ports/`.
+- Defined using Python's `typing.Protocol` (e.g., `IXESAdapter`).
 - All outbound interactions from Application must go through those ports.
-- Concrete adapters must inherit from corresponding interface classes.
+- Concrete adapters (`src/adapters/`) must implement these protocol interfaces implicitly or explicitly.
 
 ---
 

@@ -7,19 +7,13 @@
 Специфікація адаптера (Ingestion Layer) для читання сирих журналів подій (XES/CSV/MXML) та їх конвертації у канонічні DTO (`RawTrace`, `EventRecord`) перед передачею в Domain Layer.
 
 ## 3. Мінімальні вимоги (Requirements)
-1. **Підтримка форматів:** Читання `.xes` (нативно, потоково) та `.mxml` (через конвертацію `pm4py` під капотом).
-2. **Динамічний мапінг:** Використання `mapping.yaml` для гнучкого мапінгу колонок.
-3. **XES Fallbacks & Classifiers:**
+3.1. **Підтримка форматів:** Читання `.xes` (нативно, потоково) та `.mxml` (через конвертацію `pm4py` під капотом).
+3.2. **Динамічний мапінг:** Використання конфігурації (наприклад, `mapping.yaml`) для гнучкого мапінгу колонок.
+3.3. **Версіонування (κ):** Пріоритет пошуку версії процесу: `event-level` -> `trace-level` -> `log-level` -> `filename` -> значення `"default"`.
+3.4. **Ізоляція:** Адаптер не створює графи і не перетворює дані на тензори. Він видає виключно плоскі DTO.
+3.5. **XES Fallbacks & Classifiers:**
    - Якщо `mapping.yaml` не задає ключі, адаптер використовує стандарт IEEE XES 2.0: `concept:name` (activity), `time:timestamp` (time), `org:resource` (resource), `lifecycle:transition` (lifecycle).
-   - Підтримка злиття через `<classifier>` (наприклад, `activity_id = concept:name + lifecycle:transition`), що є стандартом для логів BPI Challenge.
-4. **Версіонування (κ):** Пріоритет пошуку версії процесу: `event-level` -> `trace-level` -> `log-level` -> `filename` -> значення `"default"`.
-5. **Ізоляція:** Адаптер не створює графи і не перетворює дані на тензори. Він видає виключно плоскі DTO.
-
-6. **XES Fallbacks & Classifiers:**
-   - Якщо `mapping.yaml` не задає ключі, адаптер використовує стандарт IEEE XES 2.0: `concept:name` (activity), `time:timestamp` (time), `org:resource` (resource), `lifecycle:transition` (lifecycle).
-   - **Classifier handling:** Якщо в лозі є елемент `<classifier name="Activity">` (або інший), то `activity_id` береться з значення classifier (найчастіше це `concept:name + lifecycle:transition`, наприклад "Submit order+complete").  
-     Якщо classifier відсутній — `activity_id = значення activity_key` (зазвичай `concept:name`), а `lifecycle` зберігається окремо.
-   - Це забезпечує коректну роботу з логами BPI Challenge, IEEE Contest тощо.
+   - **Правило обробки Classifier:** Якщо в конфігурації вказано `use_classifier: true`, парсер перевіряє наявність тегу `<classifier>` на рівні `<log>`. Якщо classifier існує — значення `activity_id` береться з нього (наприклад, конкатенація `concept:name` + `lifecycle:transition`). Якщо classifier відсутній або `use_classifier: false` — використовується fallback на поле, вказане в `activity_key`. Це забезпечує коректну роботу з логами BPI Challenge.
 
 ## 4. Жорсткі інваріанти парсингу та розрахунків
 
@@ -41,16 +35,15 @@
 ### 4.2.1 Duration pairing rules (якщо lifecycle присутній)
 
 Для розрахунку `duration` в `EventRecord` (тільки для завершальних подій):
-- Якщо є атрибут `lifecycle:instance` або `concept:instance` — pairing виконується за комбінацією `activity_id + instance_id` (найточніший варіант).
-- Якщо instance відсутній — pairing за `activity_id + resource_id` (якщо resource є).
-- Якщо resource теж відсутній — pairing за `activity_id` (FIFO або LIFO — беремо останній непарений `start` перед `complete`).
-- Правила пріоритету pairing (за замовчуванням):
-  1. Останній `start` перед `complete` (LIFO — найпоширеніший у реальних логах).
-  2. Якщо кілька `start` без `complete` — вони ігноруються.
-  3. Якщо `complete` без відповідного `start` — `duration = 0.0`.
-  4. Від'ємні значення блокуються: `duration = max(0.0, end_time - start_time)`.
-
-Ці правила забезпечують сумісність з більшістю реальних логів (BPI Challenge, hospital, finance тощо).
+- **Стратегія by_instance:** Ключем є `(activity_id, activity_instance_id)`. Якщо атрибут `activity_instance_id` (з `lifecycle:instance` або `concept:instance`) порожній або відсутній — виконується автоматичний fallback на базову стратегію (LIFO або FIFO).
+- **Стратегії LIFO / FIFO:** Композитним ключем є `(activity_id, resource_id)`. Якщо ресурс відсутній, ключем стає просто `(activity_id)`.
+- Правила вирішення колізій (edge-cases):
+  1. Останній `start` перед `complete` (LIFO) є найпоширенішим у реальних логах.
+  2. Якщо знайдено подію `complete`, але в черзі для цього ключа немає відповідної події `start` (unmatched complete) $\to$ `duration = 0.0`.
+  3. Якщо кілька `start` без `complete` $\to$ вони ігноруються.
+  4. Через асинхронність записів різниця між `end` та `start` може бути від'ємною. Завжди застосовувати кліпінг: `duration = max(0.0, end_time - start_time)`.
+  
+---
 
 ### 4.3. Вирішення колізій та життєвих циклів (Event Deduplication)
 - **Stable Sorting (Tie-breaker):** При однаковому `timestamp`, вторинним ключем сортування є оригінальний порядковий номер (index) у сирому файлі. Гарантує 100% детермінованість між запусками.
@@ -69,6 +62,8 @@
   Якщо потрібно — список "завершальних" transition можна налаштувати в `mapping.yaml` (наприклад: `complete_transitions: ["complete", "ate_abort", "manualskip", "autoskip"]`).
 
   Якщо поля `lifecycle:transition` взагалі немає — кожна подія вважається атомарною (`duration = 0.0`).
+
+- **Збереження контексту (Flattening):** Згідно з еталонною схемою, втрата даних недопустима. Усі атрибути подій та трас, які не потрапили до основного мапінгу, мають бути сплющені. Вкладені атрибути записуються як `parent.child`. Сплющені атрибути події йдуть у словник `EventRecord.extra`, атрибути траси — у `RawTrace.trace_attributes`. Атрибут `process_version` (або `concept:version` на рівні траси) є обов'язковим; якщо він відсутній, встановлюється значення `"default"`.
 
 - **Підготовка до об’єктно-центричного рівня (OCEL):**  
 Адаптер зберігає всі `extra` атрибути подій та `trace_attributes` саме для підтримки майбутнього переходу до Object-Centric Process Graphs (OCPG). Це дозволяє без перепарсингу перейти від InstanceGraph до повноцінного EPOKG.
@@ -125,14 +120,24 @@ xes_adapter:
 
 ```
 
-**7. Контракти виконання**
+## 7. Контракти виконання
+
+**Інтерфейс-порт (у `src/application/ports/`):**
+```python
+from typing import Protocol, Iterator, Dict, Any
+from src.domain.entities.raw_trace import RawTrace
+
+class IXESAdapter(Protocol):
+    def read(self, file_path: str, mapping_config: Dict[str, Any]) -> Iterator[RawTrace]:
+        ...
+```
 
 **Input:** file_path: str, mapping_config: dict
+**Output:** Iterator[RawTrace] (Генератор для потокової обробки. Запобігає OOM (Out Of Memory). Матеріалізація в List, якщо потрібно, робиться на рівні Use Case).
 
-**Output:** Iterator[RawTrace] (Генератор для потокової обробки, дозволяє кешування на рівні Application Layer).
+**Парсинг:** Обов'язкове використання потокового читання (наприклад, lxml.etree.iterparse). Після обробки тегу <trace>, обов'язково викликати elem.clear() та очищати попередні siblings, щоб не ріс memory footprint. Завантажувати весь XML-документ у пам'ять (DOM) СУВОРО ЗАБОРОНЕНО.
 
-**Парсинг:** Обов'язкове використання потокового читання (наприклад, lxml.etree.iterparse або Rust-парсер). Заборонено завантажувати весь XML-документ у пам'ять (DOM).
-
-**Errors & Logging:** - logger.error: невалідні XML/XES схеми.
-logger.warning: пропущені биті події.
-logger.info: після парсингу обов'язковий підсумковий запис: "Processed X traces, Y events, Z skipped".
+**Errors & Logging:** 
+- logger.error: невалідні XML/XES схеми.
+- logger.warning: пропущені биті події (наприклад, без timestamp).
+- logger.info: після парсингу обов'язковий підсумковий запис: "Processed X traces, Y events, Z skipped".

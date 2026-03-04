@@ -52,9 +52,16 @@ flowchart TD
 
 **XESAdapter** Відповідає за парсинг сирого логу з урахуванням `mapping.yaml` та розрахунок базових ознак (duration, time_since_previous).
 ```python
+from typing import Protocol, Iterator, Dict, Any
+from src.domain.entities.raw_trace import RawTrace
+
 class IXESAdapter(Protocol):
-    def read(self, file_path: str, mapping_config: dict) -> List[RawTrace]:
-        """Конвертує лог у список нормалізованих трас."""
+    def read(self, file_path: str, mapping_config: Dict[str, Any]) -> Iterator[RawTrace]:
+        """
+        Потокове читання XES файлу. 
+        Повертає Iterator (генератор) для запобігання переповненню пам'яті (OOM).
+        Матеріалізація в List, якщо потрібно, робиться на рівні Use Case.
+        """
         ...
 ```
 

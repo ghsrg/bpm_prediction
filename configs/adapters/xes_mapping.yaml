@@ -1,0 +1,13 @@
+# configs/adapters/xes_mapping.yaml
+xes_adapter:
+  case_id_key: "concept:name"
+  activity_key: "concept:name"
+  timestamp_key: "time:timestamp"
+  resource_key: "org:resource"
+  lifecycle_key: "lifecycle:transition"
+  version_key: "concept:version"       
+  extra_event_fields: "*"
+  extra_trace_fields: "*"
+  complete_transitions: ["complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+  pairing_strategy: "lifo"
+  use_classifier: true

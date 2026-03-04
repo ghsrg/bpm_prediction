@@ -14,7 +14,7 @@
 - **[README.MD](./README.MD)** — головна точка входу, контекст дослідження, поточні правила.
 - **[DOCUMENTATION_CONTROL.MD](./DOCUMENTATION_CONTROL.MD)** — master-трекер оновлень, канбан, статус DOC-етапів.
 - **[Глосарій (GLOSSARY.MD)](./GLOSSARY.MD)** — терміни предметної області.
-- **[Змінні (VARIABLES.MD)](./VARIABLES.MD)** — канон позначень і змінних математичної моделі.
+- **[Змінні (VARIABLES.MD)](./VARIABLES.MD)** — канон позначень і змінних з математичної моделі.
 
 ### 2) Architecture / HLD
 - **[ARCHITECTURE_GUIDELINES.MD](./ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.

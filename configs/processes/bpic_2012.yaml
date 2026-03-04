@@ -1,0 +1,15 @@
+# configs/processes/bpic_2012.yaml
+process_name: "BPI_Challenge_2012"
+features:
+  categorical:
+    - "activity_id"
+    - "resource_id"
+  continuous:
+    - "duration"
+    - "time_since_case_start"
+    - "time_since_previous_event"
+    - "amount"                       # Приклад з extra payload
+  ignore:
+    - "lifecycle"                    
+time_encoding:
+  method: "z_score"                  # MVP1: z_score. MVP2: time2vec

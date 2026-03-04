@@ -645,29 +645,53 @@ stateDiagram-v2
 
 ```text
 bpm_prediction/
+├── configs/                   # Усі конфігурації (YAML)
+│   ├── adapters/              # Налаштування для Data Ingestion
+│   │   └── xes_mapping.yaml   # Правила мапінгу колонок для XESAdapter
+│   ├── processes/             # Налаштування ознак (Feature Engineering) під датасет
+│   │   └── bpic_2012.yaml     # Які колонки категоріальні, які неперервні
+│   └── model_params.yaml      # Гіперпараметри нейромережі (lr, hidden_dim, батчі)
+├── data/                      # Локальні дані (ОБОВ'ЯЗКОВО додати в .gitignore)
+│   ├── raw/                   # Сирі логи (.xes, .csv)
+│   ├── processed/             # Згенеровані графи та тензори (.pt)
+│   └── checkpoints/           # Локальні збереження ваг моделі
+├── reports/                   # Згенеровані матриці помилок, графіки для дисертації
 ├── src/
-│   ├── core/                  # Domain Math (без інфраструктурних залежностей)
-│   │   ├── models/            # GNN, Agent, Critic (PyTorch)
-│   │   ├── semaphore/         # OOD math, Wasserstein, Thresholds
-│   │   └── interfaces/        # Abstract Base Classes (Ports)
-│   ├── adapters/              # Infrastructure
-│   │   ├── data/              # camunda7_mssql_adapter, xes_adapter, neo4j_storage
-│   │   ├── api/               # rest_api_adapter
-│   │   ├── tracking/          # mlflow_tracker
-│   │   └── reporting/         # report_writer, chart_exporter
-│   ├── pipeline/              # Orchestration (Stages)
-│   │   ├── ingestion_router.py
-│   │   ├── graph_builder.py
-│   │   ├── data_converter.py
-│   │   ├── tensor_adapter.py
-│   │   ├── trainer.py
-│   │   ├── evaluator.py
-│   │   └── report_builder.py
-│   └── cli.py                 # Entry point (--mode train/evaluate/infer)
-├── data/                      # Local cache (.pt files, raw logs)
-├── reports/                   # Tables/plots for dissertation section 4
-├── tests/
-└── ARCHITECTURE.MD
+│   ├── domain/                # Чиста математика та бізнес-логіка (Без інфраструктури!)
+│   │   ├── entities/          # DTO: EventRecord, RawTrace, PrefixSlice, GraphTensorContract
+│   │   ├── services/          # Сервіси: PrefixPolicy, FeatureEncoder, GraphBuilder
+│   │   └── models/            # BaselineGNN (MVP1)
+│   ├── application/           # Оркестрація та Use Cases
+│   │   ├── ports/             # Інтерфейси: IXESAdapter, ITracker, IGNNModelPort
+│   │   └── use_cases/         # trainer.py, evaluator.py
+│   ├── adapters/              # Інфраструктура (Реалізація портів)
+│   │   ├── ingestion/         # xes_adapter.py
+│   │   └── tracking/          # mlflow_adapter.py
+│   └── cli.py                 # Точка входу (--mode train/evaluate)
+├── tests/                     # Unit та інтеграційні тести
+# --- ДОКУМЕНТАЦІЯ ТА КОНТРАКТИ (Джерело правди) ---
+├── README.MD                      # Головний опис проєкту
+├── AGENT_GUIDE.md                 # Головна інструкція для ШІ (ЦЕЙ ФАЙЛ)
+├── ARCHITECTURE_GUIDELINES.MD     # Конституція архітектури, незмінні правила
+├── ARCHITECTURE_RULES.md          # Жорсткі правила залежностей і заборон
+├── TARGET_ARCHITECTURE.MD         # Цільова архітектура (ENTERPRISE_POC)
+├── ARCHITECTURE_MVP1.MD           # Архітектура поточної фази (MVP1)
+├── DATA_MODEL_MVP1.MD             # Канонічні DTO та структура даних
+├── DATA_FLOWS_MVP1.MD             # Контракти сервісів і потоки даних
+├── ADAPTER_XES.MD                 # Специфікація парсингу логів XES
+├── ADAPTER_CAMUNDA_SQL.MD         # Специфікація парсингу з Camunda (для майбутніх фаз)
+├── LLD_MVP1.MD                    # Математичне ядро та дизайн GNN
+├── EVF_MVP1.MD                    # Фреймворк тестування (Temporal Split, MLflow)
+├── GLOSSARY.MD                    # Канон термінів
+├── VARIABLES.MD                   # Математичні позначення та мапінг
+│
+# --- РЕФЕРЕНСНІ ФАЙЛИ (Тільки для довідок) ---
+├── etalon/                        # Код попередньої розробки, використовується як орієнтир а не контракт
+├── ETALON_EVENT_SCHEMA.md         
+├── ETALON_GAP_ANALYSIS.md         
+├── ETALON_GRAPH_SCHEMA.md         
+├── ETALON_TENSOR_SCHEMA.md        
+└── ETALON_TRAINING_FLOW.md
 ```
 
 ---

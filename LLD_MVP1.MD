@@ -1,4 +1,4 @@
-# LLD.MD (Low-Level Design)
+# LLD_MVP1.MD (Low-Level Design)
 
 ## 1. Статус
 `APPROVED` (Scope: MVP1 - Baseline GNN)

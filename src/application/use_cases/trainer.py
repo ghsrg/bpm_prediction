@@ -54,6 +54,7 @@ class ModelTrainer:
         log_path: str,
         config: Dict[str, Any],
         tracker: Optional[ITracker] = None,
+        class_weights: Optional[torch.Tensor] = None,
     ) -> None:
         self.xes_adapter = xes_adapter
         self.prefix_policy = prefix_policy
@@ -62,6 +63,7 @@ class ModelTrainer:
         self.log_path = log_path
         self.config = config
         self.tracker = tracker
+        self.class_weights = class_weights
 
         self.batch_size = int(config.get("batch_size", 32))
         self.epochs = int(config.get("epochs", 10))
@@ -75,6 +77,9 @@ class ModelTrainer:
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
         self.model.to(self.device)
+        if self.class_weights is not None:
+            self.class_weights = self.class_weights.to(self.device)
+        self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
         self._log_params()
 
         raw_traces = list(self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {})))
@@ -92,19 +97,16 @@ class ModelTrainer:
         )
 
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
-        criterion = nn.CrossEntropyLoss()
 
         history: List[Dict[str, float]] = []
         for epoch in range(1, self.epochs + 1):
             train_loss, train_macro_f1, epoch_duration = self._run_epoch(
                 train_loader,
-                criterion=criterion,
                 optimizer=optimizer,
                 training=True,
             )
             val_loss, val_macro_f1, _ = self._run_epoch(
                 val_loader,
-                criterion=criterion,
                 optimizer=None,
                 training=False,
             )
@@ -176,7 +178,6 @@ class ModelTrainer:
     def _run_epoch(
         self,
         loader: Iterable[Data],
-        criterion: nn.Module,
         optimizer: Optional[Adam],
         training: bool,
     ) -> Tuple[float, float, float]:
@@ -210,7 +211,7 @@ class ModelTrainer:
             with torch.set_grad_enabled(training):
                 logits = self.model(contract)
                 targets = data.y.view(-1).long()
-                loss = criterion(logits, targets)
+                loss = self.criterion(logits, targets)
 
                 if training and optimizer is not None:
                     loss.backward()

@@ -76,6 +76,53 @@ def _extract_base_vocabularies(feature_encoder: FeatureEncoder) -> Tuple[Dict[st
     return activity_vocab, resource_vocab, activity_feature
 
 
+def _build_extra_feature_artifacts(
+    traces: Sequence[RawTrace],
+    extra_trace_keys: Sequence[str],
+    extra_event_keys: Sequence[str],
+) -> Tuple[List[str], Dict[str, Dict[str, int]]]:
+    """Infer extra feature schema and vocabularies for categorical attributes."""
+    ordered_extra_keys = list(dict.fromkeys([*extra_trace_keys, *extra_event_keys]))
+
+    # Детерміновано фіксуємо тип ознаки за першим не-None значенням.
+    feature_types: Dict[str, str] = {}
+    # Для string-категорій збираємо унікальні значення для one-hot словника.
+    categorical_values: Dict[str, set[str]] = {key: set() for key in ordered_extra_keys}
+
+    for trace in traces:
+        for key in extra_trace_keys:
+            value = trace.trace_attributes.get(key)
+            if value is not None and key not in feature_types:
+                if isinstance(value, bool):
+                    feature_types[key] = "bool"
+                elif isinstance(value, (int, float)):
+                    feature_types[key] = "numeric"
+                else:
+                    feature_types[key] = "categorical"
+            if isinstance(value, str) and value:
+                categorical_values[key].add(value)
+
+        for event in trace.events:
+            for key in extra_event_keys:
+                value = event.extra.get(key)
+                if value is not None and key not in feature_types:
+                    if isinstance(value, bool):
+                        feature_types[key] = "bool"
+                    elif isinstance(value, (int, float)):
+                        feature_types[key] = "numeric"
+                    else:
+                        feature_types[key] = "categorical"
+                if isinstance(value, str) and value:
+                    categorical_values[key].add(value)
+
+    extra_vocabs: Dict[str, Dict[str, int]] = {}
+    for key in ordered_extra_keys:
+        if feature_types.get(key) == "categorical":
+            extra_vocabs[key] = {val: idx for idx, val in enumerate(sorted(categorical_values[key]))}
+
+    return ordered_extra_keys, extra_vocabs
+
+
 def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
     """Create MVP1 placeholder normalization stats (mu=0, sigma=1)."""
     return {
@@ -138,6 +185,17 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     activity_vocab, resource_vocab, activity_feature = _extract_base_vocabularies(feature_encoder)
     reverse_activity_vocab = {idx: key for key, idx in activity_vocab.items()}
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
+
+    traces = list(xes_adapter.read(log_path, mapping_cfg))
+
+    xes_cfg = mapping_cfg.get("xes_adapter", mapping_cfg)
+    extra_trace_keys = [str(k) for k in xes_cfg.get("extra_trace_keys", [])]
+    extra_event_keys = [str(k) for k in xes_cfg.get("extra_event_keys", [])]
+    ordered_extra_keys, extra_vocabs = _build_extra_feature_artifacts(
+        traces=traces,
+        extra_trace_keys=extra_trace_keys,
+        extra_event_keys=extra_event_keys,
+    )
 
     normalization_stats = _build_normalization_stats()
     graph_builder = BaselineGraphBuilder(feature_encoder=feature_encoder)

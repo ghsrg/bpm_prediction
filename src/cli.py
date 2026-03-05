@@ -83,6 +83,53 @@ def _build_vocabularies(log_path: str, mapping_config: Dict[str, Any]) -> Tuple[
     return activity_vocab, resource_vocab
 
 
+def _build_extra_feature_artifacts(
+    traces: Sequence[RawTrace],
+    extra_trace_keys: Sequence[str],
+    extra_event_keys: Sequence[str],
+) -> Tuple[List[str], Dict[str, Dict[str, int]]]:
+    """Infer extra feature schema and vocabularies for categorical attributes."""
+    ordered_extra_keys = list(dict.fromkeys([*extra_trace_keys, *extra_event_keys]))
+
+    # Детерміновано фіксуємо тип ознаки за першим не-None значенням.
+    feature_types: Dict[str, str] = {}
+    # Для string-категорій збираємо унікальні значення для one-hot словника.
+    categorical_values: Dict[str, set[str]] = {key: set() for key in ordered_extra_keys}
+
+    for trace in traces:
+        for key in extra_trace_keys:
+            value = trace.trace_attributes.get(key)
+            if value is not None and key not in feature_types:
+                if isinstance(value, bool):
+                    feature_types[key] = "bool"
+                elif isinstance(value, (int, float)):
+                    feature_types[key] = "numeric"
+                else:
+                    feature_types[key] = "categorical"
+            if isinstance(value, str) and value:
+                categorical_values[key].add(value)
+
+        for event in trace.events:
+            for key in extra_event_keys:
+                value = event.extra.get(key)
+                if value is not None and key not in feature_types:
+                    if isinstance(value, bool):
+                        feature_types[key] = "bool"
+                    elif isinstance(value, (int, float)):
+                        feature_types[key] = "numeric"
+                    else:
+                        feature_types[key] = "categorical"
+                if isinstance(value, str) and value:
+                    categorical_values[key].add(value)
+
+    extra_vocabs: Dict[str, Dict[str, int]] = {}
+    for key in ordered_extra_keys:
+        if feature_types.get(key) == "categorical":
+            extra_vocabs[key] = {val: idx for idx, val in enumerate(sorted(categorical_values[key]))}
+
+    return ordered_extra_keys, extra_vocabs
+
+
 def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
     """Create MVP1 placeholder normalization stats (mu=0, sigma=1)."""
     return {
@@ -140,14 +187,27 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     reverse_activity_vocab = {idx: key for key, idx in activity_vocab.items()}
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
+    traces = list(xes_adapter.read(log_path, mapping_cfg))
+
+    xes_cfg = mapping_cfg.get("xes_adapter", mapping_cfg)
+    extra_trace_keys = [str(k) for k in xes_cfg.get("extra_trace_keys", [])]
+    extra_event_keys = [str(k) for k in xes_cfg.get("extra_event_keys", [])]
+    ordered_extra_keys, extra_vocabs = _build_extra_feature_artifacts(
+        traces=traces,
+        extra_trace_keys=extra_trace_keys,
+        extra_event_keys=extra_event_keys,
+    )
+
     normalization_stats = _build_normalization_stats()
     graph_builder = BaselineGraphBuilder(
         activity_vocab=activity_vocab,
         resource_vocab=resource_vocab,
         normalization_stats=normalization_stats,
+        extra_trace_keys=extra_trace_keys,
+        extra_event_keys=extra_event_keys,
+        ordered_extra_keys=ordered_extra_keys,
+        extra_vocabs=extra_vocabs,
     )
-
-    traces = list(xes_adapter.read(log_path, mapping_cfg))
     train_traces, val_traces, test_traces = _strict_temporal_split(traces)
 
     train_dataset = _build_graph_dataset(train_traces, prefix_policy, graph_builder)
@@ -161,7 +221,12 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         "resource_vocab": resource_vocab,
         "reverse_activity_vocab": reverse_activity_vocab,
         "reverse_resource_vocab": reverse_resource_vocab,
+        "extra_trace_keys": extra_trace_keys,
+        "extra_event_keys": extra_event_keys,
+        "ordered_extra_keys": ordered_extra_keys,
+        "extra_vocabs": extra_vocabs,
         "normalization_stats": normalization_stats,
+        "input_dim": graph_builder.input_dim,
         "graph_builder": graph_builder,
         "prefix_policy": prefix_policy,
         "train_dataset": train_dataset,
@@ -215,8 +280,8 @@ def main() -> None:
 
     logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
 
-    # input_dim = |V_act| + |V_res| + 3 (UNK вже включений у vocab як індекс 0).
-    input_dim = len(activity_vocab) + len(resource_vocab) + 3
+    # input_dim = базові one-hot + часові фічі + typed extra-фічі (узгоджено з graph_builder).
+    input_dim = int(prepared["input_dim"])
     hidden_dim = int(model_cfg.get("hidden_dim", 64))
     output_dim = len(activity_vocab)
     dropout = float(model_cfg.get("dropout", 0.2))

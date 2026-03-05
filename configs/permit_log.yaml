@@ -1,0 +1,50 @@
+experiment:
+  name: "PermitLog"
+  dataset: "permit_log"
+  project: "bpm_prediction_mvp1"
+
+seed: 42
+
+data:
+  log_path: "data/permit_log.xes"
+
+mapping:
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    extra_event_fields: "*"
+    extra_trace_fields: "*"
+    complete_transitions: ["complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: true
+    extra_event_keys:
+      - "AMOUNT_REQ"
+      - "case:amount"
+      - "org:group"
+
+model:
+  type: "BaselineGCN"
+  hidden_dim: 64
+  dropout: 0.2
+
+training:
+  batch_size: 128
+  epochs: 30
+  learning_rate: 0.001
+  device: "cpu"
+  ece_bins: 10
+  show_progress: true
+  tqdm_disable: false
+  tqdm_leave: false
+
+tracking:
+  enabled: true
+  backend: "mlflow"
+  uri: "file:./mlruns"
+  tags:
+    stage: "mvp1"
+    model_family: "baseline_gnn"

@@ -6,7 +6,7 @@ experiment:
 seed: 42
 
 data:
-  log_path: "data/permit_log.xes"
+  log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
 
 mapping:
   xes_adapter:
@@ -21,13 +21,21 @@ mapping:
     complete_transitions: ["complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
     pairing_strategy: "lifo"
     use_classifier: true
+
+    # Реальні атрибути з логу Travel Permits
+    extra_trace_keys:
+      - "RequestedAmount_0"
+      - "RequestedBudget"
+      - "TotalDeclared"
+      - "Overspent"
+      - "OverspentAmount"
+      - "OrganizationalEntity"
+
     extra_event_keys:
-      - "AMOUNT_REQ"
-      - "case:amount"
-      - "org:group"
+      - "org:role"
 
 model:
-  type: "BaselineGCN"
+  type: "BaselineGATv2"
   hidden_dim: 64
   dropout: 0.2
 

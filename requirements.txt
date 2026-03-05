@@ -1,4 +1,4 @@
-lxml>=4.9.0
+lxml>=4.9.3
 pydantic>=2.0.0
 torch>=2.0.0
 torch_geometric>=2.3.0

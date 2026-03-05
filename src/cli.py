@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from typing import Any, Dict, Tuple
 
 import yaml
@@ -34,18 +35,20 @@ def _build_vocabularies(log_path: str, config: Dict[str, Any]) -> Tuple[Dict[str
     adapter = XESAdapter()
     mapping_config = config.get("mapping_config", {})
 
-    unique_activities = set()
-    unique_resources = set()
+    # Індекс 0 зарезервовано для <UNK> для обох словників.
+    activity_vocab: Dict[str, int] = {"<UNK>": 0}
+    resource_vocab: Dict[str, int] = {"<UNK>": 0}
 
     # Один прохід по XES через стрімінговий адаптер для побудови словників.
     for trace in adapter.read(log_path, mapping_config):
         for event in trace.events:
-            unique_activities.add(event.activity_id)
-            unique_resources.add(event.resource_id)
+            activity = event.activity_id
+            resource = event.resource_id
 
-    # Індекс 0 зарезервовано для <UNK>, тому реальні значення починаються з 1.
-    activity_vocab = {activity: idx for idx, activity in enumerate(sorted(unique_activities), start=1)}
-    resource_vocab = {resource: idx for idx, resource in enumerate(sorted(unique_resources), start=1)}
+            if activity not in activity_vocab:
+                activity_vocab[activity] = len(activity_vocab)
+            if resource not in resource_vocab:
+                resource_vocab[resource] = len(resource_vocab)
 
     return activity_vocab, resource_vocab
 
@@ -61,6 +64,8 @@ def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
 
 def main() -> None:
     """Parse CLI args, wire dependencies, and run model training."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    logger = logging.getLogger(__name__)
     parser = argparse.ArgumentParser(description="Run MVP1 next-activity training pipeline.")
     parser.add_argument("--log_path", required=True, help="Path to input XES log file.")
     parser.add_argument("--config_path", required=True, help="Path to YAML config (model_params.yaml).")
@@ -73,6 +78,7 @@ def main() -> None:
     prefix_policy = PrefixPolicy()
 
     activity_vocab, resource_vocab = _build_vocabularies(args.log_path, config)
+    logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
     normalization_stats = _build_normalization_stats()
 
     graph_builder = BaselineGraphBuilder(
@@ -81,10 +87,10 @@ def main() -> None:
         normalization_stats=normalization_stats,
     )
 
-    # input_dim = |V_act| + 1(UNK) + |V_res| + 1(UNK) + 3.
-    input_dim = len(activity_vocab) + 1 + len(resource_vocab) + 1 + 3
+    # input_dim = |V_act| + |V_res| + 3 (UNK вже включений у vocab як індекс 0).
+    input_dim = len(activity_vocab) + len(resource_vocab) + 3
     hidden_dim = int(config.get("hidden_dim", 64))
-    output_dim = len(activity_vocab) + 1
+    output_dim = len(activity_vocab)
 
     model = BaselineGCN(
         input_dim=input_dim,

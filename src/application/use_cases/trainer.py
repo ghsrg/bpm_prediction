@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -18,6 +19,7 @@ from torch import nn
 from torch.optim import Adam
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from tqdm import tqdm
 
 from src.application.ports.graph_builder_port import IGraphBuilder
 from src.application.ports.prefix_policy_port import IPrefixPolicy
@@ -26,6 +28,9 @@ from src.application.ports.xes_adapter_port import IXESAdapter
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -63,6 +68,9 @@ class ModelTrainer:
         self.learning_rate = float(config.get("learning_rate", 1e-3))
         self.device = torch.device(config.get("device", "cpu"))
         self.num_ece_bins = int(config.get("ece_bins", 10))
+        self.show_progress = bool(config.get("show_progress", True))
+        self.tqdm_disable = bool(config.get("tqdm_disable", False))
+        self.tqdm_leave = bool(config.get("tqdm_leave", False))
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -75,6 +83,13 @@ class ModelTrainer:
         train_loader = self._build_loader(split_data.train, shuffle=True)
         val_loader = self._build_loader(split_data.val, shuffle=False)
         test_loader = self._build_loader(split_data.test, shuffle=False)
+
+        logger.info(
+            "DataLoaders ready: train_batches=%d, val_batches=%d, test_batches=%d",
+            len(train_loader),
+            len(val_loader),
+            len(test_loader),
+        )
 
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
         criterion = nn.CrossEntropyLoss()
@@ -103,8 +118,17 @@ class ModelTrainer:
             }
             history.append(epoch_metrics)
             self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
+            logger.info(
+                "Epoch %d/%d | train_loss=%.6f | val_loss=%.6f | val_macro_f1=%.6f",
+                epoch,
+                self.epochs,
+                train_loss,
+                val_loss,
+                val_macro_f1,
+            )
 
         test_metrics = self._evaluate_test(test_loader)
+        logger.info("Final test metrics: %s", test_metrics)
         self._log_test_metrics(test_metrics)
 
         return {
@@ -168,7 +192,15 @@ class ModelTrainer:
         all_pred: List[int] = []
         batches = 0
 
-        for data in loader:
+        phase_name = "Train" if training else "Validation"
+        iterator = tqdm(
+            loader,
+            desc=f"{phase_name} epoch",
+            leave=self.tqdm_leave,
+            disable=(not self.show_progress) or self.tqdm_disable,
+        )
+
+        for data in iterator:
             data = data.to(self.device)
             contract = self._data_to_contract(data)
 
@@ -209,7 +241,13 @@ class ModelTrainer:
         all_probs: List[np.ndarray] = []
 
         with torch.no_grad():
-            for data in loader:
+            iterator = tqdm(
+                loader,
+                desc="Test evaluation",
+                leave=self.tqdm_leave,
+                disable=(not self.show_progress) or self.tqdm_disable,
+            )
+            for data in iterator:
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
                 logits = self.model(contract)

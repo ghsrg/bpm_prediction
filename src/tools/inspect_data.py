@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence
 
 import torch
 from torch_geometric.loader import DataLoader
@@ -21,30 +21,37 @@ def _decode_first_nodes(
     batch,
     reverse_activity_vocab,
     reverse_resource_vocab,
-    num_activity_features: int,
-    num_resource_features: int,
     ordered_extra_keys: Sequence[str],
     extra_vocabs: Dict[str, Dict[str, int]],
     max_nodes: int = 5,
 ) -> None:
-    """Decode selected graph nodes from dynamic feature slices back to readable labels."""
+    """Decode selected graph nodes from split tensors (x_cat + x_num)."""
     x_cat = batch.x_cat
     x_num = batch.x_num
-    node_indices = (batch.batch == 0).nonzero(as_tuple=False).view(-1)
+
+    if hasattr(batch, "batch") and batch.batch.numel() == x_cat.size(0):
+        node_indices = (batch.batch == 0).nonzero(as_tuple=False).view(-1)
+    else:
+        # Fallback for malformed/empty batch vector.
+        node_indices = torch.arange(x_cat.size(0), dtype=torch.long, device=x_cat.device)
+
+    if node_indices.numel() == 0 and x_cat.size(0) > 0:
+        node_indices = torch.arange(x_cat.size(0), dtype=torch.long, device=x_cat.device)
 
     print("\n=== First graph dynamic node decode ===")
     if node_indices.numel() == 0:
-        print("No nodes found for first graph in batch.")
+        print("No nodes found in current batch.")
         return
 
-    scalar_extra_keys = [key for key in ordered_extra_keys if key not in extra_vocabs]
-
     categorical_keys = [key for key in ordered_extra_keys if key in extra_vocabs]
+    scalar_extra_keys = [key for key in ordered_extra_keys if key not in extra_vocabs]
 
     selected_nodes = node_indices[:max_nodes].tolist()
     last_node = int(node_indices[-1].item())
     if last_node not in selected_nodes:
         selected_nodes.append(last_node)
+
+    cat_key_to_offset = {key: idx for idx, key in enumerate(categorical_keys)}
 
     for order, node_idx in enumerate(selected_nodes, start=1):
         cat_row = x_cat[node_idx]
@@ -52,21 +59,23 @@ def _decode_first_nodes(
 
         act_idx = int(cat_row[0].item()) if cat_row.numel() > 0 else 0
         res_idx = int(cat_row[1].item()) if cat_row.numel() > 1 else 0
-
         act_name = reverse_activity_vocab.get(act_idx, "<UNK>")
         res_name = reverse_resource_vocab.get(res_idx, "<UNK>")
+
+        duration = float(num_row[0].item()) if num_row.numel() > 0 else 0.0
+        t_case = float(num_row[1].item()) if num_row.numel() > 1 else 0.0
+        t_prev = float(num_row[2].item()) if num_row.numel() > 2 else 0.0
 
         print(
             f"node#{order} (global_idx={node_idx}) | "
             f"activity_idx={act_idx} -> {act_name} | "
             f"resource_idx={res_idx} -> {res_name} | "
-            f"base_time=[duration_z={num_row[0].item():.4f}, "
-            f"time_since_case_start_z={num_row[1].item():.4f}, "
-            f"time_since_prev_event_z={num_row[2].item():.4f}]"
+            f"base_time=[duration_z={duration:.4f}, time_since_case_start_z={t_case:.4f}, "
+            f"time_since_prev_event_z={t_prev:.4f}]"
         )
 
         if scalar_extra_keys:
-            scalar_preview = []
+            scalar_preview: List[str] = []
             for idx, key in enumerate(scalar_extra_keys):
                 pos = 3 + idx
                 if pos >= num_row.numel():
@@ -74,15 +83,12 @@ def _decode_first_nodes(
                 val = float(num_row[pos].item())
                 if abs(val) > 1e-8:
                     scalar_preview.append(f"{key}={val:.4f}")
-            if not scalar_preview:
-                scalar_preview = []
-            print(f"  extra_scalars: {', '.join(scalar_preview[:8])}")
+            print(f"  extra_scalars: {', '.join(scalar_preview[:8]) if scalar_preview else '<all-zero>'}")
 
         if categorical_keys:
             decoded_categories: List[str] = []
             for key in categorical_keys:
-                feature_pos = list(extra_vocabs.keys()).index(key)
-                col = 2 + feature_pos
+                col = 2 + cat_key_to_offset[key]
                 if col < cat_row.numel():
                     local_idx = int(cat_row[col].item())
                     reverse_vocab = {idx: val for val, idx in extra_vocabs[key].items()}
@@ -113,27 +119,25 @@ def _print_vocab_summary(prepared: Dict[str, object]) -> None:
 
 
 def _print_feature_breakdown(prepared: Dict[str, object]) -> None:
-    """Print detailed input_dim decomposition and consistency checks."""
+    """Print split feature structure and consistency checks for FeatureLayout."""
     feature_layout = prepared["feature_layout"]
     cat_feature_count = len(feature_layout.cat_feature_names)
     num_dim = int(feature_layout.num_dim)
 
-    calculated_dim = cat_feature_count + num_dim
-    prepared_dim = int(prepared.get("input_dim", -1))
-    builder_dim = int(prepared["graph_builder"].input_dim)
-
-    breakdown_parts = [
-        f"Categorical Indices ({cat_feature_count})",
-        f"Numeric Channels ({num_dim})",
-    ]
-
     print("\n=== Feature Breakdown ===")
-    print(f"Input Dimension ({prepared_dim}) = " + " + ".join(breakdown_parts))
-    print(f"Calculated input_dim: {calculated_dim}")
-    print(f"GraphBuilder input_dim: {builder_dim}")
+    print(f"Categorical Features (count: {cat_feature_count})")
+    print(f"Numerical/Encoded Channels (count: {num_dim})")
+
+    calculated_total = cat_feature_count + num_dim
+    layout_total = sum(1 for _ in feature_layout.cat_feature_names) + int(feature_layout.num_dim)
+    builder_total = int(prepared["graph_builder"].input_dim)
+
+    print(f"Total logical channels: {calculated_total}")
+    print(f"FeatureLayout total: {layout_total}")
+    print(f"GraphBuilder declared total: {builder_total}")
     print(
-        "Consistency check (calculated == prepared == graph_builder): "
-        f"{calculated_dim == prepared_dim == builder_dim}"
+        "Consistency check (cat_count + num_dim == FeatureLayout == GraphBuilder): "
+        f"{calculated_total == layout_total == builder_total}"
     )
 
 
@@ -174,9 +178,9 @@ def main() -> None:
     has_non_zero = bool(torch.any(batch.x_num != 0).item())
 
     print("\n=== Sanity Checks ===")
-    print(f"x contains NaN: {has_nan}")
-    print(f"x is all zeros: {is_all_zero}")
-    print(f"x has non-zero features: {has_non_zero}")
+    print(f"x_num contains NaN: {has_nan}")
+    print(f"x_num is all zeros: {is_all_zero}")
+    print(f"x_num has non-zero features: {has_non_zero}")
 
     logger.info("Train dataset graphs: %d | train batches: %d", len(train_dataset), len(train_loader))
 
@@ -187,8 +191,6 @@ def main() -> None:
         batch=batch,
         reverse_activity_vocab=prepared["reverse_activity_vocab"],
         reverse_resource_vocab=prepared["reverse_resource_vocab"],
-        num_activity_features=len(prepared["activity_vocab"]),
-        num_resource_features=len(prepared["resource_vocab"]),
         ordered_extra_keys=prepared.get("ordered_extra_keys", []),
         extra_vocabs=prepared.get("extra_vocabs", {}),
         max_nodes=5,

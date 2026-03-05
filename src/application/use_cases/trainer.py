@@ -174,6 +174,7 @@ class ModelTrainer:
                         edge_index=contract["edge_index"],
                         edge_type=contract["edge_type"],
                         y=contract["y"],
+                        num_nodes=int(contract["x_cat"].size(0)),
                     )
                 )
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Deque, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 import logging
 
 from lxml import etree
@@ -45,6 +45,8 @@ class XESAdapter(IXESAdapter):
         }
         pairing_strategy = str(config.get("pairing_strategy", "lifo")).strip().lower()
         use_classifier = bool(config.get("use_classifier", True))
+        extra_trace_keys = _normalize_key_set(config.get("extra_trace_keys"))
+        extra_event_keys = _normalize_key_set(config.get("extra_event_keys"))
 
         log_attributes: Dict[str, Any] = {}
         classifiers: Dict[str, List[str]] = {}
@@ -83,6 +85,8 @@ class XESAdapter(IXESAdapter):
                         use_classifier=use_classifier,
                         classifiers=classifiers,
                         log_attributes=log_attributes,
+                        extra_trace_keys=extra_trace_keys,
+                        extra_event_keys=extra_event_keys,
                     )
                     skipped_events += trace_skips
                     processed_traces += 1
@@ -120,6 +124,8 @@ class XESAdapter(IXESAdapter):
         use_classifier: bool,
         classifiers: Dict[str, List[str]],
         log_attributes: Dict[str, Any],
+        extra_trace_keys: Set[str],
+        extra_event_keys: Set[str],
     ) -> Tuple[RawTrace, int]:
         trace_attributes: Dict[str, Any] = {}
         event_payloads: List[Dict[str, Any]] = []
@@ -137,6 +143,11 @@ class XESAdapter(IXESAdapter):
 
         case_id = str(trace_attributes.get(case_id_key) or "UNKNOWN_CASE")
         classifier_keys = _select_classifier_keys(classifiers) if use_classifier else []
+        selected_trace_attrs = {
+            k: v for k, v in trace_attributes.items() if k not in {case_id_key, version_key}
+        }
+        if extra_trace_keys:
+            selected_trace_attrs = {k: v for k, v in selected_trace_attrs.items() if k in extra_trace_keys}
 
         starts_by_key: Dict[Tuple[str, ...], Deque[float]] = defaultdict(deque)
         completed_events_raw: List[Dict[str, Any]] = []
@@ -199,7 +210,13 @@ class XESAdapter(IXESAdapter):
             elif isinstance(activity_key, Sequence):
                 mapped_keys.update(str(k) for k in activity_key)
 
+            # Зберігаємо лише явно дозволені event-level extra ключі з mapping config.
             extra = {k: v for k, v in payload.items() if k not in mapped_keys}
+            if extra_event_keys:
+                extra = {k: v for k, v in extra.items() if k in extra_event_keys}
+            # Дублюємо trace-level extra у кожну подію, щоб вузол мав доступ до контексту кейсу.
+            for trace_key, trace_value in selected_trace_attrs.items():
+                extra.setdefault(trace_key, trace_value)
 
             completed_events_raw.append(
                 {
@@ -249,9 +266,7 @@ class XESAdapter(IXESAdapter):
             file_path=file_path,
         )
 
-        cleaned_trace_attributes = {
-            k: v for k, v in trace_attributes.items() if k not in {case_id_key, version_key}
-        }
+        cleaned_trace_attributes = selected_trace_attrs
 
         return (
             RawTrace(
@@ -396,8 +411,33 @@ def _extract_xes_attributes(elem: etree._Element, prefix: str = "") -> Dict[str,
     if current_key is None:
         return result
 
-    result[current_key] = value
+    result[current_key] = _cast_xes_typed_value(value=value, tag=tag)
     return result
+
+
+def _cast_xes_typed_value(value: Any, tag: str) -> Any:
+    """Cast XES attribute by XML tag type (without value-based auto-cast)."""
+    text = "" if value is None else str(value)
+    if tag == "float":
+        try:
+            return float(text)
+        except ValueError:
+            return text
+    if tag == "int":
+        try:
+            return int(text)
+        except ValueError:
+            return text
+    if tag == "boolean":
+        return text.strip().lower() == "true"
+    return text
+
+
+def _normalize_key_set(value: Any) -> Set[str]:
+    """Normalize optional config list into a set of non-empty string keys."""
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return set()
+    return {str(item).strip() for item in value if str(item).strip()}
 
 
 def _local_name(tag: Any) -> str:

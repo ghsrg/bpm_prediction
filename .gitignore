@@ -4,4 +4,4 @@ data/
 etalon/
 src/config/secrets.py
 !public_data
-
+mlruns/

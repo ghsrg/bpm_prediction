@@ -17,6 +17,7 @@ import logging
 from lxml import etree
 
 from src.application.ports.xes_adapter_port import IXESAdapter
+from src.domain.entities.feature_config import FeatureConfig, parse_feature_configs
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
 
@@ -33,13 +34,16 @@ class XESAdapter(IXESAdapter):
     def read(self, file_path: str, mapping_config: dict) -> Iterator[RawTrace]:
         """Stream traces from XES without loading the full XML into memory."""
         config = mapping_config.get("xes_adapter", mapping_config)
+        feature_configs = parse_feature_configs(mapping_config)
+
+        role_keys = _resolve_role_keys(feature_configs)
 
         case_id_key = config.get("case_id_key", "concept:name")
-        activity_key = config.get("activity_key", "concept:name")
-        timestamp_key = config.get("timestamp_key", "time:timestamp")
-        resource_key = config.get("resource_key", "org:resource")
-        lifecycle_key = config.get("lifecycle_key", "lifecycle:transition")
-        version_key = config.get("version_key", "concept:version")
+        activity_key = role_keys.get("activity") or config.get("activity_key", "concept:name")
+        timestamp_key = role_keys.get("timestamp") or config.get("timestamp_key", "time:timestamp")
+        resource_key = role_keys.get("resource") or config.get("resource_key", "org:resource")
+        lifecycle_key = role_keys.get("lifecycle") or config.get("lifecycle_key", "lifecycle:transition")
+        version_key = role_keys.get("version") or config.get("version_key", "concept:version")
         complete_transitions = {
             str(v).strip().lower() for v in config.get("complete_transitions", list(_DEFAULT_COMPLETE_TRANSITIONS))
         }
@@ -87,6 +91,7 @@ class XESAdapter(IXESAdapter):
                         log_attributes=log_attributes,
                         extra_trace_keys=extra_trace_keys,
                         extra_event_keys=extra_event_keys,
+                        feature_configs=feature_configs,
                     )
                     skipped_events += trace_skips
                     processed_traces += 1
@@ -126,6 +131,7 @@ class XESAdapter(IXESAdapter):
         log_attributes: Dict[str, Any],
         extra_trace_keys: Set[str],
         extra_event_keys: Set[str],
+        feature_configs: Sequence[FeatureConfig],
     ) -> Tuple[RawTrace, int]:
         trace_attributes: Dict[str, Any] = {}
         event_payloads: List[Dict[str, Any]] = []
@@ -146,6 +152,7 @@ class XESAdapter(IXESAdapter):
         selected_trace_attrs = {
             k: v for k, v in trace_attributes.items() if k not in {case_id_key, version_key}
         }
+        selected_trace_attrs.update(_extract_typed_trace_features(trace_attributes, feature_configs))
         if extra_trace_keys:
             selected_trace_attrs = {k: v for k, v in selected_trace_attrs.items() if k in extra_trace_keys}
 
@@ -212,6 +219,7 @@ class XESAdapter(IXESAdapter):
 
             # Зберігаємо лише явно дозволені event-level extra ключі з mapping config.
             extra = {k: v for k, v in payload.items() if k not in mapped_keys}
+            extra.update(_extract_typed_event_features(payload, feature_configs))
             if extra_event_keys:
                 extra = {k: v for k, v in extra.items() if k in extra_event_keys}
             # Дублюємо trace-level extra у кожну подію, щоб вузол мав доступ до контексту кейсу.
@@ -244,6 +252,15 @@ class XESAdapter(IXESAdapter):
             time_since_previous = 0.0 if pos == 0 else max(0.0, current_time - prev_time)
             prev_time = current_time
 
+            # Додаємо обчислені базові часові фічі у event.extra для конфігурованого FeatureEncoder.
+            enriched_extra = dict(event["extra"])
+            enriched_extra.setdefault("duration", max(0.0, float(event["duration"])))
+            enriched_extra.setdefault("time_since_case_start", time_since_case_start)
+            enriched_extra.setdefault("time_since_previous_event", time_since_previous)
+            enriched_extra.setdefault(timestamp_key, current_time)
+            enriched_extra.setdefault(activity_key if isinstance(activity_key, str) else "concept:name", event["activity_id"])
+            enriched_extra.setdefault(resource_key, event["resource_id"])
+
             normalized_events.append(
                 EventRecord(
                     activity_id=event["activity_id"],
@@ -254,7 +271,7 @@ class XESAdapter(IXESAdapter):
                     duration=max(0.0, float(event["duration"])),
                     time_since_case_start=time_since_case_start,
                     time_since_previous_event=time_since_previous,
-                    extra=event["extra"],
+                    extra=enriched_extra,
                     activity_instance_id=event["activity_instance_id"],
                 )
             )
@@ -370,6 +387,9 @@ def _normalize_optional_str(value: Any) -> Optional[str]:
 
 def _parse_timestamp(value: Any) -> Optional[float]:
     """Parse timestamp to UTC unix epoch float seconds."""
+    if isinstance(value, (int, float)):
+        return float(value)
+
     text = _normalize_optional_str(value)
     if text is None:
         return None
@@ -438,6 +458,67 @@ def _normalize_key_set(value: Any) -> Set[str]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return set()
     return {str(item).strip() for item in value if str(item).strip()}
+
+
+def _resolve_role_keys(feature_configs: Sequence[FeatureConfig]) -> Dict[str, str]:
+    """Resolve optional role->field mapping from feature configuration."""
+    role_keys: Dict[str, str] = {}
+    for cfg in feature_configs:
+        if cfg.role in {"activity", "timestamp", "resource", "lifecycle", "version"}:
+            role_keys[cfg.role] = cfg.name
+    return role_keys
+
+
+def _extract_typed_trace_features(
+    trace_attributes: Dict[str, Any],
+    feature_configs: Sequence[FeatureConfig],
+) -> Dict[str, Any]:
+    """Build typed+filled trace-level features according to FeatureConfig."""
+    typed: Dict[str, Any] = {}
+    for cfg in feature_configs:
+        if cfg.source != "trace":
+            continue
+        raw = trace_attributes.get(cfg.name)
+        typed[cfg.name] = _coerce_to_dtype(raw, cfg)
+    return typed
+
+
+def _extract_typed_event_features(payload: Dict[str, Any], feature_configs: Sequence[FeatureConfig]) -> Dict[str, Any]:
+    """Build typed+filled event-level features according to FeatureConfig."""
+    typed: Dict[str, Any] = {}
+    for cfg in feature_configs:
+        if cfg.source != "event":
+            continue
+        raw = payload.get(cfg.name)
+        typed[cfg.name] = _coerce_to_dtype(raw, cfg)
+    return typed
+
+
+def _coerce_to_dtype(raw: Any, feature_cfg: FeatureConfig) -> Any:
+    """Force-cast raw value to dtype from FeatureConfig with fill_na fallback."""
+    if raw is None:
+        return feature_cfg.fill_na
+
+    dtype = feature_cfg.dtype
+    try:
+        if dtype == "string":
+            text = str(raw).strip()
+            return text if text else feature_cfg.fill_na
+        if dtype == "float":
+            return float(raw)
+        if dtype == "int":
+            return int(raw)
+        if dtype == "boolean":
+            if isinstance(raw, bool):
+                return raw
+            return str(raw).strip().lower() == "true"
+        if dtype == "timestamp":
+            ts = _parse_timestamp(raw)
+            return ts if ts is not None else feature_cfg.fill_na
+    except (TypeError, ValueError):
+        return feature_cfg.fill_na
+
+    return raw
 
 
 def _local_name(tag: Any) -> str:

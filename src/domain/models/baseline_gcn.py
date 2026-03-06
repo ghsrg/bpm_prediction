@@ -21,9 +21,17 @@ from src.domain.models.base_gnn import BaseGNN
 class BaselineGCN(BaseGNN):
     """3-layer GCN with per-feature embeddings for categorical inputs."""
 
-    def __init__(self, feature_layout: FeatureLayout, hidden_dim: int, output_dim: int, dropout: float = 0.2) -> None:
+    def __init__(
+        self,
+        feature_layout: FeatureLayout,
+        hidden_dim: int,
+        output_dim: int,
+        dropout: float = 0.2,
+        pooling_strategy: str = "global_mean",
+    ) -> None:
         super().__init__()
         self.feature_layout = feature_layout
+        self.pooling_strategy = pooling_strategy
 
         self.embeddings = nn.ModuleDict()
         self.embedding_dims: Dict[str, int] = {}
@@ -84,5 +92,20 @@ class BaselineGCN(BaseGNN):
         if x.shape == residual.shape:
             x = x + residual
 
-        pooled = global_mean_pool(x, batch)
+        pooled = self._pool_nodes(x=x, batch=batch)
         return self.classifier(pooled)
+
+    def _pool_nodes(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
+        """Pool node embeddings into graph embeddings using configured strategy."""
+        if self.pooling_strategy == "global_mean":
+            return global_mean_pool(x, batch)
+
+        if self.pooling_strategy == "last_node":
+            if x.size(0) == 0:
+                return x.new_zeros((0, x.size(1)))
+            num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+            counts = torch.bincount(batch, minlength=num_graphs)
+            last_indices = torch.cumsum(counts, dim=0) - 1
+            return x[last_indices]
+
+        raise ValueError(f"Unsupported pooling_strategy '{self.pooling_strategy}'.")

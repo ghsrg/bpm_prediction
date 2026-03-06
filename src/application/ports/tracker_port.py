@@ -23,3 +23,7 @@ class ITracker(Protocol):
     def log_artifact(self, path: str) -> None:
         """Log local file artifact for reproducibility."""
         ...
+
+    def log_model(self, model: Any, artifact_path: str) -> None:
+        """Log trained model artifact (framework-specific implementation)."""
+        ...

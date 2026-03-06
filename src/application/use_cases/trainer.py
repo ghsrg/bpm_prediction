@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import logging
 import math
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -80,6 +81,14 @@ class ModelTrainer:
         self.patience = int(config.get("patience", 6))
         self.delta = float(config.get("delta", 1e-4))
         self.config_path = str(config.get("config_path", "")).strip()
+        self.seed = int(config.get("seed", 42))
+        self.retrain = bool(config.get("retrain", False))
+        self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
+        experiment_cfg = self.config.get("experiment_config", {})
+        experiment_name = str(experiment_cfg.get("name", "default_experiment")).strip() or "default_experiment"
+        safe_experiment_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in experiment_name)
+        self.experiment_name = safe_experiment_name
+        self.checkpoint_path = Path(self.checkpoint_dir) / f"{self.experiment_name}_best.pth"
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -110,41 +119,95 @@ class ModelTrainer:
         )
 
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-        history: List[Dict[str, float]] = []
+        start_epoch = 0
         best_val_loss = float("inf")
         best_epoch = 0
-        epochs_without_improvement = 0
-        best_state_dict = deepcopy(self.model.state_dict())
-        for epoch in range(1, self.epochs + 1):
-            train_loss, train_macro_f1, epoch_duration = self._run_epoch(
-                train_loader,
-                optimizer=optimizer,
-                training=True,
-            )
-            val_loss, val_macro_f1, _ = self._run_epoch(
-                val_loader,
-                optimizer=None,
-                training=False,
-            )
 
-            epoch_metrics = {
-                "train_loss": train_loss,
-                "train_macro_f1": train_macro_f1,
-                "val_loss": val_loss,
-                "val_macro_f1": val_macro_f1,
-                "epoch_duration_sec": epoch_duration,
-            }
-            history.append(epoch_metrics)
-            self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
-            logger.info(
-                "Epoch %d/%d | train_loss=%.6f | val_loss=%.6f | val_macro_f1=%.6f",
-                epoch,
-                self.epochs,
-                train_loss,
-                val_loss,
-                val_macro_f1,
-            )
+        if self.checkpoint_path.exists() and not self.retrain:
+            checkpoint = self._load_checkpoint(self.checkpoint_path)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            best_val_loss = float(checkpoint["val_loss"])
+            start_epoch = int(checkpoint["epoch"])
+            best_epoch = start_epoch
+            logger.info("Loaded checkpoint from epoch %d with val_loss %.6f.", start_epoch, best_val_loss)
+
+            if start_epoch < self.epochs:
+                optimizer_state_dict = checkpoint.get("optimizer_state_dict")
+                if optimizer_state_dict is None:
+                    raise ValueError("Checkpoint is missing required key 'optimizer_state_dict' for resume training.")
+                optimizer.load_state_dict(optimizer_state_dict)
+        else:
+            logger.info("Starting training from scratch, start_epoch = 0.")
+
+        history: List[Dict[str, float]] = []
+        epochs_without_improvement = 0
+        if start_epoch >= self.epochs:
+            logger.info("Model already trained for %d epochs. Skipping training loop.", self.epochs)
+        else:
+            for epoch in range(start_epoch + 1, self.epochs + 1):
+                train_loss, train_macro_f1, epoch_duration = self._run_epoch(
+                    train_loader,
+                    optimizer=optimizer,
+                    training=True,
+                )
+                val_loss, val_macro_f1, _ = self._run_epoch(
+                    val_loader,
+                    optimizer=None,
+                    training=False,
+                )
+
+                epoch_metrics = {
+                    "train_loss": train_loss,
+                    "train_macro_f1": train_macro_f1,
+                    "val_loss": val_loss,
+                    "val_macro_f1": val_macro_f1,
+                    "epoch_duration_sec": epoch_duration,
+                }
+                history.append(epoch_metrics)
+                self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
+                logger.info(
+                    "Epoch %d/%d | train_loss=%.6f | val_loss=%.6f | val_macro_f1=%.6f",
+                    epoch,
+                    self.epochs,
+                    train_loss,
+                    val_loss,
+                    val_macro_f1,
+                )
+
+                if (best_val_loss - val_loss) > self.delta:
+                    best_val_loss = val_loss
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                    self._save_checkpoint(
+                        checkpoint_path=self.checkpoint_path,
+                        epoch=epoch,
+                        val_loss=best_val_loss,
+                        optimizer=optimizer,
+                    )
+                else:
+                    epochs_without_improvement += 1
+
+                if epochs_without_improvement >= self.patience:
+                    logger.info(
+                        "Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).",
+                        epoch,
+                        best_epoch,
+                        best_val_loss,
+                    )
+                    if self.tracker is not None:
+                        self.tracker.log_metric("early_stopping_epoch", float(epoch), step=epoch)
+                        self.tracker.log_metric("best_epoch", float(best_epoch), step=epoch)
+                        self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
+                    break
+
+        if not self.checkpoint_path.exists():
+            raise FileNotFoundError(f"Best checkpoint not found: {self.checkpoint_path}")
+        best_checkpoint = self._load_checkpoint(self.checkpoint_path)
+        self.model.load_state_dict(best_checkpoint["model_state_dict"])
+        best_epoch = int(best_checkpoint["epoch"])
+        best_val_loss = float(best_checkpoint["val_loss"])
 
             if (best_val_loss - val_loss) > self.delta:
                 best_val_loss = val_loss
@@ -174,6 +237,9 @@ class ModelTrainer:
         self._log_test_metrics(test_metrics)
 
         if self.tracker is not None:
+            self.tracker.log_model(self.model, "best_model")
+
+        if self.tracker is not None:
             self.tracker.log_metric("best_epoch", float(best_epoch), step=self.epochs)
             self.tracker.log_metric("best_val_loss", float(best_val_loss), step=self.epochs)
 
@@ -188,6 +254,29 @@ class ModelTrainer:
             "best_epoch": best_epoch,
             "best_val_loss": float(best_val_loss),
         }
+
+    def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
+        """Persist best model checkpoint for future resume/evaluation flows."""
+        checkpoint_payload = {
+            "epoch": int(epoch),
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": float(val_loss),
+        }
+        torch.save(checkpoint_payload, checkpoint_path)
+
+    def _load_checkpoint(self, checkpoint_path: Path) -> Dict[str, Any]:
+        """Load checkpoint with required keys validation."""
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
+
+        required_keys = {"epoch", "model_state_dict", "val_loss"}
+        missing_keys = required_keys.difference(checkpoint.keys())
+        if missing_keys:
+            raise ValueError(f"Checkpoint is missing required keys: {sorted(missing_keys)}")
+
+        return checkpoint
 
     def _prepare_split_data(self, traces: Sequence[RawTrace]) -> SplitData:
         """Apply fraction and strict temporal split using config-driven strategy."""
@@ -444,6 +533,7 @@ class ModelTrainer:
         self.tracker.log_param("patience", self.patience)
         self.tracker.log_param("delta", self.delta)
         self.tracker.log_param("loss_function", self.loss_function)
+        self.tracker.log_param("seed", self.seed)
 
     def _log_run_context(self) -> None:
         """Log extended run context: tags, flattened params, and feature metadata."""
@@ -484,6 +574,8 @@ class ModelTrainer:
                 "loss_function": self.loss_function,
                 "patience": self.patience,
                 "delta": self.delta,
+                "retrain": self.retrain,
+                "checkpoint_dir": self.checkpoint_dir,
                 "ece_bins": self.num_ece_bins,
                 "class_weight_cap": self.class_weight_cap,
             },

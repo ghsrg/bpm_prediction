@@ -44,6 +44,10 @@ class MLflowTracker(ITracker):
         """Log local file artifact into MLflow."""
         mlflow.log_artifact(path)
 
+    def log_model(self, model: Any, artifact_path: str) -> None:
+        """Log PyTorch model into MLflow artifacts."""
+        mlflow.pytorch.log_model(model, artifact_path)
+
 
     def _sanitize_key(self, key: str) -> str:
         """Sanitize MLflow key by replacing unsupported characters with underscores."""
@@ -51,14 +55,6 @@ class MLflowTracker(ITracker):
         if not sanitized:
             return "unnamed"
         return sanitized
-
-    def log_tag(self, key: str, value: Any) -> None:
-        """Log run tag into MLflow."""
-        mlflow.set_tag(key, str(value))
-
-    def log_artifact(self, path: str) -> None:
-        """Log local file artifact into MLflow."""
-        mlflow.log_artifact(path)
 
     def close(self) -> None:
         """Close active MLflow run."""

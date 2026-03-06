@@ -271,6 +271,7 @@ def main() -> None:
     hidden_dim = int(model_cfg.get("hidden_dim", 64))
     output_dim = len(activity_vocab)
     dropout = float(model_cfg.get("dropout", 0.2))
+    pooling_strategy = str(model_cfg.get("pooling_strategy", "global_mean")).strip().lower()
     feature_layout = prepared["feature_layout"]
 
     model_registry: Dict[str, Type[BaseGNN]] = {
@@ -287,6 +288,7 @@ def main() -> None:
         hidden_dim=hidden_dim,
         output_dim=output_dim,
         dropout=dropout,
+        pooling_strategy=pooling_strategy,
     )
 
     device = torch.device(str(training_cfg.get("device", "cpu")))
@@ -326,6 +328,8 @@ def main() -> None:
         },
         "seed": seed,
         "class_weight_cap": float(training_cfg.get("class_weight_cap", 50.0)),
+        "retrain": bool(training_cfg.get("retrain", False)),
+        "checkpoint_dir": str(training_cfg.get("checkpoint_dir", "checkpoints")),
     }
 
     trainer = ModelTrainer(

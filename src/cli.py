@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 import logging
 import random
@@ -85,14 +86,53 @@ def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
     }
 
 
-def _strict_temporal_split(traces: Sequence[RawTrace]) -> Tuple[List[RawTrace], List[RawTrace], List[RawTrace]]:
-    """Apply strict chronological split (70/10/20) by first event timestamp."""
+def _parse_split_ratio(data_cfg: Dict[str, Any]) -> Tuple[float, float, float]:
+    """Parse split ratio with strict validation for train/val/test proportions."""
+    raw_ratio = data_cfg.get("split_ratio", [0.7, 0.2, 0.1])
+    if not isinstance(raw_ratio, Sequence) or isinstance(raw_ratio, (str, bytes)) or len(raw_ratio) != 3:
+        raise ValueError("data.split_ratio must be a 3-item list [train, val, test].")
+
+    ratios = [float(item) for item in raw_ratio]
+    if any(item < 0.0 for item in ratios):
+        raise ValueError("data.split_ratio must contain non-negative values.")
+
+    ratio_sum = sum(ratios)
+    if not math.isclose(ratio_sum, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+        raise ValueError(f"data.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
+
+    return ratios[0], ratios[1], ratios[2]
+
+
+def _apply_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
+    """Apply chronological fraction on traces after temporal ordering."""
+    traces_with_events = [trace for trace in traces if trace.events]
+    ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
+
+    if fraction >= 1.0:
+        return ordered
+    if fraction <= 0.0:
+        raise ValueError("data.fraction must be within (0.0, 1.0].")
+
+    keep_count = max(1, int(len(ordered) * fraction))
+    return ordered[:keep_count]
+
+
+def _strict_temporal_split(
+    traces: Sequence[RawTrace],
+    split_ratio: Tuple[float, float, float],
+    split_strategy: str,
+) -> Tuple[List[RawTrace], List[RawTrace], List[RawTrace]]:
+    """Apply strict chronological split by configured strategy and ratio."""
+    if split_strategy != "time":
+        raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'. Only 'time' is allowed for MVP1.")
+
+    train_ratio, val_ratio, _ = split_ratio
     traces_with_events = [trace for trace in traces if trace.events]
     ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
 
     total = len(ordered)
-    train_end = int(total * 0.7)
-    val_end = train_end + int(total * 0.1)
+    train_end = int(total * train_ratio)
+    val_end = train_end + int(total * val_ratio)
     return list(ordered[:train_end]), list(ordered[train_end:val_end]), list(ordered[val_end:])
 
 
@@ -128,10 +168,15 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     if not log_path:
         raise ValueError("Config must define data.log_path")
 
+    fraction = float(data_cfg.get("fraction", 1.0))
+    split_strategy = str(data_cfg.get("split_strategy", "time")).strip().lower()
+    split_ratio = _parse_split_ratio(data_cfg)
+
     xes_adapter = XESAdapter()
     prefix_policy = PrefixPolicy()
 
     traces = list(xes_adapter.read(log_path, mapping_cfg))
+    traces = _apply_fraction(traces, fraction)
     feature_configs = parse_feature_configs(config)
     feature_encoder = FeatureEncoder(feature_configs=feature_configs, traces=traces)
     feature_layout = feature_encoder.feature_layout
@@ -142,7 +187,7 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
 
     normalization_stats = _build_normalization_stats()
     graph_builder = BaselineGraphBuilder(feature_encoder=feature_encoder)
-    train_traces, val_traces, test_traces = _strict_temporal_split(traces)
+    train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
 
     train_dataset = _build_graph_dataset(train_traces, prefix_policy, graph_builder)
     val_dataset = _build_graph_dataset(val_traces, prefix_policy, graph_builder)
@@ -151,6 +196,11 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "log_path": log_path,
         "mapping_config": mapping_cfg,
+        "data_config": {
+            "fraction": fraction,
+            "split_strategy": split_strategy,
+            "split_ratio": list(split_ratio),
+        },
         "activity_vocab": activity_vocab,
         "resource_vocab": resource_vocab,
         "reverse_activity_vocab": reverse_activity_vocab,
@@ -200,6 +250,7 @@ def main() -> None:
     parser.add_argument("--config", default="configs/permit_log.yaml", help="YAML experiment config path or filename.")
     args = parser.parse_args()
 
+    config_path = _resolve_config_path(args.config)
     config = load_yaml_config(args.config)
 
     seed = int(config.get("seed", 42))
@@ -241,11 +292,11 @@ def main() -> None:
     device = torch.device(str(training_cfg.get("device", "cpu")))
     class_weights = _compute_class_weights(prepared["train_dataset"], output_dim, device)
 
-    run_name = f"{model_type}_seed{seed}"
+    run_name = str(experiment_cfg.get("name", f"{model_type}_seed{seed}"))
     tracker = None
     if bool(tracking_cfg.get("enabled", False)):
         tracker = MLflowTracker(
-            experiment_name=str(experiment_cfg.get("name", "DefaultExperiment")),
+            experiment_name=str(experiment_cfg.get("project", "DefaultExperiment")),
             run_name=run_name,
             tracking_uri=tracking_cfg.get("uri"),
         )
@@ -253,6 +304,26 @@ def main() -> None:
     trainer_config: Dict[str, Any] = {
         **training_cfg,
         "mapping_config": prepared["mapping_config"],
+        "data_config": prepared["data_config"],
+        "model_config": model_cfg,
+        "experiment_config": experiment_cfg,
+        "tracking_config": tracking_cfg,
+        "config_path": str(config_path),
+        "feature_configs": [
+            {
+                "name": item.name,
+                "encoding": list(item.encoding),
+                "source": item.source,
+                "dtype": item.dtype,
+                "role": item.role,
+            }
+            for item in prepared["feature_configs"]
+        ],
+        "feature_layout": {
+            "num_cat_features": len(prepared["feature_layout"].cat_feature_names),
+            "num_num_channels": int(prepared["feature_layout"].num_dim),
+            "cat_feature_names": list(prepared["feature_layout"].cat_feature_names),
+        },
         "seed": seed,
         "class_weight_cap": float(training_cfg.get("class_weight_cap", 50.0)),
     }

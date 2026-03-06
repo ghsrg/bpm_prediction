@@ -15,3 +15,11 @@ class ITracker(Protocol):
     def log_param(self, key: str, value: Any) -> None:
         """Log a parameter (e.g., hyperparameters, model name)."""
         ...
+
+    def log_tag(self, key: str, value: Any) -> None:
+        """Log a run tag for grouping/filtering experiments."""
+        ...
+
+    def log_artifact(self, path: str) -> None:
+        """Log local file artifact for reproducibility."""
+        ...

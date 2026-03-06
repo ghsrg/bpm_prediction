@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import logging
 import math
@@ -231,6 +232,18 @@ class ModelTrainer:
             "best_epoch": best_epoch,
             "best_val_loss": float(best_val_loss),
         }
+        torch.save(checkpoint_payload, checkpoint_path)
+
+    def _load_checkpoint(self, checkpoint_path: Path) -> Dict[str, Any]:
+        """Load checkpoint with required keys validation."""
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
+
+        required_keys = {"epoch", "model_state_dict", "val_loss"}
+        missing_keys = required_keys.difference(checkpoint.keys())
+        if missing_keys:
+            raise ValueError(f"Checkpoint is missing required keys: {sorted(missing_keys)}")
 
     def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
         """Persist best model checkpoint for future resume/evaluation flows."""

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import logging
 import math
@@ -207,6 +208,29 @@ class ModelTrainer:
         self.model.load_state_dict(best_checkpoint["model_state_dict"])
         best_epoch = int(best_checkpoint["epoch"])
         best_val_loss = float(best_checkpoint["val_loss"])
+
+            if (best_val_loss - val_loss) > self.delta:
+                best_val_loss = val_loss
+                best_epoch = epoch
+                epochs_without_improvement = 0
+                best_state_dict = deepcopy(self.model.state_dict())
+            else:
+                epochs_without_improvement += 1
+
+            if epochs_without_improvement >= self.patience:
+                logger.info(
+                    "Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).",
+                    epoch,
+                    best_epoch,
+                    best_val_loss,
+                )
+                if self.tracker is not None:
+                    self.tracker.log_metric("early_stopping_epoch", float(epoch), step=epoch)
+                    self.tracker.log_metric("best_epoch", float(best_epoch), step=epoch)
+                    self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
+                break
+
+        self.model.load_state_dict(best_state_dict)
 
         test_metrics = self._evaluate_test(test_loader)
         logger.info("Final test metrics: %s", test_metrics)

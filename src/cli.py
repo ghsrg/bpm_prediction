@@ -113,7 +113,7 @@ def _build_graph_dataset(
                     edge_index=contract["edge_index"],
                     edge_type=contract["edge_type"],
                     y=contract["y"],
-                    num_nodes=int(contract["x_cat"].size(0)),
+                    num_nodes=int(contract["num_nodes"]),
                 )
             )
     return dataset

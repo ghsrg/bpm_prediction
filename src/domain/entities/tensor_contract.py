@@ -21,3 +21,4 @@ class GraphTensorContract(TypedDict):
     edge_type: torch.LongTensor
     y: torch.LongTensor
     batch: torch.LongTensor
+    num_nodes: int

@@ -61,6 +61,10 @@ class BaselineGATv2(BaseGNN):
         else:
             x = x_num
 
+        # Гарантуємо консистентність batch-вектора для pool/readout.
+        if batch.numel() != x.size(0):
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+
         x = self.conv1(x, edge_index)
         x = self.activation(x)
         x = self.dropout(x)

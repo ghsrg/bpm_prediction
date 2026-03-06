@@ -176,7 +176,8 @@ class ModelTrainer:
                     val_macro_f1,
                 )
 
-                if (best_val_loss - val_loss) > self.delta:
+                improvement = best_val_loss - val_loss
+                if improvement > self.delta:
                     best_val_loss = val_loss
                     best_epoch = epoch
                     epochs_without_improvement = 0
@@ -209,29 +210,6 @@ class ModelTrainer:
         best_epoch = int(best_checkpoint["epoch"])
         best_val_loss = float(best_checkpoint["val_loss"])
 
-            if (best_val_loss - val_loss) > self.delta:
-                best_val_loss = val_loss
-                best_epoch = epoch
-                epochs_without_improvement = 0
-                best_state_dict = deepcopy(self.model.state_dict())
-            else:
-                epochs_without_improvement += 1
-
-            if epochs_without_improvement >= self.patience:
-                logger.info(
-                    "Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).",
-                    epoch,
-                    best_epoch,
-                    best_val_loss,
-                )
-                if self.tracker is not None:
-                    self.tracker.log_metric("early_stopping_epoch", float(epoch), step=epoch)
-                    self.tracker.log_metric("best_epoch", float(best_epoch), step=epoch)
-                    self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
-                break
-
-        self.model.load_state_dict(best_state_dict)
-
         test_metrics = self._evaluate_test(test_loader)
         logger.info("Final test metrics: %s", test_metrics)
         self._log_test_metrics(test_metrics)
@@ -254,6 +232,18 @@ class ModelTrainer:
             "best_epoch": best_epoch,
             "best_val_loss": float(best_val_loss),
         }
+        torch.save(checkpoint_payload, checkpoint_path)
+
+    def _load_checkpoint(self, checkpoint_path: Path) -> Dict[str, Any]:
+        """Load checkpoint with required keys validation."""
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
+
+        required_keys = {"epoch", "model_state_dict", "val_loss"}
+        missing_keys = required_keys.difference(checkpoint.keys())
+        if missing_keys:
+            raise ValueError(f"Checkpoint is missing required keys: {sorted(missing_keys)}")
 
     def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
         """Persist best model checkpoint for future resume/evaluation flows."""

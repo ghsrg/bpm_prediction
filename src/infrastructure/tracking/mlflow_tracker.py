@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Tuple
+import re
 
 import mlflow
 
@@ -33,7 +34,23 @@ class MLflowTracker(ITracker):
     def log_param(self, key: str, value: Any) -> None:
         """Log param; nested dictionaries are flattened into dotted keys."""
         for flat_key, flat_value in self._flatten_params(prefix=key, value=value):
-            mlflow.log_param(flat_key, flat_value)
+            mlflow.log_param(self._sanitize_key(flat_key), flat_value)
+
+    def log_tag(self, key: str, value: Any) -> None:
+        """Log run tag into MLflow."""
+        mlflow.set_tag(self._sanitize_key(key), str(value))
+
+    def log_artifact(self, path: str) -> None:
+        """Log local file artifact into MLflow."""
+        mlflow.log_artifact(path)
+
+
+    def _sanitize_key(self, key: str) -> str:
+        """Sanitize MLflow key by replacing unsupported characters with underscores."""
+        sanitized = re.sub(r"[^A-Za-z0-9_./-]", "_", str(key))
+        if not sanitized:
+            return "unnamed"
+        return sanitized
 
     def log_tag(self, key: str, value: Any) -> None:
         """Log run tag into MLflow."""

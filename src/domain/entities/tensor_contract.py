@@ -15,8 +15,10 @@ import torch
 class GraphTensorContract(TypedDict):
     """Typed contract for graph tensors consumed by baseline GNN."""
 
-    x: torch.FloatTensor
+    x_cat: torch.LongTensor
+    x_num: torch.FloatTensor
     edge_index: torch.LongTensor
     edge_type: torch.LongTensor
     y: torch.LongTensor
     batch: torch.LongTensor
+    num_nodes: int

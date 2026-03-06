@@ -70,6 +70,7 @@ class ModelTrainer:
         self.learning_rate = float(config.get("learning_rate", 1e-3))
         self.device = torch.device(config.get("device", "cpu"))
         self.num_ece_bins = int(config.get("ece_bins", 10))
+        self.class_weight_cap = float(config.get("class_weight_cap", 50.0))
         self.show_progress = bool(config.get("show_progress", True))
         self.tqdm_disable = bool(config.get("tqdm_disable", False))
         self.tqdm_leave = bool(config.get("tqdm_leave", False))
@@ -79,6 +80,7 @@ class ModelTrainer:
         self.model.to(self.device)
         if self.class_weights is not None:
             self.class_weights = self.class_weights.to(self.device)
+            self.class_weights = torch.clamp(self.class_weights, max=self.class_weight_cap)
         self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
         self._log_params()
 
@@ -167,10 +169,12 @@ class ModelTrainer:
                 contract = self.graph_builder.build_graph(prefix_slice)
                 graphs.append(
                     Data(
-                        x=contract["x"],
+                        x_cat=contract["x_cat"],
+                        x_num=contract["x_num"],
                         edge_index=contract["edge_index"],
                         edge_type=contract["edge_type"],
                         y=contract["y"],
+                        num_nodes=int(contract["num_nodes"]),
                     )
                 )
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
@@ -215,6 +219,7 @@ class ModelTrainer:
 
                 if training and optimizer is not None:
                     loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     optimizer.step()
 
             total_loss += float(loss.detach().cpu().item())
@@ -326,12 +331,18 @@ class ModelTrainer:
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
         edge_type = data.edge_type if hasattr(data, "edge_type") else torch.zeros(data.edge_index.shape[1], dtype=torch.long)
+        num_nodes = int(data.x_cat.size(0))
+        batch_tensor = data.batch if hasattr(data, "batch") else torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
+        if batch_tensor.numel() != num_nodes:
+            batch_tensor = torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
         return GraphTensorContract(
-            x=data.x,
+            x_cat=data.x_cat,
+            x_num=data.x_num,
             edge_index=data.edge_index,
             edge_type=edge_type,
             y=data.y,
-            batch=data.batch,
+            batch=batch_tensor,
+            num_nodes=num_nodes,
         )
 
     def _log_params(self) -> None:

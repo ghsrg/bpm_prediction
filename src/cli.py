@@ -22,10 +22,12 @@ from torch_geometric.data import Data
 from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.raw_trace import RawTrace
+from src.domain.entities.feature_config import parse_feature_configs
 from src.domain.models.base_gnn import BaseGNN
 from src.domain.models.baseline_gat import BaselineGATv2
 from src.domain.models.baseline_gcn import BaselineGCN
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
+from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
@@ -65,22 +67,13 @@ def set_seed(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
 
 
-def _build_vocabularies(log_path: str, mapping_config: Dict[str, Any]) -> Tuple[Dict[str, int], Dict[str, int]]:
-    """Build activity/resource vocabularies from one full pass over normalized traces."""
-    adapter = XESAdapter()
-
-    # Індекс 0 зарезервовано для <UNK> для обох словників.
-    activity_vocab: Dict[str, int] = {"<UNK>": 0}
-    resource_vocab: Dict[str, int] = {"<UNK>": 0}
-
-    for trace in adapter.read(log_path, mapping_config):
-        for event in trace.events:
-            if event.activity_id not in activity_vocab:
-                activity_vocab[event.activity_id] = len(activity_vocab)
-            if event.resource_id not in resource_vocab:
-                resource_vocab[event.resource_id] = len(resource_vocab)
-
-    return activity_vocab, resource_vocab
+def _extract_base_vocabularies(feature_encoder: FeatureEncoder) -> Tuple[Dict[str, int], Dict[str, int], str]:
+    """Extract activity/resource vocabularies from feature encoder artifacts."""
+    activity_feature = feature_encoder.activity_feature_name
+    resource_feature = feature_encoder.role_to_feature.get("resource", "org:resource")
+    activity_vocab = feature_encoder.categorical_vocabs.get(activity_feature, {"<UNK>": 0})
+    resource_vocab = feature_encoder.categorical_vocabs.get(resource_feature, {"<UNK>": 0})
+    return activity_vocab, resource_vocab, activity_feature
 
 
 def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
@@ -115,10 +108,12 @@ def _build_graph_dataset(
             contract = graph_builder.build_graph(prefix_slice)
             dataset.append(
                 Data(
-                    x=contract["x"],
+                    x_cat=contract["x_cat"],
+                    x_num=contract["x_num"],
                     edge_index=contract["edge_index"],
                     edge_type=contract["edge_type"],
                     y=contract["y"],
+                    num_nodes=int(contract["num_nodes"]),
                 )
             )
     return dataset
@@ -136,18 +131,17 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     xes_adapter = XESAdapter()
     prefix_policy = PrefixPolicy()
 
-    activity_vocab, resource_vocab = _build_vocabularies(log_path, mapping_cfg)
+    traces = list(xes_adapter.read(log_path, mapping_cfg))
+    feature_configs = parse_feature_configs(config)
+    feature_encoder = FeatureEncoder(feature_configs=feature_configs, traces=traces)
+    feature_layout = feature_encoder.feature_layout
+
+    activity_vocab, resource_vocab, activity_feature = _extract_base_vocabularies(feature_encoder)
     reverse_activity_vocab = {idx: key for key, idx in activity_vocab.items()}
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
     normalization_stats = _build_normalization_stats()
-    graph_builder = BaselineGraphBuilder(
-        activity_vocab=activity_vocab,
-        resource_vocab=resource_vocab,
-        normalization_stats=normalization_stats,
-    )
-
-    traces = list(xes_adapter.read(log_path, mapping_cfg))
+    graph_builder = BaselineGraphBuilder(feature_encoder=feature_encoder)
     train_traces, val_traces, test_traces = _strict_temporal_split(traces)
 
     train_dataset = _build_graph_dataset(train_traces, prefix_policy, graph_builder)
@@ -161,7 +155,14 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         "resource_vocab": resource_vocab,
         "reverse_activity_vocab": reverse_activity_vocab,
         "reverse_resource_vocab": reverse_resource_vocab,
+        "feature_configs": feature_configs,
+        "feature_layout": feature_layout,
+        "feature_encoder": feature_encoder,
+        "activity_feature": activity_feature,
+        "extra_vocabs": feature_encoder.categorical_vocabs,
+        "ordered_extra_keys": [cfg.name for cfg in feature_configs],
         "normalization_stats": normalization_stats,
+        "input_dim": feature_layout.num_dim,
         "graph_builder": graph_builder,
         "prefix_policy": prefix_policy,
         "train_dataset": train_dataset,
@@ -215,11 +216,11 @@ def main() -> None:
 
     logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
 
-    # input_dim = |V_act| + |V_res| + 3 (UNK вже включений у vocab як індекс 0).
-    input_dim = len(activity_vocab) + len(resource_vocab) + 3
+    # input_dim = базові one-hot + часові фічі + typed extra-фічі (узгоджено з graph_builder).
     hidden_dim = int(model_cfg.get("hidden_dim", 64))
     output_dim = len(activity_vocab)
     dropout = float(model_cfg.get("dropout", 0.2))
+    feature_layout = prepared["feature_layout"]
 
     model_registry: Dict[str, Type[BaseGNN]] = {
         "BaselineGCN": BaselineGCN,
@@ -231,7 +232,7 @@ def main() -> None:
         raise ValueError(f"Unsupported model.type '{model_type}'. Available: {list(model_registry)}")
 
     model = model_cls(
-        input_dim=input_dim,
+        feature_layout=feature_layout,
         hidden_dim=hidden_dim,
         output_dim=output_dim,
         dropout=dropout,
@@ -253,6 +254,7 @@ def main() -> None:
         **training_cfg,
         "mapping_config": prepared["mapping_config"],
         "seed": seed,
+        "class_weight_cap": float(training_cfg.get("class_weight_cap", 50.0)),
     }
 
     trainer = ModelTrainer(

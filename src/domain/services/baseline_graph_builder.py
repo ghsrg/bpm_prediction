@@ -69,4 +69,5 @@ class BaselineGraphBuilder(IGraphBuilder):
             edge_type=edge_type,
             y=y,
             batch=batch,
+            num_nodes=int(x_cat.size(0)),
         )

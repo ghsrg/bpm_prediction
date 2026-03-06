@@ -174,7 +174,7 @@ class ModelTrainer:
                         edge_index=contract["edge_index"],
                         edge_type=contract["edge_type"],
                         y=contract["y"],
-                        num_nodes=int(contract["x_cat"].size(0)),
+                        num_nodes=int(contract["num_nodes"]),
                     )
                 )
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
@@ -331,13 +331,18 @@ class ModelTrainer:
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
         edge_type = data.edge_type if hasattr(data, "edge_type") else torch.zeros(data.edge_index.shape[1], dtype=torch.long)
+        num_nodes = int(data.x_cat.size(0))
+        batch_tensor = data.batch if hasattr(data, "batch") else torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
+        if batch_tensor.numel() != num_nodes:
+            batch_tensor = torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
         return GraphTensorContract(
             x_cat=data.x_cat,
             x_num=data.x_num,
             edge_index=data.edge_index,
             edge_type=edge_type,
             y=data.y,
-            batch=data.batch,
+            batch=batch_tensor,
+            num_nodes=num_nodes,
         )
 
     def _log_params(self) -> None:

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import math
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -74,6 +76,18 @@ class ModelTrainer:
         self.show_progress = bool(config.get("show_progress", True))
         self.tqdm_disable = bool(config.get("tqdm_disable", False))
         self.tqdm_leave = bool(config.get("tqdm_leave", False))
+        self.loss_function = str(config.get("loss_function", "cross_entropy")).strip().lower()
+        self.patience = int(config.get("patience", 6))
+        self.delta = float(config.get("delta", 1e-4))
+        self.config_path = str(config.get("config_path", "")).strip()
+        self.seed = int(config.get("seed", 42))
+        self.retrain = bool(config.get("retrain", False))
+        self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
+        experiment_cfg = self.config.get("experiment_config", {})
+        experiment_name = str(experiment_cfg.get("name", "default_experiment")).strip() or "default_experiment"
+        safe_experiment_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in experiment_name)
+        self.experiment_name = safe_experiment_name
+        self.checkpoint_path = Path(self.checkpoint_dir) / f"{self.experiment_name}_best.pth"
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -81,11 +95,16 @@ class ModelTrainer:
         if self.class_weights is not None:
             self.class_weights = self.class_weights.to(self.device)
             self.class_weights = torch.clamp(self.class_weights, max=self.class_weight_cap)
+        if self.loss_function != "cross_entropy":
+            raise ValueError(f"Unsupported training.loss_function '{self.loss_function}' for MVP1.")
         self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
         self._log_params()
+        self._log_run_context()
+        if self.tracker is not None and self.config_path:
+            self.tracker.log_artifact(self.config_path)
 
         raw_traces = list(self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {})))
-        split_data = self._strict_temporal_split(raw_traces)
+        split_data = self._prepare_split_data(raw_traces)
 
         train_loader = self._build_loader(split_data.train, shuffle=True)
         val_loader = self._build_loader(split_data.val, shuffle=False)
@@ -99,41 +118,106 @@ class ModelTrainer:
         )
 
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+        start_epoch = 0
+        best_val_loss = float("inf")
+        best_epoch = 0
+
+        if self.checkpoint_path.exists() and not self.retrain:
+            checkpoint = self._load_checkpoint(self.checkpoint_path)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            best_val_loss = float(checkpoint["val_loss"])
+            start_epoch = int(checkpoint["epoch"])
+            best_epoch = start_epoch
+            logger.info("Loaded checkpoint from epoch %d with val_loss %.6f.", start_epoch, best_val_loss)
+
+            if start_epoch < self.epochs:
+                optimizer_state_dict = checkpoint.get("optimizer_state_dict")
+                if optimizer_state_dict is None:
+                    raise ValueError("Checkpoint is missing required key 'optimizer_state_dict' for resume training.")
+                optimizer.load_state_dict(optimizer_state_dict)
+        else:
+            logger.info("Starting training from scratch, start_epoch = 0.")
 
         history: List[Dict[str, float]] = []
-        for epoch in range(1, self.epochs + 1):
-            train_loss, train_macro_f1, epoch_duration = self._run_epoch(
-                train_loader,
-                optimizer=optimizer,
-                training=True,
-            )
-            val_loss, val_macro_f1, _ = self._run_epoch(
-                val_loader,
-                optimizer=None,
-                training=False,
-            )
+        epochs_without_improvement = 0
+        if start_epoch >= self.epochs:
+            logger.info("Model already trained for %d epochs. Skipping training loop.", self.epochs)
+        else:
+            for epoch in range(start_epoch + 1, self.epochs + 1):
+                train_loss, train_macro_f1, epoch_duration = self._run_epoch(
+                    train_loader,
+                    optimizer=optimizer,
+                    training=True,
+                )
+                val_loss, val_macro_f1, _ = self._run_epoch(
+                    val_loader,
+                    optimizer=None,
+                    training=False,
+                )
 
-            epoch_metrics = {
-                "train_loss": train_loss,
-                "train_macro_f1": train_macro_f1,
-                "val_loss": val_loss,
-                "val_macro_f1": val_macro_f1,
-                "epoch_duration_sec": epoch_duration,
-            }
-            history.append(epoch_metrics)
-            self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
-            logger.info(
-                "Epoch %d/%d | train_loss=%.6f | val_loss=%.6f | val_macro_f1=%.6f",
-                epoch,
-                self.epochs,
-                train_loss,
-                val_loss,
-                val_macro_f1,
-            )
+                epoch_metrics = {
+                    "train_loss": train_loss,
+                    "train_macro_f1": train_macro_f1,
+                    "val_loss": val_loss,
+                    "val_macro_f1": val_macro_f1,
+                    "epoch_duration_sec": epoch_duration,
+                }
+                history.append(epoch_metrics)
+                self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
+                logger.info(
+                    "Epoch %d/%d | train_loss=%.6f | val_loss=%.6f | val_macro_f1=%.6f",
+                    epoch,
+                    self.epochs,
+                    train_loss,
+                    val_loss,
+                    val_macro_f1,
+                )
+
+                if (best_val_loss - val_loss) > self.delta:
+                    best_val_loss = val_loss
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                    self._save_checkpoint(
+                        checkpoint_path=self.checkpoint_path,
+                        epoch=epoch,
+                        val_loss=best_val_loss,
+                        optimizer=optimizer,
+                    )
+                else:
+                    epochs_without_improvement += 1
+
+                if epochs_without_improvement >= self.patience:
+                    logger.info(
+                        "Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).",
+                        epoch,
+                        best_epoch,
+                        best_val_loss,
+                    )
+                    if self.tracker is not None:
+                        self.tracker.log_metric("early_stopping_epoch", float(epoch), step=epoch)
+                        self.tracker.log_metric("best_epoch", float(best_epoch), step=epoch)
+                        self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
+                    break
+
+        if not self.checkpoint_path.exists():
+            raise FileNotFoundError(f"Best checkpoint not found: {self.checkpoint_path}")
+        best_checkpoint = self._load_checkpoint(self.checkpoint_path)
+        self.model.load_state_dict(best_checkpoint["model_state_dict"])
+        best_epoch = int(best_checkpoint["epoch"])
+        best_val_loss = float(best_checkpoint["val_loss"])
 
         test_metrics = self._evaluate_test(test_loader)
         logger.info("Final test metrics: %s", test_metrics)
         self._log_test_metrics(test_metrics)
+
+        if self.tracker is not None:
+            self.tracker.log_model(self.model, "best_model")
+
+        if self.tracker is not None:
+            self.tracker.log_metric("best_epoch", float(best_epoch), step=self.epochs)
+            self.tracker.log_metric("best_val_loss", float(best_val_loss), step=self.epochs)
 
         return {
             "history": history,
@@ -143,16 +227,85 @@ class ModelTrainer:
                 "val": len(split_data.val),
                 "test": len(split_data.test),
             },
+            "best_epoch": best_epoch,
+            "best_val_loss": float(best_val_loss),
         }
 
-    def _strict_temporal_split(self, traces: Sequence[RawTrace]) -> SplitData:
-        """Apply strict chronological split (70/10/20) by first event timestamp."""
+    def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
+        """Persist best model checkpoint for future resume/evaluation flows."""
+        checkpoint_payload = {
+            "epoch": int(epoch),
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": float(val_loss),
+        }
+        torch.save(checkpoint_payload, checkpoint_path)
+
+    def _load_checkpoint(self, checkpoint_path: Path) -> Dict[str, Any]:
+        """Load checkpoint with required keys validation."""
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
+
+        required_keys = {"epoch", "model_state_dict", "val_loss"}
+        missing_keys = required_keys.difference(checkpoint.keys())
+        if missing_keys:
+            raise ValueError(f"Checkpoint is missing required keys: {sorted(missing_keys)}")
+
+        return checkpoint
+
+    def _prepare_split_data(self, traces: Sequence[RawTrace]) -> SplitData:
+        """Apply fraction and strict temporal split using config-driven strategy."""
+        data_cfg = self.config.get("data_config", {})
+        fraction = float(data_cfg.get("fraction", 1.0))
+        split_strategy = str(data_cfg.get("split_strategy", "time")).strip().lower()
+        split_ratio = self._parse_split_ratio(data_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
+
+        ordered = self._apply_fraction(traces=traces, fraction=fraction)
+        return self._strict_temporal_split(ordered=ordered, split_ratio=split_ratio, split_strategy=split_strategy)
+
+    def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
+        """Validate configured train/val/test split ratio."""
+        if not isinstance(raw_ratio, Sequence) or isinstance(raw_ratio, (str, bytes)) or len(raw_ratio) != 3:
+            raise ValueError("data.split_ratio must be a 3-item list [train, val, test].")
+
+        ratios = [float(item) for item in raw_ratio]
+        if any(item < 0.0 for item in ratios):
+            raise ValueError("data.split_ratio must contain non-negative values.")
+
+        ratio_sum = sum(ratios)
+        if not math.isclose(ratio_sum, 1.0, rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError(f"data.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
+
+        return ratios[0], ratios[1], ratios[2]
+
+    def _apply_fraction(self, traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
+        """Select chronological subset of traces by fraction."""
         traces_with_events = [trace for trace in traces if trace.events]
         ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
 
+        if fraction >= 1.0:
+            return ordered
+        if fraction <= 0.0:
+            raise ValueError("data.fraction must be within (0.0, 1.0].")
+
+        keep_count = max(1, int(len(ordered) * fraction))
+        return ordered[:keep_count]
+
+    def _strict_temporal_split(
+        self,
+        ordered: Sequence[RawTrace],
+        split_ratio: Tuple[float, float, float],
+        split_strategy: str,
+    ) -> SplitData:
+        """Apply strict chronological split by configured strategy and ratio."""
+        if split_strategy != "time":
+            raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'. Only 'time' is allowed for MVP1.")
+
         total = len(ordered)
-        train_end = int(total * 0.7)
-        val_end = train_end + int(total * 0.1)
+        train_ratio, val_ratio, _ = split_ratio
+        train_end = int(total * train_ratio)
+        val_end = train_end + int(total * val_ratio)
 
         return SplitData(
             train=list(ordered[:train_end]),
@@ -353,6 +506,78 @@ class ModelTrainer:
         self.tracker.log_param("learning_rate", self.learning_rate)
         self.tracker.log_param("batch_size", self.batch_size)
         self.tracker.log_param("epochs", self.epochs)
+        self.tracker.log_param("patience", self.patience)
+        self.tracker.log_param("delta", self.delta)
+        self.tracker.log_param("loss_function", self.loss_function)
+        self.tracker.log_param("seed", self.seed)
+
+    def _log_run_context(self) -> None:
+        """Log extended run context: tags, flattened params, and feature metadata."""
+        if self.tracker is None:
+            return
+
+        experiment_cfg = self.config.get("experiment_config", {})
+        tracking_cfg = self.config.get("tracking_config", {})
+        data_cfg = self.config.get("data_config", {})
+        model_cfg = self.config.get("model_config", {})
+
+        dataset_name = str(experiment_cfg.get("dataset", "")).strip()
+        if dataset_name:
+            self.tracker.log_tag("experiment.dataset", dataset_name)
+
+        custom_tags = tracking_cfg.get("tags", {})
+        if isinstance(custom_tags, dict):
+            for tag_key, tag_value in custom_tags.items():
+                self.tracker.log_tag(str(tag_key), tag_value)
+
+        self.tracker.log_param("data", data_cfg)
+        self.tracker.log_param(
+            "model",
+            {
+                "type": model_cfg.get("type", self.model.__class__.__name__),
+                "hidden_dim": model_cfg.get("hidden_dim"),
+                "dropout": model_cfg.get("dropout"),
+                "graph_strategy": model_cfg.get("graph_strategy", "sequential_prefix"),
+                "pooling_strategy": model_cfg.get("pooling_strategy", "global_mean"),
+            },
+        )
+        self.tracker.log_param(
+            "training",
+            {
+                "batch_size": self.batch_size,
+                "epochs": self.epochs,
+                "learning_rate": self.learning_rate,
+                "loss_function": self.loss_function,
+                "patience": self.patience,
+                "delta": self.delta,
+                "retrain": self.retrain,
+                "checkpoint_dir": self.checkpoint_dir,
+                "ece_bins": self.num_ece_bins,
+                "class_weight_cap": self.class_weight_cap,
+            },
+        )
+
+        feature_names: List[str] = []
+        feature_configs = self.config.get("feature_configs", [])
+        if isinstance(feature_configs, list):
+            for feature_cfg in feature_configs:
+                if not isinstance(feature_cfg, dict):
+                    continue
+                feature_name = str(feature_cfg.get("name", "")).strip()
+                if not feature_name:
+                    continue
+                feature_names.append(feature_name)
+                encoding = feature_cfg.get("encoding", [])
+                if isinstance(encoding, list):
+                    self.tracker.log_param(f"enc.{feature_name}", ",".join(str(item) for item in encoding))
+
+        if feature_names:
+            self.tracker.log_param("feature_list", ",".join(feature_names))
+
+        feature_layout = self.config.get("feature_layout", {})
+        if isinstance(feature_layout, dict):
+            self.tracker.log_param("num_cat_features", int(feature_layout.get("num_cat_features", 0)))
+            self.tracker.log_param("num_num_channels", int(feature_layout.get("num_num_channels", 0)))
 
     def _log_epoch_metrics(self, epoch: int, metrics: Dict[str, float]) -> None:
         """Log train/validation metrics for one epoch via tracker port."""

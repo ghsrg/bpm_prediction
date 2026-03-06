@@ -1,14 +1,27 @@
 experiment:
-  name: "PermitLog"
-  dataset: "permit_log"
+  # Глобальна назва проєкту (простору) в MLflow. Об'єднує всі експерименти в одну групу.
   project: "bpm_prediction_mvp1"
+  # Логічне ім'я набору даних. Критично для фільтрації в MLflow (щоб не порівнювати різні логи).
+  dataset: "permit_log"
+  # Унікальна назва конкретного запуску (Run Name). Описує поточну гіпотезу або зміну.
+  name: "GATv2_Baseline_FullFeatures"
 
-seed: 42
+seed: 42 # Фіксація генератора випадкових чисел для 100% відтворюваності результатів (split, ініціалізація ваг).
 
 data:
+  # Відносний або абсолютний шлях до сирого файлу журналу подій у форматі XES.
   log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
+  # Частка даних для завантаження (1.0 = всі дані, 0.1 = 10% для швидкого тесту пайплайну)
+  fraction: 0.1
+  # Стратегія розбиття: "time" (хронологічно, обов'язково для бізнес-процесів) або "random"
+  split_strategy: "time"
+  # Пропорції для Train / Val / Test
+  split_ratio: [0.7, 0.2, 0.1]
 
 mapping:
+  # Тут описується FeatureConfig: звідки брати дані (source), як типізувати (dtype),
+  # чим заповнювати пропуски (fill_na) та як кодувати для мережі (encoding: z-score, embedding, time2vec).
+
   xes_adapter:
     case_id_key: "concept:name"
     activity_key: "concept:name"
@@ -91,25 +104,51 @@ mapping:
       encoding: ["embedding"]
 
 model:
+  # Клас архітектури графової нейромережі (наприклад: BaselineGCN, BaselineGATv2).
   type: "BaselineGATv2"
+  # Розмірність прихованих шарів (векторів ознак всередині мережі).
   hidden_dim: 64
+  # Відсоток нейронів, які вимикаються під час навчання для запобігання перенавчанню (0.0 - 1.0).
   dropout: 0.2
+  # Стратегія побудови графа: "sequential_prefix" (лінійна послідовність подій), майбутні: "dfg", "eopkg".
+  graph_strategy: "sequential_prefix"
+  # Метод агрегації ознак вузлів у єдиний вектор графа: "global_mean" (середнє), "last_node" (фокус на останній події).
+  pooling_strategy: "global_mean"
 
 training:
+  # Кількість графів (префіксів), які обробляються за один крок оптимізатора.
   batch_size: 128
+  # Кількість повних проходів по всьому навчальному набору даних.
   epochs: 30
+  # Швидкість навчання оптимізатора (Adam).
   learning_rate: 0.001
+  # Кількість епох без покращення validation loss перед ранньою зупинкою
+  patience: 10
+  # Мінімальне покращення, яке вважається значущим
+  delta: 1e-4
+  # Апаратне прискорення: "cpu" (процесор) або "cuda" (NVIDIA GPU).
   device: "cpu"
+  # Кількість кошиків для розрахунку метрики калібрування Expected Calibration Error (ECE).
   ece_bins: 10
+  # Максимально допустима вага для дуже рідкісних класів (захист від вибуху градієнтів при сильному дисбалансі).
   class_weight_cap: 50.0
+  # Функція втрат: "cross_entropy" (стандартна класифікація), у майбутньому можлива "focal_loss".
+  loss_function: "cross_entropy"
+  # Увімкнути/вимкнути загальний прогрес-бар у терміналі.
   show_progress: true
+  # Повне вимкнення tqdm (корисно для запуску в Docker/CI без засмічення логів).
   tqdm_disable: false
+  # Чи залишати прогрес-бар на екрані після завершення епохи.
   tqdm_leave: false
 
 tracking:
+  # Увімкнути/вимкнути запис метрик та параметрів (корисно вимикати для швидких дебаг-запусків).
   enabled: true
+  # Система трекінгу. Зараз підтримується лише "mlflow".
   backend: "mlflow"
+  # Локальна або віддалена адреса сервера MLflow (file:./mlruns зберігає дані локально в папці).
   uri: "file:./mlruns"
+  # Додаткові мітки (Tags) для пошуку та угруповання в інтерфейсі MLflow.
   tags:
-    stage: "mvp1"
+    stage: "mvp1_cross_dataset"
     model_family: "baseline_gnn"

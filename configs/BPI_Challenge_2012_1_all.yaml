@@ -1,0 +1,106 @@
+experiment:
+  project: "bpm_prediction_mvp1"
+  dataset: "bpi2012_loan"
+  name: "GATv2_Baseline_BPI2012"
+
+seed: 42
+
+data:
+  log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
+  fraction: 0.1 # 10% для швидкого тесту пайплайну
+  split_strategy: "time"
+  split_ratio: [0.7, 0.2, 0.1]
+
+mapping:
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: true
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_month"
+        - "time2vec_weekofyear"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    # --- Специфічний атрибут для BPI Challenge 2012 ---
+    - name: "AMOUNT_REQ"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+model:
+  type: "BaselineGATv2"
+  hidden_dim: 64
+  dropout: 0.2
+  graph_strategy: "sequential_prefix"
+  pooling_strategy: "global_mean"
+
+training:
+  batch_size: 128
+  epochs: 30
+  learning_rate: 0.001
+  patience: 10
+  delta: 1e-4
+  device: "cpu"
+  ece_bins: 10
+  class_weight_cap: 50.0
+  loss_function: "cross_entropy"
+  show_progress: true
+  tqdm_disable: false
+  tqdm_leave: false
+
+tracking:
+  enabled: true
+  backend: "mlflow"
+  uri: "file:./mlruns"
+  tags:
+    stage: "mvp1_cross_dataset"
+    model_family: "baseline_gnn"

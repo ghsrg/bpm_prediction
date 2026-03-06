@@ -35,6 +35,14 @@ class MLflowTracker(ITracker):
         for flat_key, flat_value in self._flatten_params(prefix=key, value=value):
             mlflow.log_param(flat_key, flat_value)
 
+    def log_tag(self, key: str, value: Any) -> None:
+        """Log run tag into MLflow."""
+        mlflow.set_tag(key, str(value))
+
+    def log_artifact(self, path: str) -> None:
+        """Log local file artifact into MLflow."""
+        mlflow.log_artifact(path)
+
     def close(self) -> None:
         """Close active MLflow run."""
         mlflow.end_run()

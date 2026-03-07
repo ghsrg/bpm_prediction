@@ -40,9 +40,9 @@ class MLflowTracker(ITracker):
         """Log run tag into MLflow."""
         mlflow.set_tag(self._sanitize_key(key), str(value))
 
-    def log_artifact(self, path: str) -> None:
+    def log_artifact(self, local_path: str) -> None:
         """Log local file artifact into MLflow."""
-        mlflow.log_artifact(path)
+        mlflow.log_artifact(local_path)
 
     def log_model(self, model: Any, artifact_path: str) -> None:
         """Log PyTorch model into MLflow artifacts."""

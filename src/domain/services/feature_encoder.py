@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import cos, pi, sin
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.domain.entities.feature_config import FeatureConfig, FeatureLayout
 from src.domain.entities.raw_trace import RawTrace
@@ -27,7 +27,12 @@ class EncodedNodeFeatures:
 class FeatureEncoder:
     """Encodes node features according to mapping.features configuration."""
 
-    def __init__(self, feature_configs: Sequence[FeatureConfig], traces: Sequence[RawTrace]) -> None:
+    def __init__(
+        self,
+        feature_configs: Sequence[FeatureConfig],
+        traces: Optional[Sequence[RawTrace]] = None,
+        state_dict: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.feature_configs = list(feature_configs)
         self.role_to_feature = {cfg.role: cfg.name for cfg in self.feature_configs if cfg.role}
         self.activity_feature_name = self._resolve_activity_feature_name()
@@ -39,8 +44,66 @@ class FeatureEncoder:
             cfg for cfg in self.feature_configs if any(enc != "embedding" for enc in cfg.encoding)
         ]
 
-        self.categorical_vocabs: Dict[str, Dict[str, int]] = self._build_categorical_vocabs(traces)
-        self.numeric_stats: Dict[str, Dict[str, float]] = self._build_numeric_stats(traces)
+        source_traces = [] if state_dict is not None else list(traces or [])
+        self.categorical_vocabs: Dict[str, Dict[str, int]] = self._build_categorical_vocabs(source_traces)
+        self.numeric_stats: Dict[str, Dict[str, float]] = self._build_numeric_stats(source_traces)
+        if state_dict is not None:
+            self.load_state(state_dict)
+        self.feature_layout = self._build_feature_layout()
+
+    def get_state(self) -> Dict[str, Any]:
+        """Export fitted categorical vocabularies and numeric scaler statistics."""
+        return {
+            "categorical_vocabs": {
+                key: {str(token): int(index) for token, index in vocab.items()}
+                for key, vocab in self.categorical_vocabs.items()
+            },
+            "numerical_scalers": {
+                key: {"mu": float(stats.get("mu", 0.0)), "sigma": float(stats.get("sigma", 1.0))}
+                for key, stats in self.numeric_stats.items()
+            },
+        }
+
+    def load_state(self, state_dict: Dict[str, Any]) -> None:
+        """Load categorical vocabularies and numeric scaler statistics from checkpoint state."""
+        if not isinstance(state_dict, dict):
+            raise ValueError("FeatureEncoder state_dict must be a dictionary.")
+
+        raw_vocabs = state_dict.get("categorical_vocabs", {})
+        if not isinstance(raw_vocabs, dict):
+            raise ValueError("FeatureEncoder state key 'categorical_vocabs' must be a dictionary.")
+
+        restored_vocabs: Dict[str, Dict[str, int]] = {}
+        for cfg in self.cat_feature_configs:
+            if cfg.name not in raw_vocabs:
+                raise ValueError(f"Критична помилка: Фіча {cfg.name} відсутня у збереженому стані енкодера.")
+            vocab_payload = raw_vocabs[cfg.name]
+            if not isinstance(vocab_payload, dict):
+                raise ValueError(f"FeatureEncoder vocab for '{cfg.name}' must be a dictionary.")
+            restored_vocab = {str(token): int(index) for token, index in vocab_payload.items()}
+            if "<UNK>" not in restored_vocab:
+                restored_vocab["<UNK>"] = 0
+            restored_vocabs[cfg.name] = restored_vocab
+        self.categorical_vocabs = restored_vocabs
+
+        raw_scalers = state_dict.get("numerical_scalers", state_dict.get("numeric_stats", {}))
+        if not isinstance(raw_scalers, dict):
+            raise ValueError("FeatureEncoder state key 'numerical_scalers' must be a dictionary.")
+        restored_stats: Dict[str, Dict[str, float]] = {}
+        for cfg in self.num_feature_configs:
+            if "z-score" not in cfg.encoding:
+                continue
+            if cfg.name not in raw_scalers:
+                raise ValueError(f"Критична помилка: Фіча {cfg.name} відсутня у збереженому стані енкодера.")
+            scaler = raw_scalers[cfg.name]
+            if not isinstance(scaler, dict):
+                raise ValueError(f"FeatureEncoder scaler for '{cfg.name}' must be a dictionary.")
+            sigma = float(scaler.get("sigma", 1.0))
+            restored_stats[cfg.name] = {
+                "mu": float(scaler.get("mu", 0.0)),
+                "sigma": sigma if sigma > 1e-8 else 1.0,
+            }
+        self.numeric_stats = restored_stats
         self.feature_layout = self._build_feature_layout()
 
     def _resolve_activity_feature_name(self) -> str:

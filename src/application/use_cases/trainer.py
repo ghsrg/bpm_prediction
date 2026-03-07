@@ -144,6 +144,36 @@ class ModelTrainer:
             best_epoch = start_epoch
             logger.info("Loaded checkpoint from epoch %d with val_loss %.6f.", start_epoch, best_val_loss)
 
+        if is_eval_cross:
+            test_loader = self._build_loader(split_data.test, shuffle=False)
+            self._log_topology_metrics_and_artifacts()
+            logger.info("DataLoaders ready for eval_cross_dataset: test_batches=%d", len(test_loader))
+            test_metrics = self._evaluate_test(test_loader)
+            logger.info("Eval cross-dataset test metrics: %s", test_metrics)
+            self._log_test_metrics(test_metrics)
+            return {
+                "history": [],
+                "test_metrics": test_metrics,
+                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+                "best_epoch": best_epoch,
+                "best_val_loss": float(best_val_loss),
+                "mode": self.mode,
+            }
+
+        if is_eval_drift:
+            drift_metrics = self._evaluate_drift_windows(split_data.test)
+            self._log_topology_metrics_and_artifacts()
+            logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
+            return {
+                "history": [],
+                "test_metrics": {},
+                "drift_metrics": drift_metrics,
+                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+                "best_epoch": best_epoch,
+                "best_val_loss": float(best_val_loss),
+                "mode": self.mode,
+            }
+
         train_loader = self._build_loader(split_data.train, shuffle=True)
         val_loader = self._build_loader(split_data.val, shuffle=False)
         test_loader = self._build_loader(split_data.test, shuffle=False)
@@ -159,39 +189,13 @@ class ModelTrainer:
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if checkpoint is not None and not is_eval_mode and start_epoch < self.epochs:
+        if checkpoint is not None and start_epoch < self.epochs:
             optimizer_state_dict = checkpoint.get("optimizer_state_dict")
             if optimizer_state_dict is None:
                 raise ValueError("Checkpoint is missing required key 'optimizer_state_dict' for resume training.")
             optimizer.load_state_dict(optimizer_state_dict)
-        elif not is_eval_mode:
+        else:
             logger.info("Starting training from scratch, start_epoch = 0.")
-
-        if is_eval_cross:
-            test_metrics = self._evaluate_test(test_loader)
-            logger.info("Eval cross-dataset test metrics: %s", test_metrics)
-            self._log_test_metrics(test_metrics)
-            return {
-                "history": [],
-                "test_metrics": test_metrics,
-                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
-                "best_epoch": best_epoch,
-                "best_val_loss": float(best_val_loss),
-                "mode": self.mode,
-            }
-
-        if is_eval_drift:
-            drift_metrics = self._evaluate_drift_windows(split_data.test)
-            logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
-            return {
-                "history": [],
-                "test_metrics": {},
-                "drift_metrics": drift_metrics,
-                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
-                "best_epoch": best_epoch,
-                "best_val_loss": float(best_val_loss),
-                "mode": self.mode,
-            }
 
         history: List[Dict[str, float]] = []
         epochs_without_improvement = 0

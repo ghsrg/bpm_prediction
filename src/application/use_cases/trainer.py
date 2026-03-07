@@ -222,6 +222,12 @@ class ModelTrainer:
                         self.tracker.log_param("peak_vram_mb", peak_vram_mb)
                     self._logged_peak_vram = True
 
+                if self.device.type == "cuda" and torch.cuda.is_available() and not self._logged_peak_vram:
+                    peak_vram_mb = float(torch.cuda.max_memory_allocated() / 1048576.0)
+                    if self.tracker is not None:
+                        self.tracker.log_param("peak_vram_mb", peak_vram_mb)
+                    self._logged_peak_vram = True
+
                 improvement = best_val_loss - val_loss
                 if improvement > self.delta:
                     best_val_loss = val_loss
@@ -459,6 +465,7 @@ class ModelTrainer:
                 "test_weighted_f1": 0.0,
                 "test_accuracy": 0.0,
                 "test_top3_accuracy": 0.0,
+                "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,

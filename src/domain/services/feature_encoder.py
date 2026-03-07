@@ -118,6 +118,13 @@ class FeatureEncoder:
                 return cfg.name
         return "concept:name"
 
+    def _feature_lookup_keys(self, cfg: FeatureConfig) -> List[str]:
+        """Resolve lookup keys in payload (internal feature name + optional source alias)."""
+        keys = [cfg.name]
+        if cfg.source_key and cfg.source_key not in keys:
+            keys.append(cfg.source_key)
+        return keys
+
     def _build_feature_layout(self) -> FeatureLayout:
         """Build deterministic layout with categorical vocab sizes and numeric dimension."""
         cat_features = {
@@ -188,9 +195,22 @@ class FeatureEncoder:
 
     def _iter_feature_values(self, trace: RawTrace, cfg: FeatureConfig) -> List[Any]:
         """Iterate values from a trace for a specific feature config."""
+        keys = self._feature_lookup_keys(cfg)
         if cfg.source == "trace":
-            return [trace.trace_attributes.get(cfg.name, cfg.fill_na)]
-        return [event.extra.get(cfg.name, cfg.fill_na) for event in trace.events]
+            for key in keys:
+                if key in trace.trace_attributes:
+                    return [trace.trace_attributes[key]]
+            return [cfg.fill_na]
+
+        values: List[Any] = []
+        for event in trace.events:
+            value = cfg.fill_na
+            for key in keys:
+                if key in event.extra:
+                    value = event.extra[key]
+                    break
+            values.append(value)
+        return values
 
     def encode_event(self, *, event_extra: Dict[str, Any]) -> EncodedNodeFeatures:
         """Encode one event payload into split categorical indices and numeric values."""
@@ -218,12 +238,14 @@ class FeatureEncoder:
 
     def _resolve_raw_value(self, event_extra: Dict[str, Any], cfg: FeatureConfig) -> Any:
         """Resolve raw feature value with schema-alignment imputations for missing keys."""
-        if cfg.name in event_extra:
-            return event_extra[cfg.name]
+        for key in self._feature_lookup_keys(cfg):
+            if key in event_extra:
+                return event_extra[key]
 
-        if cfg.name not in self._imputation_warnings_emitted:
-            logger.warning("Feature %s missing in data. Imputing with defaults.", cfg.name)
-            self._imputation_warnings_emitted.add(cfg.name)
+        feature_label = f"{cfg.name} (alias={cfg.source_key})" if cfg.source_key else cfg.name
+        if feature_label not in self._imputation_warnings_emitted:
+            logger.warning("Feature %s missing in data. Imputing with defaults.", feature_label)
+            self._imputation_warnings_emitted.add(feature_label)
 
         if "embedding" in cfg.encoding:
             return "<UNK>"

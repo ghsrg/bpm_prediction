@@ -19,6 +19,7 @@ class FeatureConfig:
     """Single feature specification from YAML mapping.features."""
 
     name: str
+    source_key: Optional[str]
     source: FeatureSource
     dtype: FeatureDType
     fill_na: Any
@@ -66,6 +67,11 @@ def parse_feature_configs(mapping_config: Dict[str, Any]) -> List[FeatureConfig]
         configs.append(
             FeatureConfig(
                 name=name,
+                source_key=(
+                    str(raw.get("source_key", "")).strip()
+                    if raw.get("source_key") is not None and str(raw.get("source_key", "")).strip()
+                    else None
+                ),
                 source=source,  # type: ignore[arg-type]
                 dtype=dtype,  # type: ignore[arg-type]
                 fill_na=raw.get("fill_na"),

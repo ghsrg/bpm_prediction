@@ -459,6 +459,7 @@ class ModelTrainer:
                 "test_weighted_f1": 0.0,
                 "test_accuracy": 0.0,
                 "test_top3_accuracy": 0.0,
+                "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,

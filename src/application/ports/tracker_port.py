@@ -20,7 +20,7 @@ class ITracker(Protocol):
         """Log a run tag for grouping/filtering experiments."""
         ...
 
-    def log_artifact(self, path: str) -> None:
+    def log_artifact(self, local_path: str) -> None:
         """Log local file artifact for reproducibility."""
         ...
 

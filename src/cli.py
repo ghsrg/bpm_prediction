@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Sequence, Tuple, Type
 
 import numpy as np
 import torch
-import yaml
 from torch_geometric.data import Data
 
 from src.adapters.ingestion.xes_adapter import XESAdapter
@@ -30,6 +29,7 @@ from src.domain.models.baseline_gcn import BaselineGCN
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
+from src.infrastructure.config.yaml_loader import load_yaml_with_includes
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
 
@@ -47,12 +47,21 @@ def _resolve_config_path(config_arg: str) -> Path:
 
 
 def load_yaml_config(config_arg: str) -> Dict[str, Any]:
-    """Load runtime configuration from YAML file."""
+    """Load runtime configuration from YAML file with recursive include support."""
     config_path = _resolve_config_path(config_arg)
-    with config_path.open("r", encoding="utf-8") as config_file:
-        loaded = yaml.safe_load(config_file) or {}
-    if not isinstance(loaded, dict):
-        raise ValueError("Config file must contain a YAML mapping at top level.")
+
+    # Завантажуємо конфіг із підтримкою include/deep-merge для модульних playbook-ів.
+    loaded = load_yaml_with_includes(config_path)
+
+    # Нормалізуємо секцію experiment для майбутнього роутингу режимів (train/eval/infer).
+    experiment_cfg = loaded.get("experiment")
+    if experiment_cfg is None:
+        loaded["experiment"] = {"mode": "train"}
+    elif isinstance(experiment_cfg, dict):
+        experiment_cfg.setdefault("mode", "train")
+    else:
+        raise ValueError("Config key 'experiment' must be a mapping if provided.")
+
     return loaded
 
 

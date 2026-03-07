@@ -1,0 +1,30 @@
+seed: 42
+
+model:
+  type: "BaselineGATv2"
+  hidden_dim: 64
+  dropout: 0.2
+  graph_strategy: "sequential_prefix"
+  pooling_strategy: "global_mean"
+
+training:
+  batch_size: 128
+  epochs: 30
+  learning_rate: 0.001
+  patience: 10
+  delta: 1e-4
+  device: "cpu"
+  ece_bins: 10
+  class_weight_cap: 50.0
+  loss_function: "cross_entropy"
+  show_progress: true
+  tqdm_disable: false
+  tqdm_leave: false
+
+tracking:
+  enabled: true
+  backend: "mlflow"
+  uri: "file:./mlruns"
+  tags:
+    stage: "mvp1_cross_dataset"
+    model_family: "baseline_gnn"

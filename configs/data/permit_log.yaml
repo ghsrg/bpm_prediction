@@ -1,6 +1,6 @@
 data:
-  dataset_label: "bpi2012"
-  log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
+  dataset_label: "permit_log"
+  log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
   fraction: 0.1
   split_strategy: "time"
   split_ratio: [0.7, 0.2, 0.1]
@@ -13,7 +13,7 @@ mapping:
     resource_key: "org:resource"
     lifecycle_key: "lifecycle:transition"
     version_key: "concept:version"
-    complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    complete_transitions: ["complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
     pairing_strategy: "lifo"
     use_classifier: true
 
@@ -30,6 +30,12 @@ mapping:
       source: "event"
       dtype: "string"
       fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "org:role"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
       encoding: ["embedding"]
 
     - name: "time:timestamp"
@@ -63,8 +69,20 @@ mapping:
       fill_na: 0.0
       encoding: ["z-score"]
 
-    - name: "AMOUNT_REQ"
+    - name: "RequestedBudget"
       source: "trace"
       dtype: "float"
       fill_na: 0.0
       encoding: ["z-score"]
+
+    - name: "Overspent"
+      source: "trace"
+      dtype: "boolean"
+      fill_na: false
+      encoding: ["z-score"]
+
+    - name: "OrganizationalEntity"
+      source: "trace"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]

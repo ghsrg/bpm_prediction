@@ -186,6 +186,9 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
 
     traces = list(xes_adapter.read(log_path, mapping_cfg))
     traces = _apply_fraction(traces, fraction)
+    data_num_traces = len(traces)
+    data_num_events = sum(len(trace.events) for trace in traces)
+
     feature_configs = parse_feature_configs(config)
     feature_encoder = FeatureEncoder(feature_configs=feature_configs, traces=traces)
     feature_layout = feature_encoder.feature_layout
@@ -209,6 +212,13 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
             "fraction": fraction,
             "split_strategy": split_strategy,
             "split_ratio": list(split_ratio),
+            "dataset_label": str(data_cfg.get("dataset_label", "unknown_data")),
+        },
+        "data_metrics": {
+            "data_num_traces": int(data_num_traces),
+            "data_num_events": int(data_num_events),
+            "vocab_activity_size": int(len(activity_vocab)),
+            "vocab_resource_size": int(len(resource_vocab)),
         },
         "activity_vocab": activity_vocab,
         "resource_vocab": resource_vocab,
@@ -303,21 +313,28 @@ def main() -> None:
     device = torch.device(str(training_cfg.get("device", "cpu")))
     class_weights = _compute_class_weights(prepared["train_dataset"], output_dim, device)
 
-    run_name = str(experiment_cfg.get("name", f"{model_type}_seed{seed}"))
+    exp_name = str(experiment_cfg.get("name", "Run")).strip() or "Run"
+    ds_label = str(config.get("data", {}).get("dataset_label", experiment_cfg.get("dataset", "unknown_data"))).strip() or "unknown_data"
+    md_label = str(model_cfg.get("model_label", model_cfg.get("type", "unknown_model"))).strip() or "unknown_model"
+    full_run_name = f"{exp_name}_{ds_label}_{md_label}"
+
     tracker = None
     if bool(tracking_cfg.get("enabled", False)):
         tracker = MLflowTracker(
             experiment_name=str(experiment_cfg.get("project", "DefaultExperiment")),
-            run_name=run_name,
+            run_name=full_run_name,
             tracking_uri=tracking_cfg.get("uri"),
         )
+
+    trainer_experiment_cfg = dict(experiment_cfg)
+    trainer_experiment_cfg["name"] = full_run_name
 
     trainer_config: Dict[str, Any] = {
         **training_cfg,
         "mapping_config": prepared["mapping_config"],
         "data_config": prepared["data_config"],
         "model_config": model_cfg,
-        "experiment_config": experiment_cfg,
+        "experiment_config": trainer_experiment_cfg,
         "tracking_config": tracking_cfg,
         "config_path": str(config_path),
         "feature_configs": [
@@ -330,6 +347,9 @@ def main() -> None:
             }
             for item in prepared["feature_configs"]
         ],
+        "data_metrics": prepared["data_metrics"],
+        "dataset_label": ds_label,
+        "model_label": md_label,
         "feature_layout": {
             "num_cat_features": len(prepared["feature_layout"].cat_feature_names),
             "num_num_channels": int(prepared["feature_layout"].num_dim),

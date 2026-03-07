@@ -1,8 +1,8 @@
 seed: 42
 
 model:
-  model_label: "GATv2"
-  type: "BaselineGATv2"
+  model_label: "GCN"
+  type: "BaselineGCN"
   hidden_dim: 64
   dropout: 0.2
   graph_strategy: "sequential_prefix"

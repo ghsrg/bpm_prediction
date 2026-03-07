@@ -5,3 +5,6 @@ etalon/
 src/config/secrets.py
 !public_data
 mlruns/
+
+!configs/data/
+!configs/data/*.yaml

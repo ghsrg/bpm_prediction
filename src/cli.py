@@ -296,9 +296,17 @@ def main() -> None:
     checkpoint_run_name = str(training_cfg.get("checkpoint_run_name", full_run_name)).strip() or full_run_name
     checkpoint_dir = str(training_cfg.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
     checkpoint_override = str(training_cfg.get("checkpoint_path", "")).strip()
-    resolved_checkpoint_path = checkpoint_override or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
+    eval_load_checkpoint = str(experiment_cfg.get("load_checkpoint", "")).strip()
 
-    if mode in {"eval_cross_dataset", "eval_drift"}:
+    if mode.startswith("eval_"):
+        if not eval_load_checkpoint:
+            raise ValueError("Для eval режимів необхідно вказати шлях до чекпоінту в experiment.load_checkpoint")
+        resolved_checkpoint_path = eval_load_checkpoint
+
+    else:
+        resolved_checkpoint_path = checkpoint_override or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
+
+    if mode.startswith("eval_"):
         if not Path(resolved_checkpoint_path).exists():
             raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {resolved_checkpoint_path}")
         checkpoint_payload = torch.load(resolved_checkpoint_path, map_location="cpu")

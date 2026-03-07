@@ -298,6 +298,9 @@ def main() -> None:
     checkpoint_override = str(training_cfg.get("checkpoint_path", "")).strip()
     eval_load_checkpoint = str(experiment_cfg.get("load_checkpoint", "")).strip()
 
+    retrain = bool(training_cfg.get("retrain", False))
+    resume_train_mode = (mode == "train") and (not retrain)
+
     if mode.startswith("eval_"):
         if not eval_load_checkpoint:
             raise ValueError("Для eval режимів необхідно вказати шлях до чекпоінту в experiment.load_checkpoint")
@@ -306,12 +309,18 @@ def main() -> None:
     else:
         resolved_checkpoint_path = checkpoint_override or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
 
-    if mode.startswith("eval_"):
-        if not Path(resolved_checkpoint_path).exists():
+    should_early_load_checkpoint = mode.startswith("eval_") or (resume_train_mode and Path(resolved_checkpoint_path).exists())
+
+    if should_early_load_checkpoint:
+        if mode.startswith("eval_") and not Path(resolved_checkpoint_path).exists():
             raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {resolved_checkpoint_path}")
+
         checkpoint_payload = torch.load(resolved_checkpoint_path, map_location="cpu")
         if not isinstance(checkpoint_payload, dict):
             raise ValueError("Checkpoint payload must be a dictionary.")
+        model_state_dict = checkpoint_payload.get("model_state_dict")
+        if model_state_dict is None:
+            raise ValueError("Checkpoint payload does not contain required key 'model_state_dict'.")
         encoder_state = checkpoint_payload.get("encoder_state")
         if encoder_state is None:
             raise ValueError(
@@ -331,7 +340,8 @@ def main() -> None:
     activity_vocab = prepared["activity_vocab"]
     resource_vocab = prepared["resource_vocab"]
 
-    logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
+    if not mode.startswith("eval_"):
+        logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
 
     # input_dim = базові one-hot + часові фічі + typed extra-фічі (узгоджено з graph_builder).
     hidden_dim = int(model_cfg.get("hidden_dim", 64))
@@ -401,7 +411,7 @@ def main() -> None:
         },
         "seed": seed,
         "class_weight_cap": float(training_cfg.get("class_weight_cap", 50.0)),
-        "retrain": bool(training_cfg.get("retrain", False)),
+        "retrain": retrain,
         "checkpoint_dir": checkpoint_dir,
         "checkpoint_path": resolved_checkpoint_path,
         "mode": mode,

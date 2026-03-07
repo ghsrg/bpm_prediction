@@ -75,7 +75,9 @@ class FeatureEncoder:
 
         restored_vocabs: Dict[str, Dict[str, int]] = {}
         for cfg in self.cat_feature_configs:
-            vocab_payload = raw_vocabs.get(cfg.name, {"<UNK>": 0})
+            if cfg.name not in raw_vocabs:
+                raise ValueError(f"Критична помилка: Фіча {cfg.name} відсутня у збереженому стані енкодера.")
+            vocab_payload = raw_vocabs[cfg.name]
             if not isinstance(vocab_payload, dict):
                 raise ValueError(f"FeatureEncoder vocab for '{cfg.name}' must be a dictionary.")
             restored_vocab = {str(token): int(index) for token, index in vocab_payload.items()}
@@ -91,7 +93,9 @@ class FeatureEncoder:
         for cfg in self.num_feature_configs:
             if "z-score" not in cfg.encoding:
                 continue
-            scaler = raw_scalers.get(cfg.name, {"mu": 0.0, "sigma": 1.0})
+            if cfg.name not in raw_scalers:
+                raise ValueError(f"Критична помилка: Фіча {cfg.name} відсутня у збереженому стані енкодера.")
+            scaler = raw_scalers[cfg.name]
             if not isinstance(scaler, dict):
                 raise ValueError(f"FeatureEncoder scaler for '{cfg.name}' must be a dictionary.")
             sigma = float(scaler.get("sigma", 1.0))

@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from math import cos, pi, sin
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.domain.entities.feature_config import FeatureConfig, FeatureLayout
 from src.domain.entities.raw_trace import RawTrace
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,7 @@ class FeatureEncoder:
         source_traces = [] if state_dict is not None else list(traces or [])
         self.categorical_vocabs: Dict[str, Dict[str, int]] = self._build_categorical_vocabs(source_traces)
         self.numeric_stats: Dict[str, Dict[str, float]] = self._build_numeric_stats(source_traces)
+        self._imputation_warnings_emitted: set[str] = set()
         if state_dict is not None:
             self.load_state(state_dict)
         self.feature_layout = self._build_feature_layout()
@@ -193,13 +198,13 @@ class FeatureEncoder:
         num_values: List[float] = []
 
         for cfg in self.cat_feature_configs:
-            raw = event_extra.get(cfg.name, cfg.fill_na)
+            raw = self._resolve_raw_value(event_extra=event_extra, cfg=cfg)
             token = str(raw)
             vocab = self.categorical_vocabs[cfg.name]
             cat_indices.append(vocab.get(token, 0))
 
         for cfg in self.num_feature_configs:
-            raw = event_extra.get(cfg.name, cfg.fill_na)
+            raw = self._resolve_raw_value(event_extra=event_extra, cfg=cfg)
             for enc in cfg.encoding:
                 if enc == "embedding":
                     continue
@@ -210,6 +215,24 @@ class FeatureEncoder:
                     num_values.extend(self._encode_time2vec(raw, enc))
 
         return EncodedNodeFeatures(cat_indices=cat_indices, num_values=num_values)
+
+    def _resolve_raw_value(self, event_extra: Dict[str, Any], cfg: FeatureConfig) -> Any:
+        """Resolve raw feature value with schema-alignment imputations for missing keys."""
+        if cfg.name in event_extra:
+            return event_extra[cfg.name]
+
+        if cfg.name not in self._imputation_warnings_emitted:
+            logger.warning("Feature %s missing in data. Imputing with defaults.", cfg.name)
+            self._imputation_warnings_emitted.add(cfg.name)
+
+        if "embedding" in cfg.encoding:
+            return "<UNK>"
+
+        if "z-score" in cfg.encoding:
+            stats = self.numeric_stats.get(cfg.name, {"mu": 0.0})
+            return float(stats.get("mu", 0.0))
+
+        return cfg.fill_na
 
     def _zscore(self, value: Any, cfg: FeatureConfig) -> float:
         """Apply z-score transformation with precomputed stats."""

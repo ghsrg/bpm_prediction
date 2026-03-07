@@ -118,11 +118,12 @@ class ModelTrainer:
             self.tracker.log_artifact(self.config_path)
 
         raw_traces = list(self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {})))
-        split_data = self._prepare_split_data(raw_traces)
 
         is_eval_cross = self.mode == "eval_cross_dataset"
         is_eval_drift = self.mode == "eval_drift"
         is_eval_mode = is_eval_cross or is_eval_drift
+
+        split_data = self._prepare_split_data(raw_traces)
 
         checkpoint: Optional[Dict[str, Any]] = None
         start_epoch = 0
@@ -161,7 +162,8 @@ class ModelTrainer:
             }
 
         if is_eval_drift:
-            drift_metrics = self._evaluate_drift_windows(split_data.test)
+            drift_traces = self._prepare_drift_traces(raw_traces)
+            drift_metrics = self._evaluate_drift_windows(drift_traces)
             self._log_topology_metrics_and_artifacts()
             logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
             return {
@@ -169,6 +171,7 @@ class ModelTrainer:
                 "test_metrics": {},
                 "drift_metrics": drift_metrics,
                 "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+                "drift_trace_count": len(drift_traces),
                 "best_epoch": best_epoch,
                 "best_val_loss": float(best_val_loss),
                 "mode": self.mode,
@@ -325,6 +328,12 @@ class ModelTrainer:
         split_ratio = self._parse_split_ratio(data_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
         ordered = self._apply_fraction(traces=traces, fraction=fraction)
         return self._strict_temporal_split(ordered=ordered, split_ratio=split_ratio, split_strategy=split_strategy)
+
+    def _prepare_drift_traces(self, traces: Sequence[RawTrace]) -> List[RawTrace]:
+        """Prepare full chronological trace stream for drift evaluation windows."""
+        data_cfg = self.config.get("data_config", {})
+        fraction = float(data_cfg.get("fraction", 1.0))
+        return self._apply_fraction(traces=traces, fraction=fraction)
 
     def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
         """Validate configured train/val/test split ratio."""
@@ -487,28 +496,37 @@ class ModelTrainer:
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
         }
 
-    def _evaluate_drift_windows(self, test_traces: Sequence[RawTrace]) -> List[Dict[str, float]]:
-        """Run sliding-window evaluation on chronologically sorted test traces."""
+    def _evaluate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Dict[str, float]]:
+        """Run fixed-size chronological window evaluation for concept-drift tracking."""
         if self.drift_window_size <= 0:
             raise ValueError("drift_window_size must be positive.")
 
-        ordered_test_traces = sorted([trace for trace in test_traces if trace.events], key=lambda trace: trace.events[0].timestamp)
+        ordered_traces = sorted((trace for trace in traces if trace.events), key=lambda trace: trace.events[0].timestamp)
         drift_results: List[Dict[str, float]] = []
+        window_starts = list(range(0, len(ordered_traces), self.drift_window_size))
 
-        for idx, start in enumerate(range(0, len(ordered_test_traces), self.drift_window_size)):
-            window_traces = ordered_test_traces[start : start + self.drift_window_size]
+        iterator = tqdm(
+            window_starts,
+            desc="Eval drift",
+            leave=self.tqdm_leave,
+            disable=(not self.show_progress) or self.tqdm_disable,
+        )
+        for window_idx, start in enumerate(iterator):
+            window_traces = ordered_traces[start : start + self.drift_window_size]
             window_loader = self._build_loader(window_traces, shuffle=False)
             metrics = self._evaluate_test(window_loader)
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
             ece = float(metrics.get("test_ece", 0.0))
 
+            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "ece": f"{ece:.4f}"})
+
             if self.tracker is not None:
-                self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=idx)
-                self.tracker.log_metric("drift_window_test_ece", ece, step=idx)
+                self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=window_idx)
+                self.tracker.log_metric("drift_window_test_ece", ece, step=window_idx)
 
             drift_results.append(
                 {
-                    "window_index": float(idx),
+                    "window_index": float(window_idx),
                     "window_start_trace": float(start),
                     "window_end_trace": float(start + len(window_traces) - 1),
                     "window_macro_f1": macro_f1,

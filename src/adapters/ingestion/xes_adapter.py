@@ -478,7 +478,8 @@ def _extract_typed_trace_features(
     for cfg in feature_configs:
         if cfg.source != "trace":
             continue
-        raw = trace_attributes.get(cfg.name)
+        lookup_key = cfg.source_key or cfg.name
+        raw = trace_attributes.get(lookup_key)
         typed[cfg.name] = _coerce_to_dtype(raw, cfg)
     return typed
 
@@ -489,7 +490,8 @@ def _extract_typed_event_features(payload: Dict[str, Any], feature_configs: Sequ
     for cfg in feature_configs:
         if cfg.source != "event":
             continue
-        raw = payload.get(cfg.name)
+        lookup_key = cfg.source_key or cfg.name
+        raw = payload.get(lookup_key)
         typed[cfg.name] = _coerce_to_dtype(raw, cfg)
     return typed
 

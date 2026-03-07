@@ -1,0 +1,11 @@
+include:
+  - "../data/bpi2012.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp1"
+  name: "Train"
+  mode: "train"
+
+training:
+  retrain: false

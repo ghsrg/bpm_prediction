@@ -16,6 +16,7 @@ from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+import psutil
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, top_k_accuracy_score
 from torch import nn
@@ -101,6 +102,8 @@ class ModelTrainer:
         self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
         self._log_params()
         self._log_run_context()
+        self._log_data_metrics()
+        self._log_model_and_system_context()
         if self.tracker is not None and self.config_path:
             self.tracker.log_artifact(self.config_path)
 
@@ -512,6 +515,36 @@ class ModelTrainer:
             num_nodes=num_nodes,
         )
 
+    def _log_model_and_system_context(self) -> None:
+        """Log model size and runtime memory/device metadata via tracker port."""
+        if self.tracker is None:
+            return
+
+        total_params = int(sum(param.numel() for param in self.model.parameters()))
+        self.tracker.log_param("model_total_parameters", total_params)
+
+        ram_usage_mb = float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
+        self.tracker.log_param("system_ram_mb_before_train", ram_usage_mb)
+
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            self.tracker.log_tag("system.gpu_name", torch.cuda.get_device_name(0))
+
+    def _log_data_metrics(self) -> None:
+        """Log parsed data volumes and vocab sizes from prepared artifacts."""
+        if self.tracker is None:
+            return
+
+        data_metrics = self.config.get("data_metrics", {})
+        if isinstance(data_metrics, dict):
+            for key in (
+                "data_num_traces",
+                "data_num_events",
+                "vocab_activity_size",
+                "vocab_resource_size",
+            ):
+                if key in data_metrics:
+                    self.tracker.log_param(key, data_metrics[key])
+
     def _log_params(self) -> None:
         """Log basic run parameters via tracker when available."""
         if self.tracker is None:
@@ -535,9 +568,12 @@ class ModelTrainer:
         data_cfg = self.config.get("data_config", {})
         model_cfg = self.config.get("model_config", {})
 
-        dataset_name = str(experiment_cfg.get("dataset", "")).strip()
-        if dataset_name:
-            self.tracker.log_tag("experiment.dataset", dataset_name)
+        dataset_label = str(self.config.get("dataset_label", data_cfg.get("dataset_label", experiment_cfg.get("dataset", "unknown_data")))).strip()
+        model_label = str(self.config.get("model_label", model_cfg.get("model_label", model_cfg.get("type", "unknown_model")))).strip()
+        if dataset_label:
+            self.tracker.log_tag("experiment.dataset_label", dataset_label)
+        if model_label:
+            self.tracker.log_tag("experiment.model_label", model_label)
 
         custom_tags = tracking_cfg.get("tags", {})
         if isinstance(custom_tags, dict):

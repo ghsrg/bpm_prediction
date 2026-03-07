@@ -1,0 +1,88 @@
+data:
+  dataset_label: "permit_log"
+  log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
+  fraction: 0.1
+  split_strategy: "time"
+  split_ratio: [0.7, 0.2, 0.1]
+
+mapping:
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    complete_transitions: ["complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: true
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "org:role"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_month"
+        - "time2vec_weekofyear"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "RequestedBudget"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "Overspent"
+      source: "trace"
+      dtype: "boolean"
+      fill_na: false
+      encoding: ["z-score"]
+
+    - name: "OrganizationalEntity"
+      source: "trace"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]

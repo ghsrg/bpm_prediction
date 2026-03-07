@@ -1,5 +1,5 @@
 include:
-  - "../data/bpi2012.yaml"
+  - "../data/bpi2012_Challenge.yaml"
   - "../model/gatv2_baseline.yaml"
 
 experiment:

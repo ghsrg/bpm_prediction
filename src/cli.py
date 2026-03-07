@@ -266,7 +266,7 @@ def main() -> None:
     logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser(description="Run MVP1 next-activity training pipeline.")
-    parser.add_argument("--config", default="configs/permit_log.yaml", help="YAML experiment config path or filename.")
+    parser.add_argument("--config", default="configs/experiments/experiment.yaml", help="YAML experiment config path or filename.")
     args = parser.parse_args()
 
     config_path = _resolve_config_path(args.config)

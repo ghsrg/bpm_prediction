@@ -2,6 +2,7 @@
 logs/
 data/
 etalon/
+checkpoints/
 src/config/secrets.py
 !public_data
 mlruns/

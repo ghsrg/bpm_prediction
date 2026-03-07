@@ -1,12 +1,13 @@
 include:
-  - "../data/bpi2012.yaml"
+  - "../data/bpi2012_Challenge.yaml"
   - "../model/gatv2_baseline.yaml"
 
 experiment:
   project: "bpm_prediction_mvp1"
-  dataset: "bpi2012_loan"
-  name: "BPI12_Baseline_Train"
+  name: "MVP1_Baseline_train"
   mode: "train"
 
 training:
   retrain: false
+
+seed: 42

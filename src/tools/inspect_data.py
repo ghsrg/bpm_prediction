@@ -147,7 +147,7 @@ def main() -> None:
     logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser(description="Inspect one training batch for tensor sanity checks.")
-    parser.add_argument("--config", default="configs/permit_log.yaml", help="YAML experiment config path or filename.")
+    parser.add_argument("--config", default="configs/experiments/experiment.yaml", help="YAML experiment config path or filename.")
     args = parser.parse_args()
 
     config = load_yaml_config(args.config)

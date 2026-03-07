@@ -1,5 +1,5 @@
 data:
-  dataset_label: "permit_log"
+  dataset_label: "bpi2020Permit1"
   log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
   fraction: 0.1
   split_strategy: "time"

@@ -1,5 +1,5 @@
 include:
-  - "../data/permit_log.yaml"
+  - "../data/bpi2020_Travel_Permit_1.yaml"
   - "../model/gcn_baseline.yaml"
 
 experiment:

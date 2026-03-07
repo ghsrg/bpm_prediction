@@ -180,6 +180,9 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     fraction = float(data_cfg.get("fraction", 1.0))
     split_strategy = str(data_cfg.get("split_strategy", "time")).strip().lower()
     split_ratio = _parse_split_ratio(data_cfg)
+    mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
+    if mode == "eval_cross_dataset":
+        split_ratio = (0.0, 0.0, 1.0)
 
     xes_adapter = XESAdapter()
     prefix_policy = PrefixPolicy()
@@ -190,7 +193,11 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     data_num_events = sum(len(trace.events) for trace in traces)
 
     feature_configs = parse_feature_configs(config)
-    feature_encoder = FeatureEncoder(feature_configs=feature_configs, traces=traces)
+    feature_encoder = FeatureEncoder(
+        feature_configs=feature_configs,
+        traces=traces,
+        state_dict=config.get("encoder_state"),
+    )
     feature_layout = feature_encoder.feature_layout
 
     activity_vocab, resource_vocab, activity_feature = _extract_base_vocabularies(feature_encoder)
@@ -279,6 +286,46 @@ def main() -> None:
     training_cfg = config.get("training", {})
     experiment_cfg = config.get("experiment", {})
     tracking_cfg = config.get("tracking", {})
+    mode = str(experiment_cfg.get("mode", "train")).strip().lower()
+
+    exp_name = str(experiment_cfg.get("name", "Run")).strip() or "Run"
+    ds_label = str(config.get("data", {}).get("dataset_label", experiment_cfg.get("dataset", "unknown_data"))).strip() or "unknown_data"
+    model_label_for_name = str(model_cfg.get("model_label", model_cfg.get("type", "unknown_model"))).strip() or "unknown_model"
+    full_run_name = f"{exp_name}_{ds_label}_{model_label_for_name}"
+
+    checkpoint_run_name = str(training_cfg.get("checkpoint_run_name", full_run_name)).strip() or full_run_name
+    checkpoint_dir = str(training_cfg.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
+    checkpoint_override = str(training_cfg.get("checkpoint_path", "")).strip()
+    eval_load_checkpoint = str(experiment_cfg.get("load_checkpoint", "")).strip()
+
+    if mode.startswith("eval_"):
+        if not eval_load_checkpoint:
+            raise ValueError("Для eval режимів необхідно вказати шлях до чекпоінту в experiment.load_checkpoint")
+        resolved_checkpoint_path = eval_load_checkpoint
+
+    else:
+        resolved_checkpoint_path = checkpoint_override or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
+
+    if mode.startswith("eval_"):
+        if not Path(resolved_checkpoint_path).exists():
+            raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {resolved_checkpoint_path}")
+        checkpoint_payload = torch.load(resolved_checkpoint_path, map_location="cpu")
+        if not isinstance(checkpoint_payload, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
+        encoder_state = checkpoint_payload.get("encoder_state")
+        if encoder_state is None:
+            raise ValueError(
+                "Checkpoint does not contain 'encoder_state'. "
+                "Cross-dataset/drift evaluation requires frozen encoder vocabularies."
+            )
+        config["encoder_state"] = encoder_state
+
+    if mode == "eval_drift":
+        drift_window_size = int(experiment_cfg.get("drift_window_size", 500))
+        if drift_window_size <= 0:
+            raise ValueError("experiment.drift_window_size must be a positive integer.")
+        experiment_cfg = {**experiment_cfg, "drift_window_size": drift_window_size}
+        config["experiment"] = experiment_cfg
 
     prepared = prepare_data(config)
     activity_vocab = prepared["activity_vocab"]
@@ -313,10 +360,7 @@ def main() -> None:
     device = torch.device(str(training_cfg.get("device", "cpu")))
     class_weights = _compute_class_weights(prepared["train_dataset"], output_dim, device)
 
-    exp_name = str(experiment_cfg.get("name", "Run")).strip() or "Run"
-    ds_label = str(config.get("data", {}).get("dataset_label", experiment_cfg.get("dataset", "unknown_data"))).strip() or "unknown_data"
-    md_label = str(model_cfg.get("model_label", model_cfg.get("type", "unknown_model"))).strip() or "unknown_model"
-    full_run_name = f"{exp_name}_{ds_label}_{md_label}"
+    md_label = model_label_for_name
 
     tracker = None
     if bool(tracking_cfg.get("enabled", False)):
@@ -358,7 +402,10 @@ def main() -> None:
         "seed": seed,
         "class_weight_cap": float(training_cfg.get("class_weight_cap", 50.0)),
         "retrain": bool(training_cfg.get("retrain", False)),
-        "checkpoint_dir": str(training_cfg.get("checkpoint_dir", "checkpoints")),
+        "checkpoint_dir": checkpoint_dir,
+        "checkpoint_path": resolved_checkpoint_path,
+        "mode": mode,
+        "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
     }
 
     trainer = ModelTrainer(

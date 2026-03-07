@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import logging
 import math
 from pathlib import Path
+import tempfile
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -90,6 +91,10 @@ class ModelTrainer:
         safe_experiment_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in experiment_name)
         self.experiment_name = safe_experiment_name
         self.checkpoint_path = Path(self.checkpoint_dir) / f"{self.experiment_name}_best.pth"
+        self._topology_nodes: List[int] = []
+        self._topology_edges: List[int] = []
+        self._prefix_lengths: List[int] = []
+        self._logged_peak_vram = False
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -113,6 +118,7 @@ class ModelTrainer:
         train_loader = self._build_loader(split_data.train, shuffle=True)
         val_loader = self._build_loader(split_data.val, shuffle=False)
         test_loader = self._build_loader(split_data.test, shuffle=False)
+        self._log_topology_metrics_and_artifacts()
 
         logger.info(
             "DataLoaders ready: train_batches=%d, val_batches=%d, test_batches=%d",
@@ -146,16 +152,18 @@ class ModelTrainer:
 
         history: List[Dict[str, float]] = []
         epochs_without_improvement = 0
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
         if start_epoch >= self.epochs:
             logger.info("Model already trained for %d epochs. Skipping training loop.", self.epochs)
         else:
             for epoch in range(start_epoch + 1, self.epochs + 1):
-                train_loss, train_macro_f1, epoch_duration = self._run_epoch(
+                train_loss, train_macro_f1, _, epoch_duration = self._run_epoch(
                     train_loader,
                     optimizer=optimizer,
                     training=True,
                 )
-                val_loss, val_macro_f1, _ = self._run_epoch(
+                val_loss, val_macro_f1, val_weighted_f1, _ = self._run_epoch(
                     val_loader,
                     optimizer=None,
                     training=False,
@@ -166,6 +174,7 @@ class ModelTrainer:
                     "train_macro_f1": train_macro_f1,
                     "val_loss": val_loss,
                     "val_macro_f1": val_macro_f1,
+                    "val_weighted_f1": val_weighted_f1,
                     "epoch_duration_sec": epoch_duration,
                 }
                 history.append(epoch_metrics)
@@ -178,6 +187,12 @@ class ModelTrainer:
                     val_loss,
                     val_macro_f1,
                 )
+
+                if self.device.type == "cuda" and torch.cuda.is_available() and not self._logged_peak_vram:
+                    peak_vram_mb = float(torch.cuda.max_memory_allocated() / 1048576.0)
+                    if self.tracker is not None:
+                        self.tracker.log_param("peak_vram_mb", peak_vram_mb)
+                    self._logged_peak_vram = True
 
                 improvement = best_val_loss - val_loss
                 if improvement > self.delta:
@@ -337,6 +352,14 @@ class ModelTrainer:
             slices = self.prefix_policy.generate_slices(trace)
             for prefix_slice in slices:
                 contract = self.graph_builder.build_graph(prefix_slice)
+                num_nodes = int(contract["num_nodes"])
+                num_edges = int(contract["edge_index"].shape[1])
+                prefix_length = int(len(prefix_slice.prefix_events))
+
+                self._topology_nodes.append(num_nodes)
+                self._topology_edges.append(num_edges)
+                self._prefix_lengths.append(prefix_length)
+
                 graphs.append(
                     Data(
                         x_cat=contract["x_cat"],
@@ -344,7 +367,7 @@ class ModelTrainer:
                         edge_index=contract["edge_index"],
                         edge_type=contract["edge_type"],
                         y=contract["y"],
-                        num_nodes=int(contract["num_nodes"]),
+                        num_nodes=num_nodes,
                     )
                 )
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
@@ -354,8 +377,8 @@ class ModelTrainer:
         loader: Iterable[Data],
         optimizer: Optional[Adam],
         training: bool,
-    ) -> Tuple[float, float, float]:
-        """Run one epoch (train or eval) and return loss/macro_f1/duration."""
+    ) -> Tuple[float, float, float, float]:
+        """Run one epoch (train or eval) and return loss/macro_f1/weighted_f1/duration."""
         if training:
             self.model.train()
         else:
@@ -402,11 +425,12 @@ class ModelTrainer:
 
         duration = perf_counter() - started
         if batches == 0:
-            return 0.0, 0.0, duration
+            return 0.0, 0.0, 0.0, duration
 
         macro_f1 = float(f1_score(all_true, all_pred, average="macro", zero_division=0))
+        weighted_f1 = float(f1_score(all_true, all_pred, average="weighted", zero_division=0))
         avg_loss = total_loss / batches
-        return avg_loss, macro_f1, duration
+        return avg_loss, macro_f1, weighted_f1, duration
 
     def _evaluate_test(self, loader: Iterable[Data]) -> Dict[str, float]:
         """Compute final test metrics after training is complete."""
@@ -415,6 +439,8 @@ class ModelTrainer:
         all_true: List[int] = []
         all_pred: List[int] = []
         all_probs: List[np.ndarray] = []
+        inference_graphs = 0
+        inference_started = perf_counter()
 
         with torch.no_grad():
             iterator = tqdm(
@@ -426,7 +452,11 @@ class ModelTrainer:
             for data in iterator:
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
+                if self.device.type == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 logits = self.model(contract)
+                if self.device.type == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 probs = torch.softmax(logits, dim=1)
 
                 targets = data.y.view(-1).long().cpu().numpy()
@@ -435,15 +465,23 @@ class ModelTrainer:
                 all_true.extend(targets.tolist())
                 all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
+                inference_graphs += int(targets.shape[0])
+
+        total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
+        inference_ms_per_graph = 0.0
+        if inference_graphs > 0:
+            inference_ms_per_graph = float(total_inference_ms / inference_graphs)
 
         if not all_true:
             return {
                 "test_macro_f1": 0.0,
                 "test_accuracy": 0.0,
                 "test_top3_accuracy": 0.0,
+                "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
+                "test_inference_time_ms_per_graph": inference_ms_per_graph,
             }
 
         y_true = np.asarray(all_true)
@@ -454,6 +492,7 @@ class ModelTrainer:
         top_k = min(3, num_classes)
 
         test_macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        test_weighted_f1 = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
         test_accuracy = float(accuracy_score(y_true, y_pred))
         test_top3_accuracy = float(
             top_k_accuracy_score(
@@ -467,11 +506,13 @@ class ModelTrainer:
 
         return {
             "test_macro_f1": test_macro_f1,
+            "test_weighted_f1": test_weighted_f1,
             "test_accuracy": test_accuracy,
             "test_top3_accuracy": test_top3_accuracy,
             "test_ece": test_ece,
             "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
+            "test_inference_time_ms_per_graph": inference_ms_per_graph,
         }
 
     def _expected_calibration_error(self, y_true: np.ndarray, y_prob: np.ndarray) -> float:
@@ -526,8 +567,69 @@ class ModelTrainer:
         ram_usage_mb = float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
         self.tracker.log_param("system_ram_mb_before_train", ram_usage_mb)
 
+        model_cfg = self.config.get("model_config", {})
+        hidden_dim = int(model_cfg.get("hidden_dim", 64))
+        estimated_min_vram_mb = round(
+            ((total_params * 16) / 1048576.0)
+            + 500.0
+            + ((self.batch_size * 100 * hidden_dim * 3 * 8) / 1048576.0),
+            2,
+        )
+        self.tracker.log_param("estimated_min_vram_mb", estimated_min_vram_mb)
+
         if self.device.type == "cuda" and torch.cuda.is_available():
             self.tracker.log_tag("system.gpu_name", torch.cuda.get_device_name(0))
+
+    def _log_topology_metrics_and_artifacts(self) -> None:
+        """Log topology summary params and histogram artifacts through tracker port."""
+        if self.tracker is None:
+            return
+
+        for prefix, values in (("nodes", self._topology_nodes), ("edges", self._topology_edges)):
+            if not values:
+                continue
+            arr = np.asarray(values, dtype=np.float64)
+            self.tracker.log_param(f"{prefix}_min", int(np.min(arr)))
+            self.tracker.log_param(f"{prefix}_max", int(np.max(arr)))
+            self.tracker.log_param(f"{prefix}_mean", float(np.mean(arr)))
+            self.tracker.log_param(f"{prefix}_median", float(np.median(arr)))
+
+        try:
+            import matplotlib.pyplot as plt
+
+            if self._topology_nodes and self._topology_edges:
+                fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+                axes[0].hist(self._topology_nodes, bins=30, color="#377eb8", alpha=0.85)
+                axes[0].set_title("Nodes per graph")
+                axes[0].set_xlabel("nodes")
+                axes[0].set_ylabel("count")
+
+                axes[1].hist(self._topology_edges, bins=30, color="#4daf4a", alpha=0.85)
+                axes[1].set_title("Edges per graph")
+                axes[1].set_xlabel("edges")
+                axes[1].set_ylabel("count")
+
+                fig.tight_layout()
+                with tempfile.NamedTemporaryFile(prefix="topology_hist_", suffix=".png", delete=False) as tmp_file:
+                    figure_path = tmp_file.name
+                fig.savefig(figure_path, dpi=160)
+                plt.close(fig)
+                self.tracker.log_artifact(figure_path)
+
+            if self._prefix_lengths:
+                fig, axis = plt.subplots(1, 1, figsize=(7, 5))
+                axis.hist(self._prefix_lengths, bins=30, color="#984ea3", alpha=0.85)
+                axis.set_title("Prefix length distribution")
+                axis.set_xlabel("prefix length")
+                axis.set_ylabel("count")
+                fig.tight_layout()
+                with tempfile.NamedTemporaryFile(prefix="prefix_hist_", suffix=".png", delete=False) as tmp_file:
+                    figure_path = tmp_file.name
+                fig.savefig(figure_path, dpi=160)
+                plt.close(fig)
+                self.tracker.log_artifact(figure_path)
+        except Exception as exc:
+            logger.warning("Failed to generate topology histogram artifacts: %s", exc)
 
     def _log_data_metrics(self) -> None:
         """Log parsed data volumes and vocab sizes from prepared artifacts."""

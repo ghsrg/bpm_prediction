@@ -44,7 +44,7 @@ def _build_trace(ts: float, case_id: str) -> RawTrace:
     return RawTrace(case_id=case_id, process_version="v1", events=[event], trace_attributes={})
 
 
-def _trainer(data_config: dict, mode: str = "train") -> ModelTrainer:
+def _trainer(experiment_config: dict, mode: str = "train") -> ModelTrainer:
     model = BaselineGCN(
         feature_layout=FeatureLayout(cat_features={}, cat_feature_names=[], num_dim=1),
         hidden_dim=8,
@@ -62,7 +62,7 @@ def _trainer(data_config: dict, mode: str = "train") -> ModelTrainer:
             "device": "cpu",
             "show_progress": False,
             "tqdm_disable": True,
-            "data_config": data_config,
+            "experiment_config": experiment_config,
         },
     )
 
@@ -70,7 +70,7 @@ def _trainer(data_config: dict, mode: str = "train") -> ModelTrainer:
 def test_cascade_split_temporal_train_ratio_fraction_then_micro_split():
     traces = [_build_trace(ts=float(ts), case_id=f"c{idx}") for idx, ts in enumerate([5, 1, 4, 0, 3, 2, 9, 7, 8, 6])]
     trainer = _trainer(
-        data_config={
+        experiment_config={
             "split_strategy": "temporal",
             "train_ratio": 0.7,
             "fraction": 0.5,
@@ -92,7 +92,7 @@ def test_cascade_split_temporal_train_ratio_fraction_then_micro_split():
 def test_cascade_split_eval_drift_uses_tail_only_after_macro_cut():
     traces = [_build_trace(ts=float(ts), case_id=f"c{idx}") for idx, ts in enumerate(range(10))]
     trainer = _trainer(
-        data_config={
+        experiment_config={
             "split_strategy": "temporal",
             "train_ratio": 0.7,
             "fraction": 0.5,
@@ -109,7 +109,7 @@ def test_cascade_split_eval_drift_uses_tail_only_after_macro_cut():
 def test_cascade_split_none_preserves_order_and_handles_small_fraction_without_index_errors():
     traces = [_build_trace(ts=float(ts), case_id=f"c{idx}") for idx, ts in enumerate([5, 1, 4, 0, 3, 2])]
     trainer = _trainer(
-        data_config={
+        experiment_config={
             "split_strategy": "none",
             "train_ratio": 0.5,
             "fraction": 0.01,
@@ -125,4 +125,3 @@ def test_cascade_split_none_preserves_order_and_handles_small_fraction_without_i
     assert len(split.train) == 0
     assert len(split.val) == 0
     assert len(split.test) == 0
-

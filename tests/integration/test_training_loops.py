@@ -152,8 +152,13 @@ def test_trainer_smoke_wiring_with_in_memory_dataloader(
             "patience": 5,
             "delta": 0.0,
             "checkpoint_dir": str(tmp_path),
-            "experiment_config": {"name": "pytest_training_smoke"},
-            "data_config": {"fraction": 1.0, "split_strategy": "time", "split_ratio": [0.6, 0.2, 0.2]},
+            "experiment_config": {
+                "name": "pytest_training_smoke",
+                "fraction": 1.0,
+                "split_strategy": "temporal",
+                "train_ratio": 0.7,
+                "split_ratio": [0.6, 0.2, 0.2],
+            },
         },
         tracker=None,
     )
@@ -175,4 +180,3 @@ def test_trainer_smoke_wiring_with_in_memory_dataloader(
     assert results["history"]
     assert "train_loss" in results["history"][0]
     assert "test_metrics" in results and isinstance(results["test_metrics"], dict)
-

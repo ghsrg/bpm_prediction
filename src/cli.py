@@ -96,19 +96,19 @@ def _build_normalization_stats() -> Dict[str, Dict[str, float]]:
     }
 
 
-def _parse_split_ratio(data_cfg: Dict[str, Any]) -> Tuple[float, float, float]:
+def _parse_split_ratio(experiment_cfg: Dict[str, Any]) -> Tuple[float, float, float]:
     """Parse split ratio with strict validation for train/val/test proportions."""
-    raw_ratio = data_cfg.get("split_ratio", [0.7, 0.2, 0.1])
+    raw_ratio = experiment_cfg.get("split_ratio", [0.7, 0.2, 0.1])
     if not isinstance(raw_ratio, Sequence) or isinstance(raw_ratio, (str, bytes)) or len(raw_ratio) != 3:
-        raise ValueError("data.split_ratio must be a 3-item list [train, val, test].")
+        raise ValueError("experiment.split_ratio must be a 3-item list [train, val, test].")
 
     ratios = [float(item) for item in raw_ratio]
     if any(item < 0.0 for item in ratios):
-        raise ValueError("data.split_ratio must contain non-negative values.")
+        raise ValueError("experiment.split_ratio must contain non-negative values.")
 
     ratio_sum = sum(ratios)
     if not math.isclose(ratio_sum, 1.0, rel_tol=1e-6, abs_tol=1e-6):
-        raise ValueError(f"data.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
+        raise ValueError(f"experiment.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
 
     return ratios[0], ratios[1], ratios[2]
 
@@ -121,7 +121,7 @@ def _apply_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrac
     if fraction >= 1.0:
         return ordered
     if fraction <= 0.0:
-        raise ValueError("data.fraction must be within (0.0, 1.0].")
+        raise ValueError("experiment.fraction must be within (0.0, 1.0].")
 
     keep_count = max(1, int(len(ordered) * fraction))
     return ordered[:keep_count]
@@ -136,7 +136,7 @@ def _strict_temporal_split(
     if split_strategy == "time":
         split_strategy = "temporal"
     if split_strategy not in {"temporal", "none"}:
-        raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'.")
+        raise ValueError(f"Unsupported experiment.split_strategy '{split_strategy}'.")
 
     train_ratio, val_ratio, _ = split_ratio
     traces_with_events = [trace for trace in traces if trace.events]
@@ -174,18 +174,19 @@ def _build_graph_dataset(
 def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     """Prepare shared data artifacts for CLI and inspector without logic duplication."""
     data_cfg = config.get("data", {})
+    experiment_cfg = config.get("experiment", {})
     mapping_cfg = config.get("mapping", {})
 
     log_path = str(data_cfg.get("log_path", ""))
     if not log_path:
         raise ValueError("Config must define data.log_path")
 
-    fraction = float(data_cfg.get("fraction", 1.0))
-    split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
+    fraction = float(experiment_cfg.get("fraction", 1.0))
+    split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
     if split_strategy == "time":
         split_strategy = "temporal"
-    split_ratio = _parse_split_ratio(data_cfg)
-    train_ratio = float(data_cfg.get("train_ratio", 0.7))
+    split_ratio = _parse_split_ratio(experiment_cfg)
+    train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
     if mode == "eval_cross_dataset":
         split_ratio = (0.0, 0.0, 1.0)
@@ -226,11 +227,13 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         "log_path": log_path,
         "mapping_config": mapping_cfg,
         "data_config": {
+            "dataset_label": str(data_cfg.get("dataset_label", "unknown_data")),
+        },
+        "experiment_split_config": {
             "fraction": fraction,
             "split_strategy": split_strategy,
             "split_ratio": list(split_ratio),
             "train_ratio": train_ratio,
-            "dataset_label": str(data_cfg.get("dataset_label", "unknown_data")),
         },
         "data_metrics": {
             "data_num_traces": int(data_num_traces),
@@ -392,6 +395,7 @@ def main() -> None:
         )
 
     trainer_experiment_cfg = dict(experiment_cfg)
+    trainer_experiment_cfg.update(prepared.get("experiment_split_config", {}))
     trainer_experiment_cfg["name"] = full_run_name
 
     trainer_config: Dict[str, Any] = {

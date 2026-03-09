@@ -372,9 +372,9 @@ class ModelTrainer:
 
     def _prepare_split_data(self, traces: Sequence[RawTrace]) -> SplitData:
         """Apply micro split into train/val/test on already prepared trace stream."""
-        data_cfg = self.config.get("data_config", {})
-        split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
-        split_ratio = self._parse_split_ratio(data_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
+        experiment_cfg = self.config.get("experiment_config", {})
+        split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
+        split_ratio = self._parse_split_ratio(experiment_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
         if split_strategy == "time":
             split_strategy = "temporal"
         logger.info("🗂️ Micro Split: розподіл на train/val/test за пропорцією %s.", list(split_ratio))
@@ -382,20 +382,20 @@ class ModelTrainer:
 
     def _prepare_data(self, traces: Sequence[RawTrace], mode: str) -> List[RawTrace]:
         """Apply safe cascade filter: temporal sort -> macro split -> fraction."""
-        data_cfg = self.config.get("data_config", {})
-        split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
+        experiment_cfg = self.config.get("experiment_config", {})
+        split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
         if split_strategy == "time":
             split_strategy = "temporal"
         if split_strategy not in {"temporal", "none"}:
-            raise ValueError("data.split_strategy must be 'temporal' or 'none'.")
+            raise ValueError("experiment.split_strategy must be 'temporal' or 'none'.")
 
-        train_ratio = float(data_cfg.get("train_ratio", 0.7))
+        train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
         if train_ratio < 0.0 or train_ratio > 1.0:
-            raise ValueError("data.train_ratio must be within [0.0, 1.0].")
+            raise ValueError("experiment.train_ratio must be within [0.0, 1.0].")
 
-        fraction = float(data_cfg.get("fraction", 1.0))
+        fraction = float(experiment_cfg.get("fraction", 1.0))
         if fraction <= 0.0 or fraction > 1.0:
-            raise ValueError("data.fraction must be within (0.0, 1.0].")
+            raise ValueError("experiment.fraction must be within (0.0, 1.0].")
 
         traces_with_events = [trace for trace in traces if trace.events]
         if split_strategy == "temporal":
@@ -434,13 +434,13 @@ class ModelTrainer:
     def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
         """Validate configured train/val/test split ratio."""
         if not isinstance(raw_ratio, Sequence) or isinstance(raw_ratio, (str, bytes)) or len(raw_ratio) != 3:
-            raise ValueError("data.split_ratio must be a 3-item list [train, val, test].")
+            raise ValueError("experiment.split_ratio must be a 3-item list [train, val, test].")
         ratios = [float(item) for item in raw_ratio]
         if any(item < 0.0 for item in ratios):
-            raise ValueError("data.split_ratio must contain non-negative values.")
+            raise ValueError("experiment.split_ratio must contain non-negative values.")
         ratio_sum = sum(ratios)
         if not math.isclose(ratio_sum, 1.0, rel_tol=1e-6, abs_tol=1e-6):
-            raise ValueError(f"data.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
+            raise ValueError(f"experiment.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
         return ratios[0], ratios[1], ratios[2]
 
     def _strict_temporal_split(self, ordered: Sequence[RawTrace], split_ratio: Tuple[float, float, float], split_strategy: str) -> SplitData:

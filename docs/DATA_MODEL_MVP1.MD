@@ -70,16 +70,16 @@ experiment:
   project: "bpm_prediction_mvp1"
   name: "MVP1_Baseline"
   mode: "train" # train | eval_cross_dataset | eval_drift
+  fraction: 1.0
+  split_strategy: "temporal" # temporal | none
+  train_ratio: 0.7
+  split_ratio: [0.7, 0.2, 0.1]
   drift_window_size: 500
   drift_window_stride: 0
   drift_window_overlap: 0
 
 data:
   log_path: ".../log.xes"
-  fraction: 1.0
-  split_strategy: "temporal" # temporal | none
-  train_ratio: 0.7
-  split_ratio: [0.7, 0.2, 0.1]
 
 mapping:
   xes_adapter:
@@ -318,6 +318,10 @@ classDiagram
         +project: String
         +name: String
         +mode: String
+        +fraction: Float
+        +split_strategy: String
+        +train_ratio: Float
+        +split_ratio: List[Float]
         +drift_window_size: Int
         +drift_window_stride: Int
         +drift_window_overlap: Int
@@ -327,13 +331,6 @@ classDiagram
         +model_type: String
         +hidden_dim: Int
         +dropout: Float
-    }
-
-    class SplitConfig {
-        +split_strategy: String
-        +train_ratio: Float
-        +val_ratio: Float
-        +test_ratio: Float
     }
 
     RawTrace *-- EventRecord : contains (1..N)

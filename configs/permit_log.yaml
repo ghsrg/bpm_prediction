@@ -5,6 +5,10 @@ experiment:
   dataset: "permit_log"
   # Унікальна назва конкретного запуску (Run Name). Описує поточну гіпотезу або зміну.
   name: "GATv2_Baseline_FullFeatures"
+  fraction: 0.1
+  split_strategy: "temporal"
+  train_ratio: 0.7
+  split_ratio: [0.7, 0.2, 0.1]
 
 seed: 42 # Фіксація генератора випадкових чисел для 100% відтворюваності результатів (split, ініціалізація ваг).
 
@@ -12,11 +16,8 @@ data:
   # Відносний або абсолютний шлях до сирого файлу журналу подій у форматі XES.
   log_path: "../Data/BPI Challenge 2020_ Travel Permit Data_1_all/PermitLog.xes"
   # Частка даних для завантаження (1.0 = всі дані, 0.1 = 10% для швидкого тесту пайплайну)
-  fraction: 0.1
   # Стратегія розбиття: "time" (хронологічно, обов'язково для бізнес-процесів) або "random"
-  split_strategy: "time"
   # Пропорції для Train / Val / Test
-  split_ratio: [0.7, 0.2, 0.1]
 
 mapping:
   # Тут описується FeatureConfig: звідки брати дані (source), як типізувати (dtype),

@@ -1,144 +1,123 @@
 # DATA_FLOWS_MVP1.MD
 
 **Project:** bpm_prediction  
-**Scope:** MVP1 (G_obs only)  
-**Purpose:** Definition of service contracts (interfaces) and data transformation flows.
+**Scope:** MVP1 (Observed-Graph Baseline)  
+**Purpose:** Canonical service contracts and execution flows for training/evaluation without semantic normalization.
 
 ---
 
 ## 1. Data Flow Architecture
 
-Діаграма відображає конвеєр перетворення даних. Прямокутники — це Сервіси (Services/Use Cases), стрілки — це DTO (Data Transfer Objects) з `DATA_MODEL_MVP1.MD`.
-
 ```mermaid
 flowchart TD
-    %% External
-    Log[(XES / MXML Log)]
-    
-    %% Services (Nodes)
-    Adapter[XES Adapter]
-    Preproc[Trace Preprocessor]
-    Policy[Prefix Policy]
-    Builder[Graph Builder]
-    Encoder[Feature Encoder]
-    Batcher[Batch Generator]
-    Model[GNN Model]
+    Log[(XES File)] -->|mapping + features| Adapter[XESAdapter.read]
+    Adapter -->|RawTrace stream| Resolver[SchemaResolver]
+    Resolver -->|canonical key access + identity resolve_value| Encoder[FeatureEncoder]
 
-    %% Flow (Arrows as Data)
-    Log -->|mapping.yaml| Adapter
-    Adapter -->|List~RawTrace~| Preproc
-    Preproc -->|RawTrace| Policy
-    Policy -->|List~PrefixSlice~| Builder
-    Builder -->|InstanceGraph| Encoder
-    
-    %% Divergence: Train vs Inference
-    Encoder -->|GraphTensorContract| Batcher
-    Batcher -->|TrainingBatch| Model
-    
-    Encoder -.->|Inference: GraphTensorContract| Model
-    Model -->|Logits / Confidence| Output((Prediction))
-    
-    classDef service fill:#f9f2ec,stroke:#b38b6d,stroke-width:2px;
-    class Adapter,Preproc,Policy,Builder,Encoder,Batcher,Model service;
+    Adapter --> Prefix[PrefixPolicy.generate_slices]
+    Prefix --> Builder[IGraphBuilder.build_graph]
+    Builder --> Contract[GraphTensorContract]
+    Encoder --> Contract
+
+    Contract --> TrainPath[Trainer: train/eval_cross]
+    Contract --> DriftPath[Trainer: eval_drift]
+    TrainPath --> Model[BaseGNN.forward]
+    DriftPath --> Model
 ```
+
+### Архітектурний інваріант
+`SchemaResolver` є єдиним механізмом lookup-порядку для `name/source_key/fallback_keys`. У MVP1 метод `resolve_value` є identity-функцією:  
+\[
+\operatorname{resolve\_value}(cfg, v)=v
+\]
 
 ---
 
-## 2. Service Contracts (Python Protocols)
+## 2. Service Contracts
 
-Цей розділ фіксує жорсткі контракти (Signatures) для кожного сервісу. Усі реалізації повинні слідувати принципу підстановки Лісков (Liskov Substitution Principle).
+### 2.1 Ingestion
 
-### 2.1 Ingestion & Preprocessing
-
-**XESAdapter** Відповідає за парсинг сирого логу з урахуванням `mapping.yaml` та розрахунок базових ознак (duration, time_since_previous).
 ```python
-from typing import Protocol, Iterator, Dict, Any
-from src.domain.entities.raw_trace import RawTrace
-
 class IXESAdapter(Protocol):
     def read(self, file_path: str, mapping_config: Dict[str, Any]) -> Iterator[RawTrace]:
-        """
-        Потокове читання XES файлу. 
-        Повертає Iterator (генератор) для запобігання переповненню пам'яті (OOM).
-        Матеріалізація в List, якщо потрібно, робиться на рівні Use Case.
-        """
         ...
 ```
 
-**TracePreprocessor** Відповідає за очищення від шуму. У MVP1 може бути Identity-функцією (нічого не змінює), у MVP2 — видалятиме технічні події.
+- Потокове читання XES.
+- Формування `EventRecord`/`RawTrace`.
+- Передача `event.extra` та `trace_attributes` без semantic rewriting.
+
+### 2.2 Canonical Schema Resolution
+
 ```python
-class ITracePreprocessor(Protocol):
-    def process(self, raw_traces: Iterator[RawTrace]) -> List[RawTrace]: # Або EventLogBatch
-        """Виконує глобальне очищення логу та формує фінальний батч для нарізки."""
-        ...
+@dataclass(frozen=True)
+class SchemaResolver:
+    fallback_keys: tuple[str, ...] = ()
+
+    def resolve_keys(self, cfg: FeatureConfig) -> list[str]: ...
+    def resolve_from_mapping(self, cfg: FeatureConfig, payload: Mapping[str, Any], default: Any = None) -> Any: ...
+    def resolve_value(self, cfg: FeatureConfig, raw_value: Any) -> Any: ...
 ```
 
-### 2.2 Prefix Generation & Forgetting Mechanics
+- `resolve_from_mapping` забезпечує однаковий lookup у `XESAdapter` та `FeatureEncoder`.
+- `resolve_value` у MVP1 не виконує нормалізацію синонімів або мовних варіантів.
 
-**PrefixPolicy** Відповідає за нарізку траси (Full, Fixed Length, Sliding Window) та механіки забування старих подій.
-**Anti-Leakage Invariant:** Жоден згенерований `PrefixSlice` не може містити подій, індекс яких $\ge$ індексу цільової події ($y$).
+### 2.3 Prefix & Graph
+
 ```python
 class IPrefixPolicy(Protocol):
-    def generate_slices(self, trace: RawTrace, **kwargs) -> List[PrefixSlice]:
-        """Генерує множину префіксів з однієї траси згідно зі стратегією."""
-        ...
-```
+    def generate_slices(self, trace: RawTrace, **kwargs) -> List[PrefixSlice]: ...
 
-### 2.3 Graph Engineering
-
-**GraphBuilder** Трансформує плоский список подій у топологію графа (додає ребра). У MVP1 формує лише `sequential_relation`.
-```python
 class IGraphBuilder(Protocol):
-    def build(self, prefix: PrefixSlice) -> InstanceGraph:
-        """Конвертує DTO подій у структурний граф G_obs."""
-        ...
+    def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract: ...
 ```
 
-**FeatureEncoder** Перетворює доменні типи (Datetime, String) у числові тензори. Відповідає за One-Hot кодування `activity_id` та векторизацію часу (Time2Vec/Standardization).
+- `IPrefixPolicy` гарантує anti-leakage інваріант префіксів.
+- `IGraphBuilder` повертає контракт із розділеними тензорами категоріальних/числових ознак.
+
+### 2.4 Feature Encoding
+
 ```python
-class IFeatureEncoder(Protocol):
-    def encode(self, graph: InstanceGraph, vocab: dict) -> GraphTensorContract:
-        """Генерує тензори x, edge_index, y для PyTorch Geometric."""
-        ...
+class FeatureEncoder:
+    def encode_event(self, *, event_extra: Dict[str, Any]) -> EncodedNodeFeatures: ...
 ```
 
-### 2.4 ML Operations
-
-**GNNModelPort** Інтерфейс взаємодії з моделлю. Захищає бізнес-логіку від прив'язки до конкретної архітектури нейромережі.
-```python
-class IGNNModelPort(Protocol):
-    def forward(self, batch: TrainingBatch) -> Tensor:
-        """Приймає батч графів, повертає логіти для наступної активності."""
-        ...
-```
+- Lookup ознак тільки через `SchemaResolver`.
+- Політики (`zscore_clip`, `time2vec.work_hours`, `activity_fallback_feature`) читаються з конфігу.
 
 ---
 
-## 3. Pipeline Lifecycles (Use Cases)
+## 3. Pipeline Lifecycles
 
-### 3.1 Training Pipeline
-Послідовність викликів при запуску експерименту:
-1. `IXESAdapter` завантажує весь датасет $\to$ `List[RawTrace]`.
-2. Застосовується спліт (Train/Val/Test) на рівні `RawTrace`.
-3. Для кожної траси у Train:
-   - `ITracePreprocessor` $\to$ чистить.
-   - `IPrefixPolicy` $\to$ генерує `List[PrefixSlice]`.
-   - `IGraphBuilder` $\to$ конвертує у `InstanceGraph`.
-   - `IFeatureEncoder` $\to$ створює `GraphTensorContract`.
-4. PyG DataLoader групує контракти у `TrainingBatch`.
-5. `IGNNModelPort.forward()` + Backpropagation.
+## 3.1 Training / Eval Cross Dataset
 
-### 3.2 Inference Pipeline
-Послідовність викликів під час передбачення у реальному часі:
-1. Зовнішня система надсилає `PredictionRequest` (містить готовий `PrefixSlice` та $\kappa$).
-2. `IGraphBuilder` $\to$ `InstanceGraph`.
-3. `IFeatureEncoder` $\to$ `GraphTensorContract`.
-4. `IGNNModelPort.forward()` (в режимі `eval()`, без бекпропагації) $\to$ логіти.
-5. Розподіл `softmax` та вибір активності з найбільшим `confidence_score`.
+1. `XESAdapter.read()` -> `RawTrace`.
+2. Строгий temporal split на рівні трас.
+3. `PrefixPolicy.generate_slices()` для кожної траси.
+4. `IGraphBuilder.build_graph()` -> `GraphTensorContract`.
+5. `ModelTrainer.run()` маршрутизує у train або eval_cross.
+6. `BaseGNN.forward()` над батчами графів.
 
-### 3.3 Future Extension (MVP2+)
+## 3.2 Eval Drift (Critical Path)
 
-- Додати ReliabilitySemaphore → повертає (s_micro, s_macro, P_diag, M_gap)
-- Додати динамічний β в loss: loss = L_task + β(t) * L_reg
-- Додати PrioritizedExperienceReplay для фонового донавчання
-- Forward повертає не тільки ŷ, а й O = (ŷ, Trust Score)
+Критичний шлях фіксується в такому порядку (без перестановок):
+
+1. **Chronological sort** трас за `start_ts` (час першої події).  
+2. **Generate windows** за параметрами `window_size`, `window_stride` / `window_overlap`.  
+3. **Evaluate window**: побудова loader -> inference -> метрики (`macro_f1`, `ece`).  
+4. **Log window metadata**: `window_index`, `window_start_trace`, `window_end_trace`, `window_start_ts`, `window_end_ts`.
+
+Формально для впорядкованої послідовності трас \(\mathcal{T}=\{\tau_i\}_{i=1}^{N}\):
+\[
+\tau_i \preceq \tau_j \iff t_{start}(\tau_i) \le t_{start}(\tau_j), \quad i < j
+\]
+Вікно \(W_k\) будується як
+\[
+W_k = \mathcal{T}[s_k : s_k + w), \quad s_{k+1}=s_k+\Delta
+\]
+де \(w\) — розмір вікна, \(\Delta\) — крок (stride).
+
+## 3.3 MVP2 Extension Boundary (Informative)
+
+- Семантичне value-mapping (синоніми, мультимовність) **не входить** у MVP1.
+- Підключення `SemanticMapper` заплановано як розширення `SchemaResolver.resolve_value`.

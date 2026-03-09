@@ -785,3 +785,14 @@ class AgentCriticGNN(IGNNModelPort):
 # 2. Виклик у пайплайні (src/pipeline/trainer.py)
 model = ModelFactory.create(config.architecture_type) # Динамічне підключення
 ```
+---
+
+## 23) MVP1 implemented extension points
+
+| Extension Point (MVP1) | Current MVP1 behavior | Planned MVP2 hook |
+|---|---|---|
+| `SchemaResolver.resolve_value(cfg, raw_value)` | Identity transform: \(\operatorname{resolve\_value}(cfg,v)=v\). No synonym/language normalization. | `SemanticMapper` for controlled semantic normalization (e.g., multilingual/synonym alignment). |
+| `IGraphBuilder.build_graph(prefix)` | `BaselineGraphBuilder` builds observed sequential graph tensors only. | `DynamicStructuralGraphBuilder` for EOPKG-aware structural enrichment without changing trainer orchestration contract. |
+
+### Architectural note
+Both hooks are intentionally implemented in MVP1 as extension boundaries, not as active semantic/structural adaptation logic.

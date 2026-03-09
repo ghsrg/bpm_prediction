@@ -60,10 +60,37 @@ K_{lookup}=[name, source\_key, fallback\_keys]
 \]
 (без semantic synonym mapping).
 
+
+### 4.5 Feature engineering pipeline diagram
+```mermaid
+flowchart TD
+    E[EventRecord.extra] --> R[SchemaResolver lookup]
+    R --> C[Categorical encoding to X_cat]
+    R --> N[Numeric encoding to X_num]
+    N --> Z[Z-score + clipping policy]
+    N --> T[Time2Vec channels + work_hours policy]
+    C --> O[EncodedNodeFeatures]
+    Z --> O
+    T --> O
+```
+
 ---
 
 ## 5. Graph Tensor Construction
 
+
+
+### 5.1 Graph tensor construction diagram
+```mermaid
+flowchart LR
+    P[PrefixSlice] --> B[BaselineGraphBuilder]
+    B --> X1[X_cat]
+    B --> X2[X_num]
+    B --> E1[edge_index]
+    B --> E2[edge_type]
+    B --> Y[y]
+    B --> BT[batch]
+```
 `BaselineGraphBuilder` формує контракт:
 \[
 X_{cat} \in \mathbb{N}^{N\times F_{cat}},\;

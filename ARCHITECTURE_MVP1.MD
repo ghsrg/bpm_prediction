@@ -78,7 +78,7 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A[RawTrace list] --> B[Sort by start_ts]
-    B --> C[Generate windows by size/stride or overlap]
+    B --> C[Generate windows by size/stride(or overlap)]
     C --> D[Build graph loaders per window]
     D --> E[Evaluate metrics per window]
     E --> F[Log: index, trace range, start_ts, end_ts, macro_f1, ece]

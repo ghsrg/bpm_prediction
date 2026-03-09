@@ -245,3 +245,12 @@ Formal policy for drift evaluation windowing, parameterized by window size \(w\)
 
 ### Anti-leakage invariant
 Mandatory ordering constraint for drift evaluation: chronological sorting of traces must be completed before window generation, and window generation must precede evaluation/logging.
+
+
+### 12.1 Concept relation diagram
+```mermaid
+flowchart LR
+    SR[SchemaResolver] --> SM[SemanticMapper (planned)]
+    DWP[Drift Window Policy] --> AL[Anti-leakage invariant]
+    AL --> EV[Valid eval_drift protocol]
+```

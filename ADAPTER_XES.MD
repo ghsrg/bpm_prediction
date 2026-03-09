@@ -169,3 +169,22 @@ K_{lookup} = [\texttt{name},\;\texttt{source\_key},\;\texttt{fallback\_keys}]
 ### 8.4. Роль у підготовці до MVP2
 `resolve_value` є формальним Extension Point для майбутнього `SemanticMapper` (MVP2), але в MVP1 цей hook працює виключно як identity-функція.
 
+
+
+### 8.5. Schema resolution sequence diagram
+```mermaid
+sequenceDiagram
+    participant XA as XESAdapter
+    participant SR as SchemaResolver
+    participant FE as FeatureEncoder
+
+    XA->>SR: resolve_from_mapping(cfg, payload)
+    SR-->>XA: raw_value
+    XA->>SR: resolve_value(cfg, raw_value)
+    SR-->>XA: raw_value (identity in MVP1)
+
+    FE->>SR: resolve_from_mapping(cfg, event.extra)
+    SR-->>FE: raw_value
+    FE->>SR: resolve_value(cfg, raw_value)
+    SR-->>FE: raw_value (identity in MVP1)
+```

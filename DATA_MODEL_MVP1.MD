@@ -33,6 +33,32 @@ class RawTrace(BaseModel):
     trace_attributes: Dict[str, Any]
 ```
 
+### 1.3 Boundary DTO composition (cascade)
+```mermaid
+classDiagram
+    class RawTrace {
+      +case_id: str
+      +process_version: str
+      +trace_attributes: Dict[str, Any]
+      +events: List[EventRecord]
+    }
+
+    class EventRecord {
+      +activity_id: str
+      +timestamp: float
+      +resource_id: str
+      +lifecycle: Optional[str]
+      +position_in_trace: int
+      +duration: float
+      +time_since_case_start: float
+      +time_since_previous_event: float
+      +extra: Dict[str, Any]
+      +activity_instance_id: Optional[str]
+    }
+
+    RawTrace "1" *-- "1..*" EventRecord
+```
+
 ---
 
 ## 2. Experiment Configuration Schema (Application Layer)
@@ -93,7 +119,27 @@ training:
   device: "cpu"
 ```
 
-### 2.2 Drift window policy constraints
+### 2.2 Config cascade structure
+```mermaid
+flowchart TD
+    Root[Experiment YAML] --> EX[experiment]
+    Root --> D[data]
+    Root --> M[mapping]
+    Root --> P[policies]
+    Root --> MD[model]
+    Root --> T[training]
+
+    EX --> EXM[mode]
+    EX --> EXW[drift_window_size]
+    EX --> EXS[drift_window_stride]
+    EX --> EXO[drift_window_overlap]
+
+    P --> PF[activity_fallback_feature]
+    P --> PZ[zscore_clip]
+    P --> PT[time2vec.work_hours]
+```
+
+### 2.3 Drift window policy constraints
 Let \(w\) be window size, \(\Delta\) stride, \(o\) overlap.
 \[
 w > 0,
@@ -147,7 +193,20 @@ class GraphTensorContract(TypedDict):
     num_nodes: int               # N
 ```
 
-### 4.3 Tensor shape invariants
+### 4.3 Graph tensor attribute cascade
+```mermaid
+flowchart LR
+    PS[PrefixSlice] --> GB[IGraphBuilder]
+    GB --> XC[X_cat]
+    GB --> XN[X_num]
+    GB --> EI[edge_index]
+    GB --> ET[edge_type]
+    GB --> Y[y]
+    GB --> B[batch]
+    GB --> N[num_nodes]
+```
+
+### 4.4 Tensor shape invariants
 For one graph sample:
 \[
 X_{cat} \in \mathbb{N}^{N \times F_{cat}},

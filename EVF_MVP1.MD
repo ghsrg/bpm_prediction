@@ -64,6 +64,16 @@ W_k = \mathcal{T}[s_k:s_k+w), \quad s_{k+1}=s_k+\Delta
 - `window_start_trace`
 - `window_end_trace`
 
+
+### 5.3 Drift protocol diagram
+```mermaid
+flowchart LR
+    A[Chronological sort by start_ts] --> B[Generate windows w,Δ,o]
+    B --> C[Build loaders per window]
+    C --> D[Evaluate window metrics]
+    D --> E[Log start_ts, end_ts, macro_f1, ece]
+```
+
 ---
 
 ## 6. Experiment Tracking (MLflow)

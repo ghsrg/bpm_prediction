@@ -1,167 +1,192 @@
 # ARCHITECTURE_MVP1.MD
 
 ## 1. Scope
-MVP1 implements a single-model observed-graph baseline for next-activity prediction on event logs.
+MVP1 is an observed-graph baseline for next-activity prediction with explicit train/eval orchestration.
 
-**Included:**
-- XES ingestion.
-- Prefix generation.
-- Graph tensor construction.
-- GNN training and evaluation (`train`, `eval_cross_dataset`, `eval_drift`).
-- Config-driven feature policies.
+Included:
+- streaming XES ingestion;
+- canonical schema lookup via `SchemaResolver`;
+- prefix slicing and graph tensor construction;
+- execution modes: `train`, `eval_cross_dataset`, `eval_drift`.
 
-**Explicitly excluded from MVP1 runtime:**
-- Advanced trust-control runtime chain (reserved for MVP2).
-- Semantic synonym mapping.
-- EOPKG structural fusion.
+Excluded from MVP1 runtime:
+- semantic value normalization (`SemanticMapper` is planned);
+- dynamic structural enrichment (EOPKG builder is planned);
+- trust-control chain components (reserved for MVP2+).
 
 ---
 
-## 2. Architectural Style
-- Clean Architecture (layered responsibility separation).
-- Hexagonal Architecture (ports and adapters).
-- Pipeline orchestration by use-case (`ModelTrainer.run`).
+## 2. Clean Architecture (Layered View)
 
-Dependency rule:
+```mermaid
+flowchart TB
+    subgraph Frameworks
+        XES[XES Files]
+    end
+
+    subgraph Adapters
+        XESAdapter[XES Adapter]
+    end
+
+    subgraph Application
+        TracePreprocessor[TracePreprocessor]
+        PrefixPolicy[PrefixPolicy]
+        GraphBuilder[IGraphBuilder]
+        Trainer[Trainer]
+        Evaluator[Evaluator]
+    end
+
+    subgraph Domain
+        SchemaResolver[SchemaResolver]
+        InstanceGraph[InstanceGraph]
+        FeatureEncoder[FeatureEncoder]
+        GNNModel[GNNModelPort]
+        Predictor[Predictor]
+    end
+
+    XES --> XESAdapter
+    XESAdapter --> TracePreprocessor
+    TracePreprocessor --> PrefixPolicy
+    PrefixPolicy --> GraphBuilder
+    GraphBuilder --> InstanceGraph
+    InstanceGraph --> FeatureEncoder
+    FeatureEncoder --> GNNModel
+    SchemaResolver --> XESAdapter
+    SchemaResolver --> FeatureEncoder
+    GNNModel --> Predictor
+    Predictor --> Trainer
+    Predictor --> Evaluator
+```
+
+### Пояснення шарів
+Frameworks — зовнішні джерела (`XES`).  
+Adapters — приведення даних до канонічних DTO (`EventRecord`, `RawTrace`).  
+Application — orchestration логіки експерименту (`ModelTrainer.run()` dispatch).  
+Domain — математичне ядро (schema resolution, feature encoding, graph tensor path, GNN forward).
+
+Інваріант залежностей:
 \[
 \text{Domain} \leftarrow \text{Application} \leftarrow \text{Adapters}
 \]
-(no reverse concrete dependencies).
 
 ---
 
-## 3. Layered Components
+## 3. Component Architecture (Hexagonal View)
 
-### 3.1 Domain Layer
-- DTOs: `EventRecord`, `RawTrace`, `PrefixSlice`, `GraphTensorContract`.
-- Services:
-  - `SchemaResolver`
-  - `FeatureEncoder`
-  - `BaselineGraphBuilder` (via `GraphBuilderBase` extension point)
-- Model: `BaseGNN` family.
+```mermaid
+flowchart LR
+    subgraph Core
+        Resolver[SchemaResolver]
+        Graph[InstanceGraph]
+        Encoder[FeatureEncoder]
+        Model[GNNModelPort]
+    end
 
-### 3.2 Application Layer
-- Use case: `ModelTrainer`.
-- Ports: `IXESAdapter`, `IPrefixPolicy`, `IGraphBuilder`, `ITracker`.
+    subgraph Ports
+        DataPort[IXESAdapter]
+        TrainPort[TrainingPort]
+        PredictPort[PredictionPort]
+        GraphPort[IGraphBuilder]
+    end
 
-### 3.3 Adapter Layer
-- `XESAdapter` (streaming parser).
-- Tracking adapter (MLflow).
+    subgraph Adapters
+        XESAdapter[XESAdapter]
+        CLIAdapter[CLI Runner]
+    end
+
+    XESAdapter --> DataPort
+    CLIAdapter --> TrainPort
+    CLIAdapter --> PredictPort
+
+    DataPort --> Resolver
+    Resolver --> Graph
+    Graph --> Encoder
+    Encoder --> GraphPort
+    GraphPort --> Model
+    Model --> PredictPort
+```
+
+### Пояснення
+Core — ізольований обчислювальний центр MVP1.  
+Ports — абстракції для data/train/predict/graph контурів.  
+Adapters — concrete інтеграції (`XES`, CLI).
 
 ---
 
-## 4. Canonical Data Paths
+## 4. Data Flow (Use Case Scenarios)
 
-## 4.1 Training and Cross-Dataset Evaluation
+## 4.1 Training Flow
 
 ```mermaid
 sequenceDiagram
     participant XES as XESAdapter
+    participant SR as SchemaResolver
     participant PP as PrefixPolicy
     participant GB as IGraphBuilder
     participant FE as FeatureEncoder
-    participant TR as ModelTrainer
-    participant M as BaseGNN
+    participant TR as Trainer
+    participant M as Model
 
     XES->>TR: Iterator[RawTrace]
     TR->>PP: generate_slices(trace)
     PP->>GB: PrefixSlice
     GB->>FE: encode_event(event.extra)
-    FE-->>GB: X_cat, X_num rows
+    FE->>SR: resolve_from_mapping(...)
+    SR-->>FE: value (identity resolved)
     GB-->>TR: GraphTensorContract
-    TR->>M: forward(contract)
-    TR->>M: backward() (train mode only)
+    TR->>M: forward/backward
 ```
 
-## 4.2 Drift Evaluation Path
+## 4.2 Eval Cross Dataset Flow
+
+```mermaid
+sequenceDiagram
+    participant InputTrace
+    participant PrefixPolicy
+    participant GraphBuilder
+    participant Model
+    participant Evaluator
+
+    InputTrace->>PrefixPolicy: trace/prefix
+    PrefixPolicy->>GraphBuilder: prefix graph
+    GraphBuilder->>Model: graph tensor contract
+    Model->>Evaluator: logits
+    Evaluator->>Evaluator: compute F1/Accuracy/ECE
+    Evaluator->>Output: evaluation metrics
+```
+
+## 4.3 End-to-End Pipeline
 
 ```mermaid
 flowchart TD
-    A[RawTrace list] --> B[Sort by start_ts]
-    B --> C[Generate windows by size/stride or overlap]
-    C --> D[Build graph loaders per window]
-    D --> E[Evaluate metrics per window]
-    E --> F[Log: index, trace range, start_ts, end_ts, macro_f1, ece]
+    Event --> NormalizedEvent
+    NormalizedEvent --> RawTrace
+    RawTrace --> TracePreprocessor
+    TracePreprocessor --> PrefixPolicy
+    PrefixPolicy --> PrefixSlice
+    PrefixSlice --> InstanceGraph
+    InstanceGraph --> SchemaResolver
+    SchemaResolver --> FeatureEncoder
+    FeatureEncoder --> GraphTensorContract
+    GraphTensorContract --> Model
 ```
 
-Anti-leakage ordering constraint:
+---
+
+## 5. Trainer.run() as Orchestrator
+
+`ModelTrainer.run()` is a dispatcher for scenario-specific pipelines:
+- `_run_train_pipeline`;
+- `_run_eval_cross_dataset`;
+- `_run_eval_drift`.
+
+For drift evaluation, ordering is fixed:
 \[
-\text{sort} \rightarrow \text{windowing} \rightarrow \text{evaluation} \rightarrow \text{logging}
+\text{chronological sort} \rightarrow \text{window generation} \rightarrow \text{evaluate} \rightarrow \text{log}
 \]
 
 ---
 
-## 5. SchemaResolver as Canonical Contract
-
-`SchemaResolver` is the unique resolver for field lookup precedence (`name`, `source_key`, `fallback_keys`).
-
-In MVP1:
-\[
-\operatorname{resolve\_value}(cfg, v) = v
-\]
-
-Interpretation:
-- field lookup is centralized,
-- value semantics are not transformed.
-
-This is a deliberate scientific constraint to preserve measurable degradation under schema/language shifts.
-
----
-
-## 6. Feature Representation
-
-For each graph with \(N\) nodes:
-\[
-X_{cat} \in \mathbb{N}^{N \times F_{cat}},
-\quad
-X_{num} \in \mathbb{R}^{N \times F_{num}},
-\quad
-A \in \mathbb{N}^{2 \times E}
-\]
-
-Target:
-\[
-y \in \{0,\dots,C-1\}
-\]
-
-Model output:
-\[
-\hat{Y} \in \mathbb{R}^{B \times C}
-\]
-
----
-
-## 7. Policy-Driven Encoding (Config)
-
-MVP1 uses external policy profiles (YAML):
-- `activity_fallback_feature`
-- `zscore_clip` (`enabled`, `min`, `max`)
-- `time2vec.work_hours` (`working_days`, `start_hour`, `end_hour`, `timezone`)
-
-These policies are runtime-configurable; no dataset-specific hardcoded logic is allowed in core encoding flow.
-
----
-
-## 8. Trainer as Orchestrator
-
-`ModelTrainer.run()` is a dispatcher that routes to scenario-specific pipelines:
-- `_run_train_pipeline`
-- `_run_eval_cross_dataset`
-- `_run_eval_drift`
-
-Responsibilities of `run()`:
-1. common initialization (device, criterion, config/tracker context),
-2. checkpoint routing,
-3. mode dispatch,
-4. structured return payload.
-
-It does not contain dataset-specific preprocessing branches.
-
----
-
-## 9. Extension Points Reserved for MVP2
-
-1. `SchemaResolver.resolve_value` -> `SemanticMapper` integration hook.
-2. `GraphBuilderBase` -> `DynamicStructuralGraphBuilder` (EOPKG-aware).
-
-MVP1 keeps both hooks inactive by design.
+## 6. Extension Points
+1. `SchemaResolver.resolve_value` — MVP1 identity, MVP2 hook for `SemanticMapper`.
+2. `IGraphBuilder` / `GraphBuilderBase` — MVP1 baseline graph path, MVP2 hook for dynamic structural builder.

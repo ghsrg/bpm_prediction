@@ -236,9 +236,113 @@ Output logits shape:
 \]
 where \(B\) is batch size and \(C\) is number of activity classes.
 
----
+    def resolve_keys(self, cfg: FeatureConfig) -> list[str]: ...
+    def resolve_from_mapping(self, cfg: FeatureConfig, payload: Mapping[str, Any], default: Any = None) -> Any: ...
+    def resolve_value(self, cfg: FeatureConfig, raw_value: Any) -> Any: ...
+```
 
 ## 6. MVP2 Reserved Placeholders (Inactive in MVP1)
 - SemanticMapper (for multilingual/synonym value normalization).
 - DynamicStructuralGraphBuilder (EOPKG-aware graph enrichment).
 - Reliability/Critic components.
+
+
+## 10. Object Composition Schema (Що є частиною чого)
+
+Діаграма відображає структурну залежність (композицію) об'єктів моделі даних.
+
+```mermaid
+classDiagram
+    class EventRecord {
+        %% --- Fundamental (Mandatory) ---
+        +activity_id: String
+        +timestamp: Float
+        +position_in_trace: Int
+        %% --- Base & Research (Optional / Calculated) ---
+        +resource_id: String?
+        +lifecycle: String?
+        +duration: Float
+        +time_since_case_start: Float
+        +time_since_previous_event: Float
+        +extra: Dict
+    }
+
+    class RawTrace {
+        +case_id: String
+        +process_version: String
+        +events: EventRecord[]
+        +trace_attributes: Dict
+    }
+
+    class PrefixSlice {
+        +case_id: String
+        +prefix_events: EventRecord[]
+        +target_event: EventRecord
+    }
+
+    class PredictionRequest {
+        +process_version: String
+        +prefix_slice: PrefixSlice
+    }
+
+    class InstanceGraph {
+        +nodes: EventRecord[]
+        +edges: Tuple~Int, Int~[]
+    }
+
+    class GraphTensorContract {
+        +x_cat: Tensor
+        +x_num: Tensor
+        +edge_index: Tensor
+        +edge_type: Tensor
+        +batch: Tensor
+        +y: Tensor
+    }
+
+    class TrainingBatch {
+        +graph_batch: Batch
+    }
+
+    class ExperimentRunConfig {
+        +experiment: ExperimentConfig
+        +data: Dict
+        +mapping: Dict
+        +policies: Dict
+        +model: ModelConfig
+        +training: Dict
+    }
+
+    class ExperimentConfig {
+        +project: String
+        +name: String
+        +mode: String
+        +drift_window_size: Int
+        +drift_window_stride: Int
+        +drift_window_overlap: Int
+    }
+
+    class ModelConfig {
+        +model_type: String
+        +hidden_dim: Int
+        +dropout: Float
+    }
+
+    class SplitConfig {
+        +train_ratio: Float
+        +val_ratio: Float
+        +test_ratio: Float
+    }
+
+    RawTrace *-- EventRecord : contains (1..N)
+    PrefixSlice *-- EventRecord : contains (1..N)
+    PrefixSlice *-- EventRecord : target_event (1)
+    PredictionRequest *-- PrefixSlice : wraps (1)
+
+    InstanceGraph *-- EventRecord : built from
+    GraphTensorContract *-- InstanceGraph : encoded from
+    TrainingBatch *-- GraphTensorContract : contains (1..N)
+
+    ExperimentRunConfig *-- ExperimentConfig : contains
+    ExperimentRunConfig *-- ModelConfig : contains
+    ExperimentRunConfig *-- SplitConfig : contains
+```

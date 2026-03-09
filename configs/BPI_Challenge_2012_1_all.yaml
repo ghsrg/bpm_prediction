@@ -104,3 +104,21 @@ tracking:
   tags:
     stage: "mvp1_cross_dataset"
     model_family: "baseline_gnn"
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18
+      # Можливі робочі профілі (конфігураційні, не hardcoded у коді):
+      # - Office: [0,1,2,3,4], 9..18
+      # - 24/7: [0,1,2,3,4,5,6], 0..24
+      # - Weekend: [5,6], 8..20

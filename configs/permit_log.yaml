@@ -103,6 +103,27 @@ mapping:
       fill_na: "<UNK>"
       encoding: ["embedding"]
 
+policies:
+  # Профіль політик pre-encoding для MVP1 (без нормалізації синонімів/мовних варіацій).
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18
+      # Варіанти для майбутніх наборів даних/організацій:
+      # - Standard office: [0,1,2,3,4], 9..18
+      # - Extended office: [0,1,2,3,4], 8..20
+      # - Weekend only: [5,6], 8..20
+      # - 24/7: [0,1,2,3,4,5,6], 0..24
+      # - Night shift: [0,1,2,3,4], 22..6 (потрібна policy-логіка wrap-around)
+
 model:
   # Клас архітектури графової нейромережі (наприклад: BaselineGCN, BaselineGATv2).
   type: "BaselineGATv2"

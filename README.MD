@@ -30,7 +30,7 @@
 
 ### 4) Algorithm / Validation
 - **[LLD_MVP1.MD](./LLD_MVP1.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 
-- **[EVF_MVP1.MD](./EVF_MVP1)** — experimentation & validation framework (каркас) *(draft).* 
+- **[EVF_MVP1.MD](./EVF_MVP1.MD)** — experimentation & validation framework (каркас) *(draft).* 
 
 ### 5) Legacy reference
 - **[etalon/README.md](./etalon/README.md)** — попередня реалізація (legacy baseline), використовується як референс.

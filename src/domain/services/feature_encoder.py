@@ -15,9 +15,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.domain.entities.feature_config import FeatureConfig, FeatureLayout
 from src.domain.entities.raw_trace import RawTrace
+from src.domain.services.schema_resolver import SchemaResolver
 
 
 logger = logging.getLogger(__name__)
+_MISSING_VALUE = object()
 
 
 @dataclass(frozen=True)
@@ -36,8 +38,13 @@ class FeatureEncoder:
         feature_configs: Sequence[FeatureConfig],
         traces: Optional[Sequence[RawTrace]] = None,
         state_dict: Optional[Dict[str, Any]] = None,
+        schema_resolver: Optional[SchemaResolver] = None,
+        policy_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.feature_configs = list(feature_configs)
+        self.feature_by_name = {cfg.name: cfg for cfg in self.feature_configs}
+        self.schema_resolver = schema_resolver or SchemaResolver()
+        self.policy_config = self._build_policy_config(policy_config)
         self.role_to_feature = {cfg.role: cfg.name for cfg in self.feature_configs if cfg.role}
         self.activity_feature_name = self._resolve_activity_feature_name()
 
@@ -116,14 +123,44 @@ class FeatureEncoder:
         for cfg in self.feature_configs:
             if cfg.role == "activity":
                 return cfg.name
-        return "concept:name"
+        return str(self.policy_config.get("activity_fallback_feature", "concept:name"))
 
-    def _feature_lookup_keys(self, cfg: FeatureConfig) -> List[str]:
-        """Resolve lookup keys in payload (internal feature name + optional source alias)."""
-        keys = [cfg.name]
-        if cfg.source_key and cfg.source_key not in keys:
-            keys.append(cfg.source_key)
-        return keys
+    def _build_policy_config(self, policy_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build feature-policy profile with config overrides and deterministic defaults."""
+        default = {
+            "profile": "mvp1_default",
+            "activity_fallback_feature": "concept:name",
+            "zscore_clip": {"enabled": True, "min": -3.0, "max": 3.0},
+            "time2vec": {
+                "work_hours": {
+                    "timezone": "UTC",
+                    "working_days": [0, 1, 2, 3, 4],
+                    "start_hour": 9,
+                    "end_hour": 18,
+                }
+            },
+        }
+        if not isinstance(policy_config, dict):
+            return default
+
+        merged = dict(default)
+        for key, value in policy_config.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = {**merged[key], **value}
+            else:
+                merged[key] = value
+        if isinstance(merged.get("time2vec"), dict) and isinstance(default["time2vec"], dict):
+            time2vec_cfg = dict(default["time2vec"])
+            time2vec_cfg.update(merged["time2vec"])
+            if isinstance(time2vec_cfg.get("work_hours"), dict):
+                work_hours = dict(default["time2vec"]["work_hours"])
+                work_hours.update(time2vec_cfg["work_hours"])
+                time2vec_cfg["work_hours"] = work_hours
+            merged["time2vec"] = time2vec_cfg
+        if isinstance(merged.get("zscore_clip"), dict):
+            clip_cfg = {**default["zscore_clip"], **merged["zscore_clip"]}
+            merged["zscore_clip"] = clip_cfg
+        return merged
 
     def _build_feature_layout(self) -> FeatureLayout:
         """Build deterministic layout with categorical vocab sizes and numeric dimension."""
@@ -195,20 +232,13 @@ class FeatureEncoder:
 
     def _iter_feature_values(self, trace: RawTrace, cfg: FeatureConfig) -> List[Any]:
         """Iterate values from a trace for a specific feature config."""
-        keys = self._feature_lookup_keys(cfg)
         if cfg.source == "trace":
-            for key in keys:
-                if key in trace.trace_attributes:
-                    return [trace.trace_attributes[key]]
-            return [cfg.fill_na]
+            value = self.schema_resolver.resolve_from_mapping(cfg, trace.trace_attributes, default=cfg.fill_na)
+            return [value]
 
         values: List[Any] = []
         for event in trace.events:
-            value = cfg.fill_na
-            for key in keys:
-                if key in event.extra:
-                    value = event.extra[key]
-                    break
+            value = self.schema_resolver.resolve_from_mapping(cfg, event.extra, default=cfg.fill_na)
             values.append(value)
         return values
 
@@ -230,17 +260,25 @@ class FeatureEncoder:
                     continue
                 if enc == "z-score":
                     z = self._zscore(raw, cfg)
-                    num_values.append(max(-3.0, min(3.0, z)))
+                    num_values.append(self._clip_zscore(z))
                 elif enc.startswith("time2vec_"):
                     num_values.extend(self._encode_time2vec(raw, enc))
 
         return EncodedNodeFeatures(cat_indices=cat_indices, num_values=num_values)
 
+    def resolve_event_feature(self, *, event_extra: Dict[str, Any], feature_name: str, default: Any) -> Any:
+        """Resolve event feature through canonical schema resolver by feature name."""
+        cfg = self.feature_by_name.get(feature_name)
+        if cfg is None:
+            return default
+        value = self.schema_resolver.resolve_from_mapping(cfg, event_extra, default=_MISSING_VALUE)
+        return default if value is _MISSING_VALUE else value
+
     def _resolve_raw_value(self, event_extra: Dict[str, Any], cfg: FeatureConfig) -> Any:
         """Resolve raw feature value with schema-alignment imputations for missing keys."""
-        for key in self._feature_lookup_keys(cfg):
-            if key in event_extra:
-                return event_extra[key]
+        resolved = self.schema_resolver.resolve_from_mapping(cfg, event_extra, default=_MISSING_VALUE)
+        if resolved is not _MISSING_VALUE:
+            return resolved
 
         feature_label = f"{cfg.name} (alias={cfg.source_key})" if cfg.source_key else cfg.name
         if feature_label not in self._imputation_warnings_emitted:
@@ -255,6 +293,17 @@ class FeatureEncoder:
             return float(stats.get("mu", 0.0))
 
         return cfg.fill_na
+
+    def _clip_zscore(self, value: float) -> float:
+        """Apply configurable z-score clipping profile."""
+        clip_cfg = self.policy_config.get("zscore_clip", {})
+        if not bool(clip_cfg.get("enabled", True)):
+            return float(value)
+        min_val = float(clip_cfg.get("min", -3.0))
+        max_val = float(clip_cfg.get("max", 3.0))
+        if min_val > max_val:
+            min_val, max_val = max_val, min_val
+        return float(max(min_val, min(max_val, value)))
 
     def _zscore(self, value: Any, cfg: FeatureConfig) -> float:
         """Apply z-score transformation with precomputed stats."""
@@ -306,8 +355,17 @@ class FeatureEncoder:
         if mode == "time2vec_hour":
             return self._cyclic_pair(dt.hour, 24.0)
         if mode == "time2vec_work_hours":
-            # Work-hours indicator (Mon-Fri, 09:00-18:00 UTC) as non-cyclic context channel.
-            is_work_hour = 1.0 if dt.weekday() < 5 and 9 <= dt.hour < 18 else 0.0
+            work_hours_cfg = self.policy_config.get("time2vec", {}).get("work_hours", {})
+            working_days = {
+                int(day)
+                for day in work_hours_cfg.get("working_days", [0, 1, 2, 3, 4])
+                if str(day).strip().isdigit() and 0 <= int(day) <= 6
+            }
+            start_hour = int(work_hours_cfg.get("start_hour", 9))
+            end_hour = int(work_hours_cfg.get("end_hour", 18))
+            in_day = dt.weekday() in working_days
+            in_hour = start_hour <= dt.hour < end_hour
+            is_work_hour = 1.0 if in_day and in_hour else 0.0
             return [is_work_hour]
         return []
 

@@ -68,3 +68,22 @@ mapping:
       dtype: "float"
       fill_na: 0.0
       encoding: ["z-score"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18
+      # Типові профілі для розширення (без коду):
+      # - Mon-Fri 09:00-18:00 -> [0,1,2,3,4], 9..18
+      # - 24/7 -> [0,1,2,3,4,5,6], 0..24
+      # - Weekend shifts -> [5,6], 8..20
+      # - Night shifts -> [0,1,2,3,4], 22..6 (потребує окремої policy-логіки)

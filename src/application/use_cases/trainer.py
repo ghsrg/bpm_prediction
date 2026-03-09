@@ -86,6 +86,8 @@ class ModelTrainer:
         self.retrain = bool(config.get("retrain", False))
         self.mode = str(config.get("mode", self.config.get("experiment_config", {}).get("mode", "train"))).strip().lower()
         self.drift_window_size = int(config.get("drift_window_size", self.config.get("experiment_config", {}).get("drift_window_size", 500)))
+        self.drift_window_stride = int(config.get("drift_window_stride", self.config.get("experiment_config", {}).get("drift_window_stride", 0)))
+        self.drift_window_overlap = int(config.get("drift_window_overlap", self.config.get("experiment_config", {}).get("drift_window_overlap", 0)))
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -125,6 +127,25 @@ class ModelTrainer:
 
         split_data = self._prepare_split_data(raw_traces)
 
+        checkpoint, start_epoch, best_val_loss, best_epoch = self._prepare_checkpoint_state(is_eval_mode=is_eval_mode)
+
+        if is_eval_cross:
+            return self._run_eval_cross_dataset(split_data=split_data, best_epoch=best_epoch, best_val_loss=best_val_loss)
+
+        if is_eval_drift:
+            drift_traces = self._prepare_drift_traces(raw_traces)
+            return self._run_eval_drift(split_data=split_data, drift_traces=drift_traces, best_epoch=best_epoch, best_val_loss=best_val_loss)
+
+        return self._run_train_pipeline(
+            split_data=split_data,
+            checkpoint=checkpoint,
+            start_epoch=start_epoch,
+            best_val_loss=best_val_loss,
+            best_epoch=best_epoch,
+        )
+
+    def _prepare_checkpoint_state(self, is_eval_mode: bool) -> Tuple[Optional[Dict[str, Any]], int, float, int]:
+        """Load checkpoint according to active scenario and return state tuple."""
         checkpoint: Optional[Dict[str, Any]] = None
         start_epoch = 0
         best_val_loss = float("inf")
@@ -145,38 +166,51 @@ class ModelTrainer:
             best_epoch = start_epoch
             logger.info("Loaded checkpoint from epoch %d with val_loss %.6f.", start_epoch, best_val_loss)
 
-        if is_eval_cross:
-            test_loader = self._build_loader(split_data.test, shuffle=False)
-            self._log_topology_metrics_and_artifacts()
-            logger.info("DataLoaders ready for eval_cross_dataset: test_batches=%d", len(test_loader))
-            test_metrics = self._evaluate_test(test_loader)
-            logger.info("Eval cross-dataset test metrics: %s", test_metrics)
-            self._log_test_metrics(test_metrics)
-            return {
-                "history": [],
-                "test_metrics": test_metrics,
-                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
-                "best_epoch": best_epoch,
-                "best_val_loss": float(best_val_loss),
-                "mode": self.mode,
-            }
+        return checkpoint, start_epoch, best_val_loss, best_epoch
 
-        if is_eval_drift:
-            drift_traces = self._prepare_drift_traces(raw_traces)
-            drift_metrics = self._evaluate_drift_windows(drift_traces)
-            self._log_topology_metrics_and_artifacts()
-            logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
-            return {
-                "history": [],
-                "test_metrics": {},
-                "drift_metrics": drift_metrics,
-                "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
-                "drift_trace_count": len(drift_traces),
-                "best_epoch": best_epoch,
-                "best_val_loss": float(best_val_loss),
-                "mode": self.mode,
-            }
+    def _run_eval_cross_dataset(self, split_data: SplitData, best_epoch: int, best_val_loss: float) -> Dict[str, Any]:
+        """Run eval_cross_dataset scenario with preloaded checkpoint state."""
+        test_loader = self._build_loader(split_data.test, shuffle=False)
+        self._log_topology_metrics_and_artifacts()
+        logger.info("DataLoaders ready for eval_cross_dataset: test_batches=%d", len(test_loader))
+        test_metrics = self._evaluate_test(test_loader)
+        logger.info("Eval cross-dataset test metrics: %s", test_metrics)
+        self._log_test_metrics(test_metrics)
+        return {
+            "history": [],
+            "test_metrics": test_metrics,
+            "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+            "best_epoch": best_epoch,
+            "best_val_loss": float(best_val_loss),
+            "mode": self.mode,
+        }
 
+    def _run_eval_drift(self, split_data: SplitData, drift_traces: Sequence[RawTrace], best_epoch: int, best_val_loss: float) -> Dict[str, Any]:
+        """Run eval_drift scenario over chronologically sorted windows."""
+        drift_metrics = self._evaluate_drift_windows(drift_traces)
+        self._log_topology_metrics_and_artifacts()
+        logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
+        return {
+            "history": [],
+            "test_metrics": {},
+            "drift_metrics": drift_metrics,
+            "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+            "drift_trace_count": len(drift_traces),
+            "best_epoch": best_epoch,
+            "best_val_loss": float(best_val_loss),
+            "mode": self.mode,
+        }
+
+    def _run_train_pipeline(
+        self,
+        *,
+        split_data: SplitData,
+        checkpoint: Optional[Dict[str, Any]],
+        start_epoch: int,
+        best_val_loss: float,
+        best_epoch: int,
+    ) -> Dict[str, Any]:
+        """Run train/validation/test scenario with optional resume checkpoint."""
         train_loader = self._build_loader(split_data.train, shuffle=True)
         val_loader = self._build_loader(split_data.val, shuffle=False)
         test_loader = self._build_loader(split_data.test, shuffle=False)
@@ -500,10 +534,12 @@ class ModelTrainer:
         """Run fixed-size chronological window evaluation for concept-drift tracking."""
         if self.drift_window_size <= 0:
             raise ValueError("drift_window_size must be positive.")
+        step = self._resolve_drift_step()
 
+        # Важливо для наукової валідності: сортуємо хронологічно ДО генерації вікон.
         ordered_traces = sorted((trace for trace in traces if trace.events), key=lambda trace: trace.events[0].timestamp)
         drift_results: List[Dict[str, float]] = []
-        window_starts = list(range(0, len(ordered_traces), self.drift_window_size))
+        window_starts = list(range(0, len(ordered_traces), step))
 
         iterator = tqdm(
             window_starts,
@@ -524,17 +560,47 @@ class ModelTrainer:
                 self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=window_idx)
                 self.tracker.log_metric("drift_window_test_ece", ece, step=window_idx)
 
+            start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
+            end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
+
             drift_results.append(
                 {
                     "window_index": float(window_idx),
                     "window_start_trace": float(start),
                     "window_end_trace": float(start + len(window_traces) - 1),
+                    "window_start_ts": start_ts,
+                    "window_end_ts": end_ts,
                     "window_macro_f1": macro_f1,
                     "window_test_ece": ece,
                 }
             )
 
+            if self.tracker is not None:
+                self.tracker.log_metric("drift_window_start_ts", start_ts, step=window_idx)
+                self.tracker.log_metric("drift_window_end_ts", end_ts, step=window_idx)
+
         return drift_results
+
+    def _resolve_drift_step(self) -> int:
+        """Resolve drift step from explicit stride or overlap policy."""
+        if self.drift_window_stride > 0 and self.drift_window_overlap > 0:
+            implied_stride = self.drift_window_size - self.drift_window_overlap
+            if implied_stride <= 0:
+                raise ValueError("drift_window_overlap must be smaller than drift_window_size.")
+            if implied_stride != self.drift_window_stride:
+                raise ValueError("drift_window_stride conflicts with drift_window_overlap derived stride.")
+            return self.drift_window_stride
+
+        if self.drift_window_stride > 0:
+            return self.drift_window_stride
+
+        if self.drift_window_overlap > 0:
+            step = self.drift_window_size - self.drift_window_overlap
+            if step <= 0:
+                raise ValueError("drift_window_overlap must be smaller than drift_window_size.")
+            return step
+
+        return self.drift_window_size
 
     def _expected_calibration_error(self, y_true: np.ndarray, y_prob: np.ndarray) -> float:
         """Compute ECE over confidence bins for probabilistic calibration quality."""

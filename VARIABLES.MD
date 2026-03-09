@@ -56,6 +56,22 @@
 * **$OOD_{latent}$** | `latent_ood_flag` — Прапорець латентного OOD.
 * **$OOD_{struct}$** | `structural_ood_flag` — Прапорець структурного OOD.
 
+
+
+### 7.1 Drift Window Policy Variables (MVP1)
+* **$w$** | `window_size` — Розмір вікна оцінювання дрейфу (у кількості трас).
+* **$\Delta$** | `window_stride` — Крок зсуву вікна між ітераціями.
+* **$o$** | `window_overlap` — Перекриття між сусідніми вікнами, де \(\Delta = w-o\).
+* **$t_{start}^{(k)}$** | `window_start_ts` — Початкова часова мітка \(k\)-го вікна.
+* **$t_{end}^{(k)}$** | `window_end_ts` — Кінцева часова мітка \(k\)-го вікна.
+
+### 7.2 Feature Policy Variables (MVP1)
+* **$z_{min}$** | `z_clip_min` — Нижня межа clipping після Z-score.
+* **$z_{max}$** | `z_clip_max` — Верхня межа clipping після Z-score.
+* **$\mathcal{D}_{work}$** | `work_days` — Набір робочих днів тижня для `time2vec_work_hours`.
+* **$h_{start}$** | `work_start_hour` — Початок робочого інтервалу.
+* **$h_{end}$** | `work_end_hour` — Кінець робочого інтервалу.
+
 ### 8. Reliability & Thresholds
 
 * **$R_{score}$** | `reliability_score` — Агрегований скор ризику.

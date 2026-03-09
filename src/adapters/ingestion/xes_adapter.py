@@ -20,6 +20,7 @@ from src.application.ports.xes_adapter_port import IXESAdapter
 from src.domain.entities.feature_config import FeatureConfig, parse_feature_configs
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
+from src.domain.services.schema_resolver import SchemaResolver
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class XESAdapter(IXESAdapter):
         """Stream traces from XES without loading the full XML into memory."""
         config = mapping_config.get("xes_adapter", mapping_config)
         feature_configs = parse_feature_configs(mapping_config)
+        schema_resolver = SchemaResolver()
 
         role_keys = _resolve_role_keys(feature_configs)
 
@@ -92,6 +94,7 @@ class XESAdapter(IXESAdapter):
                         extra_trace_keys=extra_trace_keys,
                         extra_event_keys=extra_event_keys,
                         feature_configs=feature_configs,
+                        schema_resolver=schema_resolver,
                     )
                     skipped_events += trace_skips
                     processed_traces += 1
@@ -132,6 +135,7 @@ class XESAdapter(IXESAdapter):
         extra_trace_keys: Set[str],
         extra_event_keys: Set[str],
         feature_configs: Sequence[FeatureConfig],
+        schema_resolver: SchemaResolver,
     ) -> Tuple[RawTrace, int]:
         trace_attributes: Dict[str, Any] = {}
         event_payloads: List[Dict[str, Any]] = []
@@ -152,7 +156,7 @@ class XESAdapter(IXESAdapter):
         selected_trace_attrs = {
             k: v for k, v in trace_attributes.items() if k not in {case_id_key, version_key}
         }
-        selected_trace_attrs.update(_extract_typed_trace_features(trace_attributes, feature_configs))
+        selected_trace_attrs.update(_extract_typed_trace_features(trace_attributes, feature_configs, schema_resolver))
         if extra_trace_keys:
             selected_trace_attrs = {k: v for k, v in selected_trace_attrs.items() if k in extra_trace_keys}
 
@@ -219,7 +223,7 @@ class XESAdapter(IXESAdapter):
 
             # Зберігаємо лише явно дозволені event-level extra ключі з mapping config.
             extra = {k: v for k, v in payload.items() if k not in mapped_keys}
-            extra.update(_extract_typed_event_features(payload, feature_configs))
+            extra.update(_extract_typed_event_features(payload, feature_configs, schema_resolver))
             if extra_event_keys:
                 extra = {k: v for k, v in extra.items() if k in extra_event_keys}
             # Дублюємо trace-level extra у кожну подію, щоб вузол мав доступ до контексту кейсу.
@@ -465,33 +469,36 @@ def _resolve_role_keys(feature_configs: Sequence[FeatureConfig]) -> Dict[str, st
     role_keys: Dict[str, str] = {}
     for cfg in feature_configs:
         if cfg.role in {"activity", "timestamp", "resource", "lifecycle", "version"}:
-            role_keys[cfg.role] = cfg.name
+            role_keys[cfg.role] = cfg.source_key or cfg.name
     return role_keys
 
 
 def _extract_typed_trace_features(
     trace_attributes: Dict[str, Any],
     feature_configs: Sequence[FeatureConfig],
+    schema_resolver: SchemaResolver,
 ) -> Dict[str, Any]:
     """Build typed+filled trace-level features according to FeatureConfig."""
     typed: Dict[str, Any] = {}
     for cfg in feature_configs:
         if cfg.source != "trace":
             continue
-        lookup_key = cfg.source_key or cfg.name
-        raw = trace_attributes.get(lookup_key)
+        raw = schema_resolver.resolve_from_mapping(cfg, trace_attributes)
         typed[cfg.name] = _coerce_to_dtype(raw, cfg)
     return typed
 
 
-def _extract_typed_event_features(payload: Dict[str, Any], feature_configs: Sequence[FeatureConfig]) -> Dict[str, Any]:
+def _extract_typed_event_features(
+    payload: Dict[str, Any],
+    feature_configs: Sequence[FeatureConfig],
+    schema_resolver: SchemaResolver,
+) -> Dict[str, Any]:
     """Build typed+filled event-level features according to FeatureConfig."""
     typed: Dict[str, Any] = {}
     for cfg in feature_configs:
         if cfg.source != "event":
             continue
-        lookup_key = cfg.source_key or cfg.name
-        raw = payload.get(lookup_key)
+        raw = schema_resolver.resolve_from_mapping(cfg, payload)
         typed[cfg.name] = _coerce_to_dtype(raw, cfg)
     return typed
 

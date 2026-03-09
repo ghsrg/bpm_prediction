@@ -230,3 +230,27 @@
 - **PrefixSlice**: Фізично обрізаний фрагмент `RawTrace` від початку до події $k$. Містить історію подій та `target_event` (наступну подію) для генерації цільової змінної $y$.
 - **GraphTensorContract**: Уніфікований словник (або dataclass), що містить виключно числові тензори ($x$, $edge\_index$, $edge\_type$, $y$, $batch$). Єдиний формат даних, який приймає нейромережа (Core GNN).
 - **mapping.yaml**: Конфігураційний файл Ingestion-шару для динамічного зв'язування колонок сирих логів із полями `EventRecord`.
+---
+
+## 12. MVP1 Extension & Evaluation Terms
+
+### SchemaResolver
+Domain service that enforces a canonical key lookup order (`name`, `source_key`, `fallback_keys`) across ingestion and encoding. In MVP1, `resolve_value` is strictly identity.
+
+### SemanticMapper (planned)
+Planned MVP2 component for semantic value normalization at `SchemaResolver.resolve_value` hook (e.g., multilingual/synonym harmonization). It is inactive in MVP1.
+
+### Drift Window Policy
+Formal policy for drift evaluation windowing, parameterized by window size \(w\), stride \(\Delta\), and optional overlap \(o\), where \(\Delta = w-o\) when overlap is configured.
+
+### Anti-leakage invariant
+Mandatory ordering constraint for drift evaluation: chronological sorting of traces must be completed before window generation, and window generation must precede evaluation/logging.
+
+
+### 12.1 Concept relation diagram
+```mermaid
+flowchart LR
+    SR[SchemaResolver] --> SM[SemanticMapper (planned)]
+    DWP[Drift Window Policy] --> AL[Anti-leakage invariant]
+    AL --> EV[Valid eval_drift protocol]
+```

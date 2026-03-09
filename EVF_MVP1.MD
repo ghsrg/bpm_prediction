@@ -4,59 +4,83 @@
 `APPROVED` (Scope: MVP1 - Baseline Evaluation)
 
 ## 2. Призначення
-Специфікація методології тестування, метрик та стратегії поділу даних для оцінки ефективності базової нейромережі (Baseline GNN). Формує наукову точку відліку для порівняння з цільовою методологією (Domain-Conditioned GNN) у наступних фазах.
+Специфікація методології оцінювання для MVP1 baseline-моделі з фіксованими анти-лікейдж інваріантами.
 
 ## 3. Стратегія поділу даних (Data Splitting)
+Використовується лише **Strict Temporal Split** на рівні трас.
 
-Категорично **заборонено** використовувати випадковий поділ (Random Split) або K-Fold Cross Validation на перемішаних трасах. Використовується виключно **Strict Temporal Split** (хронологічний поділ).
+### 3.1. Temporal Split
+1. Траси `RawTrace` сортуються за часом першої події.
+2. Розбиття: Train / Validation / Test у заданих пропорціях.
+3. Усі префікси однієї траси належать одному спліту.
 
-### 3.1. Алгоритм Temporal Split
-1. Усі траси (`RawTrace`) сортуються за часом першої події (`time_since_case_start = 0.0`).
-2. Датасет розбивається у пропорції:
-   - **Train:** 70% (найстаріші траси).
-   - **Validation:** 10% (для early stopping та налаштування гіперпараметрів).
-   - **Test:** 20% (найновіші траси, які модель ніколи не бачила).
-3. **Захист від витоку даних (Data Leakage):** Усі префікси однієї траси повинні потрапити суворо в один спліт. Розривати трасу між Train і Test заборонено.
+---
 
-## 4. Цільові метрики (Metrics & Artifacts)
+## 4. Метрики (Global Test)
+### 4.1. Epoch Tracking
+- `train_loss`, `val_loss`
+- `train_macro_f1`, `val_macro_f1`, `val_weighted_f1`
+- `epoch_duration_sec`
 
-Оскільки бізнес-логи мають сильний дисбаланс класів, `Accuracy` розглядається лише як допоміжна метрика. Регресійні метрики (MAE, MSE) та Out-of-Scope (OOS) Rate у MVP1 відключені (фокус виключно на класифікації без наявності нормативного EOPKG).
-
-### 4.1. Метрики епохи (Online Tracking)
-Логуються на кожній епосі під час Train / Validation:
-- `loss`: Cross-Entropy.
-- `macro_f1`: Основна метрика збалансованості.
-- `epoch_duration_sec`: Час проходження епохи.
-
-### 4.2. Фінальні метрики тестування (Test Evaluation)
-Розраховуються один раз на тестовому спліті (на базі `sklearn.metrics`):
-- `test_macro_f1` (Primary)
-- `test_accuracy` (Secondary)
+### 4.2. Final Test Metrics
+- `test_macro_f1`
+- `test_weighted_f1`
+- `test_accuracy`
 - `test_top3_accuracy`
 - `test_precision_macro`
 - `test_recall_macro`
-- `test_ece`: Expected Calibration Error (якість імовірнісного прогнозу для майбутнього семафора надійності).
-- `inference_latency_ms`: Середній час прямого поширення ($f_\theta$) для одного графа екземпляра (фіксує здатність до real-time роботи).
+- `test_ece`
+- `test_inference_time_ms_per_graph`
 
-### 4.3. Артефакти (Artifacts)
-Зберігаються як фізичні файли після завершення прогону:
-- `confusion_matrix.png` (візуалізація матриці помилок).
-- `classification_report.txt` (повний звіт `sklearn` по кожному класу активності).
-- `model_weights.pt` (збережені ваги нейромережі).
+---
 
-## 5. Experiment Tracking (MLflow)
+## 5. Drift Evaluation Protocol
 
-Кожен запуск `Trainer` або `Evaluator` обов'язково логується через `ITracker` (MLflow).
+### 5.1. Anti-Leakage Invariant
+Для `eval_drift` обов'язковий порядок кроків:
+\[
+\text{chronological sort} \rightarrow \text{window generation} \rightarrow \text{evaluation} \rightarrow \text{logging}
+\]
 
-**Обов'язкові параметри (Parameters) для логування:**
-- `model_type`: "Baseline_GNN_MVP1"
-- `dataset_id`: (наприклад, "bpic_2012")
-- `num_layers`: кількість шарів GNN
-- `hidden_dim`: розмірність $d_V$
-- `learning_rate`
-- `batch_size`
+Формально, для трас \(\tau_i\):
+\[
+\tau_i \preceq \tau_j \iff t_{start}(\tau_i) \le t_{start}(\tau_j),\; i<j
+\]
+Генерація вікон:
+\[
+W_k = \mathcal{T}[s_k:s_k+w), \quad s_{k+1}=s_k+\Delta
+\]
+де \(w\) — `window_size`, \(\Delta\) — `window_stride` (або \(\Delta=w-overlap\)).
 
-**Обов'язкові метрики (Metrics) для логування:**
-- Усі метрики з п. 4.1 (по епохах).
-- Усі метрики з п. 4.2 (фінальні результати).
-- Збереження артефактів з п. 4.3.
+### 5.2. Per-window logging (required)
+Для кожного вікна логуються:
+- `window_start_ts`
+- `window_end_ts`
+- `window_macro_f1`
+- `window_test_ece`
+
+Рекомендовано також логувати ідентифікатори діапазону:
+- `window_index`
+- `window_start_trace`
+- `window_end_trace`
+
+
+### 5.3 Drift protocol diagram
+```mermaid
+flowchart LR
+    A[Chronological sort by start_ts] --> B[Generate windows w,Δ,o]
+    B --> C[Build loaders per window]
+    C --> D[Evaluate window metrics]
+    D --> E[Log start_ts, end_ts, macro_f1, ece]
+```
+
+---
+
+## 6. Experiment Tracking (MLflow)
+Кожен запуск `train/eval_cross_dataset/eval_drift` логується через `ITracker`.
+
+Обов'язково:
+- параметри моделі/даних;
+- метрики епох;
+- фінальні тестові метрики;
+- per-window drift метрики (для `eval_drift`).

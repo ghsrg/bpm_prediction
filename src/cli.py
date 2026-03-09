@@ -29,6 +29,7 @@ from src.domain.models.baseline_gcn import BaselineGCN
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
+from src.domain.services.schema_resolver import SchemaResolver
 from src.infrastructure.config.yaml_loader import load_yaml_with_includes
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
@@ -193,10 +194,14 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     data_num_events = sum(len(trace.events) for trace in traces)
 
     feature_configs = parse_feature_configs(config)
+    schema_resolver = SchemaResolver()
+    policy_cfg = config.get("policies", {})
     feature_encoder = FeatureEncoder(
         feature_configs=feature_configs,
         traces=traces,
         state_dict=config.get("encoder_state"),
+        schema_resolver=schema_resolver,
+        policy_config=policy_cfg,
     )
     feature_layout = feature_encoder.feature_layout
 
@@ -394,6 +399,7 @@ def main() -> None:
         "feature_configs": [
             {
                 "name": item.name,
+                "source_key": item.source_key,
                 "encoding": list(item.encoding),
                 "source": item.source,
                 "dtype": item.dtype,
@@ -401,6 +407,7 @@ def main() -> None:
             }
             for item in prepared["feature_configs"]
         ],
+        "policy_config": config.get("policies", {}),
         "data_metrics": prepared["data_metrics"],
         "dataset_label": ds_label,
         "model_label": md_label,
@@ -416,6 +423,8 @@ def main() -> None:
         "checkpoint_path": resolved_checkpoint_path,
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
+        "drift_window_stride": int(experiment_cfg.get("drift_window_stride", 0)),
+        "drift_window_overlap": int(experiment_cfg.get("drift_window_overlap", 0)),
     }
 
     trainer = ModelTrainer(

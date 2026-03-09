@@ -141,3 +141,50 @@ class IXESAdapter(Protocol):
 - logger.error: невалідні XML/XES схеми.
 - logger.warning: пропущені биті події (наприклад, без timestamp).
 - logger.info: після парсингу обов'язковий підсумковий запис: "Processed X traces, Y events, Z skipped".
+
+## 8. Schema Resolution Pipeline
+
+### 8.1. Канонічний порядок резольвінгу полів
+Для кожної `FeatureConfig` резольвінг ключа виконується централізовано через `SchemaResolver` у фіксованому порядку:
+\[
+K_{lookup} = [\texttt{name},\;\texttt{source\_key},\;\texttt{fallback\_keys}]
+\]
+де `fallback_keys` задається профілем резольвера.
+
+### 8.2. Використання `source_key`
+- `source_key` є alias до зовнішнього імені поля в сирому payload.
+- `XESAdapter` не виконує локальних дублюючих правил lookup; замість цього викликається `SchemaResolver.resolve_from_mapping(...)`.
+- Той самий порядок lookup застосовується в `FeatureEncoder`, що гарантує симетрію ingestion/encoding.
+
+### 8.3. Жорсткий інваріант MVP1 для `resolve_value`
+У фазі MVP1 значення не нормалізуються семантично:
+\[
+\forall v:\; \operatorname{resolve\_value}(cfg, v) = v
+\]
+Заборонено:
+1. зведення синонімів (`"Старт" \to "Start"`);
+2. мовні або словникові заміни;
+3. евристичні трансформації за підрядками/регістром.
+
+### 8.4. Роль у підготовці до MVP2
+`resolve_value` є формальним Extension Point для майбутнього `SemanticMapper` (MVP2), але в MVP1 цей hook працює виключно як identity-функція.
+
+
+
+### 8.5. Schema resolution sequence diagram
+```mermaid
+sequenceDiagram
+    participant XA as XESAdapter
+    participant SR as SchemaResolver
+    participant FE as FeatureEncoder
+
+    XA->>SR: resolve_from_mapping(cfg, payload)
+    SR-->>XA: raw_value
+    XA->>SR: resolve_value(cfg, raw_value)
+    SR-->>XA: raw_value (identity in MVP1)
+
+    FE->>SR: resolve_from_mapping(cfg, event.extra)
+    SR-->>FE: raw_value
+    FE->>SR: resolve_value(cfg, raw_value)
+    SR-->>FE: raw_value (identity in MVP1)
+```

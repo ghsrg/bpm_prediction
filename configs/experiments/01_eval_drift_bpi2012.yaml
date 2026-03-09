@@ -1,0 +1,17 @@
+include:
+  - "../data/bpi2012_Challenge.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp1"
+  name: "MVP1_eval_drift"
+  mode: "eval_drift"
+  load_checkpoint: "checkpoints/MVP1_Baseline_train_05_bpi2012_GATv2_best.pth" # Підстав точне ім'я файлу з Кроку 1
+  drift_window_size: 100
+  train_ratio: 0.5
+
+
+training:
+  retrain: false
+
+seed: 42

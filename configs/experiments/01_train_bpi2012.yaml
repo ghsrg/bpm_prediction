@@ -4,8 +4,9 @@ include:
 
 experiment:
   project: "bpm_prediction_mvp1"
-  name: "MVP1_Baseline_train"
+  name: "MVP1_Baseline_train_05"
   mode: "train"
+  train_ratio: 0.5
 
 training:
   retrain: false

@@ -133,8 +133,10 @@ def _strict_temporal_split(
     split_strategy: str,
 ) -> Tuple[List[RawTrace], List[RawTrace], List[RawTrace]]:
     """Apply strict chronological split by configured strategy and ratio."""
-    if split_strategy != "time":
-        raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'. Only 'time' is allowed for MVP1.")
+    if split_strategy == "time":
+        split_strategy = "temporal"
+    if split_strategy not in {"temporal", "none"}:
+        raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'.")
 
     train_ratio, val_ratio, _ = split_ratio
     traces_with_events = [trace for trace in traces if trace.events]
@@ -179,8 +181,11 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("Config must define data.log_path")
 
     fraction = float(data_cfg.get("fraction", 1.0))
-    split_strategy = str(data_cfg.get("split_strategy", "time")).strip().lower()
+    split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
+    if split_strategy == "time":
+        split_strategy = "temporal"
     split_ratio = _parse_split_ratio(data_cfg)
+    train_ratio = float(data_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
     if mode == "eval_cross_dataset":
         split_ratio = (0.0, 0.0, 1.0)
@@ -224,6 +229,7 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
             "fraction": fraction,
             "split_strategy": split_strategy,
             "split_ratio": list(split_ratio),
+            "train_ratio": train_ratio,
             "dataset_label": str(data_cfg.get("dataset_label", "unknown_data")),
         },
         "data_metrics": {

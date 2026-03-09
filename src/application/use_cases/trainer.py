@@ -119,13 +119,16 @@ class ModelTrainer:
         if self.tracker is not None and self.config_path:
             self.tracker.log_artifact(self.config_path)
 
+        logger.info("⏳ Читання XES-файлу...")
         raw_traces = list(self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {})))
+        logger.info("✅ Знайдено %d трейсів.", len(raw_traces))
 
         is_eval_cross = self.mode == "eval_cross_dataset"
         is_eval_drift = self.mode == "eval_drift"
         is_eval_mode = is_eval_cross or is_eval_drift
 
-        split_data = self._prepare_split_data(raw_traces)
+        prepared_traces = self._prepare_data(raw_traces, mode=self.mode)
+        split_data = self._prepare_split_data(prepared_traces)
 
         checkpoint, start_epoch, best_val_loss, best_epoch = self._prepare_checkpoint_state(is_eval_mode=is_eval_mode)
 
@@ -133,8 +136,12 @@ class ModelTrainer:
             return self._run_eval_cross_dataset(split_data=split_data, best_epoch=best_epoch, best_val_loss=best_val_loss)
 
         if is_eval_drift:
-            drift_traces = self._prepare_drift_traces(raw_traces)
-            return self._run_eval_drift(split_data=split_data, drift_traces=drift_traces, best_epoch=best_epoch, best_val_loss=best_val_loss)
+            return self._run_eval_drift(
+                split_data=split_data,
+                drift_traces=prepared_traces,
+                best_epoch=best_epoch,
+                best_val_loss=best_val_loss,
+            )
 
         return self._run_train_pipeline(
             split_data=split_data,
@@ -256,6 +263,15 @@ class ModelTrainer:
                 }
                 history.append(epoch_metrics)
                 self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
+                logger.info(
+                    "🔄 Епоха %d/%d | Train Loss: %.6f | Val Loss: %.6f | Train F1: %.4f | Val F1: %.4f",
+                    epoch,
+                    self.epochs,
+                    train_loss,
+                    val_loss,
+                    train_macro_f1,
+                    val_macro_f1,
+                )
 
                 if self.device.type == "cuda" and torch.cuda.is_available() and not self._logged_peak_vram:
                     peak_vram_mb = float(torch.cuda.max_memory_allocated() / 1048576.0)
@@ -355,19 +371,65 @@ class ModelTrainer:
         feature_encoder.load_state(encoder_state)
 
     def _prepare_split_data(self, traces: Sequence[RawTrace]) -> SplitData:
-        """Apply fraction and strict temporal split using config-driven strategy."""
+        """Apply micro split into train/val/test on already prepared trace stream."""
         data_cfg = self.config.get("data_config", {})
-        fraction = float(data_cfg.get("fraction", 1.0))
-        split_strategy = str(data_cfg.get("split_strategy", "time")).strip().lower()
+        split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
         split_ratio = self._parse_split_ratio(data_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
-        ordered = self._apply_fraction(traces=traces, fraction=fraction)
-        return self._strict_temporal_split(ordered=ordered, split_ratio=split_ratio, split_strategy=split_strategy)
+        if split_strategy == "time":
+            split_strategy = "temporal"
+        logger.info("🗂️ Micro Split: розподіл на train/val/test за пропорцією %s.", list(split_ratio))
+        return self._strict_temporal_split(ordered=traces, split_ratio=split_ratio, split_strategy=split_strategy)
 
-    def _prepare_drift_traces(self, traces: Sequence[RawTrace]) -> List[RawTrace]:
-        """Prepare full chronological trace stream for drift evaluation windows."""
+    def _prepare_data(self, traces: Sequence[RawTrace], mode: str) -> List[RawTrace]:
+        """Apply safe cascade filter: temporal sort -> macro split -> fraction."""
         data_cfg = self.config.get("data_config", {})
+        split_strategy = str(data_cfg.get("split_strategy", "temporal")).strip().lower()
+        if split_strategy == "time":
+            split_strategy = "temporal"
+        if split_strategy not in {"temporal", "none"}:
+            raise ValueError("data.split_strategy must be 'temporal' or 'none'.")
+
+        train_ratio = float(data_cfg.get("train_ratio", 0.7))
+        if train_ratio < 0.0 or train_ratio > 1.0:
+            raise ValueError("data.train_ratio must be within [0.0, 1.0].")
+
         fraction = float(data_cfg.get("fraction", 1.0))
-        return self._apply_fraction(traces=traces, fraction=fraction)
+        if fraction <= 0.0 or fraction > 1.0:
+            raise ValueError("data.fraction must be within (0.0, 1.0].")
+
+        traces_with_events = [trace for trace in traces if trace.events]
+        if split_strategy == "temporal":
+            logger.info("✅ Знайдено %d трейсів. Сортування за хронологією...", len(traces_with_events))
+            ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
+        else:
+            logger.info("✅ Знайдено %d трейсів. split_strategy=none, порядок без сортування.", len(traces_with_events))
+            ordered = list(traces_with_events)
+
+        split_idx = int(len(ordered) * train_ratio)
+        mode_label = mode.strip().lower()
+        if mode_label == "train":
+            macro = ordered[:split_idx]
+            logger.info(
+                "✂️ Macro Split: режим [train]. Використовуємо %.2f%% даних (%d трейсів).",
+                train_ratio * 100.0,
+                len(macro),
+            )
+        elif mode_label in {"eval_drift", "eval_cross_dataset"}:
+            macro = ordered[split_idx:]
+            logger.info(
+                "✂️ Macro Split: режим [%s]. Використовуємо %.2f%% tail-даних (%d трейсів).",
+                mode_label,
+                (1.0 - train_ratio) * 100.0,
+                len(macro),
+            )
+        else:
+            macro = ordered
+            logger.info("✂️ Macro Split: режим [%s] не має відсікання, залишено %d трейсів.", mode_label, len(macro))
+
+        keep_count = int(len(macro) * fraction)
+        filtered = macro if fraction >= 1.0 else macro[:keep_count]
+        logger.info("📉 Застосування fraction=%.4f. Залишено %d трейсів.", fraction, len(filtered))
+        return filtered
 
     def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
         """Validate configured train/val/test split ratio."""
@@ -381,21 +443,10 @@ class ModelTrainer:
             raise ValueError(f"data.split_ratio must sum to 1.0, got {ratio_sum:.6f}")
         return ratios[0], ratios[1], ratios[2]
 
-    def _apply_fraction(self, traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
-        """Select chronological subset of traces by fraction."""
-        traces_with_events = [trace for trace in traces if trace.events]
-        ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
-        if fraction >= 1.0:
-            return ordered
-        if fraction <= 0.0:
-            raise ValueError("data.fraction must be within (0.0, 1.0].")
-        keep_count = max(1, int(len(ordered) * fraction))
-        return ordered[:keep_count]
-
     def _strict_temporal_split(self, ordered: Sequence[RawTrace], split_ratio: Tuple[float, float, float], split_strategy: str) -> SplitData:
-        """Apply strict chronological split by configured strategy and ratio."""
-        if split_strategy != "time":
-            raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'. Only 'time' is allowed for MVP1.")
+        """Apply deterministic micro split by configured strategy and ratio."""
+        if split_strategy not in {"temporal", "none"}:
+            raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'.")
         total = len(ordered)
         train_ratio, val_ratio, _ = split_ratio
         train_end = int(total * train_ratio)
@@ -547,6 +598,7 @@ class ModelTrainer:
             leave=self.tqdm_leave,
             disable=(not self.show_progress) or self.tqdm_disable,
         )
+        total_windows = len(window_starts)
         for window_idx, start in enumerate(iterator):
             window_traces = ordered_traces[start : start + self.drift_window_size]
             window_loader = self._build_loader(window_traces, shuffle=False)
@@ -562,6 +614,14 @@ class ModelTrainer:
 
             start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
             end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
+            logger.info(
+                "🪟 Обробка вікна %d/%d (%.3f - %.3f) | F1: %.4f...",
+                window_idx + 1,
+                total_windows,
+                start_ts,
+                end_ts,
+                macro_f1,
+            )
 
             drift_results.append(
                 {

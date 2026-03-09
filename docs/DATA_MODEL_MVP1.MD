@@ -77,7 +77,8 @@ experiment:
 data:
   log_path: ".../log.xes"
   fraction: 1.0
-  split_strategy: "time"
+  split_strategy: "temporal" # temporal | none
+  train_ratio: 0.7
   split_ratio: [0.7, 0.2, 0.1]
 
 mapping:
@@ -329,6 +330,7 @@ classDiagram
     }
 
     class SplitConfig {
+        +split_strategy: String
         +train_ratio: Float
         +val_ratio: Float
         +test_ratio: Float

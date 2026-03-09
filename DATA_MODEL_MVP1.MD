@@ -236,7 +236,10 @@ Output logits shape:
 \]
 where \(B\) is batch size and \(C\) is number of activity classes.
 
----
+    def resolve_keys(self, cfg: FeatureConfig) -> list[str]: ...
+    def resolve_from_mapping(self, cfg: FeatureConfig, payload: Mapping[str, Any], default: Any = None) -> Any: ...
+    def resolve_value(self, cfg: FeatureConfig, raw_value: Any) -> Any: ...
+```
 
 ## 6. MVP2 Reserved Placeholders (Inactive in MVP1)
 - SemanticMapper (for multilingual/synonym value normalization).

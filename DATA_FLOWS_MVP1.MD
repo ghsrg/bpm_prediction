@@ -25,7 +25,11 @@ flowchart TD
     GTC --> DRIFT[Trainer.eval_drift]
 ```
 
----
+### Архітектурний інваріант
+`SchemaResolver` є єдиним механізмом lookup-порядку для `name/source_key/fallback_keys`. У MVP1 метод `resolve_value` є identity-функцією:  
+\[
+\operatorname{resolve\_value}(cfg, v)=v
+\]
 
 ## 2. Data Flow Overview (Lifecycle)
 

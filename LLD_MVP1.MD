@@ -4,104 +4,97 @@
 `APPROVED` (Scope: MVP1 - Baseline GNN)
 
 ## 2. Призначення
-Специфікація математичного ядра системи для фази MVP1. Описує стратегії нарізки префіксів, вектеризації ознак (Feature Engineering), формування тензорів та базової архітектури нейромережі.
-
-**Науковий контекст (Baseline Constraint):** Цей дизайн імплементує виключно мікро-рівневий енкодер ($\Phi_{micro}$) на емпіричних логах. Глобальний макро-енкодер ($\Phi_{macro}$), оператор генеративного злиття ($\Gamma$), структурний регуляризатор ($\mathcal{L}_{reg}$) та семафор надійності ($S$) навмисно **відключені** у цій версії для формування чистого Baseline-результату, з яким буде порівнюватись цільова методологія у наступних експериментах.
+Фіксує low-level алгоритми MVP1 для prefix-generation, feature-encoding, tensor construction та навчання baseline GNN.
 
 ---
 
 ## 3. Prefix Generation (`PrefixPolicy`)
-
-Алгоритм підготовки навчальної вибірки базується на стратегії **All Prefixes** (генерація префіксів для кожного кроку процесу).
-
 ### 3.1. Математика нарізки
-Для кожної траси $\sigma = \langle e_1, e_2, ..., e_n \rangle$ генерується множина префіксів:
-- Цикл $k$ від $1$ до $n-1$.
-- Вхідний префікс (історія спостереження): $\sigma_{[1:k]} = \langle e_1, ..., e_k \rangle$.
-- Цільова подія (Target): $y = e_{k+1}$.
+Для траси \(\sigma=(e_1,\dots,e_T)\) формуються префікси \(\sigma_{\le k}\), де цільова подія: \(y=e_{k+1}\).
 
-### 3.2. Обробка крайових випадків
-- Траси довжиною $n < 2$ відкидаються.
-- Префікси не доповнюються нулями (No Padding). PyTorch Geometric обробляє графи різного розміру через блоково-діагональні матриці (`Batch`).
+### 3.2. Anti-leakage
+Жоден префікс не містить цільову подію або майбутні події:
+\[
+\sigma_{\le k} \cap \{e_{k+1},\dots,e_T\}=\varnothing
+\]
 
 ---
 
-## 4. Feature Engineering ($\Phi_{enc}$ для мікро-рівня)
+## 4. Feature Engineering (\(\Phi_{enc}\))
 
-Перетворення `EventRecord` у числові тензори $X_V$ для графа екземпляра $G_{obs}$.
+## 4.1. Категоріальні ознаки
+- `activity_id`, `resource_id` та інші embedding-ознаки кодуються індексами словника.
+- `\langle UNK \rangle` має індекс `0`.
 
-### 4.1. Категоріальні ознаки (Categorical)
-- `activity_id` $\to$ індекс зі словника $\to$ `nn.Embedding(num_activities, dim_act)`.
-- `resource_id` $\to$ індекс зі словника $\to$ `nn.Embedding(num_resources, dim_res)`.
-- Невідомі значення (OOV/OOD) мапляться в індекс `0` (зарезервовано для `<UNK>`).
+## 4.2. Неперервні та часові ознаки
+У MVP1 активні:
+1. `z-score` стандартизація;
+2. `time2vec_dayofweek`, `time2vec_month`, `time2vec_dayofmonth`, `time2vec_weekofyear`, `time2vec_hour`;
+3. `time2vec_work_hours`.
 
-### 4.2. Неперервні (Continuous) та Часові ознаки
-Часові дельти: `duration`, `time_since_case_start`, `time_since_previous_event`.
-- **MVP1 (Linear Normalization):** Обов'язкова Z-score стандартизація $x_{norm} = \frac{x - \mu}{\sigma}$ на основі глобальної статистики тренувального датасету (етап `StabilizeAndNormalize`).
-- *(Future Scope: Гармонійне кодування Time2Vec $\Phi_{time}$ закладено в цільовій архітектурі, але у MVP1 використовуються Z-нормалізовані скаляри).*
+Для числової ознаки:
+\[
+z = \frac{x-\mu}{\sigma}
+\]
+Далі застосовується policy-driven clipping:
+\[
+z_{clip}=\min\left(z_{max},\max(z_{min},z)\right)
+\]
 
-### 4.3. Злиття ознак (Node Feature Vector)
-Для кожного вузла $v \in V_\sigma$ формується локальний вектор:
-$X_V[v] = [E_{act}(act\_id) \parallel E_{res}(res\_id) \parallel t_{duration} \parallel t_{case} \parallel t_{prev}]$
-Розмірність вузла: `d_V = dim_act + dim_res + 3`.
+## 4.3. Policy-driven керування
+Поведінка енкодера визначається `policies` у конфігу:
+- `zscore_clip.{enabled,min,max}`;
+- `time2vec.work_hours.{working_days,start_hour,end_hour,timezone}`;
+- `activity_fallback_feature`.
+
+Hardcoded dataset-specific policy у коді заборонено.
+
+## 4.4. Schema resolution
+Lookup значень ознак виконується через `SchemaResolver`:
+\[
+K_{lookup}=[name, source\_key, fallback\_keys]
+\]
+У MVP1:
+\[
+\operatorname{resolve\_value}(cfg,v)=v
+\]
+(без semantic synonym mapping).
 
 ---
 
 ## 5. Graph Tensor Construction
 
-Перетворення префікса у формат `GraphTensorContract` (сумісний з PyG `Data`).
+`BaselineGraphBuilder` формує контракт:
+\[
+X_{cat} \in \mathbb{N}^{N\times F_{cat}},\;
+X_{num} \in \mathbb{R}^{N\times F_{num}},\;
+edge\_index \in \mathbb{N}^{2\times E}
+\]
+\[
+y \in \{0,\dots,C-1\},\quad batch \in \mathbb{N}^{N}
+\]
 
-### 5.1. Топологія графа екземпляра ($G_{obs}$)
-Для MVP1 емпіричний граф будується як лінійна послідовність (DFG-ланцюг без EPOKG-зв'язків):
-- Вузли ($V_\sigma$): хронологічний порядок подій у префіксі.
-- Ребра ($A$ / `edge_index`): орієнтований зв'язок від $e_i$ до $e_{i+1}$.
-- `edge_type`: у MVP1 всі ребра мають єдиний базовий тип (observed_flow).
-
-### 5.2. Структура `GraphTensorContract`
-Уніфікований DTO для передачі графа в нейромережу.
-```python
-from typing import TypedDict
-import torch
-
-class GraphTensorContract(TypedDict):
-    x: torch.FloatTensor          # X_V: [N_nodes, d_V]
-    edge_index: torch.LongTensor  # A: [2, E_edges]
-    edge_type: torch.LongTensor   # [E_edges] (Для MVP1 заповнено нулями)
-    y: torch.LongTensor           # [1] (activity_id цільової події e_{k+1})
-    batch: torch.LongTensor       # B: [N_nodes] (індекси батчування від PyG)
-```
+Топологія MVP1: лише послідовні ребра \((e_i \rightarrow e_{i+1})\).
 
 ---
 
-## 6. Baseline GNN Architecture (Мікро-енкодер $\Phi_{micro}$)
+## 6. Baseline GNN
+1. Вхід: `GraphTensorContract`.
+2. Message passing layers (GCN/GATv2).
+3. Readout (global pooling).
+4. Output logits \(\hat{Y}\in\mathbb{R}^{B\times C}\).
 
-Базова архітектура прямого поширення ($f_\theta$) для тестування гіпотези. 
-*Відсутні $z_{plan}^{(\kappa)}$, $\Gamma$-оператор та макро-компоненти.*
+Loss:
+\[
+\mathcal{L}_{total}=\mathcal{L}_{task}\;\text{(CrossEntropy)}
+\]
 
-### 6.1. Pipeline шарів
-1. **Input Layer:** Трансформація сирих векторів $X_V$ у прихований простір $\mathbb{R}^{d}$.
-2. **Message Passing ($\phi$):**
-   - 2-3 шари Graph Convolution (наприклад, GraphSAGE або GATv2Conv).
-   - Активація: ReLU або GELU.
-   - Dropout: $0.2 - 0.3$.
-   - Обчислення прихованих станів: $H^{(l+1)} = \phi(H^{(l)}, A)$.
-3. **Readout Layer ($\rho$):**
-   - Агрегація графа в єдиний вектор екземпляра $h_{obs}$: 
-   - $h_{obs} = \rho(H^{(L)}) = \text{global\_mean\_pool}(H^{(L)}, B)$.
-4. **Task Head ($g$):**
-   - Проєкційний MLP-шар: $\hat{y} = \text{Softmax}(W_{out} h_{obs} + b_{out})$.
-   - Розмірність виходу: `[num_activities]`.
+---
 
-### 6.2. Контракт інтерфейсу
-Усі моделі імплементують єдиний порт:
-```python
-class BaselineGNN(IGNNModelPort):
-    def forward(self, data: GraphTensorContract) -> torch.Tensor:
-        # Повертає логіти розміром [batch_size, num_classes]
-        ...
-```
+## 7. Trainer Orchestration (MVP1)
+`ModelTrainer.run()` є dispatcher для:
+- `_run_train_pipeline`
+- `_run_eval_cross_dataset`
+- `_run_eval_drift`
 
-### 6.3. Цільова функція (Optimization)
-- **Функціонал втрат:** $\mathcal{L}_{total} = \mathcal{L}_{task}$ (Standard Cross-Entropy Loss). *Структурний регуляризатор $\beta \mathcal{L}_{reg}$ у MVP1 дорівнює нулю.*
-- **Метрики оптимізації:** Macro F1 (основна для дисбалансованих логів), Accuracy.
-- **Оптимізатор:** Adam / AdamW з класичним градієнтним спуском (Mini-batch SGD).
+Дрейф-оцінка виконує: chronological sort -> window generation -> evaluate -> log.

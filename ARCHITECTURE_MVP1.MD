@@ -1,433 +1,167 @@
 # ARCHITECTURE_MVP1.MD
-Project: bpm_prediction  
-Scope: MVP1 — Logs-only Baseline (Observed Graph Only)  
-Mode: EXPERIMENT
+
+## 1. Scope
+MVP1 implements a single-model observed-graph baseline for next-activity prediction on event logs.
+
+**Included:**
+- XES ingestion.
+- Prefix generation.
+- Graph tensor construction.
+- GNN training and evaluation (`train`, `eval_cross_dataset`, `eval_drift`).
+- Config-driven feature policies.
+
+**Explicitly excluded from MVP1 runtime:**
+- Advanced trust-control runtime chain (reserved for MVP2).
+- Semantic synonym mapping.
+- EOPKG structural fusion.
 
 ---
 
-# 1. Scope
+## 2. Architectural Style
+- Clean Architecture (layered responsibility separation).
+- Hexagonal Architecture (ports and adapters).
+- Pipeline orchestration by use-case (`ModelTrainer.run`).
 
-### 1.1 Mathematical Scope Clarification
-
-MVP1 реалізує **нативне графове подання** ($G_{obs}$) як фундаментальне рішення проблеми **топологічної невідповідності** (розділ 1.1.1 дисертації).  
-Він усуває лінеаризацію паралелізму та втрату long-term dependencies, що притаманні sequence-based та image-based моделям.  
-Це створює чистий baseline для подальшого порівняння з семантично збагаченими графами (MVP2+).
-
-MVP1 operates strictly on the observed execution graph:
-
-G_obs → observed_graph
-
-Inactive in MVP1:
-- G_struct (EPOKG)
-- G_fusion
-- structural_mask
-- critic_loss
-- drift_signal
-- reliability_state
-
-Це означає, що MVP1 є чистим execution-based baseline без нормативного або адаптивного збагачення.
+Dependency rule:
+\[
+\text{Domain} \leftarrow \text{Application} \leftarrow \text{Adapters}
+\]
+(no reverse concrete dependencies).
 
 ---
 
-## 1.2 Наукова роль MVP1
+## 3. Layered Components
 
-MVP1 використовується для:
+### 3.1 Domain Layer
+- DTOs: `EventRecord`, `RawTrace`, `PrefixSlice`, `GraphTensorContract`.
+- Services:
+  - `SchemaResolver`
+  - `FeatureEncoder`
+  - `BaselineGraphBuilder` (via `GraphBuilderBase` extension point)
+- Model: `BaseGNN` family.
 
-- перевірки гіпотези, що графове представлення ефективне для next activity prediction;
-- аналізу чутливості до prefix_length;
-- визначення мінімального достатнього контексту;
-- створення контрольної точки перед структурним збагаченням (MVP2).
+### 3.2 Application Layer
+- Use case: `ModelTrainer`.
+- Ports: `IXESAdapter`, `IPrefixPolicy`, `IGraphBuilder`, `ITracker`.
 
-Це фундамент, без якого неможливо обґрунтувати подальші ускладнення.
-
----
-
-### 1.3 Algorithmic Constraints from Tragets Architecture for MVP1
-
-- Reliability Semaphore (Mahalanobis + Wasserstein + P_diag) — НЕ реалізується в MVP1  
-- Динамічний β-релаксація — НЕ реалізується в MVP1  
-- Trust-Aware Inference — НЕ реалізується в MVP1 (тільки logits)  
-- Prioritized Experience Replay — НЕ реалізується в MVP1 (звичайний DataLoader)  
-
-Усе це з’явиться в MVP2+ (Reliability Layer та Version Control Layer).
+### 3.3 Adapter Layer
+- `XESAdapter` (streaming parser).
+- Tracking adapter (MLflow).
 
 ---
 
-# 2. Clean Architecture (Layered View)
+## 4. Canonical Data Paths
 
-```mermaid
-flowchart TB
-    subgraph Frameworks
-        XES[XES Files]
-    end
-
-    subgraph Adapters
-        XESAdapter[XES Adapter]
-    end
-
-    subgraph Application
-        TracePreprocessor[TracePreprocessor]
-        PrefixPolicy[PrefixPolicy]
-        GraphBuilder[GraphBuilder]
-        Trainer[Trainer]
-        Evaluator[Evaluator]
-    end
-
-    subgraph Domain
-        InstanceGraph[InstanceGraph]
-        FeatureEncoder[FeatureEncoder]
-        GNNModel[GNNModelPort]
-        Predictor[Predictor]
-    end
-
-    %% Data Flow
-    XES --> XESAdapter
-    XESAdapter --> TracePreprocessor
-    TracePreprocessor --> PrefixPolicy
-    PrefixPolicy --> GraphBuilder
-    GraphBuilder --> InstanceGraph
-    InstanceGraph --> FeatureEncoder
-    FeatureEncoder --> GNNModel
-    GNNModel --> Predictor
-    Predictor --> Trainer
-    Predictor --> Evaluator
-```
-
-### Пояснення шарів
-
-Frameworks — зовнішні джерела (XES).  
-Adapters — нормалізація до канонічних об’єктів (EventRecord, RawTrace).  
-Application — orchestration логіки експерименту.  
-Domain — математичне ядро (граф, Γ, GNN, inference).
-
-Domain НЕ має залежати від XES, CLI або конкретних GNN реалізацій.
-
----
-
-# 3. Component Architecture (Hexagonal View)
-
-```mermaid
-flowchart LR
-    subgraph Core
-        Graph[InstanceGraph]
-        Encoder[FeatureEncoder]
-        Fusion[Γ]
-        Model[GNNModelPort]
-        Mask[MaskLayer]
-        Critic[Critic]
-        Reliability[ReliabilityModule]
-    end
-
-    subgraph Ports
-        DataPort[EventDataPort]
-        TrainPort[TrainingPort]
-        PredictPort[PredictionPort]
-    end
-
-    subgraph Adapters
-        XESAdapter[XESAdapter]
-        CLIAdapter[CLI Runner]
-    end
-
-    XESAdapter --> DataPort
-    CLIAdapter --> TrainPort
-    CLIAdapter --> PredictPort
-
-    DataPort --> Graph
-    Graph --> Encoder
-    Encoder --> Fusion
-    Fusion --> Model
-    Model --> PredictPort
-```
-
-### Пояснення
-
-Core — повністю ізольований математичний центр.  
-Ports — абстрактні інтерфейси для взаємодії.  
-Adapters — конкретні реалізації для XES або CLI.
-
-Це забезпечує інверсію залежностей і можливість розширення без рефакторингу ядра.
-
----
-
-# 4. Data Flow (Use Case Scenarios)
-
-## 4.1 Training Flow
+## 4.1 Training and Cross-Dataset Evaluation
 
 ```mermaid
 sequenceDiagram
-    participant XES
-    participant Adapter
-    participant PrefixPolicy
-    participant GraphBuilder
-    participant Model
-    participant Trainer
+    participant XES as XESAdapter
+    participant PP as PrefixPolicy
+    participant GB as IGraphBuilder
+    participant FE as FeatureEncoder
+    participant TR as ModelTrainer
+    participant M as BaseGNN
 
-    XES->>Adapter: load()
-    Adapter->>PrefixPolicy: traces
-    PrefixPolicy->>GraphBuilder: sliced prefixes
-    GraphBuilder->>Model: graph tensors
-    Model->>Trainer: forward()
-    Trainer->>Model: backward()
+    XES->>TR: Iterator[RawTrace]
+    TR->>PP: generate_slices(trace)
+    PP->>GB: PrefixSlice
+    GB->>FE: encode_event(event.extra)
+    FE-->>GB: X_cat, X_num rows
+    GB-->>TR: GraphTensorContract
+    TR->>M: forward(contract)
+    TR->>M: backward() (train mode only)
 ```
 
-### Логіка
-
-1. Лог зчитується та нормалізується.
-2. Формується префікс σ.
-3. Будується InstanceGraph.
-4. Кодуються ознаки.
-5. Формується GraphTensorContract.
-6. Модель навчається через CrossEntropy.
-
----
-
-## 4.2 Inference Flow
-
-```mermaid
-sequenceDiagram
-    participant InputTrace
-    participant PrefixPolicy
-    participant GraphBuilder
-    participant Model
-    participant Predictor
-    participant Mask
-    participant Critic
-    participant Reliability
-
-    InputTrace->>PrefixPolicy: partial trace
-    PrefixPolicy->>GraphBuilder: prefix graph
-    GraphBuilder->>Model: graph tensor
-    Model->>Predictor: logits
-    Predictor->>Mask: raw logits
-    Mask->>Critic: masked logits
-    Critic->>Reliability: validated logits
-    Reliability->>Output: prediction + confidence
-```
-
-Порядок Predictor → Mask → Critic є фіксованим та відповідає архітектурній конституції.
-
----
-
-## 4.3 End-to-End Pipeline
+## 4.2 Drift Evaluation Path
 
 ```mermaid
 flowchart TD
-    Event --> NormalizedEvent
-    NormalizedEvent --> RawTrace
-    RawTrace --> TracePreprocessor
-    TracePreprocessor --> PrefixPolicy
-    PrefixPolicy --> PrefixSlice
-    PrefixSlice --> InstanceGraph
-    InstanceGraph --> FeatureEncoder
-    FeatureEncoder --> GraphTensorContract
-    GraphTensorContract --> Model
+    A[RawTrace list] --> B[Sort by start_ts]
+    B --> C[Generate windows by size/stride(or overlap)]
+    C --> D[Build graph loaders per window]
+    D --> E[Evaluate metrics per window]
+    E --> F[Log: index, trace range, start_ts, end_ts, macro_f1, ece]
 ```
 
-TracePreprocessor у MVP1 — identity.  
-У MVP2 тут з’явиться фільтрація технічних вузлів і буде реалізовуваитсь TracePreprocessor.
-Орієнтовна структура на майбутнє
-
-TracePreprocessor
-
-├── TechnicalNodeFilter
-
-├── LifecycleCollapser
-
-├── NoiseFilter
-
-└── Future DriftHooks
+Anti-leakage ordering constraint:
+\[
+\text{sort} \rightarrow \text{windowing} \rightarrow \text{evaluation} \rightarrow \text{logging}
+\]
 
 ---
 
-# 5. Domain Core (Aligned with DATA_MODEL_MVP1)
+## 5. SchemaResolver as Canonical Contract
 
-## 5.1 InstanceGraph
+`SchemaResolver` is the unique resolver for field lookup precedence (`name`, `source_key`, `fallback_keys`).
 
-Represents observed_graph.  
-Містить лише sequential_relation.
+In MVP1:
+\[
+\operatorname{resolve\_value}(cfg, v) = v
+\]
 
-Node attributes:
-- activity_id
-- timestamp
-- resource_id
-- duration
-- position_in_trace
+Interpretation:
+- field lookup is centralized,
+- value semantics are not transformed.
 
----
-
-## 5.2 GraphTensorContract
-
-Required tensors:
-- x
-- edge_index
-- batch
-- y
-
-Reserved (MVP2+):
-- edge_attr
-- doc_features
-- structural_mask
-
-Інваріант: формування x ідентичне для train та inference.
+This is a deliberate scientific constraint to preserve measurable degradation under schema/language shifts.
 
 ---
 
-## 5.3 Fusion Operator Γ
+## 6. Feature Representation
 
-z_fused = Γ(h_graph, c_sigma)
+For each graph with \(N\) nodes:
+\[
+X_{cat} \in \mathbb{N}^{N \times F_{cat}},
+\quad
+X_{num} \in \mathbb{R}^{N \times F_{num}},
+\quad
+A \in \mathbb{N}^{2 \times E}
+\]
 
-- h_graph — pooled embedding
-- c_sigma — κ embedding
+Target:
+\[
+y \in \{0,\dots,C-1\}
+\]
 
-Γ знаходиться в Domain шарі.
-
----
-
-## 5.4 Inference Components
-
-MaskLayer — IdentityMask  
-Critic — NullCritic  
-Reliability — max softmax
-
-Ці компоненти закладені архітектурно, але не активні логічно.
-
----
-
-# 6. PrefixPolicy
-
-Supports:
-- fixed_length
-- full_prefix
-- sliding_window
-- random_prefix
-
-Відповідає за σ construction та експериментальний аналіз forgetting effect.
+Model output:
+\[
+\hat{Y} \in \mathbb{R}^{B \times C}
+\]
 
 ---
 
-# 7. Experiment Integrity
+## 7. Policy-Driven Encoding (Config)
 
-MVP1 валідний лише якщо:
+MVP1 uses external policy profiles (YAML):
+- `activity_fallback_feature`
+- `zscore_clip` (`enabled`, `min`, `max`)
+- `time2vec.work_hours` (`working_days`, `start_hour`, `end_hour`, `timezone`)
 
-- використовується fixed seed
-- split trace-level
-- логуються κ, dataset, prefix_length
-- немає leakage
-- Domain ізольований
-
----
-
-# 8. Evolution Path
-
-MVP1 → Pure prediction  
-MVP2 → Structural mask + κ conditioning  
-MVP3 → Critic activation  
-MVP4 → Drift & reliability  
-MVP5 → Enterprise wrapper  
+These policies are runtime-configurable; no dataset-specific hardcoded logic is allowed in core encoding flow.
 
 ---
 
-# 9. Success Criteria
+## 8. Trainer as Orchestrator
 
-- стабільне навчання
-- відтворюваність
-- повний inference pipeline
-- відсутність структурної логіки
-- відповідність DATA_MODEL_MVP1
+`ModelTrainer.run()` is a dispatcher that routes to scenario-specific pipelines:
+- `_run_train_pipeline`
+- `_run_eval_cross_dataset`
+- `_run_eval_drift`
 
+Responsibilities of `run()`:
+1. common initialization (device, criterion, config/tracker context),
+2. checkpoint routing,
+3. mode dispatch,
+4. structured return payload.
 
-# 10. Target Enterprise Architecture (Vision for MVP2+)
+It does not contain dataset-specific preprocessing branches.
 
-> **Note:** This section describes the future state (Post-MVP1). It is strictly informative for architectural alignment and MUST NOT be implemented in MVP1.
+---
 
-## 10.1 Knowledge Integration Layers
-In the target state, the system fuses execution data ($G_{obs}$) with structural definitions ($G_{struct}$) into the unified EPOKG.
+## 9. Extension Points Reserved for MVP2
 
-```mermaid
-flowchart TD
-    subgraph Execution Layer [Execution Layer]
-        XESExec[XES Adapter]
-        CamExec[Camunda Adapter]
-    end
+1. `SchemaResolver.resolve_value` -> `SemanticMapper` integration hook.
+2. `GraphBuilderBase` -> `DynamicStructuralGraphBuilder` (EOPKG-aware).
 
-    subgraph Structural Layer [Structural Layer]
-        BPMN[BPMN Parser]
-        Discovery[Process Discovery]
-    end
-
-    subgraph Knowledge Integration [Knowledge Fusion]
-        Gobs[G_obs: Observed Graph]
-        Gstruct[G_struct: Normative Graph]
-        Gdata[G_data: Data Schema]
-        EPOKG[EPOKG: Enterprise Knowledge Graph]
-    end
-
-    %% Data Flow
-    XESExec --> Gobs
-    CamExec --> Gobs
-    
-    BPMN --> Gstruct
-    Discovery --> Gstruct
-    
-    Gobs --> EPOKG
-    Gstruct --> EPOKG
-    Gdata --> EPOKG
-    
-    %% Styling
-    style EPOKG fill:#f96,stroke:#333,stroke-width:2px
-    style Gobs fill:#bbf,stroke:#333
-    style Gstruct fill:#dfd,stroke:#333
-```
-## 10.2 Planned Camunda Adapter Strategy
-For future enterprise integration, the Camunda adapter will decompose the source data into three graph layers before fusion.
-
-Source Data:
-
-BPMN XML (process_definition_id)
-
-Execution History (history_stream)
-
-Process Variables (variable_scope)
-
-**Transformation Pipeline:**
-
-```mermaid
-flowchart TD
-    subgraph Input
-        XML[BPMN XML]
-        Hist[History Stream]
-        Vars[Variables]
-    end
-
-    subgraph Adapters
-        BPMNParser[BPMN Parser]
-        HistAgg[History Aggregator]
-        SchemaExt[Variable Schema Extractor]
-    end
-
-    subgraph Graph Components
-        StructBuilder[StructuralGraphBuilder]
-        Weights[Edge Frequency Weights]
-        PerfStats[Performance Stats]
-        DataGraph[Data Schema Graph]
-    end
-
-    %% Flow
-    XML --> BPMNParser
-    BPMNParser --> StructBuilder
-    
-    Hist --> HistAgg
-    HistAgg --> Weights
-    Weights --> PerfStats
-    
-    Vars --> SchemaExt
-    SchemaExt --> DataGraph
-
-    %% Fusion
-    StructBuilder -.-> EPOKG
-    PerfStats -.-> EPOKG
-    DataGraph -.-> EPOKG
-```
-
-END OF ARCHITECTURE_MVP1
+MVP1 keeps both hooks inactive by design.

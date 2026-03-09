@@ -15,9 +15,10 @@ from src.application.ports.graph_builder_port import IGraphBuilder
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.services.feature_encoder import FeatureEncoder
+from src.domain.services.graph_builder_base import GraphBuilderBase
 
 
-class BaselineGraphBuilder(IGraphBuilder):
+class BaselineGraphBuilder(GraphBuilderBase, IGraphBuilder):
     """Graph builder that emits split categorical/numeric tensors (x_cat + x_num)."""
 
     def __init__(self, feature_encoder: FeatureEncoder) -> None:
@@ -58,7 +59,13 @@ class BaselineGraphBuilder(IGraphBuilder):
 
         target_feature = self.feature_encoder.activity_feature_name
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
-        target_token = str(prefix.target_event.extra.get(target_feature, prefix.target_event.activity_id))
+        target_token = str(
+            self.feature_encoder.resolve_event_feature(
+                event_extra=prefix.target_event.extra,
+                feature_name=target_feature,
+                default=prefix.target_event.activity_id,
+            )
+        )
         y_index = activity_vocab.get(target_token, 0)
         y = torch.tensor([y_index], dtype=torch.long)
 

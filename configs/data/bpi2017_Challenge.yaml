@@ -1,13 +1,7 @@
-experiment:
-  project: "bpm_prediction_mvp1"
-  dataset: "bpi2012_loan"
-  name: "GATv2_Baseline_BPI2012"
-
-seed: 42
-
 data:
-  log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
-  fraction: 0.1 # 10% для швидкого тесту пайплайну
+  dataset_label: "bpi2012"
+  log_path: "../Data/BPI Challenge 2017_1_all/BPI Challenge 2017.xes"
+  fraction: 0.1
   split_strategy: "time"
   split_ratio: [0.7, 0.2, 0.1]
 
@@ -69,41 +63,12 @@ mapping:
       fill_na: 0.0
       encoding: ["z-score"]
 
-    # --- Специфічний атрибут для BPI Challenge 2012 ---
     - name: "AMOUNT_REQ"
+      source_key: "RequestedAmount"
       source: "trace"
       dtype: "float"
       fill_na: 0.0
       encoding: ["z-score"]
-
-model:
-  type: "BaselineGATv2"
-  hidden_dim: 64
-  dropout: 0.2
-  graph_strategy: "sequential_prefix"
-  pooling_strategy: "global_mean"
-
-training:
-  batch_size: 128
-  epochs: 30
-  learning_rate: 0.001
-  patience: 10
-  delta: 1e-4
-  device: "cpu"
-  ece_bins: 10
-  class_weight_cap: 50.0
-  loss_function: "cross_entropy"
-  show_progress: true
-  tqdm_disable: false
-  tqdm_leave: false
-
-tracking:
-  enabled: true
-  backend: "mlflow"
-  uri: "file:./mlruns"
-  tags:
-    stage: "mvp1_cross_dataset"
-    model_family: "baseline_gnn"
 
 policies:
   profile: "mvp1_default"

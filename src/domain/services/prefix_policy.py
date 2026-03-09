@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from typing import List
 
-from src.application.ports.prefix_policy_port import IPrefixPolicy
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.raw_trace import RawTrace
 
 
-class PrefixPolicy(IPrefixPolicy):
+class PrefixPolicy:
     """Stateless All-Prefixes slicing policy for a single trace."""
 
     def generate_slices(self, trace: RawTrace) -> List[PrefixSlice]:

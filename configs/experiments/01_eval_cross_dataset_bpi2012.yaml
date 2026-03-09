@@ -1,0 +1,14 @@
+include:
+  - "../data/bpi2020_Travel_Permit_1-test.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp1"
+  name: "MVP1_CrossDataset_Test"
+  mode: "eval_cross_dataset"
+  load_checkpoint: "checkpoints/MVP1_Baseline_train_bpi2012_GATv2_best.pth" # Підстав точне ім'я файлу з Кроку 1
+
+training:
+  retrain: false
+
+seed: 42

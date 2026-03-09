@@ -11,14 +11,13 @@ from typing import List
 
 import torch
 
-from src.application.ports.graph_builder_port import IGraphBuilder
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.graph_builder_base import GraphBuilderBase
 
 
-class BaselineGraphBuilder(GraphBuilderBase, IGraphBuilder):
+class BaselineGraphBuilder(GraphBuilderBase):
     """Graph builder that emits split categorical/numeric tensors (x_cat + x_num)."""
 
     def __init__(self, feature_encoder: FeatureEncoder) -> None:

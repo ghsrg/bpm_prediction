@@ -8,22 +8,25 @@
 ## 1. Порядок пріоритетності документів
 Читай і виконуй у такому порядку (від найвищого пріоритету до найнижчого):
 
-1. **AGENT_GUIDE.md** — цей файл (ти зараз його читаєш).
-2. **ARCHITECTURE_GUIDELINES.MD** — конституція архітектури, незмінні правила.
-3. **ARCHITECTURE_RULES.md** — жорсткі правила залежностей і заборон.
-4. **TARGET_ARCHITECTURE.MD** — цільова архітектура (ENTERPRISE_POC режим).
-5. **ARCHITECTURE_MVP1.MD** — що саме реалізувати зараз (MVP1 — logs-only baseline).
-6. **DATA_MODEL_MVP1.MD** — канонічні DTO та структура даних.
-7. **DATA_FLOWS_MVP1.MD** — контракти сервісів і потоки даних.
-8. **ADAPTER_XES.MD** — специфікація парсингу XES (як читати логи).
-9. **VARIABLES.MD** — математичні позначення та snake_case мапінг.
-10. **GLOSSARY.MD** — канон термінів.
-11. **LLD_MVP1.MD** — техзавдання для коду (що будувати з математичної точки зору).
-12. **EVF_MVP1.MD** — науковий стандарт оцінки (Temporal Split, метрики MLflow).
+1. **AGENT_GUIDE.MD** — цей файл (ти зараз його читаєш).
+2. **PROJECT_CONTEXT.MD** — Короткий опис контекста проекту.
+3. **docs/ARCHITECTURE_GUIDELINES.MD** — конституція архітектури, незмінні правила.
+4. **docs/ARCHITECTURE_RULES.MD** — жорсткі правила залежностей і заборон.
+5. **docs/TARGET_ARCHITECTURE.MD** — цільова архітектура (ENTERPRISE_POC режим).
+6. **docs/ARCHITECTURE_MVP1.MD** — що саме реалізувати зараз (MVP1 — logs-only baseline).
+7. **docs/DATA_MODEL_MVP1.MD** — канонічні DTO та структура даних.
+8. **docs/DATA_FLOWS_MVP1.MD** — контракти сервісів і потоки даних.
+9. **docs/ADAPTER_XES.MD** — специфікація парсингу XES (як читати логи).
+10. **docs/VARIABLES.MD** — математичні позначення та snake_case мапінг.
+11. **docs/GLOSSARY.MD** — канон термінів.
+12. **docs/LLD_MVP1.MD** — техзавдання для коду (що будувати з математичної точки зору).
+13. **docs/EVF_MVP1.MD** — науковий стандарт оцінки (Temporal Split, метрики MLflow).
 
 **Правило вирішення конфліктів:** Якщо в цих файлах є суперечність — пріоритет завжди у того документа, що стоїть **вище у цьому списку** (ближче до пункту 1). Є файл Дисертація Коротенко.docx, це теоретичний канон. 
 Але якщо суперечності критичні — зупинись і задай питання розробнику!
-Якщо виявлено суперечність, або тобі незрозуміло, як саме реалізувати конкретний метод — ЗУПИНИСЬ. Ти не маєш права фантазувати. Задай питання розробнику і обов'язково надай приклад того, як подібна логіка чи синтаксис були реалізовані в ETALON і описано в файлах-прикладах (ETALON_EVENT_SCHEMA.md, ETALON_GRAPH_SCHEMA.md, ETALON_TENSOR_SCHEMA.md, ETALON_TRAINING_FLOW.md). Файли ETALON_... є довідниками синтаксису, але вони не замінюють архітектурні контракти.
+Якщо виявлено суперечність, або тобі незрозуміло, як саме реалізувати конкретний метод — ЗУПИНИСЬ. Ти не маєш права фантазувати. Задай питання розробнику.
+
+**Статус legacy-матеріалів:** папка `etalon/` є deprecated і не використовується як джерело архітектурних рішень у MVP1.
 
 ## 2. Жорсткі заборони (ніколи не порушуй)
 - **Архітектура:** Не пиши код, який порушує Clean/Hexagonal Architecture. Domain не імпортує адаптери, Application залежить тільки від абстракцій (портів).
@@ -37,9 +40,10 @@
 ## 3. Стек технологій та бібліотеки
 Дозволено використовувати:
 - **Core:** Python 3.10+, `pydantic` (або `dataclasses` для DTO).
-- **ML & Math:** `torch`, `torch_geometric`, `numpy`, `scikit-learn`.
+- **ML & Math:** `torch`, `torch_geometric`, `numpy`, `scikit-learn`, `matplotlib` (для артефактів/візуалізації метрик).
 - **Data Ingestion:** `lxml`, `pm4py`, `pandas` (обмежено, тільки для аналітики, не для core-логіки).
 - **Tracking:** `mlflow`.
+- **Infra/Utils:** `PyYAML`, `psutil`, `tqdm`.
 Заборонено додавати нові сторонні залежності без погодження. Якщо є логічна необхідність - запутуй що потрібно і для чого.
 
 ## 4. Зафіксовані контракти даних (DTO)
@@ -65,11 +69,13 @@ class RawTrace(BaseModel):
     trace_attributes: Dict[str, Any]
 
 class GraphTensorContract(TypedDict):
-    x: torch.FloatTensor          # [N_nodes, F_in]
+    x_cat: torch.LongTensor       # [N_nodes, F_cat]
+    x_num: torch.FloatTensor      # [N_nodes, F_num]
     edge_index: torch.LongTensor  # [2, E_edges]
     edge_type: torch.LongTensor   # [E_edges] (Для MVP1: заповнено 0)
     y: torch.LongTensor           # [1]
     batch: torch.LongTensor       # [N_nodes]
+    num_nodes: int                # N_nodes
 ```
 
 ## 5. Що робити, коли отримуєш завдання
@@ -92,10 +98,10 @@ class GraphTensorContract(TypedDict):
 
 ```python
 # Відповідно до:
-# - ARCHITECTURE_MVP1.MD -> розділ 6 PrefixPolicy
-# - DATA_FLOWS_MVP1.MD -> контракт IPrefixPolicy
-# - ADAPTER_XES.MD -> lifecycle filter на complete
+# - docs/ARCHITECTURE_MVP1.MD -> розділ 6 PrefixPolicy
+# - docs/DATA_FLOWS_MVP1.MD -> контракт IPrefixPolicy
+# - docs/ADAPTER_XES.MD -> lifecycle filter на complete
 ```
 
 - Кожен логічний блок коду необхідно коментувати: що він робить і **для чого**.
-- При створенні нової суттєвої доменної змінної, якої немає в `VARIABLES.MD`, додавай її в останній блок (технічні змінні в коді). Локальні змінні функцій, індекси тощо вносити у файл не потрібно.
+- При створенні нової суттєвої доменної змінної, якої немає в `docs/VARIABLES.MD`, додавай її в останній блок (технічні змінні в коді). Локальні змінні функцій, індекси тощо вносити у файл не потрібно.

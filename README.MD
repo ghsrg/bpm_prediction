@@ -12,25 +12,24 @@
 
 ### 1) Governance / Canon
 - **[README.MD](./README.MD)** — головна точка входу, контекст дослідження, поточні правила.
-- **[DOCUMENTATION_CONTROL.MD](./DOCUMENTATION_CONTROL.MD)** — master-трекер оновлень, канбан, статус DOC-етапів.
-- **[Глосарій (GLOSSARY.MD)](./GLOSSARY.MD)** — терміни предметної області.
-- **[Змінні (VARIABLES.MD)](./VARIABLES.MD)** — канон позначень і змінних з математичної моделі.
+- **[Глосарій (GLOSSARY.MD)](docs/GLOSSARY.MD)** — терміни предметної області.
+- **[Змінні (VARIABLES.MD)](docs/VARIABLES.MD)** — канон позначень і змінних з математичної моделі.
 
 ### 2) Architecture / HLD
-- **[ARCHITECTURE_GUIDELINES.MD](./ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
-- **[TARGET_ARCHITECTURE.MD](./TARGET_ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[ARCHITECTURE_RULES.md](./ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
+- **[ARCHITECTURE_GUIDELINES.MD](docs/ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
+- **[TARGET_ARCHITECTURE.MD](docs/TARGET_ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
+- **[ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
 
 ### 3) Data specifications
-- **[ARCHITECTURE_MVP1.MD](./ARCHITECTURE_MVP1.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[DATA_MODEL_MVP1.MD](./DATA_MODEL_MVP1.MD)** — опис моделі даних та їх труктурні залежності.
-- **[DATA_FLOWS_MVP1.MD](./DATA_FLOWS_MVP1.MD)** — контракти функції, та флоу даних.
-- **[ADAPTER_XES.MD](./ADAPTER_XES.MD)** — специфікація XES-адаптера.* 
-- **[ADAPTER_CAMUNDA_SQL.MD](./ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
+- **[ARCHITECTURE_MVP1.MD](docs/ARCHITECTURE_MVP1.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
+- **[DATA_MODEL_MVP1.MD](docs/DATA_MODEL_MVP1.MD)** — опис моделі даних та їх труктурні залежності.
+- **[DATA_FLOWS_MVP1.MD](docs/DATA_FLOWS_MVP1.MD)** — контракти функції, та флоу даних.
+- **[ADAPTER_XES.MD](docs/ADAPTER_XES.MD)** — специфікація XES-адаптера.* 
+- **[ADAPTER_CAMUNDA_SQL.MD](docs/ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
 
 ### 4) Algorithm / Validation
-- **[LLD_MVP1.MD](./LLD_MVP1.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 
-- **[EVF_MVP1.MD](./EVF_MVP1.MD)** — experimentation & validation framework (каркас) *(draft).* 
+- **[LLD_MVP1.MD](docs/LLD_MVP1.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 
+- **[EVF_MVP1.MD](docs/EVF_MVP1.MD)** — experimentation & validation framework (каркас) *(draft).* 
 
 ### 5) Legacy reference
 - **[etalon/README.md](./etalon/README.md)** — попередня реалізація (legacy baseline), використовується як референс.
@@ -45,7 +44,7 @@
 
 ## 1. Проблематика та наукові GAPs (Бекграунд дослідження)
 Проєкт реалізує методологію, спрямовану на подолання фундаментальних обмежень сучасних систем предиктивного моніторингу бізнес-процесів (PPM), ідентифікованих у межах дисертаційного дослідження:
-* **Базовий документ дослідження:** **[Дисертація Коротенко.docx](./Дисертація Коротенко.docx)**.
+* **Базовий документ дослідження:** **[Дисертація Коротенко.docx](docs/Дисертація Коротенко.docx)**.
 * **Статус:** це основний документ, який визначає цілі, принципи, гіпотези та пріоритети реалізації проєкту.
 
 

@@ -140,14 +140,14 @@ flowchart TD
 ```
 
 ### 2.3 Drift window policy constraints
-Let \(w\) be window size, \(\Delta\) stride, \(o\) overlap.
+$Let \(w\) be window size, \(\Delta\) stride, \(o\) overlap.
 \[
 w > 0,
 \quad
 \Delta > 0 \;\text{or}\; \Delta = w-o,
 \quad
 0 \le o < w
-\]
+\]$
 
 ---
 

@@ -90,7 +90,7 @@ flowchart LR
     classDef mvp2 fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
 
     PS[PrefixSlice] --> DGB[DynamicGraphBuilder]
-    KG[ProcessStructureDTO]:::mvp2 -.->|get_structure(k)| DGB
+    KG[ProcessStructureDTO]:::mvp2 -.->|get_structure version| DGB
     
     DGB --> XC[X_cat]
     DGB --> XN[X_num]
@@ -205,7 +205,7 @@ classDiagram
     PrefixSlice *-- EventRecord : target (1)
 
     InstanceGraph *-- EventRecord : built from
-    ProcessStructureDTO -.-> GraphTensorContract : injects structural mask
+    ProcessStructureDTO ..> GraphTensorContract : injects structural mask
     
     GraphTensorContract *-- InstanceGraph : encoded from
     TrainingBatch *-- GraphTensorContract : contains (1..N)

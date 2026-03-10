@@ -62,7 +62,7 @@ flowchart TB
     
     GraphBuilder --> InstanceGraph
     DynamicGraphBuilder --> InstanceGraph
-    DynamicGraphBuilder -.->|get_structure(version)| IKnowledgeGraphPort
+    DynamicGraphBuilder -.->|get_structure version| IKnowledgeGraphPort
     
     InstanceGraph --> FeatureEncoder
     FeatureEncoder --> GNNModel

@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Sequence, Tuple, Type
 import numpy as np
 import torch
 from torch_geometric.data import Data
+from tqdm import tqdm
 
 from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.use_cases.trainer import ModelTrainer
@@ -152,10 +153,21 @@ def _build_graph_dataset(
     traces: Sequence[RawTrace],
     prefix_policy: PrefixPolicy,
     graph_builder: BaselineGraphBuilder,
+    *,
+    show_progress: bool,
+    tqdm_disable: bool,
+    desc: str,
 ) -> List[Data]:
     """Convert traces into a list of PyG Data graphs via prefix slicing + graph builder."""
     dataset: List[Data] = []
-    for trace in traces:
+    iterator = tqdm(
+        traces,
+        desc=desc,
+        unit="trace",
+        leave=False,
+        disable=(not show_progress) or tqdm_disable,
+    )
+    for idx, trace in enumerate(iterator, start=1):
         for prefix_slice in prefix_policy.generate_slices(trace):
             contract = graph_builder.build_graph(prefix_slice)
             dataset.append(
@@ -168,13 +180,17 @@ def _build_graph_dataset(
                     num_nodes=int(contract["num_nodes"]),
                 )
             )
+        if idx % 1000 == 0:
+            iterator.set_postfix({"graphs": len(dataset)})
     return dataset
 
 
 def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     """Prepare shared data artifacts for CLI and inspector without logic duplication."""
+    logger = logging.getLogger(__name__)
     data_cfg = config.get("data", {})
     experiment_cfg = config.get("experiment", {})
+    training_cfg = config.get("training", {})
     mapping_cfg = config.get("mapping", {})
 
     log_path = str(data_cfg.get("log_path", ""))
@@ -194,14 +210,19 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     xes_adapter = XESAdapter()
     prefix_policy = PrefixPolicy()
 
+    logger.info("Preparing data artifacts for mode=%s...", mode)
+    logger.info("Reading XES for preparation...")
     traces = list(xes_adapter.read(log_path, mapping_cfg))
+    logger.info("XES read finished: traces=%d", len(traces))
     traces = _apply_fraction(traces, fraction)
+    logger.info("Applied preparation fraction=%.4f -> traces=%d", fraction, len(traces))
     data_num_traces = len(traces)
     data_num_events = sum(len(trace.events) for trace in traces)
 
     feature_configs = parse_feature_configs(config)
     schema_resolver = SchemaResolver()
     policy_cfg = config.get("policies", {})
+    logger.info("Fitting feature encoder from %d traces...", len(traces))
     feature_encoder = FeatureEncoder(
         feature_configs=feature_configs,
         traces=traces,
@@ -209,6 +230,7 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         schema_resolver=schema_resolver,
         policy_config=policy_cfg,
     )
+    logger.info("Feature encoder ready.")
     feature_layout = feature_encoder.feature_layout
 
     activity_vocab, resource_vocab, activity_feature = _extract_base_vocabularies(feature_encoder)
@@ -218,10 +240,45 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     normalization_stats = _build_normalization_stats()
     graph_builder = BaselineGraphBuilder(feature_encoder=feature_encoder)
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
+    show_progress = bool(training_cfg.get("show_progress", True))
+    tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
 
-    train_dataset = _build_graph_dataset(train_traces, prefix_policy, graph_builder)
-    val_dataset = _build_graph_dataset(val_traces, prefix_policy, graph_builder)
-    test_dataset = _build_graph_dataset(test_traces, prefix_policy, graph_builder)
+    logger.info(
+        "Building graph datasets: train_traces=%d, val_traces=%d, test_traces=%d",
+        len(train_traces),
+        len(val_traces),
+        len(test_traces),
+    )
+    train_dataset = _build_graph_dataset(
+        train_traces,
+        prefix_policy,
+        graph_builder,
+        show_progress=show_progress,
+        tqdm_disable=tqdm_disable,
+        desc="Build train graphs",
+    )
+    val_dataset = _build_graph_dataset(
+        val_traces,
+        prefix_policy,
+        graph_builder,
+        show_progress=show_progress,
+        tqdm_disable=tqdm_disable,
+        desc="Build val graphs",
+    )
+    test_dataset = _build_graph_dataset(
+        test_traces,
+        prefix_policy,
+        graph_builder,
+        show_progress=show_progress,
+        tqdm_disable=tqdm_disable,
+        desc="Build test graphs",
+    )
+    logger.info(
+        "Graph datasets ready: train_graphs=%d, val_graphs=%d, test_graphs=%d",
+        len(train_dataset),
+        len(val_dataset),
+        len(test_dataset),
+    )
 
     return {
         "log_path": log_path,
@@ -347,7 +404,14 @@ def main() -> None:
         drift_window_size = int(experiment_cfg.get("drift_window_size", 500))
         if drift_window_size <= 0:
             raise ValueError("experiment.drift_window_size must be a positive integer.")
-        experiment_cfg = {**experiment_cfg, "drift_window_size": drift_window_size}
+        drift_window_sliding = int(experiment_cfg.get("drift_window_sliding", 0) or 0)
+        if drift_window_sliding < 0:
+            raise ValueError("experiment.drift_window_sliding must be a non-negative integer.")
+        experiment_cfg = {
+            **experiment_cfg,
+            "drift_window_size": drift_window_size,
+            "drift_window_sliding": drift_window_sliding,
+        }
         config["experiment"] = experiment_cfg
 
     prepared = prepare_data(config)
@@ -433,6 +497,7 @@ def main() -> None:
         "checkpoint_path": resolved_checkpoint_path,
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
+        "drift_window_sliding": int(experiment_cfg.get("drift_window_sliding", 0) or 0),
         "drift_window_stride": int(experiment_cfg.get("drift_window_stride", 0)),
         "drift_window_overlap": int(experiment_cfg.get("drift_window_overlap", 0)),
     }

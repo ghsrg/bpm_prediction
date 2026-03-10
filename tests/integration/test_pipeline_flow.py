@@ -34,3 +34,13 @@ def test_pipeline_flow_builds_expected_tensor_shapes_and_types(mock_feature_conf
     assert contract["batch"].shape == (2,)
     assert contract["num_nodes"] == 2
 
+
+def test_graph_builder_does_not_leak_target_label_into_prefix_nodes(mock_feature_configs, mock_raw_trace):
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=[mock_raw_trace])
+    prefix = PrefixPolicy().generate_slices(mock_raw_trace)[0]
+    contract = BaselineGraphBuilder(feature_encoder=encoder).build_graph(prefix)
+
+    target_class = int(contract["y"].item())
+    observed_activity_indices = contract["x_cat"][:, 0].tolist()
+
+    assert target_class not in observed_activity_indices

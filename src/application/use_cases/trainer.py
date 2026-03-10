@@ -1,9 +1,9 @@
-"""Application use-case for MVP1 model training and evaluation."""
+﻿"""Application use-case for MVP1 model training and evaluation."""
 
-# Відповідно до:
-# - ARCHITECTURE_RULES.md -> розділ 2-4 (Application orchestration через порти)
-# - EVF_MVP1.MD -> розділ 3 (Strict Temporal Split), розділ 4 (цільові метрики), розділ 5 (tracking)
-# - AGENT_GUIDE.MD -> розділ 2 (MVP1 scope, без Critic/Reliability)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - ARCHITECTURE_RULES.md -> СЂРѕР·РґС–Р» 2-4 (Application orchestration С‡РµСЂРµР· РїРѕСЂС‚Рё)
+# - EVF_MVP1.MD -> СЂРѕР·РґС–Р» 3 (Strict Temporal Split), СЂРѕР·РґС–Р» 4 (С†С–Р»СЊРѕРІС– РјРµС‚СЂРёРєРё), СЂРѕР·РґС–Р» 5 (tracking)
+# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (MVP1 scope, Р±РµР· Critic/Reliability)
 
 from __future__ import annotations
 
@@ -86,6 +86,7 @@ class ModelTrainer:
         self.retrain = bool(config.get("retrain", False))
         self.mode = str(config.get("mode", self.config.get("experiment_config", {}).get("mode", "train"))).strip().lower()
         self.drift_window_size = int(config.get("drift_window_size", self.config.get("experiment_config", {}).get("drift_window_size", 500)))
+        self.drift_window_sliding = int(config.get("drift_window_sliding", self.config.get("experiment_config", {}).get("drift_window_sliding", 0) or 0))
         self.drift_window_stride = int(config.get("drift_window_stride", self.config.get("experiment_config", {}).get("drift_window_stride", 0)))
         self.drift_window_overlap = int(config.get("drift_window_overlap", self.config.get("experiment_config", {}).get("drift_window_overlap", 0)))
 
@@ -119,9 +120,7 @@ class ModelTrainer:
         if self.tracker is not None and self.config_path:
             self.tracker.log_artifact(self.config_path)
 
-        logger.info("⏳ Читання XES-файлу...")
-        raw_traces = list(self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {})))
-        logger.info("✅ Знайдено %d трейсів.", len(raw_traces))
+        raw_traces = self._read_raw_traces_with_progress()
 
         is_eval_cross = self.mode == "eval_cross_dataset"
         is_eval_drift = self.mode == "eval_drift"
@@ -150,6 +149,35 @@ class ModelTrainer:
             best_val_loss=best_val_loss,
             best_epoch=best_epoch,
         )
+
+    def _read_raw_traces_with_progress(self) -> List[RawTrace]:
+        """Read raw traces from adapter with heartbeat logging for long operations."""
+        logger.info("Reading XES file...")
+        started = perf_counter()
+        traces: List[RawTrace] = []
+        event_count = 0
+
+        iterator = self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {}))
+        progress = tqdm(
+            desc="Read traces",
+            unit="trace",
+            leave=self.tqdm_leave,
+            disable=(not self.show_progress) or self.tqdm_disable,
+        )
+        try:
+            for idx, trace in enumerate(iterator, start=1):
+                traces.append(trace)
+                event_count += len(trace.events)
+                progress.update(1)
+                if idx % 1000 == 0:
+                    progress.set_postfix({"events": event_count})
+                    logger.info("Read %d traces (%d events) so far...", idx, event_count)
+        finally:
+            progress.close()
+
+        duration = perf_counter() - started
+        logger.info("Finished reading XES: traces=%d, events=%d, duration=%.2fs", len(traces), event_count, duration)
+        return traces
 
     def _prepare_checkpoint_state(self, is_eval_mode: bool) -> Tuple[Optional[Dict[str, Any]], int, float, int]:
         """Load checkpoint according to active scenario and return state tuple."""
@@ -264,7 +292,7 @@ class ModelTrainer:
                 history.append(epoch_metrics)
                 self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
                 logger.info(
-                    "🔄 Епоха %d/%d | Train Loss: %.6f | Val Loss: %.6f | Train F1: %.4f | Val F1: %.4f",
+                    "Epoch %d/%d | Train Loss: %.6f | Val Loss: %.6f | Train F1: %.4f | Val F1: %.4f",
                     epoch,
                     self.epochs,
                     train_loss,
@@ -377,7 +405,7 @@ class ModelTrainer:
         split_ratio = self._parse_split_ratio(experiment_cfg.get("split_ratio", [0.7, 0.2, 0.1]))
         if split_strategy == "time":
             split_strategy = "temporal"
-        logger.info("🗂️ Micro Split: розподіл на train/val/test за пропорцією %s.", list(split_ratio))
+        logger.info("Micro split train/val/test with ratio %s.", list(split_ratio))
         return self._strict_temporal_split(ordered=traces, split_ratio=split_ratio, split_strategy=split_strategy)
 
     def _prepare_data(self, traces: Sequence[RawTrace], mode: str) -> List[RawTrace]:
@@ -399,10 +427,10 @@ class ModelTrainer:
 
         traces_with_events = [trace for trace in traces if trace.events]
         if split_strategy == "temporal":
-            logger.info("✅ Знайдено %d трейсів. Сортування за хронологією...", len(traces_with_events))
+            logger.info("Found %d traces. Applying chronological sort.", len(traces_with_events))
             ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
         else:
-            logger.info("✅ Знайдено %d трейсів. split_strategy=none, порядок без сортування.", len(traces_with_events))
+            logger.info("Found %d traces. split_strategy=none, keeping original order.", len(traces_with_events))
             ordered = list(traces_with_events)
 
         split_idx = int(len(ordered) * train_ratio)
@@ -410,25 +438,25 @@ class ModelTrainer:
         if mode_label == "train":
             macro = ordered[:split_idx]
             logger.info(
-                "✂️ Macro Split: режим [train]. Використовуємо %.2f%% даних (%d трейсів).",
+                "Macro split mode [train]: using %.2f%% of data (%d traces).",
                 train_ratio * 100.0,
                 len(macro),
             )
         elif mode_label in {"eval_drift", "eval_cross_dataset"}:
             macro = ordered[split_idx:]
             logger.info(
-                "✂️ Macro Split: режим [%s]. Використовуємо %.2f%% tail-даних (%d трейсів).",
+                "Macro split mode [%s]: using %.2f%% tail data (%d traces).",
                 mode_label,
                 (1.0 - train_ratio) * 100.0,
                 len(macro),
             )
         else:
             macro = ordered
-            logger.info("✂️ Macro Split: режим [%s] не має відсікання, залишено %d трейсів.", mode_label, len(macro))
+            logger.info("Macro split mode [%s]: no cut applied, kept %d traces.", mode_label, len(macro))
 
         keep_count = int(len(macro) * fraction)
         filtered = macro if fraction >= 1.0 else macro[:keep_count]
-        logger.info("📉 Застосування fraction=%.4f. Залишено %d трейсів.", fraction, len(filtered))
+        logger.info("Applied fraction=%.4f. Kept %d traces.", fraction, len(filtered))
         return filtered
 
     def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
@@ -529,6 +557,7 @@ class ModelTrainer:
         all_probs: List[np.ndarray] = []
         inference_graphs = 0
         inference_started = perf_counter()
+        first_batch_debug_logged = False
 
         with torch.no_grad():
             iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
@@ -543,6 +572,9 @@ class ModelTrainer:
                 probs = torch.softmax(logits, dim=1)
                 targets = data.y.view(-1).long().cpu().numpy()
                 preds = torch.argmax(probs, dim=1).cpu().numpy()
+                if self.mode == "eval_drift" and not first_batch_debug_logged:
+                    logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", targets[:5].tolist(), preds[:5].tolist())
+                    first_batch_debug_logged = True
                 all_true.extend(targets.tolist())
                 all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
@@ -569,12 +601,16 @@ class ModelTrainer:
         y_prob = np.asarray(all_probs)
         num_classes = y_prob.shape[1]
         top_k = min(3, num_classes)
+        if num_classes <= 2:
+            top3_accuracy = float(accuracy_score(y_true, y_pred))
+        else:
+            top3_accuracy = float(top_k_accuracy_score(y_true, y_prob, k=top_k, labels=list(range(num_classes))))
 
         return {
             "test_macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_weighted_f1": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
             "test_accuracy": float(accuracy_score(y_true, y_pred)),
-            "test_top3_accuracy": float(top_k_accuracy_score(y_true, y_prob, k=top_k, labels=list(range(num_classes)))),
+            "test_top3_accuracy": top3_accuracy,
             "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
             "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
@@ -585,22 +621,23 @@ class ModelTrainer:
         """Run fixed-size chronological window evaluation for concept-drift tracking."""
         if self.drift_window_size <= 0:
             raise ValueError("drift_window_size must be positive.")
-        step = self._resolve_drift_step()
-
-        # Важливо для наукової валідності: сортуємо хронологічно ДО генерації вікон.
-        ordered_traces = sorted((trace for trace in traces if trace.events), key=lambda trace: trace.events[0].timestamp)
+        windows = self._generate_drift_windows(traces)
         drift_results: List[Dict[str, float]] = []
-        window_starts = list(range(0, len(ordered_traces), step))
+        logger.info(
+            "Drift windows prepared: size=%d, step=%d, keep_short_tail=true, windows=%d",
+            self.drift_window_size,
+            self._resolve_drift_step(),
+            len(windows),
+        )
 
         iterator = tqdm(
-            window_starts,
+            windows,
             desc="Eval drift",
             leave=self.tqdm_leave,
             disable=(not self.show_progress) or self.tqdm_disable,
         )
-        total_windows = len(window_starts)
-        for window_idx, start in enumerate(iterator):
-            window_traces = ordered_traces[start : start + self.drift_window_size]
+        total_windows = len(windows)
+        for window_idx, (start, window_traces) in enumerate(iterator):
             window_loader = self._build_loader(window_traces, shuffle=False)
             metrics = self._evaluate_test(window_loader)
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
@@ -614,14 +651,7 @@ class ModelTrainer:
 
             start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
             end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
-            logger.info(
-                "🪟 Обробка вікна %d/%d (%.3f - %.3f) | F1: %.4f...",
-                window_idx + 1,
-                total_windows,
-                start_ts,
-                end_ts,
-                macro_f1,
-            )
+            logger.info("Window %d/%d (%.3f - %.3f) | F1: %.4f...", window_idx + 1, total_windows, start_ts, end_ts, macro_f1)
 
             drift_results.append(
                 {
@@ -641,8 +671,23 @@ class ModelTrainer:
 
         return drift_results
 
+    def _generate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Tuple[int, List[RawTrace]]]:
+        """Generate chronological drift windows (legacy behavior: keep short tail window)."""
+        ordered_traces = sorted((trace for trace in traces if trace.events), key=lambda trace: trace.events[0].timestamp)
+        size = self.drift_window_size
+        step = self._resolve_drift_step()
+
+        windows: List[Tuple[int, List[RawTrace]]] = []
+        for start in range(0, len(ordered_traces), step):
+            window = ordered_traces[start : start + size]
+            if not window:
+                continue
+            windows.append((start, window))
+        return windows
+
     def _resolve_drift_step(self) -> int:
-        """Resolve drift step from explicit stride or overlap policy."""
+        """Resolve drift step from legacy stride/overlap policy."""
+
         if self.drift_window_stride > 0 and self.drift_window_overlap > 0:
             implied_stride = self.drift_window_size - self.drift_window_overlap
             if implied_stride <= 0:
@@ -832,6 +877,7 @@ class ModelTrainer:
                 "class_weight_cap": self.class_weight_cap,
                 "mode": self.mode,
                 "drift_window_size": self.drift_window_size,
+                "drift_window_sliding": self.drift_window_sliding,
             },
         )
 
@@ -848,3 +894,5 @@ class ModelTrainer:
             return
         for key, value in metrics.items():
             self.tracker.log_metric(key, float(value), step=self.epochs)
+
+

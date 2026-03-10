@@ -75,6 +75,7 @@ experiment:
   train_ratio: 0.7
   split_ratio: [0.7, 0.2, 0.1]
   drift_window_size: 500
+  drift_window_sliding: 0 # 0|None => drift_window_size (tumbling), >0 => sliding step
   drift_window_stride: 0
   drift_window_overlap: 0
 
@@ -132,6 +133,7 @@ flowchart TD
 
     EX --> EXM[mode]
     EX --> EXW[drift_window_size]
+    EX --> EXWS[drift_window_sliding]
     EX --> EXS[drift_window_stride]
     EX --> EXO[drift_window_overlap]
 
@@ -323,6 +325,7 @@ classDiagram
         +train_ratio: Float
         +split_ratio: List[Float]
         +drift_window_size: Int
+        +drift_window_sliding: Optional[Int]
         +drift_window_stride: Int
         +drift_window_overlap: Int
     }

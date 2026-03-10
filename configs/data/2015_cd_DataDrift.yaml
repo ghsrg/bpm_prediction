@@ -1,0 +1,84 @@
+data:
+  dataset_label: "synthetic_drift_4tu"
+  log_path: "../Data/Business Process Drift/logs/cd/cd2.5k.xes"
+
+mapping:
+  xes_adapter:
+    # pm4py автоматично мапить ProcessInstance id у case:concept:name
+    case_id_key: "concept:name"
+    # WorkflowModelElement мапиться в concept:name
+    activity_key: "concept:name"
+    # Timestamp мапиться в time:timestamp
+    timestamp_key: "time:timestamp"
+    # Originator мапиться в org:resource
+    resource_key: "org:resource"
+    # EventType мапиться в lifecycle:transition
+    lifecycle_key: "lifecycle:transition"
+
+    # В MXML життєвий цикл зазвичай пишеться в нижньому регістрі (наприклад, "complete", "assign")
+    complete_transitions: ["complete"]
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_month"
+        - "time2vec_weekofyear"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    # Увага: AMOUNT_REQ видалено, оскільки синтетичні MXML-логи
+    # зазвичай містять лише control-flow дані (без фінансових атрибутів).
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

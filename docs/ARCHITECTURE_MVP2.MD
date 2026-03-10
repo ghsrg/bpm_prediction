@@ -34,7 +34,7 @@ flowchart TB
         PrefixPolicy[PrefixPolicy]
         GraphBuilder[IGraphBuilder]
         DynamicGraphBuilder[DynamicGraphBuilder]:::mvp2
-        TopologyExtractor[TopologyExtractorService]:::mvp2
+        TopologyExtractorService[TopologyExtractorService]:::mvp2
         Trainer[Trainer]
         Evaluator[Evaluator]
     end
@@ -118,7 +118,7 @@ flowchart LR
     CLIAdapter --> PredictPort
 
     DataPort --> Resolver
-    TopologyExtractorAdapter -.->|Implements| KGPort
+    TopologyExtractorService -.->|Implements| KGPort
     
     Resolver --> Graph
     Graph --> Encoder
@@ -139,7 +139,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant XES as XESAdapter
-    participant TopologyExtractor as TopologyExtractorService
+    participant TopologyExtractorService as TopologyExtractorService
     participant KG as IKnowledgeGraphPort
     participant TR as Trainer
     participant PP as PrefixPolicy
@@ -149,9 +149,9 @@ sequenceDiagram
 
     rect rgb(230, 255, 237)
     Note right of XES: MVP2: Zero-Shot Knowledge Injection
-    XES->>TopologyExtractor: train_traces (k=1)
-    TopologyExtractor->>TopologyExtractor: Симуляція BPMN (унікальні ребра)
-    TopologyExtractor->>KG: save_structure(ProcessStructureDTO)
+    XES->>TopologyExtractorService: train_traces (k=1)
+    TopologyExtractorService->>TopologyExtractorService: Симуляція BPMN (унікальні ребра)
+    TopologyExtractorService->>KG: save_structure(ProcessStructureDTO)
     end
 
     XES->>TR: Iterator[RawTrace]

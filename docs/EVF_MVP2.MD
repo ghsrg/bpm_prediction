@@ -6,7 +6,7 @@
 ## 2. Експериментальний протокол
 1. **Заморозка даних:** Використовується єдиний кешований `train/val/test` спліт. Сортування за часом суворо ідентичне.
 2. **Навчання Baseline:** Навчання `BaselineGNN` на `train`, замір F1 на вікнах `eval_drift`.
-3. **Навчання EOPKG:** Навчання `EOPKGFusionGNN` на тому ж `train`. `OracleDiscoveryService` генерує топологію з `train`.
+3. **Навчання EOPKG:** Навчання `EOPKGFusionGNN` на тому ж `train`. `TopologyExtractorService` генерує топологію з `train`.
 4. **Вимірювання стійкості (Robustness):** Замір F1 на тих самих вікнах `eval_drift`. 
    
 ## 3. Критерії успіху гіпотези

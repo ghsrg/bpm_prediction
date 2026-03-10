@@ -11,7 +11,7 @@ MVP2 розширює Baseline-архітектуру (MVP1) шляхом впр
 
 ## 3. Нові компоненти системи
 1. **IKnowledgeGraphPort (Domain Layer)**: Порт для отримання $G_{struct}$.
-2. **OracleDiscoveryService (Application Layer)**: Реалізація порту для MVP2. Екстрагує нормативну топологію безпосередньо з `train_traces` (без Data Leakage цільових змінних на тестовій вибірці) для симуляції BPMN-каркасу.
+2. **TopologyExtractorService (Application Layer)**: Реалізація порту для MVP2. Екстрагує нормативну топологію безпосередньо з `train_traces` (без Data Leakage цільових змінних на тестовій вибірці) для симуляції BPMN-каркасу.
 3. **DynamicGraphBuilder (Application Layer)**: Розширює `BaselineGraphBuilder`. Додає маски з EOPKG у тензорний контракт, якщо включено відповідний режим у конфігу.
 4. **EOPKGFusionGNN (Domain Layer)**: Нова архітектура моделі. Реалізує оператор $\Gamma$, який застосовує увагу (Attention) або гейтинг (Gating) на основі $G_{struct}$.
 
@@ -34,7 +34,7 @@ flowchart TB
         PrefixPolicy[PrefixPolicy]
         GraphBuilder[IGraphBuilder]
         DynamicGraphBuilder[DynamicGraphBuilder]:::mvp2
-        OracleDiscovery[OracleDiscoveryService]:::mvp2
+        TopologyExtractor[TopologyExtractorService]:::mvp2
         Trainer[Trainer]
         Evaluator[Evaluator]
     end
@@ -53,8 +53,8 @@ flowchart TB
     XESAdapter --> TracePreprocessor
     
     %% MVP2 Zero-Shot flow
-    XESAdapter -.->|train_traces only| OracleDiscovery
-    OracleDiscovery -.->|Extracts Topology| IKnowledgeGraphPort
+    XESAdapter -.->|train_traces only| TopologyExtractorService
+    TopologyExtractorService -.->|Extracts Topology| IKnowledgeGraphPort
     
     TracePreprocessor --> PrefixPolicy
     PrefixPolicy --> GraphBuilder
@@ -80,7 +80,7 @@ flowchart TB
 
 ### Пояснення шарів (Оновлено для MVP2)
 *Нові компоненти MVP2 підсвічені зеленим.*
-- **Application:** Додано `OracleDiscoveryService` для безпечної екстракції топології (без Leakage) та `DynamicGraphBuilder`, який вміє звертатися до графа знань.
+- **Application:** Додано `TopologyExtractorService` для безпечної екстракції топології (без Leakage) та `DynamicGraphBuilder`, який вміє звертатися до графа знань.
 - **Domain:** Додано порт `IKnowledgeGraphPort` (для інверсії залежностей бази знань) та нову модель `EOPKGFusionGNN` з оператором $\Gamma$.
 
 ---
@@ -110,7 +110,7 @@ flowchart LR
     subgraph Adapters
         XESAdapter[XESAdapter]
         CLIAdapter[CLI Runner]
-        OracleAdapter[OracleDiscovery]:::mvp2
+        TopologyExtractorService[TopologyExtractorService]:::mvp2
     end
 
     XESAdapter --> DataPort
@@ -118,7 +118,7 @@ flowchart LR
     CLIAdapter --> PredictPort
 
     DataPort --> Resolver
-    OracleAdapter -.->|Implements| KGPort
+    TopologyExtractorAdapter -.->|Implements| KGPort
     
     Resolver --> Graph
     Graph --> Encoder
@@ -139,7 +139,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant XES as XESAdapter
-    participant Oracle as OracleDiscovery
+    participant TopologyExtractor as TopologyExtractorService
     participant KG as IKnowledgeGraphPort
     participant TR as Trainer
     participant PP as PrefixPolicy
@@ -149,9 +149,9 @@ sequenceDiagram
 
     rect rgb(230, 255, 237)
     Note right of XES: MVP2: Zero-Shot Knowledge Injection
-    XES->>Oracle: train_traces (k=1)
-    Oracle->>Oracle: Симуляція BPMN (унікальні ребра)
-    Oracle->>KG: save_structure(ProcessStructureDTO)
+    XES->>TopologyExtractor: train_traces (k=1)
+    TopologyExtractor->>TopologyExtractor: Симуляція BPMN (унікальні ребра)
+    TopologyExtractor->>KG: save_structure(ProcessStructureDTO)
     end
 
     XES->>TR: Iterator[RawTrace]
@@ -206,8 +206,8 @@ flowchart TD
     Event --> NormalizedEvent
     NormalizedEvent --> RawTrace
     
-    RawTrace -->|Only Train Data| OracleDiscovery:::mvp2
-    OracleDiscovery --> ProcessStructureDTO:::mvp2
+    RawTrace -->|Only Train Data| TopologyExtractor:::mvp2
+    TopologyExtractor --> ProcessStructureDTO:::mvp2
     
     RawTrace --> TracePreprocessor
     TracePreprocessor --> PrefixPolicy

@@ -1,11 +1,11 @@
 # LLD_MVP2.MD
 
-## 1. Oracle Topology Extraction
-Алгоритм `OracleDiscoveryService`:
+## 1. Topology Extractor
+Алгоритм `TopologyExtractorService`:
 1. Пройти по всіх трасах у `train_traces`.
 2. Для кожної траси зібрати всі переходи $e_i \rightarrow e_{i+1}$.
 3. Зберегти унікальні переходи у `allowed_edges`.
-4. *Примітка:* Для імітації майбутніх версій ($\kappa+n$), Oracle може бути викликаний явно з наданням списку ребер (симуляція парсингу BPMN з Camunda).
+4. *Примітка:* Для імітації майбутніх версій ($\kappa+n$), TopologyExtractor може бути викликаний явно з наданням списку ребер (симуляція парсингу BPMN з Camunda).
 
 ## 2. Knowledge-Infusion Operator ($\Gamma$) у forward()
 Модель `EOPKGFusionGNN` має обробляти ситуацію, коли `structural_edge_index` є `None`.

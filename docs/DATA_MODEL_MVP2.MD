@@ -49,7 +49,7 @@ classDiagram
 
 ## 2. Нові Knowledge Graph DTOs (Domain Layer)
 
-Для передачі нормативної структури (BPMN-каркасу) від Oracle (або Neo4j у майбутньому) до `DynamicGraphBuilder` вводиться новий контракт.
+Для передачі нормативної структури (BPMN-каркасу) від TopologyExtractor (або Neo4j у майбутньому) до `DynamicGraphBuilder` вводиться новий контракт.
 
 ### 2.1 ProcessStructureDTO
 ```python

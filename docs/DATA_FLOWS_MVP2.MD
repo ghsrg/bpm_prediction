@@ -8,7 +8,7 @@
 
 ## 1. Data Flow Architecture (Updated for MVP2)
 
-У цій діаграмі показано, як пайплайн розгалужується: тренувальні дані додатково проходять через Oracle для екстракції топології, а `GraphBuilder` стає динамічним.
+У цій діаграмі показано, як пайплайн розгалужується: тренувальні дані додатково проходять через TopologyExtractorService для екстракції топології, а `GraphBuilder` стає динамічним.
 
 ```mermaid
 flowchart TD
@@ -18,9 +18,9 @@ flowchart TD
     Adapter --> SR[SchemaResolver]
     Adapter --> RT[RawTrace]
 
-    %% MVP2 Extension: Oracle Knowledge Extraction
-    RT -.->|Only Train Split| Oracle[OracleDiscoveryService]:::mvp2
-    Oracle -.->|Extracts ProcessStructureDTO| KGPort[IKnowledgeGraphPort]:::mvp2
+    %% MVP2 Extension: Topology Knowledge Extraction
+    RT -.->|Only Train Split| TopologyExtractor [TopologyExtractorService]:::mvp2
+    TopologyExtractor -.->|Extracts ProcessStructureDTO| KGPort[IKnowledgeGraphPort]:::mvp2
 
     RT --> PP[PrefixPolicy.generate_slices]
     PP --> PS[PrefixSlice]
@@ -57,7 +57,7 @@ flowchart TD
     end
 
     subgraph 1.5. Knowledge Extraction Layer
-        RT -.->|Oracle on Train| P_DTO[ProcessStructureDTO]:::mvp2
+        RT -.->|TopologyExtractor on Train| P_DTO[ProcessStructureDTO]:::mvp2
     end
 
     subgraph 2. Prefix Generation Layer

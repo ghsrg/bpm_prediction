@@ -1,53 +1,59 @@
 # AGENT_CONTEXT_MVP1.MD
 
-Останнє оновлення: 2026-03-09
-Статус: після аудиту архітектурних розбіжностей MVP1
+Останнє оновлення: 2026-03-10  
+Статус: MVP1 завершено, переход до MVP2 в режимі паралельної підтримки.
 
-## Що виправлено
+## 1) Поточний статус
 
-1. `GraphTensorContract` синхронізовано на рівні гайду:
-- В `AGENT_GUIDE.MD` зафіксовано актуальний контракт:
-  - `x_cat: torch.LongTensor`
-  - `x_num: torch.FloatTensor`
-  - `edge_index: torch.LongTensor`
-  - `edge_type: torch.LongTensor`
-  - `y: torch.LongTensor`
-  - `batch: torch.LongTensor`
-  - `num_nodes: int`
+- MVP1 (logs-only baseline) вважається **стабільним еталоном**.
+- MVP2 розпочинається як **окремий еволюційний трек**, без руйнування MVP1.
+- Усі експерименти MVP1 мають лишатися доступними для запуску “як є”.
 
-2. Прибрано порушення напрямку залежностей (Domain -> Application):
-- `src/domain/services/prefix_policy.py` більше не імпортує `src.application.ports.*`.
-- `src/domain/services/baseline_graph_builder.py` більше не імпортує `src.application.ports.*`.
-- Domain-сервіси працюють через duck typing і залишаються незалежними від Application.
+## 2) Незмінні правила для MVP1
 
-3. `tools/architecture_guard.py` оновлено під поточну структуру:
-- Перевіряє `src/domain`, `src/application`, `src/adapters`.
-- Блокує:
-  - імпорти `src.application|src.adapters|src.infrastructure` із Domain;
-  - імпорти `src.adapters` із Application;
-  - імпорти `src.application.use_cases` із Adapters.
-- Команда перевірки:
+- Не ламати контракти MVP1 DTO та пайплайн:
+  - `RawTrace -> PrefixSlice -> GraphTensorContract`.
+- Не змінювати behavior MVP1-мод без явного режиму/прапора.
+- Не переносити MVP2-логіку в MVP1-шлях за замовчуванням.
+- Перед merge обовʼязково:
   - `py -3 tools/architecture_guard.py`
+  - `pytest tests/ -v`
 
-4. Стек залежностей синхронізовано:
-- `requirements.txt` доповнено фактично використаними пакетами:
-  - `numpy`
-  - `matplotlib`
-  - `tqdm`
-- `AGENT_GUIDE.MD` оновлено: дозволений стек тепер включає `PyYAML`, `psutil`, `tqdm`, `matplotlib`.
+## 3) Політика сумісності MVP1 <-> MVP2
 
-## Поточний інваріант архітектури
+- Усі нові можливості MVP2 вмикаються через:
+  - окремі `experiment.mode`,
+  - або нові конфіг-поля/feature flags.
+- Значення за замовчуванням мають зберігати MVP1-поведінку.
+- Якщо додається новий конфіг:
+  - не змінювати існуючі MVP1 yaml так, щоб вони перестали запускатися.
 
-- `src/domain` не залежить від `src/application` та `src/adapters`.
-- `src/application` оркеструє use-cases і залежить від domain + портів.
-- `src/adapters` реалізують інфраструктурні інтеграції, не залежать від concrete use-cases.
+## 4) Запуск MVP1 має лишатися простим
 
-## Правила для наступних AI-агентів
+MVP1 конфіги/сценарії повинні залишатися робочими:
 
-- Не повертати єдиний `x` у `GraphTensorContract` без узгодженого RFC для всіх MVP1 доків і коду.
-- Не імпортувати `src.application.*` із `src/domain/*`.
-- Перед PR/merge завжди запускати:
-  - `py -3 tools/architecture_guard.py`
-- При додаванні нових прямих імпортів сторонніх бібліотек:
-  - оновити `requirements.txt`;
-  - синхронізувати список у `AGENT_GUIDE.MD` (розділ стеку).
+- `configs/experiments/01_train_bpi2012.yaml`
+- `configs/experiments/01_eval_drift_bpi2012.yaml`
+- `configs/experiments/01_eval_cross_dataset_bpi2012.yaml`
+
+Базова команда:
+
+```bash
+python main.py --config <path_to_mvp1_experiment_yaml>
+```
+
+## 5) Рекомендований підхід для MVP2
+
+- Додавати нові файли/конфіги в окремі шляхи (`configs/experiments/mvp2_*` або аналог).
+- Не редагувати MVP1-конфіги без потреби.
+- Якщо потрібна зміна спільного компонента:
+  - спершу забезпечити backward compatibility,
+  - потім додати тест, що MVP1 не регреснув.
+
+## 6) Мінімальний “Definition of Done” для змін у перехідний період
+
+- Пройшли тести.
+- MVP1-конфіги запускаються.
+- Документація оновлена (як мінімум `PROJECT_CONTEXT.md` і/або відповідний doc у `docs/`).
+- Є коротка нотатка, чи впливає зміна на MVP1 runtime.
+

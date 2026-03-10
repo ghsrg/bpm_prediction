@@ -27,7 +27,7 @@ flowchart TD
     
     %% MVP2 Extension: Dynamic Graph Building
     PS --> GB[DynamicGraphBuilder.build_graph]:::mvp2
-    KGPort -.->|get_structure(version)| GB
+    KGPort -.->|get_structure version| GB
     
     SR --> FE[FeatureEncoder]
     GB --> GTC[Expanded GraphTensorContract]:::mvp2
@@ -61,7 +61,7 @@ flowchart TD
     end
 
     subgraph 2. Prefix Generation Layer
-        RT -->|Sliced by PrefixPolicy| PS[PrefixSlice (with version k)]
+        RT -->|Sliced by PrefixPolicy| PS[PrefixSlice with version k]
     end
 
     subgraph 3. Graph Engineering Layer
@@ -91,7 +91,7 @@ flowchart LR
     B --> C[Build loader per window]
     
     %% MVP2: Querying EOPKG on the fly
-    C -.->|get_structure(k)| KG[IKnowledgeGraphPort]:::mvp2
+    C -.->|get_structure k| KG[IKnowledgeGraphPort]:::mvp2
     KG -.->|Mask or Fallback| C
     
     C --> D[Evaluate macro_f1, ece]

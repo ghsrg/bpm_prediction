@@ -222,3 +222,15 @@ flowchart TD
     DynamicGraphBuilder --> ExpandedTensorContract[GraphTensorContract + Masks]:::mvp2
     ExpandedTensorContract --> EOPKGFusionGNN:::mvp2
 ```
+
+## 7. Відповідність Target Architecture та Scope Limits
+Цей MVP2 є еволюційним кроком (Bridge) до цільової Enterprise-архітектури. Щоб уникнути переускладнення коду, фіксуються наступні межі (Scope Limits):
+
+### 7.1 Роль TopologyExtractorService
+У фінальній `TARGET_ARCHITECTURE` цей сервіс читатиме BPMN-моделі (Camunda) і зберігатиме їх у Neo4j. 
+Оскільки в нашому поточному дослідницькому середовищі XES-датасети не мають супровідних BPMN-файлів, `TopologyExtractorService` у MVP2 виконує роль симулятора: він парсить нормативну топологію безпосередньо з `train_traces` (без Data Leakage) і тримає її в пам'яті (або в локальному JSON), імітуючи відповідь від Neo4j.
+
+### 7.2 Що перенесено у MVP3 (Agent-Critic та Динамічна Регуляризація)
+Згідно з цільовою архітектурою, система має включати динамічну регуляризацію ($\beta$) та контролера (Agent-Critic).
+- **У MVP2:** Ми реалізуємо лише базову робочу конячку — `EOPKGFusionGNN`. Її задача: довести здатність до *Zero-Shot* адаптації виключно за рахунок структурної маски ($G_{struct}$), без втручання у функцію втрат.
+- **У MVP3:** Буде реалізовано надбудову `AgentCriticGNN`, яка використовуватиме `EOPKGFusionGNN` як бейзлайн і динамічно керуватиме гіперпараметром $\beta$ на основі семафора дрейфу ($\mathcal{W}_1$) і завантаження EOPKG з графової бд (neo4j).

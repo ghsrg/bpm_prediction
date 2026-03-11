@@ -255,8 +255,8 @@ flowchart TB
 subgraph Frameworks_and_Drivers["Frameworks & Drivers (Infrastructure)"]
     CamundaDB[(MSSQL Camunda 7 DB)]
     XES[(XES Files Storage)]
-    BusinessSys[(External Business Data System)]
     Neo4j[(Neo4j EPOKG Storage)]
+    BusinessSys[(External Business Data System)]
     MLflow[(MLflow Tracker)]
     Reports[(Research Reports Storage)]
     REST[(REST API)]
@@ -266,8 +266,9 @@ end
 subgraph Interface_Adapters["Interface Adapters"]
     SQLReader[Camunda SQL Adapter]
     XESReader[XES Reader Adapter]
-    BusinessAdapter[Business Data Adapter]
+    TopologyExtractor[TopologyExtractorService]
     GraphGateway[Neo4j Gateway]
+    BusinessAdapter[Business Data Adapter]
     TrackerAdapter[MLflow Adapter]
     ReportAdapter[Report Writer Adapter]
     APIController[REST Controller]
@@ -313,6 +314,11 @@ Reports --> ReportAdapter
 REST --> APIController
 CLI --> CLIController
 
+Camunda -->|Parses normative rules| TopologyExtractor
+TopologyExtractor -->|Saves topology| Neo4j
+Neo4j -->|Implements KG Port| Neo4jGateway[Neo4j Gateway]
+XES -->|Parses normative rules| TopologyExtractor
+
 SQLReader -.implements.-> IDataReader
 XESReader -.implements.-> IDataReader
 BusinessAdapter -.implements.-> IBusinessDataReader
@@ -345,6 +351,7 @@ RetrainUC --> TrainUC
 %% Flow Application -> Domain
 TrainUC --> RawTrace
 InferUC --> RawTrace
+
 
 %% Domain Data Flow
 RawTrace --> PrefixPolicy
@@ -381,6 +388,7 @@ subgraph Adapters["Interface Adapters (Ports & Adapters)"]
     SQLAdapter[Camunda SQL Adapter]
     XESAdapter[XES Reader Adapter]
     GraphAdapter[Neo4j Adapter]
+    TopologyExtractor[TopologyExtractorService]
     TrackerAdapter[MLflow Adapter]
     ReportAdapter[Report Adapter]
     APIController[REST Controller]
@@ -423,6 +431,11 @@ XESAdapter -.implements.-> IDataReader
 GraphAdapter -.implements.-> IGraphStorage
 TrackerAdapter -.implements.-> ITracker
 ReportAdapter -.implements.-> IReportWriter
+
+Camunda -->|Parses normative rules| TopologyExtractor
+TopologyExtractor -->|Saves topology| Neo4j
+Neo4j -->|Implements KG Port| Neo4jGateway[Neo4j Gateway]
+XES -->|Parses normative rules| TopologyExtractor
 
 APIController --> InferUC
 CLIController --> TrainUC
@@ -590,12 +603,13 @@ sequenceDiagram
 ### 18.5 Research Axes (частина `ExperimentConfig`)
 
 ```python
-class ExperimentConfig:
-    structure_mode: Literal["logs_only", "bpmn", "epokg"]
-    kappa_conditioning: Literal["none", "static", "latent"]
-    drift_strategy: Literal["off", "data", "structural", "wasserstein", "multi"]
-    reliability_strategy: Literal["off", "threshold", "adaptive"]
-    architecture_type: Literal["single_gnn", "agent_critic", "ablation"]
+class ExperimentConfig(BaseModel):
+    # ... drift parameters ...
+    # architecture_type перенесено у ModelConfig
+
+class ModelConfig(BaseModel):
+    type: Literal["BaselineGNN", "EOPKGFusionGNN", "AgentCriticGNN"]
+    hidden_dim: int
 ```
 
 #### Як інтегрується
@@ -671,19 +685,27 @@ bpm_prediction/
 ├── tests/                     # Unit та інтеграційні тести
 # --- ДОКУМЕНТАЦІЯ ТА КОНТРАКТИ (Джерело правди) ---
 ├── README.MD                      # Головний опис проєкту
-├── AGENT_GUIDE.md                 # Головна інструкція для ШІ (ЦЕЙ ФАЙЛ)
-├── ARCHITECTURE_GUIDELINES.MD     # Конституція архітектури, незмінні правила
-├── ARCHITECTURE_RULES.md          # Жорсткі правила залежностей і заборон
-├── TARGET_ARCHITECTURE.MD         # Цільова архітектура (ENTERPRISE_POC)
-├── ARCHITECTURE_MVP1.MD           # Архітектура поточної фази (MVP1)
-├── DATA_MODEL_MVP1.MD             # Канонічні DTO та структура даних
-├── DATA_FLOWS_MVP1.MD             # Контракти сервісів і потоки даних
-├── ADAPTER_XES.MD                 # Специфікація парсингу логів XES
-├── ADAPTER_CAMUNDA_SQL.MD         # Специфікація парсингу з Camunda (для майбутніх фаз)
-├── LLD_MVP1.MD                    # Математичне ядро та дизайн GNN
-├── EVF_MVP1.MD                    # Фреймворк тестування (Temporal Split, MLflow)
-├── GLOSSARY.MD                    # Канон термінів
-├── VARIABLES.MD                   # Математичні позначення та мапінг
+├── AGENT_GUIDE.MD                 # Головна інструкція для ШІ
+├── AGENT_CONTEXT_MVP1.MD          # Контекст агента для MVP1
+├── PROJECT_CONTEXT.md             # Базовий загальний контекст проекту для агента
+├── docs/
+│   ├── ARCHITECTURE_GUIDELINES.MD     # Конституція архітектури, незмінні правила
+│   ├── ARCHITECTURE_RULES.md          # Жорсткі правила залежностей і заборон
+│   ├── TARGET_ARCHITECTURE.MD         # Цільова архітектура (ENTERPRISE_POC)
+│   ├── ARCHITECTURE_MVP1.MD           # Архітектура фази (MVP1)
+│   ├── ARCHITECTURE_MVP2.MD           # Архітектура фази (MVP2)
+│   ├── DATA_MODEL_MVP1.MD             # Канонічні DTO та структура даних фази 
+│   ├── DATA_MODEL_MVP2 .MD             # Канонічні DTO та структура даних фази
+│   ├── DATA_FLOWS_MVP1.MD             # Контракти сервісів і потоки даних фази
+│   ├── DATA_FLOWS_MVP2.MD             # Контракти сервісів і потоки даних фази
+│   ├── ADAPTER_XES.MD                 # Специфікація парсингу логів XES
+│   ├── ADAPTER_CAMUNDA_SQL.MD         # Специфікація парсингу з Camunda (для майбутніх фаз)
+│   ├── LLD_MVP1.MD                    # Математичне ядро та дизайн GNN фази
+│   ├── LLD_MVP2.MD                    # Математичне ядро та дизайн GNN фази
+│   ├── EVF_MVP1.MD                    # Фреймворк тестування (Temporal Split, MLflow) фази
+│   ├── EVF_MVP2.MD                    # Фреймворк тестування (Temporal Split, MLflow) фази
+│   ├── GLOSSARY.MD                    # Канон термінів
+│   ├── VARIABLES.MD                   # Математичні позначення та мапінг
 │
 # --- РЕФЕРЕНСНІ ФАЙЛИ (Тільки для довідок) ---
 ├── etalon/                        # Код попередньої розробки, використовується як орієнтир а не контракт

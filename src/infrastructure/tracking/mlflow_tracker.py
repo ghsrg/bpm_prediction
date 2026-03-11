@@ -1,9 +1,9 @@
 """MLflow-backed tracker adapter implementation."""
 
-# Відповідно до:
-# - ARCHITECTURE_RULES.md -> розділ 2-4 (Adapters реалізують порти Application)
-# - EVF_MVP1.MD -> розділ 5 (Experiment Tracking / MLflow)
-# - AGENT_GUIDE.MD -> розділ 2 (Dependency inversion)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - ARCHITECTURE_RULES.MD -> СЂРѕР·РґС–Р» 2-4 (Adapters СЂРµР°Р»С–Р·СѓСЋС‚СЊ РїРѕСЂС‚Рё Application)
+# - EVF_MVP1.MD -> СЂРѕР·РґС–Р» 5 (Experiment Tracking / MLflow)
+# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (Dependency inversion)
 
 from __future__ import annotations
 
@@ -80,3 +80,4 @@ class MLflowTracker(ITracker):
             return
 
         yield (prefix, value)
+

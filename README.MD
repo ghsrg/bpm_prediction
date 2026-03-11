@@ -142,3 +142,20 @@
 * **Автор:** Serhii Korotenko
 * **Контакт:** kor.srg@gmail.com
 * **ORCID:** 0009-0003-9236-4775
+
+
+## Quick Start
+
+```bash
+python main.py --config configs/experiments/01_train_bpi2012.yaml
+```
+
+## MVP1 Non-Regression Gate
+
+Run before merge:
+
+```bash
+py -3 tools/architecture_guard.py
+pytest tests/ -v
+```
+

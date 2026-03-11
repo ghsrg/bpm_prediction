@@ -1,9 +1,9 @@
 """Canonical schema resolver for feature key aliases and future semantic mapping."""
 
-# Відповідно до:
-# - ARCHITECTURE_RULES.md -> розділ 2-3 (Domain service без інфраструктурних залежностей)
-# - DATA_FLOWS_MVP1.MD -> розділ 2.1/2.3 (узгоджений mapping між ingestion та encoder)
-# - TARGET_ARCHITECTURE.MD -> секція data contracts (єдина канонізація перед розширенням MVP2)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - ARCHITECTURE_RULES.MD -> СЂРѕР·РґС–Р» 2-3 (Domain service Р±РµР· С–РЅС„СЂР°СЃС‚СЂСѓРєС‚СѓСЂРЅРёС… Р·Р°Р»РµР¶РЅРѕСЃС‚РµР№)
+# - DATA_FLOWS_MVP1.MD -> СЂРѕР·РґС–Р» 2.1/2.3 (СѓР·РіРѕРґР¶РµРЅРёР№ mapping РјС–Р¶ ingestion С‚Р° encoder)
+# - TARGET_ARCHITECTURE.MD -> СЃРµРєС†С–СЏ data contracts (С”РґРёРЅР° РєР°РЅРѕРЅС–Р·Р°С†С–СЏ РїРµСЂРµРґ СЂРѕР·С€РёСЂРµРЅРЅСЏРј MVP2)
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class SchemaResolver:
 
     MVP1 behavior is intentionally passive: key resolution only + identity value pass-through.
     Extension point: in MVP2 `resolve_value` will be delegated to a SemanticMapper
-    for language/synonym normalization (e.g. "Старт" -> "Start") without changing
+    for language/synonym normalization (e.g. "РЎС‚Р°СЂС‚" -> "Start") without changing
     adapter/encoder call sites.
     """
 
@@ -61,3 +61,4 @@ class SchemaResolver:
         """Return a copy with normalized fallback keys for explicit profiles."""
         normalized = tuple(str(key).strip() for key in keys if str(key).strip())
         return SchemaResolver(fallback_keys=normalized)
+

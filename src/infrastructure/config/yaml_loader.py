@@ -1,9 +1,9 @@
 """YAML config loader with recursive include support for modular playbooks."""
 
-# Відповідно до:
-# - AGENT_GUIDE.MD -> розділ 5 (план перед кодом, anti-blind coding) і розділ 6 (посилання на контракти)
-# - ARCHITECTURE_RULES.md -> розділ 2-3 (інфраструктурні утиліти поза Domain)
-# - DATA_MODEL_MVP1.MD -> розділ 4.0 (єдиний експеримент-конфіг для запуску)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 5 (РїР»Р°РЅ РїРµСЂРµРґ РєРѕРґРѕРј, anti-blind coding) С– СЂРѕР·РґС–Р» 6 (РїРѕСЃРёР»Р°РЅРЅСЏ РЅР° РєРѕРЅС‚СЂР°РєС‚Рё)
+# - ARCHITECTURE_RULES.MD -> СЂРѕР·РґС–Р» 2-3 (С–РЅС„СЂР°СЃС‚СЂСѓРєС‚СѓСЂРЅС– СѓС‚РёР»С–С‚Рё РїРѕР·Р° Domain)
+# - DATA_MODEL_MVP1.MD -> СЂРѕР·РґС–Р» 4.0 (С”РґРёРЅРёР№ РµРєСЃРїРµСЂРёРјРµРЅС‚-РєРѕРЅС„С–Рі РґР»СЏ Р·Р°РїСѓСЃРєСѓ)
 
 from __future__ import annotations
 
@@ -16,19 +16,19 @@ import yaml
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge two mappings where override wins and lists are replaced."""
-    # Створюємо незалежну копію бази, щоб не мутувати вхідні структури і уникати побічних ефектів.
+    # РЎС‚РІРѕСЂСЋС”РјРѕ РЅРµР·Р°Р»РµР¶РЅСѓ РєРѕРїС–СЋ Р±Р°Р·Рё, С‰РѕР± РЅРµ РјСѓС‚СѓРІР°С‚Рё РІС…С–РґРЅС– СЃС‚СЂСѓРєС‚СѓСЂРё С– СѓРЅРёРєР°С‚Рё РїРѕР±С–С‡РЅРёС… РµС„РµРєС‚С–РІ.
     merged: dict[str, Any] = deepcopy(base)
 
-    # Ітеруємося по override: кожне поле або рекурсивно зливається, або повністю перезаписується.
+    # Р†С‚РµСЂСѓС”РјРѕСЃСЏ РїРѕ override: РєРѕР¶РЅРµ РїРѕР»Рµ Р°Р±Рѕ СЂРµРєСѓСЂСЃРёРІРЅРѕ Р·Р»РёРІР°С”С‚СЊСЃСЏ, Р°Р±Рѕ РїРѕРІРЅС–СЃС‚СЋ РїРµСЂРµР·Р°РїРёСЃСѓС”С‚СЊСЃСЏ.
     for key, value in override.items():
         current = merged.get(key)
 
-        # Словники зливаються рекурсивно, щоб зберігати вкладені дефолти.
+        # РЎР»РѕРІРЅРёРєРё Р·Р»РёРІР°СЋС‚СЊСЃСЏ СЂРµРєСѓСЂСЃРёРІРЅРѕ, С‰РѕР± Р·Р±РµСЂС–РіР°С‚Рё РІРєР»Р°РґРµРЅС– РґРµС„РѕР»С‚Рё.
         if isinstance(current, dict) and isinstance(value, dict):
             merged[key] = deep_merge(current, value)
             continue
 
-        # Списки (та будь-які інші типи) повністю замінюються значенням override.
+        # РЎРїРёСЃРєРё (С‚Р° Р±СѓРґСЊ-СЏРєС– С–РЅС€С– С‚РёРїРё) РїРѕРІРЅС–СЃС‚СЋ Р·Р°РјС–РЅСЋСЋС‚СЊСЃСЏ Р·РЅР°С‡РµРЅРЅСЏРј override.
         merged[key] = deepcopy(value)
 
     return merged
@@ -58,12 +58,12 @@ def _normalize_include_list(raw_include: Any, file_path: Path) -> Iterable[str]:
 
 def load_yaml_with_includes(file_path: str | Path, _visited: set[Path] | None = None) -> Dict[str, Any]:
     """Load YAML with recursive includes resolved relative to current file directory."""
-    # Резолвимо шлях до абсолютного, щоб коректно працювати незалежно від cwd запуску.
+    # Р РµР·РѕР»РІРёРјРѕ С€Р»СЏС… РґРѕ Р°Р±СЃРѕР»СЋС‚РЅРѕРіРѕ, С‰РѕР± РєРѕСЂРµРєС‚РЅРѕ РїСЂР°С†СЋРІР°С‚Рё РЅРµР·Р°Р»РµР¶РЅРѕ РІС–Рґ cwd Р·Р°РїСѓСЃРєСѓ.
     resolved_path = Path(file_path).expanduser().resolve()
     if not resolved_path.exists():
         raise FileNotFoundError(f"Config file not found: {resolved_path}")
 
-    # Ведемо множину відвіданих шляхів для захисту від циклічних include.
+    # Р’РµРґРµРјРѕ РјРЅРѕР¶РёРЅСѓ РІС–РґРІС–РґР°РЅРёС… С€Р»СЏС…С–РІ РґР»СЏ Р·Р°С…РёСЃС‚Сѓ РІС–Рґ С†РёРєР»С–С‡РЅРёС… include.
     visited = _visited if _visited is not None else set()
     if resolved_path in visited:
         chain = " -> ".join(str(path) for path in [*visited, resolved_path])
@@ -72,23 +72,24 @@ def load_yaml_with_includes(file_path: str | Path, _visited: set[Path] | None = 
     visited.add(resolved_path)
     raw_config = _read_yaml_mapping(resolved_path)
 
-    # Витягуємо include на корені; всі інші ключі поточного файла вважаємо override-рівнем.
+    # Р’РёС‚СЏРіСѓС”РјРѕ include РЅР° РєРѕСЂРµРЅС–; РІСЃС– С–РЅС€С– РєР»СЋС‡С– РїРѕС‚РѕС‡РЅРѕРіРѕ С„Р°Р№Р»Р° РІРІР°Р¶Р°С”РјРѕ override-СЂС–РІРЅРµРј.
     include_paths = _normalize_include_list(raw_config.get("include"), resolved_path)
 
     merged_config: dict[str, Any] = {}
 
-    # Послідовно зливаємо базові конфіги у порядку include, щоб пізніші могли перекривати попередні.
+    # РџРѕСЃР»С–РґРѕРІРЅРѕ Р·Р»РёРІР°С”РјРѕ Р±Р°Р·РѕРІС– РєРѕРЅС„С–РіРё Сѓ РїРѕСЂСЏРґРєСѓ include, С‰РѕР± РїС–Р·РЅС–С€С– РјРѕРіР»Рё РїРµСЂРµРєСЂРёРІР°С‚Рё РїРѕРїРµСЂРµРґРЅС–.
     for include_path in include_paths:
         nested_path = (resolved_path.parent / include_path).resolve()
         nested_config = load_yaml_with_includes(nested_path, visited)
         merged_config = deep_merge(merged_config, nested_config)
 
-    # Видаляємо include з поточного файла і накладаємо його як верхній рівень override.
+    # Р’РёРґР°Р»СЏС”РјРѕ include Р· РїРѕС‚РѕС‡РЅРѕРіРѕ С„Р°Р№Р»Р° С– РЅР°РєР»Р°РґР°С”РјРѕ Р№РѕРіРѕ СЏРє РІРµСЂС…РЅС–Р№ СЂС–РІРµРЅСЊ override.
     current_override = deepcopy(raw_config)
     current_override.pop("include", None)
 
     result = deep_merge(merged_config, current_override)
 
-    # Видаляємо файл із активної гілки обходу, щоб дозволити нециклічне повторне використання в інших гілках.
+    # Р’РёРґР°Р»СЏС”РјРѕ С„Р°Р№Р» С–Р· Р°РєС‚РёРІРЅРѕС— РіС–Р»РєРё РѕР±С…РѕРґСѓ, С‰РѕР± РґРѕР·РІРѕР»РёС‚Рё РЅРµС†РёРєР»С–С‡РЅРµ РїРѕРІС‚РѕСЂРЅРµ РІРёРєРѕСЂРёСЃС‚Р°РЅРЅСЏ РІ С–РЅС€РёС… РіС–Р»РєР°С….
     visited.remove(resolved_path)
     return result
+

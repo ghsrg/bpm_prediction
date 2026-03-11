@@ -1,7 +1,7 @@
-﻿"""Application use-case for MVP1 model training and evaluation."""
+"""Application use-case for MVP1 model training and evaluation."""
 
 # Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
-# - ARCHITECTURE_RULES.md -> СЂРѕР·РґС–Р» 2-4 (Application orchestration С‡РµСЂРµР· РїРѕСЂС‚Рё)
+# - ARCHITECTURE_RULES.MD -> СЂРѕР·РґС–Р» 2-4 (Application orchestration С‡РµСЂРµР· РїРѕСЂС‚Рё)
 # - EVF_MVP1.MD -> СЂРѕР·РґС–Р» 3 (Strict Temporal Split), СЂРѕР·РґС–Р» 4 (С†С–Р»СЊРѕРІС– РјРµС‚СЂРёРєРё), СЂРѕР·РґС–Р» 5 (tracking)
 # - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (MVP1 scope, Р±РµР· Critic/Reliability)
 
@@ -87,8 +87,6 @@ class ModelTrainer:
         self.mode = str(config.get("mode", self.config.get("experiment_config", {}).get("mode", "train"))).strip().lower()
         self.drift_window_size = int(config.get("drift_window_size", self.config.get("experiment_config", {}).get("drift_window_size", 500)))
         self.drift_window_sliding = int(config.get("drift_window_sliding", self.config.get("experiment_config", {}).get("drift_window_sliding", 0) or 0))
-        self.drift_window_stride = int(config.get("drift_window_stride", self.config.get("experiment_config", {}).get("drift_window_stride", 0)))
-        self.drift_window_overlap = int(config.get("drift_window_overlap", self.config.get("experiment_config", {}).get("drift_window_overlap", 0)))
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -474,7 +472,7 @@ class ModelTrainer:
     def _strict_temporal_split(self, ordered: Sequence[RawTrace], split_ratio: Tuple[float, float, float], split_strategy: str) -> SplitData:
         """Apply deterministic micro split by configured strategy and ratio."""
         if split_strategy not in {"temporal", "none"}:
-            raise ValueError(f"Unsupported data.split_strategy '{split_strategy}'.")
+            raise ValueError(f"Unsupported experiment.split_strategy '{split_strategy}'.")
         total = len(ordered)
         train_ratio, val_ratio, _ = split_ratio
         train_end = int(total * train_ratio)
@@ -624,7 +622,7 @@ class ModelTrainer:
         windows = self._generate_drift_windows(traces)
         drift_results: List[Dict[str, float]] = []
         logger.info(
-            "Drift windows prepared: size=%d, step=%d, keep_short_tail=true, windows=%d",
+            "Drift windows prepared: size=%d, step=%d, keep_short_tail=false, windows=%d",
             self.drift_window_size,
             self._resolve_drift_step(),
             len(windows),
@@ -672,7 +670,7 @@ class ModelTrainer:
         return drift_results
 
     def _generate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Tuple[int, List[RawTrace]]]:
-        """Generate chronological drift windows (legacy behavior: keep short tail window)."""
+        """Generate chronological drift windows and drop short tail windows."""
         ordered_traces = sorted((trace for trace in traces if trace.events), key=lambda trace: trace.events[0].timestamp)
         size = self.drift_window_size
         step = self._resolve_drift_step()
@@ -680,32 +678,16 @@ class ModelTrainer:
         windows: List[Tuple[int, List[RawTrace]]] = []
         for start in range(0, len(ordered_traces), step):
             window = ordered_traces[start : start + size]
-            if not window:
+            if len(window) < size:
                 continue
             windows.append((start, window))
         return windows
 
     def _resolve_drift_step(self) -> int:
-        """Resolve drift step from legacy stride/overlap policy."""
-
-        if self.drift_window_stride > 0 and self.drift_window_overlap > 0:
-            implied_stride = self.drift_window_size - self.drift_window_overlap
-            if implied_stride <= 0:
-                raise ValueError("drift_window_overlap must be smaller than drift_window_size.")
-            if implied_stride != self.drift_window_stride:
-                raise ValueError("drift_window_stride conflicts with drift_window_overlap derived stride.")
-            return self.drift_window_stride
-
-        if self.drift_window_stride > 0:
-            return self.drift_window_stride
-
-        if self.drift_window_overlap > 0:
-            step = self.drift_window_size - self.drift_window_overlap
-            if step <= 0:
-                raise ValueError("drift_window_overlap must be smaller than drift_window_size.")
-            return step
-
-        return self.drift_window_size
+        """Resolve drift step from sliding-window policy."""
+        if self.drift_window_sliding < 0:
+            raise ValueError("drift_window_sliding must be non-negative.")
+        return self.drift_window_sliding or self.drift_window_size
 
     def _expected_calibration_error(self, y_true: np.ndarray, y_prob: np.ndarray) -> float:
         """Compute ECE over confidence bins for probabilistic calibration quality."""
@@ -894,5 +876,6 @@ class ModelTrainer:
             return
         for key, value in metrics.items():
             self.tracker.log_metric(key, float(value), step=self.epochs)
+
 
 

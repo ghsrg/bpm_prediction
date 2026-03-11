@@ -1,10 +1,10 @@
 """Composition Root for MVP1 training pipeline."""
 
-# Відповідно до:
-# - AGENT_GUIDE.MD -> розділ 2 (Clean Architecture, MVP1 scope) і розділ 5 (послідовність потоків)
-# - ARCHITECTURE_RULES.md -> розділ 2-4 (Application orchestration через порти)
-# - DATA_FLOWS_MVP1.MD -> розділ 3.1 (Training Pipeline)
-# - EVF_MVP1.MD -> розділ 3 (Strict Temporal Split) і розділ 5 (MLflow tracking)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (Clean Architecture, MVP1 scope) С– СЂРѕР·РґС–Р» 5 (РїРѕСЃР»С–РґРѕРІРЅС–СЃС‚СЊ РїРѕС‚РѕРєС–РІ)
+# - ARCHITECTURE_RULES.MD -> СЂРѕР·РґС–Р» 2-4 (Application orchestration С‡РµСЂРµР· РїРѕСЂС‚Рё)
+# - DATA_FLOWS_MVP1.MD -> СЂРѕР·РґС–Р» 3.1 (Training Pipeline)
+# - EVF_MVP1.MD -> СЂРѕР·РґС–Р» 3 (Strict Temporal Split) С– СЂРѕР·РґС–Р» 5 (MLflow tracking)
 
 from __future__ import annotations
 
@@ -52,10 +52,10 @@ def load_yaml_config(config_arg: str) -> Dict[str, Any]:
     """Load runtime configuration from YAML file with recursive include support."""
     config_path = _resolve_config_path(config_arg)
 
-    # Завантажуємо конфіг із підтримкою include/deep-merge для модульних playbook-ів.
+    # Р—Р°РІР°РЅС‚Р°Р¶СѓС”РјРѕ РєРѕРЅС„С–Рі С–Р· РїС–РґС‚СЂРёРјРєРѕСЋ include/deep-merge РґР»СЏ РјРѕРґСѓР»СЊРЅРёС… playbook-С–РІ.
     loaded = load_yaml_with_includes(config_path)
 
-    # Нормалізуємо секцію experiment для майбутнього роутингу режимів (train/eval/infer).
+    # РќРѕСЂРјР°Р»С–Р·СѓС”РјРѕ СЃРµРєС†С–СЋ experiment РґР»СЏ РјР°Р№Р±СѓС‚РЅСЊРѕРіРѕ СЂРѕСѓС‚РёРЅРіСѓ СЂРµР¶РёРјС–РІ (train/eval/infer).
     experiment_cfg = loaded.get("experiment")
     if experiment_cfg is None:
         loaded["experiment"] = {"mode": "train"}
@@ -374,7 +374,7 @@ def main() -> None:
 
     if mode.startswith("eval_"):
         if not eval_load_checkpoint:
-            raise ValueError("Для eval режимів необхідно вказати шлях до чекпоінту в experiment.load_checkpoint")
+            raise ValueError("Р”Р»СЏ eval СЂРµР¶РёРјС–РІ РЅРµРѕР±С…С–РґРЅРѕ РІРєР°Р·Р°С‚Рё С€Р»СЏС… РґРѕ С‡РµРєРїРѕС–РЅС‚Сѓ РІ experiment.load_checkpoint")
         resolved_checkpoint_path = eval_load_checkpoint
 
     else:
@@ -421,7 +421,7 @@ def main() -> None:
     if not mode.startswith("eval_"):
         logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
 
-    # input_dim = базові one-hot + часові фічі + typed extra-фічі (узгоджено з graph_builder).
+    # input_dim = Р±Р°Р·РѕРІС– one-hot + С‡Р°СЃРѕРІС– С„С–С‡С– + typed extra-С„С–С‡С– (СѓР·РіРѕРґР¶РµРЅРѕ Р· graph_builder).
     hidden_dim = int(model_cfg.get("hidden_dim", 64))
     output_dim = len(activity_vocab)
     dropout = float(model_cfg.get("dropout", 0.2))
@@ -498,8 +498,6 @@ def main() -> None:
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
         "drift_window_sliding": int(experiment_cfg.get("drift_window_sliding", 0) or 0),
-        "drift_window_stride": int(experiment_cfg.get("drift_window_stride", 0)),
-        "drift_window_overlap": int(experiment_cfg.get("drift_window_overlap", 0)),
     }
 
     trainer = ModelTrainer(
@@ -527,3 +525,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

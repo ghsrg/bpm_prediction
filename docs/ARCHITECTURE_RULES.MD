@@ -1,4 +1,4 @@
-# ARCHITECTURE_RULES.md
+# ARCHITECTURE_RULES.MD
 
 ## 1) Purpose
 This document makes Clean Architecture + Hexagonal rules **enforceable** for `bpm_prediction`.
@@ -14,9 +14,9 @@ This document makes Clean Architecture + Hexagonal rules **enforceable** for `bp
 ---
 
 ## 3) Allowed dependency directions
-- `src/domain/` → standard libs, math/ML libs, internal domain modules only. MUST NOT import `application` or `adapters`.
-- `src/application/` → depends on `src/domain/` (entities/services) and standard libs. MUST NOT import `adapters`.
-- `src/adapters/` → infrastructure libraries + `src/application/ports/` + `src/domain/entities/`.
+- `src/domain/` в†’ standard libs, math/ML libs, internal domain modules only. MUST NOT import `application` or `adapters`.
+- `src/application/` в†’ depends on `src/domain/` (entities/services) and standard libs. MUST NOT import `adapters`.
+- `src/adapters/` в†’ infrastructure libraries + `src/application/ports/` + `src/domain/entities/`.
 - Dependency inversion is mandatory:
   - Application defines Ports (`src/application/ports/`).
   - Adapters implement those Ports.
@@ -59,3 +59,4 @@ Architecture constraints are validated by:
 - local Git hook: `.git/hooks/pre-commit`
 
 Merge policy: architecture violations block commit/CI.
+

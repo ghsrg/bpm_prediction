@@ -44,7 +44,7 @@ def _build_trace(ts: float, case_id: str) -> RawTrace:
     return RawTrace(case_id=case_id, process_version="v1", events=[event], trace_attributes={})
 
 
-def _trainer(*, window_size: int, sliding: int = 0, stride: int = 0, overlap: int = 0) -> ModelTrainer:
+def _trainer(*, window_size: int, sliding: int = 0) -> ModelTrainer:
     model = BaselineGCN(
         feature_layout=FeatureLayout(cat_features={}, cat_feature_names=[], num_dim=1),
         hidden_dim=8,
@@ -65,14 +65,12 @@ def _trainer(*, window_size: int, sliding: int = 0, stride: int = 0, overlap: in
             "experiment_config": {
                 "drift_window_size": window_size,
                 "drift_window_sliding": sliding,
-                "drift_window_stride": stride,
-                "drift_window_overlap": overlap,
             },
         },
     )
 
 
-def test_generate_drift_windows_keeps_short_tail_in_legacy_mode():
+def test_generate_drift_windows_uses_sliding_step_and_drops_short_tail():
     traces = [_build_trace(float(i), f"c{i}") for i in range(12)]
     trainer = _trainer(window_size=5, sliding=2)
 
@@ -80,9 +78,8 @@ def test_generate_drift_windows_keeps_short_tail_in_legacy_mode():
     starts = [start for start, _ in windows]
     lengths = [len(window) for _, window in windows]
 
-    # Legacy behavior: sliding is ignored, tumbling windows by size with short tail retained.
-    assert starts == [0, 5, 10]
-    assert lengths == [5, 5, 2]
+    assert starts == [0, 2, 4, 6]
+    assert lengths == [5, 5, 5, 5]
 
 
 def test_generate_drift_windows_fallback_to_tumbling_when_sliding_is_zero():
@@ -95,11 +92,13 @@ def test_generate_drift_windows_fallback_to_tumbling_when_sliding_is_zero():
     assert starts == [0, 5]
 
 
-def test_generate_drift_windows_uses_legacy_stride_when_configured():
-    traces = [_build_trace(float(i), f"c{i}") for i in range(10)]
-    trainer = _trainer(window_size=5, stride=2)
+def test_generate_drift_windows_drops_short_tail_for_tumbling():
+    traces = [_build_trace(float(i), f"c{i}") for i in range(12)]
+    trainer = _trainer(window_size=5, sliding=0)
 
     windows = trainer._generate_drift_windows(traces)
     starts = [start for start, _ in windows]
+    lengths = [len(window) for _, window in windows]
 
-    assert starts == [0, 2, 4, 6, 8]
+    assert starts == [0, 5]
+    assert lengths == [5, 5]

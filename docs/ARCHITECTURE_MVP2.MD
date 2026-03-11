@@ -194,7 +194,7 @@ sequenceDiagram
     end
     
     Model->>Evaluator: logits
-    Evaluator->>Evaluator: compute F1/Accuracy/ECE
+    Evaluator->>Evaluator: compute F1/Accuracy/ECE/OOS + slices
 ```
 
 ## 6.3 End-to-End Pipeline

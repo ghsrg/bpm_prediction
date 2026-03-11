@@ -94,7 +94,7 @@ flowchart LR
     C -.->|get_structure k| KG[IKnowledgeGraphPort]:::mvp2
     KG -.->|Mask or Fallback| C
     
-    C --> D[Evaluate macro_f1, ece]
+    C --> D[Evaluate macro_f1, ece, oos, slices]
     D --> E[Log start_ts, end_ts, indices]
 ```
 

@@ -77,10 +77,11 @@ class GraphTensorContract(TypedDict):
     batch: torch.LongTensor      # batch \in \mathbb{N}^{N}
     num_nodes: int               # N
     
-    # --- MVP2 (Опціональні поля нормативного графа G_struct) ---
-    structural_edge_index: Optional[torch.LongTensor] = None # \in \mathbb{N}^{2 \times E_struct}
+   # --- MVP2 (Опціональні поля нормативного графа G_struct) ---
+    structural_edge_index: Optional[torch.LongTensor] = None 
     structural_edge_weight: Optional[torch.FloatTensor] = None 
-    version_emb_idx: Optional[torch.LongTensor] = None       # Індекс \kappa для embedding шару
+    version_emb_idx: Optional[torch.LongTensor] = None       
+    allowed_target_mask: Optional[torch.BoolTensor] = None # Маска дозволених класів [B, C] для швидкого розрахунку OOS. oos_rate = (~contract.allowed_target_mask[torch.arange(B), y_hat]).float().mean()
 ```
 
 ### 3.2 Graph Tensor Attribute Cascade

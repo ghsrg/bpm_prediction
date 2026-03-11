@@ -253,7 +253,7 @@ z_fused = δ( W_f [h_σ ∥ c_σ] + b_f )
 flowchart TB
 
 subgraph Frameworks_and_Drivers["Frameworks & Drivers (Infrastructure)"]
-    CamundaDB[(MSSQL Camunda 7 DB)]
+    CamundaDB[(MSSQL Camunda 7 DB / BPMN)]
     XES[(XES Files Storage)]
     Neo4j[(Neo4j EPOKG Storage)]
     BusinessSys[(External Business Data System)]
@@ -278,7 +278,7 @@ end
 subgraph Ports["Application Ports (Interfaces)"]
     IDataReader[[IDataReader]]
     IBusinessDataReader[[IBusinessDataReader]]
-    IGraphStorage[[IGraphStorage]]
+    IGraphStorage[[IGraphStorage / IKnowledgeGraphPort]]
     ITracker[[ITracker]]
     IReportWriter[[IReportWriter]]
 end
@@ -305,31 +305,35 @@ subgraph Domain_Layer["Domain Core (Pure Logic / Math)"]
     ReliabilityPolicy[Reliability & Semaphore Policy]
 end
 
+%% Infrastructure to Adapters
 CamundaDB --> SQLReader
 XES --> XESReader
 BusinessSys --> BusinessAdapter
-Neo4j --> GraphGateway
 MLflow --> TrackerAdapter
 Reports --> ReportAdapter
 REST --> APIController
 CLI --> CLIController
 
-Camunda -->|Parses normative rules| TopologyExtractor
+%% Topology Extraction Flow (Knowledge Graph Population)
+CamundaDB -->|Parses BPMN rules| TopologyExtractor
+XES -->|Extracts empirical topology| TopologyExtractor
 TopologyExtractor -->|Saves topology| Neo4j
-Neo4j -->|Implements KG Port| Neo4jGateway[Neo4j Gateway]
-XES -->|Parses normative rules| TopologyExtractor
+Neo4j -->|Reads topology| GraphGateway
 
-SQLReader -.implements.-> IDataReader
-XESReader -.implements.-> IDataReader
-BusinessAdapter -.implements.-> IBusinessDataReader
-GraphGateway -.implements.-> IGraphStorage
-TrackerAdapter -.implements.-> ITracker
-ReportAdapter -.implements.-> IReportWriter
+%% Adapters implement Ports (Dependency Inversion)
+SQLReader -.->|implements| IDataReader
+XESReader -.->|implements| IDataReader
+BusinessAdapter -.->|implements| IBusinessDataReader
+GraphGateway -.->|implements| IGraphStorage
+TrackerAdapter -.->|implements| ITracker
+ReportAdapter -.->|implements| IReportWriter
 
+%% Controllers trigger Use Cases
 APIController --> InferUC
 CLIController --> TrainUC
 CLIController --> EvalUC
 
+%% Use Cases depend on Ports
 TrainUC --> IDataReader
 TrainUC --> IBusinessDataReader
 TrainUC --> IGraphStorage
@@ -352,7 +356,6 @@ RetrainUC --> TrainUC
 TrainUC --> RawTrace
 InferUC --> RawTrace
 
-
 %% Domain Data Flow
 RawTrace --> PrefixPolicy
 PrefixPolicy --> PrefixSlice
@@ -366,8 +369,6 @@ Prediction --> DriftDetector
 Prediction --> ReliabilityPolicy
 DriftDetector --> DriftSignal
 ```
-
----
 
 ## 17) Component Architecture (Hexagonal View)
 
@@ -660,15 +661,16 @@ stateDiagram-v2
 ```text
 bpm_prediction/
 ├── configs/                   # Усі конфігурації (YAML)
-│   ├── adapters/              # Налаштування для Data Ingestion
-│   │   └── xes_mapping.yaml   # Правила мапінгу колонок для XESAdapter
-│   ├── processes/             # Налаштування ознак (Feature Engineering) під датасет
-│   │   └── bpic_2012.yaml     # Які колонки категоріальні, які неперервні
-│   └── model_params.yaml      # Гіперпараметри нейромережі (lr, hidden_dim, батчі)
+│   ├── data/                  # Налаштування для Data Ingestion
+│   │   └── xes_mapping.yaml   # Правила мапінгу колонок для даних та шлях до файлу
+│   ├── experiments/           # Налаштування експерименту 
+│   │   └── bpic_2012.yaml     # Який режим і що запускаємо
+│   └── model/                 # Налаштування гіперпатраметрів моделі
+│       └── gatv2_baseline.yaml # Які колонки категоріальні, які неперервні
 ├── data/                      # Локальні дані (ОБОВ'ЯЗКОВО додати в .gitignore)
-│   ├── raw/                   # Сирі логи (.xes, .csv)
-│   ├── processed/             # Згенеровані графи та тензори (.pt)
-│   └── checkpoints/           # Локальні збереження ваг моделі
+│   ├── raw/                   # Сирі дані кешу
+│   └── processed/             # Згенеровані графи та тензори (.pt)
+├──  checkpoints/              # Локальні збереження ваг моделей
 ├── reports/                   # Згенеровані матриці помилок, графіки для дисертації
 ├── src/
 │   ├── domain/                # Чиста математика та бізнес-логіка (Без інфраструктури!)
@@ -682,7 +684,10 @@ bpm_prediction/
 │   │   ├── ingestion/         # xes_adapter.py
 │   │   └── tracking/          # mlflow_adapter.py
 │   └── cli.py                 # Точка входу (--mode train/evaluate)
-├── tests/                     # Unit та інтеграційні тести
+├── tests/                     # Pytest інтеграційні тести
+├── mlruns/                    # дані ML Flow
+├── tests/                     # Pytest інтеграційні тести
+├── tools/                     # службові скрипти
 # --- ДОКУМЕНТАЦІЯ ТА КОНТРАКТИ (Джерело правди) ---
 ├── README.MD                      # Головний опис проєкту
 ├── AGENT_GUIDE.MD                 # Головна інструкція для ШІ

@@ -18,6 +18,6 @@ class RawTrace(BaseModel):
     """Canonical trace with ordered normalized events."""
 
     case_id: str
-    process_version: str
+    process_version: str = "1"
     events: List[EventRecord]
     trace_attributes: Dict[str, Any]

@@ -18,6 +18,6 @@ class PrefixSlice(BaseModel):
     """Observed prefix σ_[1:k] with target event e_(k+1)."""
 
     case_id: str
-    process_version: str
+    process_version: str = "1"
     prefix_events: List[EventRecord]
     target_event: EventRecord

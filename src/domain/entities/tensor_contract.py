@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import torch
 
@@ -22,3 +22,7 @@ class GraphTensorContract(TypedDict):
     y: torch.LongTensor
     batch: torch.LongTensor
     num_nodes: int
+    structural_edge_index: NotRequired[torch.LongTensor | None]
+    structural_edge_weight: NotRequired[torch.FloatTensor | None]
+    version_emb_idx: NotRequired[torch.LongTensor | None]
+    allowed_target_mask: NotRequired[torch.BoolTensor | None]

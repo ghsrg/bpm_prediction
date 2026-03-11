@@ -45,20 +45,24 @@ def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypa
         lambda _cfg: [_trace("c1", "default", ["A", "B"])],
     )
 
-    selected: dict[str, str] = {}
+    selected: dict[str, object] = {}
 
-    def _fake_plot(self, version: str, save_path: str | None = None) -> None:
+    def _fake_plot(self, version: str, save_path: str | None = None, min_edge_freq: int = 1) -> None:
         _ = self
-        _ = save_path
+        selected["save_path"] = save_path
         selected["version"] = version
+        selected["min_edge_freq"] = min_edge_freq
 
     monkeypatch.setattr("src.application.services.topology_extractor_service.TopologyExtractorService.plot_topology", _fake_plot)
 
-    rc = visualize_topology.main(["--config", "dummy.yaml", "--version", "1", "--out", str(tmp_path / "x.png")])
+    rc = visualize_topology.main(
+        ["--config", "dummy.yaml", "--version", "1", "--out", str(tmp_path / "x.png"), "--min-freq", "7"]
+    )
     out = capsys.readouterr().out
 
     assert rc == 0
     assert selected["version"] == "default"
+    assert selected["min_edge_freq"] == 7
     assert "Requested version '1' not found" in out
 
 
@@ -74,4 +78,3 @@ def test_visualize_topology_raises_with_available_versions_for_multi_version_dat
 
     with pytest.raises(ValueError, match=r"Version 'Z' not found\. Available versions: \['A', 'B'\]"):
         visualize_topology.main(["--config", "dummy.yaml", "--version", "Z", "--out", str(tmp_path / "x.png")])
-

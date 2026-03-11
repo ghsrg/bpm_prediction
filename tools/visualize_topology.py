@@ -85,6 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_group.add_argument("--data", help="Path to source XES file.")
     parser.add_argument("--version", default="1", help="Process version (kappa) to render. Default: 1")
     parser.add_argument("--out", default=None, help="Optional output PNG path. If omitted, opens interactive window.")
+    parser.add_argument(
+        "--min-freq",
+        type=int,
+        default=1,
+        help="Minimum edge frequency to keep in DFG (filters rare transitions). Default: 1",
+    )
 
     args = parser.parse_args(argv)
 
@@ -99,7 +105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     service = TopologyExtractorService()
     service.fit(train_traces)
     selected_version = _resolve_plot_version(str(args.version), service.available_versions)
-    service.plot_topology(version=selected_version, save_path=args.out)
+    service.plot_topology(version=selected_version, save_path=args.out, min_edge_freq=args.min_freq)
 
     return 0
 

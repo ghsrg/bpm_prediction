@@ -376,6 +376,119 @@ DriftDetector --> DriftSignal
 flowchart TB
 
 subgraph Frameworks["Frameworks & Drivers"]
+    CamundaDB[("MSSQL Camunda 7 DB / BPMN")]
+    XESFiles[("XES Storage")]
+    Neo4j[("Neo4j EPOKG")]
+    MLflow[("MLflow")]
+    Reports[("Reports Storage")]
+    REST[("REST API")]
+    CLI[("CLI")]
+end
+
+subgraph Adapters["Interface Adapters (Ports & Adapters)"]
+    SQLAdapter[Camunda SQL Adapter]
+    XESAdapter[XES Reader Adapter]
+    TopologyExtractor[TopologyExtractorService]
+    GraphAdapter[Neo4j Adapter]
+    TrackerAdapter[MLflow Adapter]
+    ReportAdapter[Report Adapter]
+    APIController[REST Controller]
+    CLIController[CLI Controller]
+end
+
+subgraph Ports["Application Ports (Interfaces)"]
+    IDataReader[[IDataReader]]
+    IGraphStorage[[IGraphStorage]]
+    ITracker[[ITracker]]
+    IReportWriter[[IReportWriter]]
+end
+
+subgraph Application["Application / Use Cases"]
+    TrainUC[Train Use Case]
+    InferUC[Inference Use Case]
+    EvalUC[Evaluation Use Case]
+    RetrainUC[Retraining Use Case]
+end
+
+subgraph Domain["Domain Core (Pure Logic)"]
+    EventNormalizer[EventLog Normalizer]
+    GraphBuilder[EPOKG Graph Builder]
+    TensorAdapter[Tensor Adapter]
+    AgentCritic[Agent-Critic GNN]
+    DriftDetector[Drift Detector]
+    ReliabilityPolicy[Reliability Policy]
+end
+
+%% Infrastructure to Adapters
+CamundaDB --> SQLAdapter
+XESFiles --> XESAdapter
+Neo4j --> GraphAdapter
+MLflow --> TrackerAdapter
+Reports --> ReportAdapter
+REST --> APIController
+CLI --> CLIController
+
+%% Topology Flow (Knowledge Graph Population)
+CamundaDB -->|Parses BPMN rules| TopologyExtractor
+XESFiles -->|Extracts empirical topology| TopologyExtractor
+TopologyExtractor -->|Saves topology| Neo4j
+
+%% Adapters implement Ports (Dependency Inversion)
+SQLAdapter -.->|implements| IDataReader
+XESAdapter -.->|implements| IDataReader
+GraphAdapter -.->|implements| IGraphStorage
+TrackerAdapter -.->|implements| ITracker
+ReportAdapter -.->|implements| IReportWriter
+
+%% Controllers trigger Use Cases
+APIController --> InferUC
+CLIController --> TrainUC
+CLIController --> EvalUC
+
+%% Use Cases depend on Ports
+TrainUC --> IDataReader
+TrainUC --> IGraphStorage
+TrainUC --> ITracker
+
+InferUC --> IDataReader
+InferUC --> IGraphStorage
+InferUC --> ITracker
+
+EvalUC --> IDataReader
+EvalUC --> ITracker
+EvalUC --> IReportWriter
+
+RetrainUC --> ITracker
+RetrainUC --> TrainUC
+
+%% Flow Application -> Domain
+TrainUC --> EventNormalizer
+TrainUC --> GraphBuilder
+TrainUC --> TensorAdapter
+TrainUC --> AgentCritic
+
+InferUC --> EventNormalizer
+InferUC --> GraphBuilder
+InferUC --> TensorAdapter
+InferUC --> AgentCritic
+InferUC --> DriftDetector
+InferUC --> ReliabilityPolicy
+
+EvalUC --> AgentCritic
+EvalUC --> DriftDetector
+
+%% Domain Internal Flow
+EventNormalizer --> GraphBuilder
+GraphBuilder --> TensorAdapter
+TensorAdapter --> AgentCritic
+AgentCritic --> DriftDetector
+AgentCritic --> ReliabilityPolicy
+```
+
+```mermaid
+flowchart TB
+
+subgraph Frameworks["Frameworks & Drivers"]
     CamundaDB[(MSSQL Camunda 7 DB)]
     XESFiles[(XES Storage)]
     Neo4j[(Neo4j EPOKG)]

@@ -99,6 +99,8 @@ class ModelTrainer:
         self._topology_nodes: List[int] = []
         self._topology_edges: List[int] = []
         self._prefix_lengths: List[int] = []
+        self._version_to_idx: Dict[str, int] = {}
+        self._idx_to_version: Dict[int, str] = {}
         self._logged_peak_vram = False
 
     def run(self) -> Dict[str, Any]:
@@ -489,19 +491,26 @@ class ModelTrainer:
                 num_nodes = int(contract["num_nodes"])
                 num_edges = int(contract["edge_index"].shape[1])
                 prefix_length = int(len(prefix_slice.prefix_events))
+                version_label = str(prefix_slice.process_version)
+                version_idx = self._version_to_idx.setdefault(version_label, len(self._version_to_idx))
+                self._idx_to_version[version_idx] = version_label
                 self._topology_nodes.append(num_nodes)
                 self._topology_edges.append(num_edges)
                 self._prefix_lengths.append(prefix_length)
-                graphs.append(
-                    Data(
-                        x_cat=contract["x_cat"],
-                        x_num=contract["x_num"],
-                        edge_index=contract["edge_index"],
-                        edge_type=contract["edge_type"],
-                        y=contract["y"],
-                        num_nodes=num_nodes,
-                    )
-                )
+                payload = {
+                    "x_cat": contract["x_cat"],
+                    "x_num": contract["x_num"],
+                    "edge_index": contract["edge_index"],
+                    "edge_type": contract["edge_type"],
+                    "y": contract["y"],
+                    "num_nodes": num_nodes,
+                    "prefix_len": torch.tensor([prefix_length], dtype=torch.long),
+                    "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
+                }
+                allowed_mask = contract.get("allowed_target_mask")
+                if isinstance(allowed_mask, torch.Tensor):
+                    payload["allowed_target_mask"] = allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
+                graphs.append(Data(**payload))
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
 
     def _run_epoch(self, loader: Iterable[Data], optimizer: Optional[Adam], training: bool) -> Tuple[float, float, float, float]:
@@ -553,6 +562,9 @@ class ModelTrainer:
         all_true: List[int] = []
         all_pred: List[int] = []
         all_probs: List[np.ndarray] = []
+        all_oos_flags: List[float] = []
+        all_lengths: List[int] = []
+        all_versions: List[str] = []
         inference_graphs = 0
         inference_started = perf_counter()
         first_batch_debug_logged = False
@@ -569,10 +581,30 @@ class ModelTrainer:
                     torch.cuda.synchronize()
                 probs = torch.softmax(logits, dim=1)
                 targets = data.y.view(-1).long().cpu().numpy()
-                preds = torch.argmax(probs, dim=1).cpu().numpy()
+                pred_tensor = torch.argmax(probs, dim=1).long()
+                preds = pred_tensor.cpu().numpy()
                 if self.mode == "eval_drift" and not first_batch_debug_logged:
                     logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", targets[:5].tolist(), preds[:5].tolist())
                     first_batch_debug_logged = True
+
+                allowed_mask = contract.get("allowed_target_mask")
+                if isinstance(allowed_mask, torch.Tensor):
+                    if allowed_mask.dim() == 1:
+                        allowed_mask = allowed_mask.unsqueeze(0)
+                    oos_flags = self._compute_oos_flags(pred_tensor, allowed_mask)
+                    all_oos_flags.extend(oos_flags.detach().cpu().tolist())
+
+                if hasattr(data, "prefix_len"):
+                    all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
+                else:
+                    graph_lengths = torch.bincount(data.batch.view(-1).long(), minlength=pred_tensor.shape[0])
+                    all_lengths.extend(graph_lengths.long().cpu().tolist())
+
+                if hasattr(data, "process_version_idx"):
+                    version_indices = data.process_version_idx.view(-1).long().cpu().tolist()
+                    for idx in version_indices:
+                        all_versions.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
+
                 all_true.extend(targets.tolist())
                 all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
@@ -589,6 +621,7 @@ class ModelTrainer:
                 "test_top3_accuracy": 0.0,
                 "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
+                "test_oos": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
                 "test_inference_time_ms_per_graph": inference_ms_per_graph,
@@ -604,16 +637,27 @@ class ModelTrainer:
         else:
             top3_accuracy = float(top_k_accuracy_score(y_true, y_prob, k=top_k, labels=list(range(num_classes))))
 
-        return {
+        metrics = {
             "test_macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_weighted_f1": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
             "test_accuracy": float(accuracy_score(y_true, y_pred)),
             "test_top3_accuracy": top3_accuracy,
             "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
+            "test_oos": float(np.mean(np.asarray(all_oos_flags, dtype=np.float32))) if all_oos_flags else 0.0,
             "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
         }
+        metrics.update(
+            self._compute_sliced_metrics(
+                y_true=y_true,
+                y_pred=y_pred,
+                oos_flags=np.asarray(all_oos_flags, dtype=np.float32) if all_oos_flags else None,
+                prefix_lengths=np.asarray(all_lengths, dtype=np.int64) if all_lengths else None,
+                versions=all_versions if all_versions else None,
+            )
+        )
+        return metrics
 
     def _evaluate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Dict[str, float]]:
         """Run fixed-size chronological window evaluation for concept-drift tracking."""
@@ -689,6 +733,81 @@ class ModelTrainer:
             raise ValueError("drift_window_sliding must be non-negative.")
         return self.drift_window_sliding or self.drift_window_size
 
+    @staticmethod
+    def _compute_oos_flags(y_hat: torch.Tensor, allowed_target_mask: torch.Tensor) -> torch.Tensor:
+        """Return per-sample OOS flags (1.0 when predicted class is not allowed)."""
+        if y_hat.dim() != 1:
+            y_hat = y_hat.view(-1)
+        if allowed_target_mask.dim() != 2:
+            raise ValueError("allowed_target_mask must have shape [B, C].")
+        batch_size = y_hat.shape[0]
+        if allowed_target_mask.shape[0] != batch_size:
+            raise ValueError("allowed_target_mask batch dimension must match predictions.")
+        row_ids = torch.arange(batch_size, device=y_hat.device)
+        return (~allowed_target_mask[row_ids, y_hat]).float()
+
+    @staticmethod
+    def _length_bin(length: int) -> str:
+        """Map prefix length to configured slicing bin."""
+        if 1 <= length <= 5:
+            return "len_1_5"
+        if 6 <= length <= 10:
+            return "len_6_10"
+        if 11 <= length <= 20:
+            return "len_11_20"
+        return "len_21_plus"
+
+    @staticmethod
+    def _safe_key_suffix(text: str) -> str:
+        """Normalize free-form labels into metric-safe suffixes."""
+        return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(text))
+
+    @classmethod
+    def _compute_sliced_metrics(
+        cls,
+        *,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        oos_flags: Optional[np.ndarray],
+        prefix_lengths: Optional[np.ndarray],
+        versions: Optional[List[str]],
+    ) -> Dict[str, float]:
+        """Compute slicing metrics by prefix length bins and process versions."""
+        metrics: Dict[str, float] = {}
+        sample_count = int(y_true.shape[0])
+
+        if prefix_lengths is not None and int(prefix_lengths.shape[0]) == sample_count:
+            length_bins = ["len_1_5", "len_6_10", "len_11_20", "len_21_plus"]
+            grouped: Dict[str, List[int]] = {name: [] for name in length_bins}
+            for idx, raw_len in enumerate(prefix_lengths.tolist()):
+                grouped[cls._length_bin(int(raw_len))].append(idx)
+
+            for bin_name, idxs in grouped.items():
+                if not idxs:
+                    continue
+                bin_true = y_true[idxs]
+                bin_pred = y_pred[idxs]
+                metrics[f"test_accuracy_{bin_name}"] = float(accuracy_score(bin_true, bin_pred))
+                metrics[f"test_f1_{bin_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
+                if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
+                    metrics[f"test_oos_{bin_name}"] = float(np.mean(oos_flags[idxs]))
+
+        if versions is not None and len(versions) == sample_count:
+            grouped_idx: Dict[str, List[int]] = {}
+            for idx, version in enumerate(versions):
+                grouped_idx.setdefault(str(version), []).append(idx)
+
+            for version, idxs in grouped_idx.items():
+                ver_true = y_true[idxs]
+                ver_pred = y_pred[idxs]
+                suffix = cls._safe_key_suffix(version)
+                metrics[f"test_accuracy_{suffix}"] = float(accuracy_score(ver_true, ver_pred))
+                metrics[f"test_f1_{suffix}"] = float(f1_score(ver_true, ver_pred, average="macro", zero_division=0))
+                if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
+                    metrics[f"test_oos_{suffix}"] = float(np.mean(oos_flags[idxs]))
+
+        return metrics
+
     def _expected_calibration_error(self, y_true: np.ndarray, y_prob: np.ndarray) -> float:
         """Compute ECE over confidence bins for probabilistic calibration quality."""
         confidences = np.max(y_prob, axis=1)
@@ -717,7 +836,7 @@ class ModelTrainer:
         batch_tensor = data.batch if hasattr(data, "batch") else torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
         if batch_tensor.numel() != num_nodes:
             batch_tensor = torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
-        return GraphTensorContract(
+        contract = GraphTensorContract(
             x_cat=data.x_cat,
             x_num=data.x_num,
             edge_index=data.edge_index,
@@ -726,6 +845,11 @@ class ModelTrainer:
             batch=batch_tensor,
             num_nodes=num_nodes,
         )
+        if hasattr(data, "allowed_target_mask"):
+            mask = data.allowed_target_mask
+            if isinstance(mask, torch.Tensor):
+                contract["allowed_target_mask"] = mask.bool()
+        return contract
 
     def _log_model_and_system_context(self) -> None:
         """Log model size and runtime memory/device metadata via tracker port."""

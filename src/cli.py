@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 import logging
 import random
-from typing import Any, Dict, List, Sequence, Tuple, Type
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -24,9 +24,7 @@ from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.feature_config import parse_feature_configs
-from src.domain.models.base_gnn import BaseGNN
-from src.domain.models.baseline_gat import BaselineGATv2
-from src.domain.models.baseline_gcn import BaselineGCN
+from src.domain.models.factory import create_model
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
@@ -428,22 +426,16 @@ def main() -> None:
     pooling_strategy = str(model_cfg.get("pooling_strategy", "global_mean")).strip().lower()
     feature_layout = prepared["feature_layout"]
 
-    model_registry: Dict[str, Type[BaseGNN]] = {
-        "BaselineGCN": BaselineGCN,
-        "BaselineGATv2": BaselineGATv2,
-    }
-    model_type = str(model_cfg.get("type", "BaselineGCN"))
-    model_cls = model_registry.get(model_type)
-    if model_cls is None:
-        raise ValueError(f"Unsupported model.type '{model_type}'. Available: {list(model_registry)}")
-
-    model = model_cls(
+    model_type = str(model_cfg.get("type", model_cfg.get("model_type", "BaselineGCN")))
+    model = create_model(
+        model_type=model_type,
         feature_layout=feature_layout,
         hidden_dim=hidden_dim,
         output_dim=output_dim,
         dropout=dropout,
         pooling_strategy=pooling_strategy,
     )
+    logger.info("Initialized model via factory: type=%s", model_type)
 
     device = torch.device(str(training_cfg.get("device", "cpu")))
     class_weights = _compute_class_weights(prepared["train_dataset"], output_dim, device)

@@ -101,6 +101,8 @@ class ModelTrainer:
         self._prefix_lengths: List[int] = []
         self._version_to_idx: Dict[str, int] = {}
         self._idx_to_version: Dict[int, str] = {}
+        self._logged_mask_debug = False
+        self._logged_oos_math = False
         self._logged_peak_vram = False
 
     def run(self) -> Dict[str, Any]:
@@ -574,9 +576,11 @@ class ModelTrainer:
         avg_loss = total_loss / batches
         return avg_loss, macro_f1, weighted_f1, duration
 
-    def _evaluate_test(self, loader: Iterable[Data]) -> Dict[str, float]:
+    def _evaluate_test(self, loader: Iterable[Data]) -> Dict[str, Any]:
         """Compute final test metrics after training is complete."""
         self.model.eval()
+        self._logged_mask_debug = False
+        self._logged_oos_math = False
         all_true: List[int] = []
         all_pred: List[int] = []
         all_probs: List[np.ndarray] = []
@@ -609,6 +613,46 @@ class ModelTrainer:
                 if isinstance(allowed_mask, torch.Tensor):
                     if allowed_mask.dim() == 1:
                         allowed_mask = allowed_mask.unsqueeze(0)
+                    if not self._logged_mask_debug:
+                        all_true_mask = bool(allowed_mask.all().item())
+                        logger.info(
+                            "DEBUG MASK: shape=%s, All True? %s",
+                            tuple(allowed_mask.shape),
+                            all_true_mask,
+                        )
+                        self._logged_mask_debug = True
+                    if not self._logged_oos_math:
+                        logger.info("--- OOS MATH DEBUG ---")
+                        logger.info(
+                            "y_hat shape: %s, min=%s, max=%s",
+                            tuple(pred_tensor.shape),
+                            int(pred_tensor.min().item()) if pred_tensor.numel() > 0 else None,
+                            int(pred_tensor.max().item()) if pred_tensor.numel() > 0 else None,
+                        )
+                        logger.info(
+                            "mask shape: %s, dtype=%s",
+                            tuple(allowed_mask.shape),
+                            allowed_mask.dtype,
+                        )
+                        try:
+                            batch_size = pred_tensor.size(0)
+                            row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                            extracted_flags = allowed_mask[row_ids, pred_tensor]
+                            logger.info(
+                                "extracted_flags (allowed_target_mask[B, y_hat]): shape=%s, trues=%d/%d",
+                                tuple(extracted_flags.shape),
+                                int(extracted_flags.sum().item()),
+                                batch_size,
+                            )
+                            oos_math_flags = (~extracted_flags).float()
+                            logger.info(
+                                "oos_flags (~extracted_flags): trues=%.0f/%d",
+                                float(oos_math_flags.sum().item()),
+                                batch_size,
+                            )
+                        except Exception as exc:
+                            logger.error("Error during OOS indexing: %s", exc)
+                        self._logged_oos_math = True
                     oos_flags = self._compute_oos_flags(pred_tensor, allowed_mask)
                     all_oos_flags.extend(oos_flags.detach().cpu().tolist())
 
@@ -639,7 +683,7 @@ class ModelTrainer:
                 "test_top3_accuracy": 0.0,
                 "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
-                "test_oos": 0.0,
+                "test_oos": None,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
                 "test_inference_time_ms_per_graph": inference_ms_per_graph,
@@ -661,7 +705,7 @@ class ModelTrainer:
             "test_accuracy": float(accuracy_score(y_true, y_pred)),
             "test_top3_accuracy": top3_accuracy,
             "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
-            "test_oos": float(np.mean(np.asarray(all_oos_flags, dtype=np.float32))) if all_oos_flags else 0.0,
+            "test_oos": float(np.mean(np.asarray(all_oos_flags, dtype=np.float32))) if all_oos_flags else None,
             "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
@@ -982,11 +1026,13 @@ class ModelTrainer:
         for key, value in metrics.items():
             self.tracker.log_metric(key, float(value), step=epoch)
 
-    def _log_test_metrics(self, metrics: Dict[str, float]) -> None:
+    def _log_test_metrics(self, metrics: Dict[str, Any]) -> None:
         """Log final test metrics via tracker port."""
         if self.tracker is None:
             return
         for key, value in metrics.items():
+            if value is None:
+                continue
             self.tracker.log_metric(key, float(value), step=self.epochs)
 
 

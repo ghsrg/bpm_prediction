@@ -30,6 +30,17 @@ class TopologyExtractorService(IKnowledgeGraphPort):
         """Alias for logs-based extraction to keep trainer/tooling API concise."""
         self.extract_from_logs(train_traces)
 
+    def _event_label(self, event: Any) -> str:
+        """Resolve stable activity label for topology edges (prefer semantic name)."""
+        extra = getattr(event, "extra", {}) or {}
+        if isinstance(extra, dict):
+            for key in ("concept:name", "activity"):
+                value = extra.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+        activity_id = getattr(event, "activity_id", "")
+        return str(activity_id).strip()
+
     def extract_from_logs(self, train_traces: List[RawTrace]) -> None:
         """Extract version-scoped unique transitions from train traces."""
         by_version: Dict[str, Set[Tuple[str, str]]] = {}
@@ -43,8 +54,8 @@ class TopologyExtractorService(IKnowledgeGraphPort):
             version_key = trace.process_version if trace.process_version else "1"
             version_key = str(version_key).strip() or "1"
 
-            first_activity = trace.events[0].activity_id
-            last_activity = trace.events[-1].activity_id
+            first_activity = self._event_label(trace.events[0])
+            last_activity = self._event_label(trace.events[-1])
             version_starts = start_by_version.setdefault(version_key, {})
             version_ends = end_by_version.setdefault(version_key, {})
             version_starts[first_activity] = version_starts.get(first_activity, 0) + 1
@@ -55,8 +66,8 @@ class TopologyExtractorService(IKnowledgeGraphPort):
             edges = by_version.setdefault(version_key, set())
             edge_freq = freq_by_version.setdefault(version_key, {})
             for idx in range(len(trace.events) - 1):
-                src = trace.events[idx].activity_id
-                dst = trace.events[idx + 1].activity_id
+                src = self._event_label(trace.events[idx])
+                dst = self._event_label(trace.events[idx + 1])
                 edge = (src, dst)
                 edges.add(edge)
                 edge_freq[edge] = edge_freq.get(edge, 0) + 1

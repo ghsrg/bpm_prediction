@@ -32,14 +32,22 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         num_classes = len(activity_vocab)
         allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
 
-        last_activity = str(prefix.prefix_events[-1].activity_id)
+        last_activity = str(
+            self.feature_encoder.resolve_event_feature(
+                event_extra=prefix.prefix_events[-1].extra,
+                feature_name=target_feature,
+                default=prefix.prefix_events[-1].activity_id,
+            )
+        )
         for src, dst in dto.allowed_edges:
             if str(src) != last_activity:
                 continue
-            dst_idx = activity_vocab.get(str(dst))
+            dst_token = str(dst)
+            dst_idx = activity_vocab.get(dst_token)
+            if dst_idx is None:
+                dst_idx = activity_vocab.get(dst_token.strip())
             if dst_idx is not None:
                 allowed_mask[dst_idx] = True
 
         contract["allowed_target_mask"] = allowed_mask
         return contract
-

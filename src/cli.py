@@ -25,10 +25,11 @@ from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.feature_config import parse_feature_configs
 from src.domain.models.factory import create_model
-from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
+from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
 from src.domain.services.schema_resolver import SchemaResolver
+from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.infrastructure.config.yaml_loader import load_yaml_with_includes
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
@@ -197,7 +198,7 @@ def _strict_temporal_split(
 def _build_graph_dataset(
     traces: Sequence[RawTrace],
     prefix_policy: PrefixPolicy,
-    graph_builder: BaselineGraphBuilder,
+    graph_builder: DynamicGraphBuilder,
     *,
     show_progress: bool,
     tqdm_disable: bool,
@@ -282,9 +283,11 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     reverse_activity_vocab = {idx: key for key, idx in activity_vocab.items()}
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
-    normalization_stats = _build_normalization_stats()
-    graph_builder = BaselineGraphBuilder(feature_encoder=feature_encoder)
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
+    topology_service = TopologyExtractorService()
+    topology_service.extract_from_logs(train_traces)
+    normalization_stats = _build_normalization_stats()
+    graph_builder = DynamicGraphBuilder(feature_encoder=feature_encoder, knowledge_port=topology_service)
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
 

@@ -1,17 +1,16 @@
 include:
   - "../data/bpi2012_Challenge.yaml"
-  - "../model/gatv2_baseline.yaml"
+  - "../model/gatv2_eopkg.yaml"
 
 experiment:
-  project: "bpm_prediction_mvp1"
-  name: "MVP1_drift1000-200"
+  project: "bpm_prediction_mvp2"
+  name: "MVP2_drift1000-200"
   mode: "eval_drift"
   fraction: 1
   split_strategy: "temporal"
   train_ratio: 0.4
   split_ratio: [0.7, 0.2, 0.1]
-  load_checkpoint: "checkpoints/MVP1_Baseline_train_05_bpi2012_GATv2_best.pth"
-
+  load_checkpoint: "checkpoints/MVP2_EOPKG_train_05_bpi2012_GATv2_best.pth"
   drift_window_size: 1000
   drift_window_sliding: 200
 

@@ -382,7 +382,25 @@ class ModelTrainer:
 
     def _restore_from_checkpoint(self, checkpoint: Dict[str, Any], require_encoder_state: bool) -> None:
         """Restore model and feature encoder states from checkpoint."""
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        try:
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+        except RuntimeError as exc:
+            logger.error(
+                "Checkpoint architecture mismatch while loading model state. "
+                "checkpoint_path=%s model_class=%s error=%s",
+                self.checkpoint_path,
+                self.model.__class__.__name__,
+                exc,
+            )
+            raise ValueError(
+                "Checkpoint architecture mismatch! You are trying to load a checkpoint that belongs to a "
+                f"different model architecture.\n"
+                f"Current model: {self.model.__class__.__name__}\n"
+                f"Checkpoint: {self.checkpoint_path}\n"
+                f"Details: {exc}\n"
+                "FIX: Either change 'experiment.name' in config, set 'training.retrain: true', "
+                "or manually delete the old checkpoint."
+            ) from exc
         self._restore_encoder_state(checkpoint, require_encoder_state=require_encoder_state)
 
     def _restore_encoder_state(self, checkpoint: Dict[str, Any], require_encoder_state: bool) -> None:

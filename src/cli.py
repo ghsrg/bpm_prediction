@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 import logging
 import random
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -63,6 +63,53 @@ def load_yaml_config(config_arg: str) -> Dict[str, Any]:
         raise ValueError("Config key 'experiment' must be a mapping if provided.")
 
     return loaded
+
+
+def _flatten_config_dict(config: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """Flatten nested config dict into dotted-key mapping."""
+    flat: Dict[str, Any] = {}
+    for key, value in config.items():
+        full_key = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            flat.update(_flatten_config_dict(value, prefix=full_key))
+            continue
+        if isinstance(value, (list, tuple, set)):
+            flat[full_key] = ",".join(str(item) for item in value)
+            continue
+        flat[full_key] = "None" if value is None else value
+    return flat
+
+
+def _truncate_param_value(value: Any, max_len: int = 480) -> Any:
+    """Ensure MLflow param value stays within safe length limits."""
+    if isinstance(value, (int, float, bool)) and not isinstance(value, bool):
+        return value
+    text = str(value)
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len]}...[truncated]"
+
+
+def _iter_mlflow_param_blocks(config: Dict[str, Any]) -> Iterable[tuple[str, Any]]:
+    """Yield only config blocks that should be logged as params."""
+    if "seed" in config:
+        yield ("seed", config["seed"])
+    for section in ("experiment", "data", "model", "training"):
+        if section in config:
+            yield (section, config[section])
+
+
+def _build_mlflow_params(config: Dict[str, Any], max_value_len: int = 480) -> Dict[str, Any]:
+    """Build sanitized flattened params subset for MLflow logging."""
+    params: Dict[str, Any] = {}
+    for prefix, payload in _iter_mlflow_param_blocks(config):
+        if isinstance(payload, dict):
+            flat = _flatten_config_dict(payload, prefix=prefix)
+            for key, value in flat.items():
+                params[key] = _truncate_param_value(value, max_len=max_value_len)
+        else:
+            params[prefix] = _truncate_param_value(payload, max_len=max_value_len)
+    return params
 
 
 def set_seed(seed: int) -> None:
@@ -449,6 +496,9 @@ def main() -> None:
             run_name=full_run_name,
             tracking_uri=tracking_cfg.get("uri"),
         )
+        mlflow_params = _build_mlflow_params(config, max_value_len=480)
+        tracker.log_params(mlflow_params)
+        logger.info("Logged MLflow params from selected blocks: %d entries.", len(mlflow_params))
 
     trainer_experiment_cfg = dict(experiment_cfg)
     trainer_experiment_cfg.update(prepared.get("experiment_split_config", {}))

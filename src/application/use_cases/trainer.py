@@ -957,36 +957,6 @@ class ModelTrainer:
             for tag_key, tag_value in custom_tags.items():
                 self.tracker.log_tag(str(tag_key), tag_value)
 
-        self.tracker.log_param("data", data_cfg)
-        self.tracker.log_param(
-            "model",
-            {
-                "type": model_cfg.get("type", self.model.__class__.__name__),
-                "hidden_dim": model_cfg.get("hidden_dim"),
-                "dropout": model_cfg.get("dropout"),
-                "graph_strategy": model_cfg.get("graph_strategy", "sequential_prefix"),
-                "pooling_strategy": model_cfg.get("pooling_strategy", "global_mean"),
-            },
-        )
-        self.tracker.log_param(
-            "training",
-            {
-                "batch_size": self.batch_size,
-                "epochs": self.epochs,
-                "learning_rate": self.learning_rate,
-                "loss_function": self.loss_function,
-                "patience": self.patience,
-                "delta": self.delta,
-                "retrain": self.retrain,
-                "checkpoint_dir": self.checkpoint_dir,
-                "ece_bins": self.num_ece_bins,
-                "class_weight_cap": self.class_weight_cap,
-                "mode": self.mode,
-                "drift_window_size": self.drift_window_size,
-                "drift_window_sliding": self.drift_window_sliding,
-            },
-        )
-
     def _log_epoch_metrics(self, epoch: int, metrics: Dict[str, float]) -> None:
         """Log train/validation metrics for one epoch via tracker port."""
         if self.tracker is None:

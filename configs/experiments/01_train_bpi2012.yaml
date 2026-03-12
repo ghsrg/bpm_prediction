@@ -4,7 +4,7 @@ include:
 
 experiment:
   project: "bpm_prediction_mvp1"
-  name: "MVP1_Baseline_train_1"
+  name: "MVP1_Baseline_train_05"
   mode: "train"
   fraction: 1
   split_strategy: "temporal"

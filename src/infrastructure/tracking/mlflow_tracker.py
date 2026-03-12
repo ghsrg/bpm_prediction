@@ -8,11 +8,16 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Tuple
+import logging
 import re
 
 import mlflow
+import mlflow.exceptions
 
 from src.application.ports.tracker_port import ITracker
+
+
+logger = logging.getLogger(__name__)
 
 
 class MLflowTracker(ITracker):
@@ -34,7 +39,25 @@ class MLflowTracker(ITracker):
     def log_param(self, key: str, value: Any) -> None:
         """Log param; nested dictionaries are flattened into dotted keys."""
         for flat_key, flat_value in self._flatten_params(prefix=key, value=value):
-            mlflow.log_param(self._sanitize_key(flat_key), flat_value)
+            safe_key = self._sanitize_key(flat_key)
+            try:
+                mlflow.log_param(safe_key, flat_value)
+            except mlflow.exceptions.MlflowException as exc:
+                logger.warning("MLflow param collision for %s: %s", safe_key, exc)
+
+    def log_params(self, params: Dict[str, Any]) -> None:
+        """Log already-flattened params in MLflow-friendly batches."""
+        if not params:
+            return
+        sanitized: Dict[str, Any] = {
+            self._sanitize_key(key): value
+            for key, value in params.items()
+        }
+        for safe_key, safe_value in sanitized.items():
+            try:
+                mlflow.log_param(safe_key, safe_value)
+            except mlflow.exceptions.MlflowException as exc:
+                logger.warning("MLflow param collision for %s: %s", safe_key, exc)
 
     def log_tag(self, key: str, value: Any) -> None:
         """Log run tag into MLflow."""

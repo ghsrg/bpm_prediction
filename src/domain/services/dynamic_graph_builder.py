@@ -31,6 +31,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
         num_classes = len(activity_vocab)
         allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
+        structural_src: list[int] = []
+        structural_dst: list[int] = []
+        structural_weight: list[float] = []
+        edge_stats = dto.edge_statistics or {}
 
         last_activity = str(
             self.feature_encoder.resolve_event_feature(
@@ -40,6 +44,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
         )
         for src, dst in dto.allowed_edges:
+            src_token = str(src).strip()
+            dst_token = str(dst).strip()
+            src_idx = activity_vocab.get(src_token)
+            dst_idx = activity_vocab.get(dst_token)
+            if src_idx is not None and dst_idx is not None:
+                structural_src.append(int(src_idx))
+                structural_dst.append(int(dst_idx))
+                stats = edge_stats.get((src, dst), {})
+                structural_weight.append(float(stats.get("count", 1.0)))
+
             if str(src) != last_activity:
                 continue
             dst_token = str(dst)
@@ -49,5 +63,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             if dst_idx is not None:
                 allowed_mask[dst_idx] = True
 
+        if structural_src:
+            contract["structural_edge_index"] = torch.tensor([structural_src, structural_dst], dtype=torch.long)
+            contract["structural_edge_weight"] = torch.tensor(structural_weight, dtype=torch.float32)
+        else:
+            contract["structural_edge_index"] = torch.zeros((2, 0), dtype=torch.long)
+            contract["structural_edge_weight"] = torch.zeros((0,), dtype=torch.float32)
         contract["allowed_target_mask"] = allowed_mask
         return contract

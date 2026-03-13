@@ -27,6 +27,7 @@ def test_mvp2_optional_contract_fields_do_not_break_mvp1_model_forward():
 
     extended_contract = {
         **base_contract,
+        "struct_x": torch.tensor([[0.1, 0.2], [0.3, 0.4]], dtype=torch.float32),
         "structural_edge_index": torch.tensor([[0], [1]], dtype=torch.long),
         "structural_edge_weight": torch.tensor([1.0], dtype=torch.float32),
         "version_emb_idx": torch.tensor([0], dtype=torch.long),
@@ -42,5 +43,5 @@ def test_mvp2_optional_contract_fields_do_not_break_mvp1_model_forward():
     assert logits_extended.dtype == torch.float32
     assert tuple(logits_base.shape) == (1, 3)
     assert tuple(logits_extended.shape) == (1, 3)
+    assert extended_contract["struct_x"].dtype == torch.float32
     assert extended_contract["allowed_target_mask"].dtype == torch.bool
-

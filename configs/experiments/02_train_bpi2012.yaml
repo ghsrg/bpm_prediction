@@ -4,7 +4,7 @@ include:
 
 experiment:
   project: "bpm_prediction_mvp2"
-  name: "MVP2_EOPKG_train_05"
+  name: "MVP2_EOPKG_Attention_train_05"
   mode: "train"
   fraction: 1
   split_strategy: "temporal"

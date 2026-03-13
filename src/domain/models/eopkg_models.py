@@ -165,7 +165,7 @@ class EOPKGGCN(BaseEOPKGModel):
 
 @register_model("EOPKGGATv2")
 class EOPKGGATv2(BaseEOPKGModel):
-    """GATv2-based EOPKG model with optional structural fusion."""
+    """Dual-encoder EOPKG GATv2 with soft cross-attention fusion."""
 
     def __init__(
         self,
@@ -174,6 +174,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         output_dim: int,
         dropout: float = 0.2,
         pooling_strategy: str = "global_mean",
+        struct_encoder_type: str = "GATv2Conv",
+        struct_hidden_dim: int | None = None,
+        cross_attention_heads: int = 4,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -182,8 +185,68 @@ class EOPKGGATv2(BaseEOPKGModel):
             dropout=dropout,
             pooling_strategy=pooling_strategy,
         )
+        self.num_classes = int(output_dim)
+        self.struct_hidden_dim = int(struct_hidden_dim if struct_hidden_dim is not None else hidden_dim)
+        self.struct_encoder_type = str(struct_encoder_type or "GATv2Conv")
+        self.cross_attention_heads = int(cross_attention_heads)
+
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
+        self.struct_node_emb = nn.Embedding(self.num_classes, self.struct_hidden_dim)
+        self.struct_input_proj: nn.Linear | None = None
+        self.struct_gnn = self._build_struct_encoder(dropout=dropout)
+        self.struct_to_attn = (
+            nn.Identity() if self.struct_hidden_dim == hidden_dim else nn.Linear(self.struct_hidden_dim, hidden_dim)
+        )
+        self.cross_attention = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=self.cross_attention_heads,
+            batch_first=True,
+        )
+        self.attn_to_struct = (
+            nn.Identity() if self.struct_hidden_dim == hidden_dim else nn.Linear(hidden_dim, self.struct_hidden_dim)
+        )
+        self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
+        self.last_cross_attn_weights: torch.Tensor | None = None
+
+    def _build_struct_encoder(self, dropout: float) -> nn.Module:
+        if self.struct_encoder_type == "GATv2Conv":
+            return GATv2Conv(
+                self.struct_hidden_dim,
+                self.struct_hidden_dim,
+                heads=1,
+                concat=False,
+                dropout=dropout,
+            )
+        if self.struct_encoder_type == "GCNConv":
+            return GCNConv(self.struct_hidden_dim, self.struct_hidden_dim)
+        raise ValueError(
+            f"Unsupported model.struct_encoder_type '{self.struct_encoder_type}'. "
+            "Available: ['GATv2Conv', 'GCNConv']"
+        )
+
+    def _build_struct_node_features(self, contract: GraphTensorContract, device: torch.device) -> torch.Tensor:
+        struct_x = contract.get("struct_x")
+        if isinstance(struct_x, torch.Tensor):
+            struct_x = struct_x.to(device=device, dtype=torch.float32)
+            if struct_x.dim() == 1:
+                struct_x = struct_x.unsqueeze(-1)
+            if struct_x.size(0) != self.num_classes:
+                logger.warning(
+                    "struct_x node count mismatch (got=%d expected=%d). Falling back to structural embeddings.",
+                    int(struct_x.size(0)),
+                    self.num_classes,
+                )
+            else:
+                if struct_x.size(1) != self.struct_hidden_dim:
+                    in_dim = int(struct_x.size(1))
+                    if self.struct_input_proj is None or int(self.struct_input_proj.in_features) != in_dim:
+                        self.struct_input_proj = nn.Linear(in_dim, self.struct_hidden_dim).to(device)
+                    return self.struct_input_proj(struct_x)
+                return struct_x
+
+        indices = torch.arange(self.num_classes, device=device, dtype=torch.long)
+        return self.struct_node_emb(indices)
 
     def _forward_local(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x, edge_index)
@@ -194,3 +257,46 @@ class EOPKGGATv2(BaseEOPKGModel):
         x = self.dropout(x)
         return x
 
+    def forward(self, contract: GraphTensorContract) -> torch.Tensor:
+        x, edge_index, batch = self._encode_input(contract)
+        node_hidden = self._forward_local(x, edge_index)
+        obs_context = self._pool_nodes(node_hidden, batch)
+        batch_size = int(obs_context.shape[0])
+
+        structural_edge_index = contract.get("structural_edge_index")
+        if structural_edge_index is None or structural_edge_index.numel() == 0:
+            if not self._warned_missing_struct:
+                logger.warning("Structural tensors are missing in contract! Falling back to Baseline forward.")
+                self._warned_missing_struct = True
+            self.last_cross_attn_weights = None
+            return self.classifier(obs_context)
+
+        structural_edge_index = structural_edge_index.to(device=obs_context.device, dtype=torch.long)
+        struct_nodes = self._build_struct_node_features(contract, device=obs_context.device)
+        node_count = int(struct_nodes.size(0))
+        if node_count <= 0:
+            if not self._warned_missing_struct:
+                logger.warning("Structural node tensor is empty. Falling back to Baseline forward.")
+                self._warned_missing_struct = True
+            self.last_cross_attn_weights = None
+            return self.classifier(obs_context)
+        if int(structural_edge_index.max().item()) >= node_count:
+            structural_edge_index = structural_edge_index % node_count
+        h_norm = self.struct_gnn(struct_nodes, structural_edge_index)
+        h_norm = self.activation(h_norm)
+        h_norm = self.dropout(h_norm)
+
+        query = obs_context.unsqueeze(1)  # [B, 1, hidden_dim]
+        kv = self.struct_to_attn(h_norm).unsqueeze(0).expand(batch_size, -1, -1)  # [B, C, hidden_dim]
+        attn_output, attn_weights = self.cross_attention(
+            query=query,
+            key=kv,
+            value=kv,
+            need_weights=True,
+            average_attn_weights=False,
+        )
+        self.last_cross_attn_weights = attn_weights.detach()
+
+        context_struct = self.attn_to_struct(attn_output.squeeze(1))  # [B, struct_hidden_dim]
+        fused = self.fusion(torch.cat([obs_context, context_struct], dim=1))
+        return self.classifier(fused)

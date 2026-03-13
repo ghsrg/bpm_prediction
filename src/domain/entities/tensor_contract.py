@@ -22,6 +22,7 @@ class GraphTensorContract(TypedDict):
     y: torch.LongTensor
     batch: torch.LongTensor
     num_nodes: int
+    struct_x: NotRequired[torch.FloatTensor | None]
     structural_edge_index: NotRequired[torch.LongTensor | None]
     structural_edge_weight: NotRequired[torch.FloatTensor | None]
     version_emb_idx: NotRequired[torch.LongTensor | None]

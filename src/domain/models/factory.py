@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Callable, Dict, Type
 
 from src.domain.models.base_gnn import BaseGNN
@@ -30,7 +31,14 @@ def create_model(model_type: str, **kwargs) -> BaseGNN:
     model_cls = MODEL_REGISTRY.get(model_type)
     if model_cls is None:
         raise ValueError(f"Unsupported model.type '{model_type}'. Available: {sorted(MODEL_REGISTRY.keys())}")
-    return model_cls(**kwargs)
+    signature = inspect.signature(model_cls.__init__)
+    accepts_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    if accepts_var_kw:
+        model_kwargs = kwargs
+    else:
+        allowed = {name for name in signature.parameters.keys() if name != "self"}
+        model_kwargs = {key: value for key, value in kwargs.items() if key in allowed}
+    return model_cls(**model_kwargs)
 
 
 # Register baseline models.
@@ -42,4 +50,3 @@ register_model("BaselineGATv2")(BaselineGATv2)
 
 # Register EOPKG models via decorators declared in eopkg_models.py.
 from src.domain.models import eopkg_models as _eopkg_models  # noqa: E402,F401
-

@@ -10,7 +10,7 @@ experiment:
   split_strategy: "temporal"
   train_ratio: 0.4
   split_ratio: [0.7, 0.2, 0.1]
-  load_checkpoint: "checkpoints/MVP2_EOPKG_train_05_bpi2012_GATv2_best.pth"
+  load_checkpoint: "checkpoints/MVP2_EOPKG_Attention_train_05_bpi2012_GATv2_best.pth"
   drift_window_size: 1000
   drift_window_sliding: 200
 

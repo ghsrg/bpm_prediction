@@ -20,6 +20,7 @@ import psutil
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, top_k_accuracy_score
 from torch import nn
+from torch.nn.parameter import UninitializedParameter
 from torch.optim import Adam
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -118,7 +119,6 @@ class ModelTrainer:
         self._log_params()
         self._log_run_context()
         self._log_data_metrics()
-        self._log_model_and_system_context()
         if self.tracker is not None and self.config_path:
             self.tracker.log_artifact(self.config_path)
 
@@ -260,6 +260,8 @@ class ModelTrainer:
             len(test_loader),
         )
 
+        self._perform_dry_run(train_loader, context_label="train")
+        self._log_model_and_system_context()
         optimizer = Adam(self.model.parameters(), lr=self.learning_rate)
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -352,6 +354,28 @@ class ModelTrainer:
             "best_val_loss": float(best_val_loss),
             "mode": self.mode,
         }
+
+    def _perform_dry_run(self, loader: Iterable[Data], context_label: str) -> None:
+        """Initialize lazy modules by one forward pass before optimizer/model-size logging."""
+        logger.info("Performing dry run to initialize Lazy modules (%s)...", context_label)
+        was_training = self.model.training
+        self.model.train()
+        try:
+            iterator = iter(loader)
+            dummy_batch = next(iterator, None)
+            if dummy_batch is None:
+                logger.warning("Dry run skipped (%s): loader is empty.", context_label)
+                return
+            dummy_batch = dummy_batch.to(self.device)
+            contract = self._data_to_contract(dummy_batch)
+            with torch.no_grad():
+                _ = self.model(contract)
+            logger.info("Dry run successful (%s). Model initialized.", context_label)
+        except Exception as exc:
+            logger.error("Dry run failed (%s): %s", context_label, exc)
+            raise
+        finally:
+            self.model.train(was_training)
 
     def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
         """Persist best model checkpoint for future resume/evaluation flows."""
@@ -530,6 +554,15 @@ class ModelTrainer:
                 allowed_mask = contract.get("allowed_target_mask")
                 if isinstance(allowed_mask, torch.Tensor):
                     payload["allowed_target_mask"] = allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
+                struct_x = contract.get("struct_x")
+                if isinstance(struct_x, torch.Tensor):
+                    payload["struct_x"] = struct_x
+                structural_edge_index = contract.get("structural_edge_index")
+                if isinstance(structural_edge_index, torch.Tensor):
+                    payload["structural_edge_index"] = structural_edge_index
+                structural_edge_weight = contract.get("structural_edge_weight")
+                if isinstance(structural_edge_weight, torch.Tensor):
+                    payload["structural_edge_weight"] = structural_edge_weight
                 graphs.append(Data(**payload))
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
 
@@ -911,6 +944,14 @@ class ModelTrainer:
             mask = data.allowed_target_mask
             if isinstance(mask, torch.Tensor):
                 contract["allowed_target_mask"] = mask.bool()
+        if hasattr(data, "struct_x"):
+            struct_x = data.struct_x
+            if isinstance(struct_x, torch.Tensor):
+                contract["struct_x"] = struct_x.float()
+        if hasattr(data, "structural_edge_index") and data.structural_edge_index is not None:
+            contract["structural_edge_index"] = data.structural_edge_index
+        if hasattr(data, "structural_edge_weight") and data.structural_edge_weight is not None:
+            contract["structural_edge_weight"] = data.structural_edge_weight
         return contract
 
     def _log_model_and_system_context(self) -> None:
@@ -918,8 +959,20 @@ class ModelTrainer:
         if self.tracker is None:
             return
 
-        total_params = int(sum(param.numel() for param in self.model.parameters()))
+        total_params = 0
+        skipped_uninitialized = 0
+        for param in self.model.parameters():
+            if isinstance(param, UninitializedParameter):
+                skipped_uninitialized += 1
+                continue
+            total_params += int(param.numel())
         self.tracker.log_param("model_total_parameters", total_params)
+        if skipped_uninitialized > 0:
+            logger.warning(
+                "Skipped %d uninitialized model parameters while logging model size.",
+                skipped_uninitialized,
+            )
+            self.tracker.log_param("model_uninitialized_parameters", skipped_uninitialized)
         ram_usage_mb = float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
         self.tracker.log_param("system_ram_mb_before_train", ram_usage_mb)
 

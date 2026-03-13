@@ -124,7 +124,7 @@ flowchart LR
     classDef fuse fill:#fff4e5,stroke:#b26a00,stroke-width:2px,color:#000;
 
     XCAT[x_cat, x_num, edge_index, batch]:::obs --> OBSENC[Observed Encoder\nGATv2Conv stack]:::obs
-    OBSENC --> HOBS[H_obs: [B, hidden_dim]]:::obs
+    OBSENC --> HOBS["H_obs: [B, hidden_dim]"]:::obs
 
     SEI[structural_edge_index]:::struct --> SENC[Structural Encoder\nstruct_gnn]:::struct
     SX[struct_x optional]:::struct --> SXSEL[if None -> struct_node_emb]:::struct
@@ -133,18 +133,18 @@ flowchart LR
     SENC --> HNORM[H_norm: [C, struct_hidden_dim]]:::struct
 
     HOBS --> Q[Q: [B,1,hidden_dim]]:::fuse
-    HNORM --> PROJ[struct_to_attn\n[C,hidden_dim]]:::fuse
+    HNORM --> PROJ["struct_to_attn\n[C,hidden_dim]"]:::fuse
     PROJ --> KV[expand -> [B,C,hidden_dim]]:::fuse
 
     Q --> ATTN[MultiheadAttention\nbatch_first=True]:::fuse
     KV --> ATTN
-    ATTN --> CXT[context: [B,hidden_dim]\nattn_weights: [B,H,1,C]]:::fuse
+    ATTN --> CXT["context: [B,hidden_dim]\nattn_weights: [B,H,1,C]"]:::fuse
 
-    CXT --> CPROJ[attn_to_struct\n[B,struct_hidden_dim]]:::fuse
+    CXT --> CPROJ["attn_to_struct\n[B,struct_hidden_dim]"]:::fuse
     HOBS --> CONCAT[concat(H_obs, context_struct)]:::fuse
     CPROJ --> CONCAT
 
-    CONCAT --> FUSION[Fusion MLP\nLinear(hidden+struct_hidden -> hidden)+ReLU]:::fuse
+    CONCAT --> FUSION["Fusion MLP\nLinear(hidden+struct_hidden -> hidden)+ReLU"]:::fuse
     FUSION --> CLS[Classifier -> logits [B,C]]:::fuse
 ```
 

@@ -31,6 +31,7 @@ from src.domain.services.prefix_policy import PrefixPolicy
 from src.domain.services.schema_resolver import SchemaResolver
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.infrastructure.config.yaml_loader import load_yaml_with_includes
+from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
 
@@ -160,6 +161,30 @@ def _parse_split_ratio(experiment_cfg: Dict[str, Any]) -> Tuple[float, float, fl
     return ratios[0], ratios[1], ratios[2]
 
 
+def _resolve_dataset_name(data_cfg: Dict[str, Any], log_path: str) -> str:
+    """Resolve stable dataset name used as process_version fallback in adapters."""
+    candidates = [
+        data_cfg.get("dataset_name"),
+        data_cfg.get("dataset_label"),
+        Path(log_path).stem,
+    ]
+    for candidate in candidates:
+        value = str(candidate).strip() if candidate is not None else ""
+        if value:
+            return value
+    return "default_dataset"
+
+
+def _inject_dataset_name_mapping(mapping_cfg: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
+    """Attach dataset_name to xes_adapter mapping block without mutating input config."""
+    result = dict(mapping_cfg)
+    xes_cfg_raw = result.get("xes_adapter", {})
+    xes_cfg = dict(xes_cfg_raw) if isinstance(xes_cfg_raw, dict) else {}
+    xes_cfg.setdefault("dataset_name", dataset_name)
+    result["xes_adapter"] = xes_cfg
+    return result
+
+
 def _apply_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
     """Apply chronological fraction on traces after temporal ordering."""
     traces_with_events = [trace for trace in traces if trace.events]
@@ -237,11 +262,13 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     data_cfg = config.get("data", {})
     experiment_cfg = config.get("experiment", {})
     training_cfg = config.get("training", {})
-    mapping_cfg = config.get("mapping", {})
+    mapping_cfg_raw = config.get("mapping", {})
 
     log_path = str(data_cfg.get("log_path", ""))
     if not log_path:
         raise ValueError("Config must define data.log_path")
+    dataset_name = _resolve_dataset_name(data_cfg, log_path)
+    mapping_cfg = _inject_dataset_name_mapping(mapping_cfg_raw, dataset_name)
 
     fraction = float(experiment_cfg.get("fraction", 1.0))
     split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
@@ -284,10 +311,11 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
-    topology_service = TopologyExtractorService()
-    topology_service.extract_from_logs(train_traces)
+    knowledge_repo = InMemoryNetworkXRepository()
+    topology_service = TopologyExtractorService(knowledge_port=knowledge_repo, process_name=dataset_name)
+    topology_service.extract_from_logs(train_traces, process_name=dataset_name)
     normalization_stats = _build_normalization_stats()
-    graph_builder = DynamicGraphBuilder(feature_encoder=feature_encoder, knowledge_port=topology_service)
+    graph_builder = DynamicGraphBuilder(feature_encoder=feature_encoder, knowledge_port=knowledge_repo)
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
 
@@ -332,6 +360,7 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
         "log_path": log_path,
         "mapping_config": mapping_cfg,
         "data_config": {
+            "dataset_name": dataset_name,
             "dataset_label": str(data_cfg.get("dataset_label", "unknown_data")),
         },
         "experiment_split_config": {

@@ -31,7 +31,7 @@ def test_visualize_topology_raises_when_no_transitions_found(monkeypatch, tmp_pa
     monkeypatch.setattr(
         visualize_topology,
         "_load_train_traces_from_config",
-        lambda _cfg: [_trace("c1", "1", ["A"])],  # one event only => no transitions
+        lambda _cfg: ([_trace("c1", "dataset_a", ["A"])], "dataset_a"),  # one event only => no transitions
     )
 
     with pytest.raises(ValueError, match="No traces or transitions found in the dataset"):
@@ -42,15 +42,22 @@ def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypa
     monkeypatch.setattr(
         visualize_topology,
         "_load_train_traces_from_config",
-        lambda _cfg: [_trace("c1", "default", ["A", "B"])],
+        lambda _cfg: ([_trace("c1", "default", ["A", "B"])], "dataset_a"),
     )
 
     selected: dict[str, object] = {}
 
-    def _fake_plot(self, version: str, save_path: str | None = None, min_edge_freq: int = 1) -> None:
+    def _fake_plot(
+        self,
+        version: str,
+        process_name: str | None = None,
+        save_path: str | None = None,
+        min_edge_freq: int = 1,
+    ) -> None:
         _ = self
         selected["save_path"] = save_path
         selected["version"] = version
+        selected["process_name"] = process_name
         selected["min_edge_freq"] = min_edge_freq
 
     monkeypatch.setattr("src.application.services.topology_extractor_service.TopologyExtractorService.plot_topology", _fake_plot)
@@ -62,6 +69,7 @@ def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypa
 
     assert rc == 0
     assert selected["version"] == "default"
+    assert selected["process_name"] == "dataset_a"
     assert selected["min_edge_freq"] == 7
     assert "Requested version '1' not found" in out
 
@@ -70,10 +78,13 @@ def test_visualize_topology_raises_with_available_versions_for_multi_version_dat
     monkeypatch.setattr(
         visualize_topology,
         "_load_train_traces_from_config",
-        lambda _cfg: [
-            _trace("c1", "A", ["X", "Y"]),
-            _trace("c2", "B", ["P", "Q"]),
-        ],
+        lambda _cfg: (
+            [
+                _trace("c1", "A", ["X", "Y"]),
+                _trace("c2", "B", ["P", "Q"]),
+            ],
+            "dataset_a",
+        ),
     )
 
     with pytest.raises(ValueError, match=r"Version 'Z' not found\. Available versions: \['A', 'B'\]"):

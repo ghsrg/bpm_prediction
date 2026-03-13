@@ -6,6 +6,8 @@ checkpoints/
 src/config/secrets.py
 !public_data
 mlruns/
+__pycache__/
+*.pyc
 
 !configs/data/
 !configs/data/*.yaml

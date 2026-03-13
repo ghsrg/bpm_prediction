@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any, Dict, List, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Sequence, Tuple
 
 from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.cli import load_yaml_config
 from src.domain.entities.raw_trace import RawTrace
+from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
 def _prepare_train_traces(traces: Sequence[RawTrace], experiment_cfg: Dict[str, Any]) -> List[RawTrace]:
@@ -39,8 +41,27 @@ def _prepare_train_traces(traces: Sequence[RawTrace], experiment_cfg: Dict[str, 
     return macro[: int(len(macro) * fraction)]
 
 
-def _load_train_traces_from_config(config_path: str) -> List[RawTrace]:
-    """Load traces from experiment config and return train-side subset."""
+def _resolve_dataset_name(data_cfg: Dict[str, Any], fallback_path: str) -> str:
+    """Resolve dataset name used as process namespace and fallback version key."""
+    for candidate in (data_cfg.get("dataset_name"), data_cfg.get("dataset_label"), Path(fallback_path).stem):
+        value = str(candidate).strip() if candidate is not None else ""
+        if value:
+            return value
+    return "default_dataset"
+
+
+def _build_mapping_with_dataset(mapping_cfg: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
+    """Inject dataset name into xes_adapter mapping block."""
+    result = dict(mapping_cfg)
+    xes_cfg_raw = result.get("xes_adapter", {})
+    xes_cfg = dict(xes_cfg_raw) if isinstance(xes_cfg_raw, dict) else {}
+    xes_cfg.setdefault("dataset_name", dataset_name)
+    result["xes_adapter"] = xes_cfg
+    return result
+
+
+def _load_train_traces_from_config(config_path: str) -> Tuple[List[RawTrace], str]:
+    """Load traces from experiment config and return train-side subset with process name."""
     cfg = load_yaml_config(config_path)
     data_cfg = cfg.get("data", {})
     mapping_cfg = cfg.get("mapping", {})
@@ -49,14 +70,18 @@ def _load_train_traces_from_config(config_path: str) -> List[RawTrace]:
     log_path = str(data_cfg.get("log_path", "")).strip()
     if not log_path:
         raise ValueError("Config must define data.log_path for topology visualization.")
+    dataset_name = _resolve_dataset_name(data_cfg, log_path)
+    mapping_cfg = _build_mapping_with_dataset(mapping_cfg, dataset_name)
 
     traces = list(XESAdapter().read(log_path, mapping_cfg))
-    return _prepare_train_traces(traces, experiment_cfg)
+    return _prepare_train_traces(traces, experiment_cfg), dataset_name
 
 
-def _load_traces_from_data(data_path: str) -> List[RawTrace]:
+def _load_traces_from_data(data_path: str) -> Tuple[List[RawTrace], str]:
     """Load full trace list directly from XES path (no config cascade)."""
-    return list(XESAdapter().read(data_path, {}))
+    dataset_name = Path(data_path).stem or "default_dataset"
+    mapping_cfg = _build_mapping_with_dataset({}, dataset_name)
+    return list(XESAdapter().read(data_path, mapping_cfg)), dataset_name
 
 
 def _resolve_plot_version(requested_version: str, available_versions: List[str]) -> str:
@@ -95,17 +120,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.config:
-        train_traces = _load_train_traces_from_config(args.config)
+        train_traces, process_name = _load_train_traces_from_config(args.config)
     else:
-        train_traces = _load_traces_from_data(args.data)
+        train_traces, process_name = _load_traces_from_data(args.data)
 
     if not train_traces:
         raise ValueError("No train traces found for topology extraction.")
 
-    service = TopologyExtractorService()
-    service.fit(train_traces)
+    repository = InMemoryNetworkXRepository()
+    service = TopologyExtractorService(knowledge_port=repository, process_name=process_name)
+    service.fit(train_traces, process_name=process_name)
     selected_version = _resolve_plot_version(str(args.version), service.available_versions)
-    service.plot_topology(version=selected_version, save_path=args.out, min_edge_freq=args.min_freq)
+    service.plot_topology(
+        version=selected_version,
+        process_name=process_name,
+        save_path=args.out,
+        min_edge_freq=args.min_freq,
+    )
 
     return 0
 

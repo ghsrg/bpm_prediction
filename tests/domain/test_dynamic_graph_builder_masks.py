@@ -6,6 +6,7 @@ from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
+from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 import torch
 
 
@@ -39,8 +40,9 @@ def test_dynamic_graph_builder_builds_allowed_mask_for_known_version(mock_featur
         _trace("c2", "v1", ["Start", "Approve", "Rework"]),
     ]
     encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
-    knowledge = TopologyExtractorService()
-    knowledge.extract_from_logs(train_traces)
+    repository = InMemoryNetworkXRepository()
+    knowledge = TopologyExtractorService(knowledge_port=repository, process_name="dataset_a")
+    knowledge.extract_from_logs(train_traces, process_name="dataset_a")
 
     prefix = PrefixSlice(
         case_id="eval_case",
@@ -48,7 +50,7 @@ def test_dynamic_graph_builder_builds_allowed_mask_for_known_version(mock_featur
         prefix_events=[_event(0, "Start"), _event(1, "Approve")],
         target_event=_event(2, "End"),
     )
-    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=knowledge).build_graph(prefix)
+    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
 
     mask = contract["allowed_target_mask"]
     assert mask is not None
@@ -69,8 +71,9 @@ def test_dynamic_graph_builder_builds_allowed_mask_for_known_version(mock_featur
 def test_dynamic_graph_builder_fallbacks_to_none_mask_for_unknown_version(mock_feature_configs):
     train_traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
     encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
-    knowledge = TopologyExtractorService()
-    knowledge.extract_from_logs(train_traces)
+    repository = InMemoryNetworkXRepository()
+    knowledge = TopologyExtractorService(knowledge_port=repository, process_name="dataset_a")
+    knowledge.extract_from_logs(train_traces, process_name="dataset_a")
 
     prefix_unknown = PrefixSlice(
         case_id="eval_case",
@@ -78,5 +81,5 @@ def test_dynamic_graph_builder_fallbacks_to_none_mask_for_unknown_version(mock_f
         prefix_events=[_event(0, "Start"), _event(1, "Approve")],
         target_event=_event(2, "End"),
     )
-    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=knowledge).build_graph(prefix_unknown)
+    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix_unknown)
     assert contract["allowed_target_mask"] is None

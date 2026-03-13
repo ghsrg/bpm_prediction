@@ -1,16 +1,11 @@
-"""Application port contract for process-structure knowledge access (MVP2)."""
+"""Compatibility alias for the domain knowledge-graph port.
 
-from __future__ import annotations
+Deprecated import path:
+    src.application.ports.knowledge_graph_port.IKnowledgeGraphPort
+Preferred import path:
+    src.domain.ports.knowledge_graph_port.IKnowledgeGraphPort
+"""
 
-from typing import Optional, Protocol
+from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 
-from src.domain.entities.process_structure import ProcessStructureDTO
-
-
-class IKnowledgeGraphPort(Protocol):
-    """Port for retrieving version-scoped normative process structure."""
-
-    def get_process_structure(self, version: str) -> Optional[ProcessStructureDTO]:
-        """Return structure DTO for a given process version, or None when absent."""
-        ...
-
+__all__ = ["IKnowledgeGraphPort"]

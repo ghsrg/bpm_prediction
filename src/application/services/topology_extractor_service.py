@@ -8,27 +8,26 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from graphviz.backend import ExecutableNotFound
 from pm4py.visualization.dfg import visualizer as dfg_visualizer
 
-from src.application.ports.knowledge_graph_port import IKnowledgeGraphPort
 from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.entities.raw_trace import RawTrace
+from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 
 
-class TopologyExtractorService(IKnowledgeGraphPort):
-    """In-memory multi-source topology extractor (logs now, BPMN in future)."""
+class TopologyExtractorService:
+    """Extract topology from logs and persist it via the knowledge-graph port."""
 
-    def __init__(self) -> None:
-        self._topology_registry: Dict[str, ProcessStructureDTO] = {}
-        self._start_activities_registry: Dict[str, Dict[str, int]] = {}
-        self._end_activities_registry: Dict[str, Dict[str, int]] = {}
+    def __init__(self, knowledge_port: IKnowledgeGraphPort, process_name: str | None = None) -> None:
+        self.knowledge_port = knowledge_port
+        self._default_process_name = self._normalize_process_name(process_name)
 
     @property
     def available_versions(self) -> List[str]:
-        """Return currently extracted process-version keys."""
-        return list(self._topology_registry.keys())
+        """Return extracted process-version keys for default process scope."""
+        return self.knowledge_port.list_versions(process_name=self._default_process_name)
 
-    def fit(self, train_traces: List[RawTrace]) -> None:
+    def fit(self, train_traces: List[RawTrace], process_name: str | None = None) -> None:
         """Alias for logs-based extraction to keep trainer/tooling API concise."""
-        self.extract_from_logs(train_traces)
+        self.extract_from_logs(train_traces=train_traces, process_name=process_name)
 
     def _event_label(self, event: Any) -> str:
         """Resolve stable activity label for topology edges (prefer semantic name)."""
@@ -41,25 +40,20 @@ class TopologyExtractorService(IKnowledgeGraphPort):
         activity_id = getattr(event, "activity_id", "")
         return str(activity_id).strip()
 
-    def extract_from_logs(self, train_traces: List[RawTrace]) -> None:
-        """Extract version-scoped unique transitions from train traces."""
+    def extract_from_logs(self, train_traces: List[RawTrace], process_name: str | None = None) -> None:
+        """Extract version-scoped transitions and persist DTOs via port."""
+        process_key = self._normalize_process_name(process_name) or self._default_process_name or "default_process"
+        self._default_process_name = process_key
+
         by_version: Dict[str, Set[Tuple[str, str]]] = {}
         freq_by_version: Dict[str, Dict[Tuple[str, str], int]] = {}
-        start_by_version: Dict[str, Dict[str, int]] = {}
-        end_by_version: Dict[str, Dict[str, int]] = {}
 
         for trace in train_traces:
             if not trace.events:
                 continue
-            version_key = trace.process_version if trace.process_version else "1"
-            version_key = str(version_key).strip() or "1"
 
-            first_activity = self._event_label(trace.events[0])
-            last_activity = self._event_label(trace.events[-1])
-            version_starts = start_by_version.setdefault(version_key, {})
-            version_ends = end_by_version.setdefault(version_key, {})
-            version_starts[first_activity] = version_starts.get(first_activity, 0) + 1
-            version_ends[last_activity] = version_ends.get(last_activity, 0) + 1
+            raw_version = str(trace.process_version).strip()
+            version_key = raw_version or process_key
 
             if len(trace.events) < 2:
                 continue
@@ -72,8 +66,8 @@ class TopologyExtractorService(IKnowledgeGraphPort):
                 edges.add(edge)
                 edge_freq[edge] = edge_freq.get(edge, 0) + 1
 
-        self._topology_registry = {
-            version: ProcessStructureDTO(
+        for version, edges in by_version.items():
+            dto = ProcessStructureDTO(
                 version=version,
                 allowed_edges=sorted(list(edges)),
                 edge_statistics={
@@ -81,10 +75,11 @@ class TopologyExtractorService(IKnowledgeGraphPort):
                     for edge, freq in sorted(freq_by_version.get(version, {}).items())
                 },
             )
-            for version, edges in by_version.items()
-        }
-        self._start_activities_registry = start_by_version
-        self._end_activities_registry = end_by_version
+            self.knowledge_port.save_process_structure(
+                version=version,
+                dto=dto,
+                process_name=process_key,
+            )
 
     def extract_from_bpmn(self, bpmn_data: Any) -> None:
         """Reserved entrypoint for Enterprise PoC BPMN/Camunda integration.
@@ -94,80 +89,88 @@ class TopologyExtractorService(IKnowledgeGraphPort):
         _ = bpmn_data
         raise NotImplementedError("Will be implemented in Enterprise PoC for Camunda integration")
 
-    def get_process_structure(self, version: str) -> Optional[ProcessStructureDTO]:
+    def get_process_structure(
+        self,
+        version: str,
+        process_name: str | None = None,
+    ) -> Optional[ProcessStructureDTO]:
         """Return extracted process structure by version."""
-        return self._topology_registry.get(version)
+        return self.knowledge_port.get_process_structure(
+            version=version,
+            process_name=self._resolve_process_name(process_name),
+        )
 
     def _build_dfg_payload(
-        self, version: str
+        self,
+        version: str,
+        process_name: str | None = None,
+        min_edge_frequency: int = 1,
     ) -> tuple[Dict[Tuple[str, str], int], Dict[str, int], Dict[str, int]]:
-        """Build PM4Py DFG payload: edge frequencies + start/end activity maps."""
-        dto = self.get_process_structure(version)
-        if dto is None:
-            raise ValueError(f"No topology found for process version '{version}'.")
+        """Build PM4Py DFG payload from graph returned by the knowledge port."""
+        process_key = self._resolve_process_name(process_name)
+        try:
+            graph = self.knowledge_port.get_graph_for_visualization(
+                process_name=process_key,
+                version_key=version,
+                min_edge_frequency=max(0, int(min_edge_frequency)),
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"No topology found for process '{process_key}' and process version '{version}'."
+            ) from exc
 
-        edge_stats = dto.edge_statistics or {}
         dfg: Dict[Tuple[str, str], int] = {}
-        incoming: Dict[str, int] = {}
-        outgoing: Dict[str, int] = {}
+        for src, dst, attrs in graph.edges(data=True):
+            freq = int(attrs.get("weight", 1))
+            dfg[(str(src), str(dst))] = max(freq, 1)
 
-        for src, dst in dto.allowed_edges:
-            stats = edge_stats.get((src, dst), {})
-            frequency = int(stats.get("count", 1))
-            dfg[(src, dst)] = max(frequency, 1)
-            outgoing[src] = outgoing.get(src, 0) + 1
-            incoming[dst] = incoming.get(dst, 0) + 1
-            incoming.setdefault(src, incoming.get(src, 0))
-            outgoing.setdefault(dst, outgoing.get(dst, 0))
-
-        start_activities = dict(self._start_activities_registry.get(version, {}))
-        end_activities = dict(self._end_activities_registry.get(version, {}))
-
-        if not start_activities:
-            start_activities = {node: 1 for node, in_count in incoming.items() if in_count == 0}
-        if not end_activities:
-            end_activities = {node: 1 for node, out_count in outgoing.items() if out_count == 0}
+        start_activities: Dict[str, int] = {}
+        end_activities: Dict[str, int] = {}
+        for node in graph.nodes():
+            in_degree = int(graph.in_degree(node))
+            out_degree = int(graph.out_degree(node))
+            node_name = str(node)
+            if in_degree == 0 and out_degree > 0:
+                out_weight_sum = sum(int(attrs.get("weight", 1)) for _, _, attrs in graph.out_edges(node, data=True))
+                start_activities[node_name] = max(out_weight_sum, 1)
+            if out_degree == 0 and in_degree > 0:
+                in_weight_sum = sum(int(attrs.get("weight", 1)) for _, _, attrs in graph.in_edges(node, data=True))
+                end_activities[node_name] = max(in_weight_sum, 1)
 
         return dfg, start_activities, end_activities
 
-    def plot_topology(self, version: str, save_path: str | None = None, min_edge_freq: int = 1) -> None:
-        """Render topology as PM4Py DFG with directed edges and start/end coloring."""
+    def plot_topology(
+        self,
+        version: str,
+        process_name: str | None = None,
+        save_path: str | None = None,
+        min_edge_freq: int = 1,
+    ) -> None:
+        """Render topology as PM4Py DFG using graph returned by the knowledge port."""
         if min_edge_freq < 1:
             raise ValueError("min_edge_freq must be >= 1.")
 
-        dfg, start_activities, end_activities = self._build_dfg_payload(version)
-        filtered_dfg = {edge: freq for edge, freq in dfg.items() if freq >= min_edge_freq}
-        if not filtered_dfg:
+        dfg, start_activities, end_activities = self._build_dfg_payload(
+            version=version,
+            process_name=process_name,
+            min_edge_frequency=min_edge_freq,
+        )
+        if not dfg:
             raise ValueError(
                 f"No transitions found for process version '{version}' after min_edge_freq={min_edge_freq} filter."
             )
 
-        nodes_in_filtered = {src for src, _ in filtered_dfg}.union({dst for _, dst in filtered_dfg})
-        filtered_start = {act: cnt for act, cnt in start_activities.items() if act in nodes_in_filtered}
-        filtered_end = {act: cnt for act, cnt in end_activities.items() if act in nodes_in_filtered}
-
-        if not filtered_start:
-            incoming: Dict[str, int] = {}
-            for src, dst in filtered_dfg:
-                incoming[dst] = incoming.get(dst, 0) + 1
-                incoming.setdefault(src, incoming.get(src, 0))
-            filtered_start = {node: 1 for node, in_count in incoming.items() if in_count == 0}
-        if not filtered_end:
-            outgoing: Dict[str, int] = {}
-            for src, dst in filtered_dfg:
-                outgoing[src] = outgoing.get(src, 0) + 1
-                outgoing.setdefault(dst, outgoing.get(dst, 0))
-            filtered_end = {node: 1 for node, out_count in outgoing.items() if out_count == 0}
-
         parameters = {
             "format": "png",
-            dfg_visualizer.Variants.FREQUENCY.value.Parameters.START_ACTIVITIES: filtered_start,
-            dfg_visualizer.Variants.FREQUENCY.value.Parameters.END_ACTIVITIES: filtered_end,
+            dfg_visualizer.Variants.FREQUENCY.value.Parameters.START_ACTIVITIES: start_activities,
+            dfg_visualizer.Variants.FREQUENCY.value.Parameters.END_ACTIVITIES: end_activities,
         }
 
         try:
             gviz = dfg_visualizer.apply(
-                dfg0=filtered_dfg, parameters=parameters, variant=dfg_visualizer.Variants.FREQUENCY
+                dfg0=dfg,
+                parameters=parameters,
+                variant=dfg_visualizer.Variants.FREQUENCY,
             )
             if save_path:
                 target = Path(save_path)
@@ -180,3 +183,13 @@ class TopologyExtractorService(IKnowledgeGraphPort):
                 "Graphviz executable 'dot' was not found. Install Graphviz and add it to PATH "
                 "to render PM4Py DFG visuals."
             ) from exc
+
+    def _resolve_process_name(self, process_name: str | None) -> str:
+        return self._normalize_process_name(process_name) or self._default_process_name or "default_process"
+
+    @staticmethod
+    def _normalize_process_name(process_name: str | None) -> str | None:
+        if process_name is None:
+            return None
+        cleaned = str(process_name).strip()
+        return cleaned or None

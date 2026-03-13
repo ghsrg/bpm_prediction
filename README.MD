@@ -147,7 +147,7 @@
 ## Quick Start
 
 ```bash
-python main.py --config configs/experiments/01_train_bpi2012.yaml
+python main.py --config experiments/02_train_bpi2012.yaml
 ```
 
 ## MVP1 Non-Regression Gate
@@ -159,3 +159,12 @@ py -3 tools/architecture_guard.py
 pytest tests/ -v
 ```
 
+Show topology gpaph 
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version 'bpi2012' --min-freq 100
+```
+
+Save topology gpaph to outputs
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version 'bpi2012' --out outputs/topology_v7.png --min-freq 100
+```

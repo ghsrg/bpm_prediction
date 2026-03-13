@@ -1,10 +1,10 @@
-"""Streaming XES adapter implementation."""
+﻿"""Streaming XES adapter implementation."""
 
-# Відповідно до:
-# - AGENT_GUIDE.MD -> розділ 2 (No DOM parsing), розділ 4 (DTO contract), розділ 6 (doc links)
-# - ADAPTER_XES.MD -> розділ 4 (парсинг/дельти/lifecycle/pairing), розділ 7 (streaming Iterator[RawTrace])
-# - DATA_FLOWS_MVP1.MD -> розділ 2.1 (IXESAdapter ingestion contract)
-# - DATA_MODEL_MVP1.MD -> розділ 3 (External Boundary Objects)
+# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
+# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (No DOM parsing), СЂРѕР·РґС–Р» 4 (DTO contract), СЂРѕР·РґС–Р» 6 (doc links)
+# - ADAPTER_XES.MD -> СЂРѕР·РґС–Р» 4 (РїР°СЂСЃРёРЅРі/РґРµР»СЊС‚Рё/lifecycle/pairing), СЂРѕР·РґС–Р» 7 (streaming Iterator[RawTrace])
+# - DATA_FLOWS_MVP1.MD -> СЂРѕР·РґС–Р» 2.1 (IXESAdapter ingestion contract)
+# - DATA_MODEL_MVP1.MD -> СЂРѕР·РґС–Р» 3 (External Boundary Objects)
 
 from __future__ import annotations
 
@@ -46,6 +46,13 @@ class XESAdapter(IXESAdapter):
         resource_key = role_keys.get("resource") or config.get("resource_key", "org:resource")
         lifecycle_key = role_keys.get("lifecycle") or config.get("lifecycle_key", "lifecycle:transition")
         version_key = role_keys.get("version") or config.get("version_key", "concept:version")
+        dataset_name = str(
+            config.get("dataset_name")
+            or config.get("dataset_label")
+            or mapping_config.get("dataset_name")
+            or mapping_config.get("dataset_label")
+            or ""
+        ).strip()
         complete_transitions = {
             str(v).strip().lower() for v in config.get("complete_transitions", list(_DEFAULT_COMPLETE_TRANSITIONS))
         }
@@ -95,13 +102,14 @@ class XESAdapter(IXESAdapter):
                         extra_event_keys=extra_event_keys,
                         feature_configs=feature_configs,
                         schema_resolver=schema_resolver,
+                        dataset_name=dataset_name,
                     )
                     skipped_events += trace_skips
                     processed_traces += 1
                     produced_events += len(raw_trace.events)
                     yield raw_trace
 
-                    # Критично для стрімінгу: очищення обробленого піддерева trace з пам'яті.
+                    # РљСЂРёС‚РёС‡РЅРѕ РґР»СЏ СЃС‚СЂС–РјС–РЅРіСѓ: РѕС‡РёС‰РµРЅРЅСЏ РѕР±СЂРѕР±Р»РµРЅРѕРіРѕ РїС–РґРґРµСЂРµРІР° trace Р· РїР°Рј'СЏС‚С–.
                     elem.clear()
                     while elem.getprevious() is not None:
                         del elem.getparent()[0]
@@ -136,6 +144,7 @@ class XESAdapter(IXESAdapter):
         extra_event_keys: Set[str],
         feature_configs: Sequence[FeatureConfig],
         schema_resolver: SchemaResolver,
+        dataset_name: str,
     ) -> Tuple[RawTrace, int]:
         trace_attributes: Dict[str, Any] = {}
         event_payloads: List[Dict[str, Any]] = []
@@ -221,12 +230,12 @@ class XESAdapter(IXESAdapter):
             elif isinstance(activity_key, Sequence):
                 mapped_keys.update(str(k) for k in activity_key)
 
-            # Зберігаємо лише явно дозволені event-level extra ключі з mapping config.
+            # Р—Р±РµСЂС–РіР°С”РјРѕ Р»РёС€Рµ СЏРІРЅРѕ РґРѕР·РІРѕР»РµРЅС– event-level extra РєР»СЋС‡С– Р· mapping config.
             extra = {k: v for k, v in payload.items() if k not in mapped_keys}
             extra.update(_extract_typed_event_features(payload, feature_configs, schema_resolver))
             if extra_event_keys:
                 extra = {k: v for k, v in extra.items() if k in extra_event_keys}
-            # Дублюємо trace-level extra у кожну подію, щоб вузол мав доступ до контексту кейсу.
+            # Р”СѓР±Р»СЋС”РјРѕ trace-level extra Сѓ РєРѕР¶РЅСѓ РїРѕРґС–СЋ, С‰РѕР± РІСѓР·РѕР» РјР°РІ РґРѕСЃС‚СѓРї РґРѕ РєРѕРЅС‚РµРєСЃС‚Сѓ РєРµР№СЃСѓ.
             for trace_key, trace_value in selected_trace_attrs.items():
                 extra.setdefault(trace_key, trace_value)
 
@@ -256,7 +265,7 @@ class XESAdapter(IXESAdapter):
             time_since_previous = 0.0 if pos == 0 else max(0.0, current_time - prev_time)
             prev_time = current_time
 
-            # Додаємо обчислені базові часові фічі у event.extra для конфігурованого FeatureEncoder.
+            # Р”РѕРґР°С”РјРѕ РѕР±С‡РёСЃР»РµРЅС– Р±Р°Р·РѕРІС– С‡Р°СЃРѕРІС– С„С–С‡С– Сѓ event.extra РґР»СЏ РєРѕРЅС„С–РіСѓСЂРѕРІР°РЅРѕРіРѕ FeatureEncoder.
             enriched_extra = dict(event["extra"])
             enriched_extra.setdefault("duration", max(0.0, float(event["duration"])))
             enriched_extra.setdefault("time_since_case_start", time_since_case_start)
@@ -284,6 +293,7 @@ class XESAdapter(IXESAdapter):
             event_candidates=[item.get("event_version") for item in completed_events_raw],
             trace_version=_normalize_optional_str(trace_attributes.get(version_key)),
             log_version=_normalize_optional_str(log_attributes.get(version_key)),
+            dataset_name=_normalize_optional_str(dataset_name),
             file_path=file_path,
         )
 
@@ -364,9 +374,10 @@ def _resolve_process_version(
     event_candidates: List[Optional[str]],
     trace_version: Optional[str],
     log_version: Optional[str],
+    dataset_name: Optional[str],
     file_path: str,
 ) -> str:
-    """Resolve κ version with priority: event -> trace -> log -> filename -> default."""
+    """Resolve process version with priority: event -> trace -> log -> dataset -> filename -> default."""
     for candidate in event_candidates:
         if candidate:
             return candidate
@@ -374,6 +385,8 @@ def _resolve_process_version(
         return trace_version
     if log_version:
         return log_version
+    if dataset_name:
+        return dataset_name
 
     filename = Path(file_path).stem.strip()
     if filename:
@@ -537,3 +550,4 @@ def _local_name(tag: Any) -> str:
     if "}" in tag:
         return tag.rsplit("}", 1)[-1]
     return tag
+

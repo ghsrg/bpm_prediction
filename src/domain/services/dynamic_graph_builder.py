@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import torch
 
-from src.application.ports.knowledge_graph_port import IKnowledgeGraphPort
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.tensor_contract import GraphTensorContract
+from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 
@@ -22,7 +22,8 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         """Build baseline contract and inject OOS mask when topology is available."""
         contract = super().build_graph(prefix)
 
-        dto = self.knowledge_port.get_process_structure(str(prefix.process_version))
+        version_key = str(prefix.process_version).strip() or "default"
+        dto = self.knowledge_port.get_process_structure(version_key)
         if dto is None or not prefix.prefix_events:
             contract["allowed_target_mask"] = None
             return contract

@@ -6,7 +6,7 @@ experiment:
   project: "bpm_prediction_mvp2"
   name: "MVP2_EOPKG_Attention_train_05"
   mode: "train"
-  fraction: 1
+  fraction: 0.1
   split_strategy: "temporal"
   train_ratio: 0.5
   split_ratio: [0.7, 0.2, 0.1]

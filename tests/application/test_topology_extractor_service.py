@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
+from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
 def _event(idx: int, activity: str) -> EventRecord:
@@ -25,8 +26,12 @@ def _trace(case_id: str, version: str, activities: list[str]) -> RawTrace:
     return RawTrace(case_id=case_id, process_version=version, events=events, trace_attributes={})
 
 
+def _service(process_name: str = "dataset_a") -> TopologyExtractorService:
+    return TopologyExtractorService(knowledge_port=InMemoryNetworkXRepository(), process_name=process_name)
+
+
 def test_extract_from_logs_builds_unique_edges_grouped_by_version_without_leakage():
-    service = TopologyExtractorService()
+    service = _service("dataset_a")
 
     train_traces = [
         _trace("c1", "v1", ["A", "B", "C"]),
@@ -36,10 +41,10 @@ def test_extract_from_logs_builds_unique_edges_grouped_by_version_without_leakag
     ]
     holdout_trace_not_used = _trace("h1", "v1", ["Q", "W"])  # leakage sentinel
 
-    service.extract_from_logs(train_traces)
+    service.extract_from_logs(train_traces, process_name="dataset_a")
 
-    dto_v1 = service.get_process_structure("v1")
-    dto_v2 = service.get_process_structure("v2")
+    dto_v1 = service.get_process_structure("v1", process_name="dataset_a")
+    dto_v2 = service.get_process_structure("v2", process_name="dataset_a")
     assert dto_v1 is not None
     assert dto_v2 is not None
 
@@ -56,14 +61,14 @@ def test_extract_from_logs_builds_unique_edges_grouped_by_version_without_leakag
 
 
 def test_get_process_structure_returns_none_for_unknown_version():
-    service = TopologyExtractorService()
-    service.extract_from_logs([_trace("c1", "v1", ["A", "B"])])
+    service = _service("dataset_a")
+    service.extract_from_logs([_trace("c1", "v1", ["A", "B"])], process_name="dataset_a")
 
-    assert service.get_process_structure("v_unknown") is None
+    assert service.get_process_structure("v_unknown", process_name="dataset_a") is None
 
 
 def test_extract_from_bpmn_is_explicit_not_implemented_yet():
-    service = TopologyExtractorService()
+    service = _service("dataset_a")
 
     try:
         service.extract_from_bpmn({"dummy": "bpmn"})
@@ -73,18 +78,28 @@ def test_extract_from_bpmn_is_explicit_not_implemented_yet():
 
 
 def test_build_dfg_payload_returns_expected_edges_and_start_end_activity_maps():
-    service = TopologyExtractorService()
-    service.fit([_trace("c1", "v1", ["A", "B", "C"]), _trace("c2", "v1", ["A", "B", "D"])])
+    service = _service("dataset_a")
+    service.fit(
+        [_trace("c1", "v1", ["A", "B", "C"]), _trace("c2", "v1", ["A", "B", "D"])],
+        process_name="dataset_a",
+    )
 
-    dfg, start_activities, end_activities = service._build_dfg_payload("v1")
+    dfg, start_activities, end_activities = service._build_dfg_payload(
+        "v1",
+        process_name="dataset_a",
+        min_edge_frequency=1,
+    )
     assert dfg == {("A", "B"): 2, ("B", "C"): 1, ("B", "D"): 1}
     assert start_activities == {"A": 2}
     assert end_activities == {"C": 1, "D": 1}
 
 
 def test_plot_topology_saves_png_with_pm4py_visualizer(tmp_path, monkeypatch):
-    service = TopologyExtractorService()
-    service.fit([_trace("c1", "v1", ["A", "B", "C"]), _trace("c2", "v1", ["A", "B"])])
+    service = _service("dataset_a")
+    service.fit(
+        [_trace("c1", "v1", ["A", "B", "C"]), _trace("c2", "v1", ["A", "B"])],
+        process_name="dataset_a",
+    )
 
     captured = {}
 
@@ -103,7 +118,7 @@ def test_plot_topology_saves_png_with_pm4py_visualizer(tmp_path, monkeypatch):
     monkeypatch.setattr("src.application.services.topology_extractor_service.dfg_visualizer.save", _mock_save)
 
     output = tmp_path / "topology_v1.png"
-    service.plot_topology("v1", save_path=str(output), min_edge_freq=2)
+    service.plot_topology("v1", process_name="dataset_a", save_path=str(output), min_edge_freq=2)
 
     assert captured["dfg"] == {("A", "B"): 2}
     assert captured["saved"] == ("gviz_obj", str(output))
@@ -112,21 +127,21 @@ def test_plot_topology_saves_png_with_pm4py_visualizer(tmp_path, monkeypatch):
 
 
 def test_plot_topology_raises_when_frequency_filter_removes_all_edges():
-    service = TopologyExtractorService()
-    service.fit([_trace("c1", "v1", ["A", "B", "C"])])
+    service = _service("dataset_a")
+    service.fit([_trace("c1", "v1", ["A", "B", "C"])], process_name="dataset_a")
 
     try:
-        service.plot_topology("v1", min_edge_freq=2)
+        service.plot_topology("v1", process_name="dataset_a", min_edge_freq=2)
         assert False, "Expected ValueError when all edges are removed by min_edge_freq."
     except ValueError as exc:
         assert "after min_edge_freq=2 filter" in str(exc)
 
 
-def test_extract_from_logs_normalizes_empty_version_to_one_and_exposes_available_versions():
-    service = TopologyExtractorService()
-    service.fit([_trace("c1", "", ["A", "B"])])
+def test_extract_from_logs_falls_back_to_process_name_for_empty_version():
+    service = _service("dataset_alpha")
+    service.fit([_trace("c1", "", ["A", "B"])], process_name="dataset_alpha")
 
-    assert service.available_versions == ["1"]
-    dto = service.get_process_structure("1")
+    assert service.available_versions == ["dataset_alpha"]
+    dto = service.get_process_structure("dataset_alpha", process_name="dataset_alpha")
     assert dto is not None
     assert set(dto.allowed_edges) == {("A", "B")}

@@ -8,6 +8,7 @@ from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
+from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
 def _event(idx: int, activity: str) -> EventRecord:
@@ -37,9 +38,10 @@ def _trace(case_id: str, version: str, activities: list[str]) -> RawTrace:
 def _build_contract(mock_feature_configs):
     traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
     encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
-    knowledge = TopologyExtractorService()
-    knowledge.extract_from_logs(traces)
-    builder = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=knowledge)
+    repository = InMemoryNetworkXRepository()
+    knowledge = TopologyExtractorService(knowledge_port=repository, process_name="dataset_a")
+    knowledge.extract_from_logs(traces, process_name="dataset_a")
+    builder = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository)
     prefix = PrefixSlice(
         case_id="case_eval",
         process_version="v1",
@@ -70,4 +72,3 @@ def test_dynamic_graph_builder_mask_dtype_is_bool_when_present(mock_feature_conf
     mask = contract["allowed_target_mask"]
     assert isinstance(mask, torch.Tensor)
     assert mask.dtype == torch.bool
-

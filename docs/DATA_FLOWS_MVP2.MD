@@ -23,7 +23,7 @@ flowchart TD
     RT --> PP[PrefixPolicy.generate_slices]
     PP --> PS[PrefixSlice]
     PS --> DGB[DynamicGraphBuilder.build_graph]:::mvp2
-    KGPort -.->|get_process_structure(version)| DGB
+    KGPort -.->|get_process_structure version| DGB
 
     DGB --> GTC[GraphTensorContract + structural fields]:::mvp2
     GTC --> TRAIN[Trainer.train]
@@ -135,25 +135,25 @@ flowchart LR
     classDef struct fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
     classDef fuse fill:#fff4e5,stroke:#b26a00,stroke-width:2px,color:#000;
 
-    C1[Contract: x_cat,x_num,edge_index,batch]:::obs --> O1[Observed encoder -> H_obs [B,H]]:::obs
+    C1[Contract: x_cat,x_num,edge_index,batch]:::obs --> O1["Observed encoder -> H_obs [B,H]"]:::obs
 
     C2[Contract: structural_edge_index]:::struct --> S1[Structural encoder]:::struct
-    C3[Contract: struct_x optional]:::struct --> S0[if None -> struct_node_emb [C,S]]:::struct
+    C3[Contract: struct_x optional]:::struct --> S0["if None -> struct_node_emb [C,S]"]:::struct
     S0 --> S1
-    S1 --> HN[H_norm [C,S]]:::struct
+    S1 --> HN["H_norm [C,S]"]:::struct
 
-    HN --> P[struct_to_attn -> [C,H]]:::fuse
-    P --> KV[expand -> [B,C,H]]:::fuse
-    O1 --> Q[Q [B,1,H]]:::fuse
+    HN --> P["struct_to_attn -> [C,H]"]:::fuse
+    P --> KV["expand -> [B,C,H]"]:::fuse
+    O1 --> Q["Q [B,1,H]"]:::fuse
     Q --> A[MultiheadAttention]:::fuse
     KV --> A
-    A --> CTX[context [B,H], attn_weights [B,heads,1,C]]:::fuse
+    A --> CTX["context [B,H], attn_weights [B,heads,1,C]"]:::fuse
 
-    CTX --> T1[attn_to_struct -> [B,S]]:::fuse
-    O1 --> T2[concat(H_obs, context_struct)]:::fuse
+    CTX --> T1["attn_to_struct -> [B,S]"]:::fuse
+    O1 --> T2["concat(H_obs, context_struct)"]:::fuse
     T1 --> T2
     T2 --> FUS[Fusion MLP]:::fuse
-    FUS --> OUT[logits [B,C]]:::fuse
+    FUS --> OUT["logits [B,C]"]:::fuse
 ```
 
 Notes:

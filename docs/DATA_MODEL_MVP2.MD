@@ -103,7 +103,7 @@ flowchart LR
     classDef mvp2 fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
 
     PS[PrefixSlice] --> DGB[DynamicGraphBuilder]
-    KG[ProcessStructureDTO]:::mvp2 -.->|get_process_structure(version)| DGB
+    KG[ProcessStructureDTO]:::mvp2 -.->|get_process_structure version| DGB
 
     DGB --> XC[x_cat]
     DGB --> XN[x_num]
@@ -250,27 +250,27 @@ flowchart LR
     classDef fuse fill:#fff4e5,stroke:#b26a00,stroke-width:2px,color:#000;
 
     OBSIN[x_cat,x_num,edge_index,batch]:::obs --> OBSENC[Observed GATv2 encoder]:::obs
-    OBSENC --> HOBS[H_obs: [B, hidden_dim]]:::obs
+    OBSENC --> HOBS["H_obs: [B, hidden_dim]"]:::obs
 
-    SX[struct_x optional]:::struct --> SXSEL[if None -> struct_node_emb weight [C,struct_hidden_dim]]:::struct
+    SX[struct_x optional]:::struct --> SXSEL["if None -> struct_node_emb weight [C,struct_hidden_dim]"]:::struct
     SXSEL --> SENC[struct_gnn over structural_edge_index]:::struct
-    SEI[structural_edge_index [2,E_struct]]:::struct --> SENC
-    SENC --> HNORM[H_norm: [C, struct_hidden_dim]]:::struct
+    SEI["structural_edge_index [2,E_struct]"]:::struct --> SENC
+    SENC --> HNORM["H_norm: [C, struct_hidden_dim]"]:::struct
 
-    HNORM --> STOATTN[struct_to_attn -> [C,hidden_dim]]:::fuse
-    STOATTN --> KV[expand -> [B,C,hidden_dim]]:::fuse
-    HOBS --> Q[unsqueeze -> [B,1,hidden_dim]]:::fuse
+    HNORM --> STOATTN["struct_to_attn -> [C,hidden_dim]"]:::fuse
+    STOATTN --> KV["expand -> [B,C,hidden_dim]"]:::fuse
+    HOBS --> Q["unsqueeze -> [B,1,hidden_dim]"]:::fuse
 
-    Q --> ATTN[MultiheadAttention(batch_first=True)]:::fuse
+    Q --> ATTN["MultiheadAttention(batch_first=True)"]:::fuse
     KV --> ATTN
-    ATTN --> AOUT[attn_output [B,1,hidden_dim]\nattn_weights [B,H,1,C]]:::fuse
+    ATTN --> AOUT["attn_output [B,1,hidden_dim]\nattn_weights [B,H,1,C]"]:::fuse
 
-    AOUT --> ATS[attn_to_struct -> [B,struct_hidden_dim]]:::fuse
-    HOBS --> CAT[concat(H_obs, context_struct)]:::fuse
+    AOUT --> ATS["attn_to_struct -> [B,struct_hidden_dim]"]:::fuse
+    HOBS --> CAT["concat(H_obs, context_struct)"]:::fuse
     ATS --> CAT
 
-    CAT --> FUS[Fusion MLP -> [B,hidden_dim]]:::fuse
-    FUS --> CLS[Classifier -> logits [B,C]]:::fuse
+    CAT --> FUS["Fusion MLP -> [B,hidden_dim]"]:::fuse
+    FUS --> CLS["Classifier -> logits [B,C]"]:::fuse
 ```
 
 ### 6.2 Shape and Fallback Invariants

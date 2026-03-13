@@ -145,7 +145,7 @@ flowchart LR
     CPROJ --> CONCAT
 
     CONCAT --> FUSION["Fusion MLP\nLinear(hidden+struct_hidden -> hidden)+ReLU"]:::fuse
-    FUSION --> CLS[Classifier -> logits [B,C]]:::fuse
+    FUSION --> CLS["Classifier -> logits [B,C]"]:::fuse
 ```
 
 ### 6.2 Forward Contract Rules

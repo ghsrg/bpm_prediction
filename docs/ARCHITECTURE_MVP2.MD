@@ -1,19 +1,25 @@
-# ARCHITECTURE_MVP2.MD
+﻿# ARCHITECTURE_MVP2.MD
 
-## 1. Scope (Призначення)
-MVP2 розширює Baseline-архітектуру (MVP1) шляхом впровадження Enterprise Operational Process Knowledge Graph (EOPKG) та оператора злиття ($\Gamma$).
-Головна мета: довести гіпотезу про те, що використання нормативного графа ($G_{struct}$) зменшує деградацію моделі під час структурного дрейфу.
+## 1. Scope
+MVP2 extends MVP1 with Zero-Shot Knowledge Injection through EOPKG and introduces a Dual-Encoder architecture for `EOPKGGATv2`.
 
-## 2. Головний архітектурний інваріант (Зворотна сумісність)
-Впровадження MVP2 **не повинно ламати MVP1**. 
-- Всі існуючі контракти розширюються через `Optional` поля.
-- Якщо дані з EOPKG відсутні (наприклад, `structural_edge_index is None`), система (включаючи `forward` моделі) повинна автоматично перемикатися в режим Baseline (MVP1).
+Primary goal:
+1. Keep MVP1 fully runnable.
+2. Inject structural process knowledge into model inference.
+3. Improve drift robustness (F1 stability, ECE stability, OOS reduction).
 
-## 3. Нові компоненти системи
-1. **IKnowledgeGraphPort (Domain Layer)**: Порт для отримання $G_{struct}$.
-2. **TopologyExtractorService (Application Layer)**: Реалізація порту для MVP2. Екстрагує нормативну топологію безпосередньо з `train_traces` (без Data Leakage цільових змінних на тестовій вибірці) для симуляції BPMN-каркасу.
-3. **DynamicGraphBuilder (Application Layer)**: Розширює `BaselineGraphBuilder`. Додає маски з EOPKG у тензорний контракт, якщо включено відповідний режим у конфігу.
-4. **EOPKGFusionGNN (Domain Layer)**: Нова архітектура моделі. Реалізує оператор $\Gamma$, який застосовує увагу (Attention) або гейтинг (Gating) на основі $G_{struct}$.
+## 2. Backward Compatibility Invariant
+MVP2 is additive and must not break MVP1:
+1. `GraphTensorContract` is extended only with optional fields.
+2. If structural tensors are absent, model falls back to baseline path.
+3. Evaluator must compute base metrics even when OOS data is unavailable.
+
+## 3. Core Components
+1. `IKnowledgeGraphPort` (Domain port): provides structural process topology.
+2. `TopologyExtractorService` (Application service): extracts topology from train traces.
+3. `DynamicGraphBuilder` (Domain service): produces `allowed_target_mask` and structural tensors.
+4. `EOPKGGATv2` (Domain model): Dual-Encoder + Soft Cross-Attention.
+5. `ModelTrainer` (Application use case): orchestrates training/evaluation, slicing, OOS.
 
 ## 4. Clean Architecture (Layered View)
 
@@ -22,68 +28,45 @@ flowchart TB
     classDef mvp2 fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
 
     subgraph Frameworks
-        XES[XES Files]
+        XES[XES files]
     end
 
     subgraph Adapters
-        XESAdapter[XES Adapter]
+        XESAdapter[XESAdapter]
     end
 
     subgraph Application
-        TracePreprocessor[TracePreprocessor]
-        PrefixPolicy[PrefixPolicy]
-        GraphBuilder[IGraphBuilder]
-        DynamicGraphBuilder[DynamicGraphBuilder]:::mvp2
-        TopologyExtractorService[TopologyExtractorService]:::mvp2
-        Trainer[Trainer]
-        Evaluator[Evaluator]
+        Prep[Data Preparation]
+        Trainer[ModelTrainer]
+        Eval[Evaluator logic in Trainer]
+        TopologyExtractor[TopologyExtractorService]:::mvp2
     end
 
     subgraph Domain
-        SchemaResolver[SchemaResolver]
-        InstanceGraph[InstanceGraph]
-        FeatureEncoder[FeatureEncoder]
-        GNNModel[GNNModelPort]
-        EOPKGFusionGNN[EOPKGFusionGNN]:::mvp2
-        IKnowledgeGraphPort[IKnowledgeGraphPort]:::mvp2
-        Predictor[Predictor]
+        PrefixPolicy[PrefixPolicy]
+        Encoder[FeatureEncoder]
+        DGB[DynamicGraphBuilder]:::mvp2
+        KGPort[IKnowledgeGraphPort]:::mvp2
+        Baselines[BaselineGCN/BaselineGATv2]
+        EOPKGGATv2[EOPKGGATv2 Dual-Encoder]:::mvp2
     end
 
     XES --> XESAdapter
-    XESAdapter --> TracePreprocessor
-    
-    %% MVP2 Zero-Shot flow
-    XESAdapter -.->|train_traces only| TopologyExtractorService
-    TopologyExtractorService -.->|Extracts Topology| IKnowledgeGraphPort
-    
-    TracePreprocessor --> PrefixPolicy
-    PrefixPolicy --> GraphBuilder
-    PrefixPolicy --> DynamicGraphBuilder
-    
-    GraphBuilder --> InstanceGraph
-    DynamicGraphBuilder --> InstanceGraph
-    DynamicGraphBuilder -.->|get_structure version| IKnowledgeGraphPort
-    
-    InstanceGraph --> FeatureEncoder
-    FeatureEncoder --> GNNModel
-    FeatureEncoder --> EOPKGFusionGNN
-    
-    SchemaResolver --> XESAdapter
-    SchemaResolver --> FeatureEncoder
-    
-    GNNModel --> Predictor
-    EOPKGFusionGNN --> Predictor
-    
-    Predictor --> Trainer
-    Predictor --> Evaluator
+    XESAdapter --> Prep
+    Prep --> PrefixPolicy
+    PrefixPolicy --> DGB
+    Prep --> Encoder
+    Encoder --> DGB
+
+    Prep -.->|train split| TopologyExtractor
+    TopologyExtractor -.->|ProcessStructureDTO| KGPort
+    KGPort -.-> DGB
+
+    DGB --> Trainer
+    Trainer --> Baselines
+    Trainer --> EOPKGGATv2
+    Trainer --> Eval
 ```
-
-### Пояснення шарів (Оновлено для MVP2)
-*Нові компоненти MVP2 підсвічені зеленим.*
-- **Application:** Додано `TopologyExtractorService` для безпечної екстракції топології (без Leakage) та `DynamicGraphBuilder`, який вміє звертатися до графа знань.
-- **Domain:** Додано порт `IKnowledgeGraphPort` (для інверсії залежностей бази знань) та нову модель `EOPKGFusionGNN` з оператором $\Gamma$.
-
----
 
 ## 5. Component Architecture (Hexagonal View)
 
@@ -91,146 +74,127 @@ flowchart TB
 flowchart LR
     classDef mvp2 fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
 
-    subgraph Core
-        Resolver[SchemaResolver]
-        Graph[InstanceGraph]
-        Encoder[FeatureEncoder]
-        Model[GNNModelPort]
-        FusionModel[EOPKGFusionGNN]:::mvp2
-    end
-
     subgraph Ports
-        DataPort[IXESAdapter]
-        TrainPort[TrainingPort]
-        PredictPort[PredictionPort]
-        GraphPort[IGraphBuilder]
-        KGPort[IKnowledgeGraphPort]:::mvp2
+      IXES[IXESAdapter]
+      IGB[IGraphBuilder]
+      IKG[IKnowledgeGraphPort]:::mvp2
+      ITR[ITracker]
     end
 
     subgraph Adapters
-        XESAdapter[XESAdapter]
-        CLIAdapter[CLI Runner]
-        TopologyExtractorService[TopologyExtractorService]:::mvp2
+      XES[XESAdapter]
+      MLflow[MLflowTracker]
     end
 
-    XESAdapter --> DataPort
-    CLIAdapter --> TrainPort
-    CLIAdapter --> PredictPort
+    subgraph Application
+      TR[ModelTrainer]
+      TE[TopologyExtractorService]:::mvp2
+    end
 
-    DataPort --> Resolver
-    TopologyExtractorService -.->|Implements| KGPort
-    
-    Resolver --> Graph
-    Graph --> Encoder
-    Encoder --> GraphPort
-    GraphPort --> Model
-    GraphPort --> FusionModel
-    
-    KGPort -.->|Provides G_struct| FusionModel
-    
-    Model --> PredictPort
-    FusionModel --> PredictPort
+    subgraph Domain
+      DGB[DynamicGraphBuilder]:::mvp2
+      M1[Baseline models]
+      M2[EOPKGGATv2 Dual-Encoder]:::mvp2
+    end
+
+    XES --> IXES
+    MLflow --> ITR
+
+    TR --> IXES
+    TR --> IGB
+    TR --> ITR
+    TR --> M1
+    TR --> M2
+
+    DGB --> IKG
+    TE --> IKG
+    DGB --> TR
 ```
 
----
+## 6. Dual-Encoder Model Structure (Main Diagram)
 
-## 6.1 Training Flow (із Zero-Shot Topology Extraction)
+This is the key Sprint 3 architecture.
+
+### 6.1 Tensor Routing Overview
+
+```mermaid
+flowchart LR
+    classDef obs fill:#e6f0ff,stroke:#1f6feb,stroke-width:2px,color:#000;
+    classDef struct fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
+    classDef fuse fill:#fff4e5,stroke:#b26a00,stroke-width:2px,color:#000;
+
+    XCAT[x_cat, x_num, edge_index, batch]:::obs --> OBSENC[Observed Encoder\nGATv2Conv stack]:::obs
+    OBSENC --> HOBS[H_obs: [B, hidden_dim]]:::obs
+
+    SEI[structural_edge_index]:::struct --> SENC[Structural Encoder\nstruct_gnn]:::struct
+    SX[struct_x optional]:::struct --> SXSEL[if None -> struct_node_emb]:::struct
+    SXSEL --> SENC
+    SEW[structural_edge_weight optional]:::struct -. optional .-> SENC
+    SENC --> HNORM[H_norm: [C, struct_hidden_dim]]:::struct
+
+    HOBS --> Q[Q: [B,1,hidden_dim]]:::fuse
+    HNORM --> PROJ[struct_to_attn\n[C,hidden_dim]]:::fuse
+    PROJ --> KV[expand -> [B,C,hidden_dim]]:::fuse
+
+    Q --> ATTN[MultiheadAttention\nbatch_first=True]:::fuse
+    KV --> ATTN
+    ATTN --> CXT[context: [B,hidden_dim]\nattn_weights: [B,H,1,C]]:::fuse
+
+    CXT --> CPROJ[attn_to_struct\n[B,struct_hidden_dim]]:::fuse
+    HOBS --> CONCAT[concat(H_obs, context_struct)]:::fuse
+    CPROJ --> CONCAT
+
+    CONCAT --> FUSION[Fusion MLP\nLinear(hidden+struct_hidden -> hidden)+ReLU]:::fuse
+    FUSION --> CLS[Classifier -> logits [B,C]]:::fuse
+```
+
+### 6.2 Forward Contract Rules
+1. If `structural_edge_index` is missing/empty: baseline fallback.
+2. If `struct_x` is missing: use `struct_node_emb` (expected in Sprint 3).
+3. Cross-attention weights are stored in `self.last_cross_attn_weights` for XAI.
+4. `allowed_target_mask` is not used by model forward; it is used by evaluator (OOS).
+
+## 7. Runtime Flows
+
+### 7.1 Training Flow
 
 ```mermaid
 sequenceDiagram
-    participant XES as XESAdapter
-    participant TopologyExtractorService as TopologyExtractorService
-    participant KG as IKnowledgeGraphPort
-    participant TR as Trainer
-    participant PP as PrefixPolicy
-    participant DGB as DynamicGraphBuilder
-    participant FE as FeatureEncoder
-    participant M as FusionGNN
+    participant X as XESAdapter
+    participant T as TopologyExtractorService
+    participant D as DynamicGraphBuilder
+    participant M as EOPKGGATv2
+    participant R as ModelTrainer
 
-    rect rgb(230, 255, 237)
-    Note right of XES: MVP2: Zero-Shot Knowledge Injection
-    XES->>TopologyExtractorService: train_traces (k=1)
-    TopologyExtractorService->>TopologyExtractorService: Симуляція BPMN (унікальні ребра)
-    TopologyExtractorService->>KG: save_structure(ProcessStructureDTO)
-    end
-
-    XES->>TR: Iterator[RawTrace]
-    TR->>PP: generate_slices(trace)
-    PP->>DGB: PrefixSlice (з версією k)
-    
-    rect rgb(230, 255, 237)
-    DGB->>KG: get_structure(k)
-    KG-->>DGB: allowed_edges
-    end
-    
-    DGB->>FE: encode_event(...)
-    DGB-->>TR: Розширений GraphTensorContract
-    TR->>M: forward/backward (Злиття G_obs + G_struct)
+    X->>R: RawTrace iterator
+    R->>T: extract_from_logs(train_traces)
+    T-->>D: ProcessStructureDTO (by version)
+    R->>D: build_graph(prefix)
+    D-->>R: GraphTensorContract (with mask + structural edges)
+    R->>M: forward(contract)
+    M-->>R: logits (+last_cross_attn_weights)
 ```
 
-## 6.2 Eval Drift Flow (З урахуванням EOPKG)
+### 7.2 Eval Drift Flow
 
 ```mermaid
 sequenceDiagram
-    participant InputTrace
-    participant PrefixPolicy
-    participant DynamicGraphBuilder
-    participant KGPort as IKnowledgeGraphPort
-    participant Model as EOPKGFusionGNN
-    participant Evaluator
+    participant R as ModelTrainer
+    participant D as DynamicGraphBuilder
+    participant M as EOPKGGATv2
 
-    InputTrace->>PrefixPolicy: trace/prefix (версія k+n)
-    PrefixPolicy->>DynamicGraphBuilder: prefix graph
-    DynamicGraphBuilder->>KGPort: get_structure(k+n)
-    
-    alt Structure Exists
-        KGPort-->>DynamicGraphBuilder: ProcessStructureDTO
-        DynamicGraphBuilder->>Model: GTC (with structural_edge_index)
-        Model->>Model: forward (Attention/Fusion)
-    else Structure Unknown (Drift)
-        KGPort-->>DynamicGraphBuilder: None
-        DynamicGraphBuilder->>Model: GTC (without structural_edges)
-        Model->>Model: forward (Fallback до MVP1 Baseline)
+    R->>R: chronological windows
+    loop each window
+      R->>D: build_graph(prefixes)
+      D-->>R: contracts (may contain/no structural tensors)
+      R->>M: forward
+      M-->>R: logits
+      R->>R: compute F1/ECE/OOS/slices
     end
-    
-    Model->>Evaluator: logits
-    Evaluator->>Evaluator: compute F1/Accuracy/ECE/OOS + slices
 ```
 
-## 6.3 End-to-End Pipeline
-
-```mermaid
-flowchart TD
-    classDef mvp2 fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
-
-    Event --> NormalizedEvent
-    NormalizedEvent --> RawTrace
-    
-    RawTrace -->|Only Train Data| TopologyExtractor:::mvp2
-    TopologyExtractor --> ProcessStructureDTO:::mvp2
-    
-    RawTrace --> TracePreprocessor
-    TracePreprocessor --> PrefixPolicy
-    PrefixPolicy --> PrefixSlice
-    PrefixSlice --> InstanceGraph
-    InstanceGraph --> SchemaResolver
-    SchemaResolver --> FeatureEncoder
-    
-    ProcessStructureDTO -.-> DynamicGraphBuilder:::mvp2
-    FeatureEncoder --> DynamicGraphBuilder
-    
-    DynamicGraphBuilder --> ExpandedTensorContract[GraphTensorContract + Masks]:::mvp2
-    ExpandedTensorContract --> EOPKGFusionGNN:::mvp2
-```
-
-## 7. Відповідність Target Architecture та Scope Limits
-Цей MVP2 є еволюційним кроком (Bridge) до цільової Enterprise-архітектури. Щоб уникнути переускладнення коду, фіксуються наступні межі (Scope Limits):
-
-### 7.1 Роль TopologyExtractorService
-У фінальній `TARGET_ARCHITECTURE` цей сервіс читатиме BPMN-моделі (Camunda) і зберігатиме їх у Neo4j. 
-Оскільки в нашому поточному дослідницькому середовищі XES-датасети не мають супровідних BPMN-файлів, `TopologyExtractorService` у MVP2 виконує роль симулятора: він парсить нормативну топологію безпосередньо з `train_traces` (без Data Leakage) і тримає її в пам'яті (або в локальному JSON), імітуючи відповідь від Neo4j.
-
-### 7.2 Що перенесено у MVP3 (Agent-Critic та Динамічна Регуляризація)
-Згідно з цільовою архітектурою, система має включати динамічну регуляризацію ($\beta$) та контролера (Agent-Critic).
-- **У MVP2:** Ми реалізуємо лише базову робочу конячку — `EOPKGFusionGNN`. Її задача: довести здатність до *Zero-Shot* адаптації виключно за рахунок структурної маски ($G_{struct}$), без втручання у функцію втрат.
-- **У MVP3:** Буде реалізовано надбудову `AgentCriticGNN`, яка використовуватиме `EOPKGFusionGNN` як бейзлайн і динамічно керуватиме гіперпараметром $\beta$ на основі семафора дрейфу ($\mathcal{W}_1$) і завантаження EOPKG з графової бд (neo4j).
+## 8. Scope Limits and MVP3 Boundary
+1. Sprint 3 scope is only `EOPKGGATv2` Dual-Encoder refactor.
+2. `EOPKGGCN` stays on previous fusion path (compatibility mode).
+3. Rich `struct_x` features from graph DB (resources, policies, advanced stats) are Sprint 4+.
+4. Agent-Critic and dynamic beta regularization remain MVP3.

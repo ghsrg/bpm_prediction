@@ -1,48 +1,138 @@
-# EVF_MVP2.MD
+﻿# EVF_MVP2.MD
 
-## 1. Призначення
-Методологія порівняння `BaselineGNN` (MVP1) та `EOPKGFusionGNN` (MVP2) в умовах концептуального/структурного дрейфу на **ідентичних даних**.
+## 1. Purpose
+Methodology for comparing MVP1 baselines (`BaselineGCN`, `BaselineGATv2`) vs MVP2 (`EOPKGGATv2` Dual-Encoder + Soft Cross-Attention) under identical data and split policies.
 
-## 2. Експериментальний протокол
-1. **Заморозка даних:** Використовується єдиний кешований `train/val/test` спліт. Сортування за часом суворо ідентичне.
-2. **Навчання Baseline:** Навчання `BaselineGNN` на `train`, замір F1 на вікнах `eval_drift`.
-3. **Навчання EOPKG:** Навчання `EOPKGFusionGNN` на тому ж `train`. `TopologyExtractorService` генерує топологію з `train`.
-4. **Вимірювання стійкості (Robustness):** Замір F1 на тих самих вікнах `eval_drift`. 
-   
-## 3. Наукові Гіпотези та Критерії Успіху (MVP2)
+Primary evaluation focus:
+1. Predictive quality under drift (`F1`, `Accuracy`).
+2. Calibration stability (`ECE`).
+3. Structural hallucination control (`OOS`).
+4. Slice behavior by process version and prefix length.
 
-Для підтвердження ефективності Knowledge-Infusion оператора ($\Gamma$), експериментальний протокол розширюється перевіркою 5 ключових гіпотез. Кожна гіпотеза має чіткі математичні критерії та механізми перевірки в межах існуючого пайплайну.
+## 2. Experimental Protocol
+1. Data freeze:
+- Use the same source log and deterministic preparation.
+- Apply cascade filter in strict order: temporal sort -> macro split (`train_ratio`) -> fraction -> micro split (`split_ratio`).
 
-### H1: Стійкість до структурного дрейфу (Drift Resilience)
-- **Очікування:** На вікнах, де відбувається дрейф, падіння F1 для `EOPKGFusionGNN` має бути статистично значуще меншим, ніж для `BaselineGNN`. Кількість галюцинацій (OOS) має бути мінімальною.
-- **Математика:** $$\Delta F1 = F1_{pre\_drift} - F1_{drift\_window}$$
-  Критерій успіху: $\Delta F1_{EOPKG} \ll \Delta F1_{Baseline}$ та $OOS_{EOPKG} \to 0$.
-- **Метрика:** `window_macro_f1`, `window_oos_rate`.
-- **Механізм перевірки:** Порівняння результатів `eval_drift` обох моделей на синхронізованих часових вікнах.
+2. Baseline run:
+- Train baseline model with the same training protocol.
+- Evaluate on same validation/test/drift windows.
 
-### H2: Стабільність калібрування (Calibration Stability)
-- **Очікування:** Під час дрейфу `BaselineGNN` стає "впевнено неправою" (висока ймовірність для хибних класів). Завдяки EOPKG, модель має об'єктивніше оцінювати свою невпевненість, тому ECE залишатиметься стабільнішим.
-- **Математика:** $$\Delta ECE = ECE_{drift\_window} - ECE_{pre\_drift}$$
-  Критерій успіху: $\Delta ECE_{EOPKG} < \Delta ECE_{Baseline}$.
-- **Метрика:** `window_test_ece`.
-- **Механізм перевірки:** Аналіз динаміки метрики ECE (Expected Calibration Error) на графіках часових вікон.
+3. EOPKG run:
+- Build topology registry from train traces only (`TopologyExtractorService.extract_from_logs(train_traces)`).
+- Train/evaluate `EOPKGGATv2` with identical optimization settings.
 
-### H3: Загальне підвищення точності (Absolute Accuracy Uplift)
-- **Очікування:** На вікнах до початку дрейфу F1 обох моделей має бути приблизно однаковим, проте EOPKG потенційно демонструє невеликий приріст точності, оскільки граф знань працює як індуктивне упередження (звужує простір пошуку).
-- **Математика:** $$F1_{EOPKG}(W_k) \ge F1_{Baseline}(W_k) \quad \text{для } t(W_k) < t_{drift}$$
-- **Метрика:** `window_macro_f1` (на ранніх вікнах) або глобальний `test_macro_f1` на вибірці без дрейфу.
-- **Механізм перевірки:** Пряме порівняння метрик на стабільній тестовій вибірці (Cross-Dataset Evaluation).
+4. Drift run:
+- Use chronological windows with `size=drift_window_size`, `step=drift_window_sliding or size`.
+- Drop short tail windows (`len(window) < size`).
 
-### H4: Латентне кодування версій (Latent Version Conditioning)
-- **Очікування:** Єдина модель здатна обслуговувати кілька історичних версій процесу одночасно (подолання Catastrophic Forgetting) завдяки кодуванню ідентифікатора $\kappa$ (`version_emb_idx`).
-- **Математика:** $$F1(\kappa_i) \approx F1(\kappa_j)$$
-  Точність моделі не повинна суттєво деградувати для старіших версій порівняно з новими.
-- **Метрика:** `test_macro_f1` згрупований (sliced) за атрибутом `process_version`.
-- **Механізм перевірки:** Розширення `Evaluator` функцією зрізів (slice evaluation), яка агрегує метрики окремо для кожної версії процесу.
+## 3. Scientific Hypotheses and Success Criteria
 
-### H5: Стійкість на довгих трасах (Long-Term Dependency Robustness)
-- **Очікування:** `BaselineGNN` деградує на дуже довгих трасах через розмиття локального контексту. `EOPKGFusionGNN` зберігає стабільність, оскільки нормативний граф забезпечує жорсткий глобальний контекст маршрутизації незалежно від довжини історії.
-- **Математика:** Нехай $L$ — довжина префіксу. Очікується, що градієнт падіння точності відносно $L$ для EOPKG є меншим:
-  $$\left| \frac{\partial F1}{\partial L}_{EOPKG} \right| < \left| \frac{\partial F1}{\partial L}_{Baseline} \right|$$
-- **Метрика:** `test_macro_f1` згрупований за бінами довжини префіксу (наприклад, $L \in [1, 5], [6, 10], [11, 20], L > 20$).
-- **Механізм перевірки:** Sliced evaluation в `Evaluator` за довжиною графа (`num_nodes`).
+### H1 Drift resilience
+Expectation: `EOPKGGATv2` has lower F1 degradation than baseline on drift windows.
+
+\[
+\Delta F1 = F1_{pre\_drift} - F1_{drift}
+\]
+
+Success criterion:
+\[
+\Delta F1_{EOPKG} < \Delta F1_{Baseline}
+\]
+
+### H2 Calibration stability
+Expectation: `ECE` growth under drift is smaller for EOPKG model.
+
+\[
+\Delta ECE = ECE_{drift} - ECE_{pre\_drift}
+\]
+
+### H3 OOS control
+Expectation: OOS rate is lower for EOPKG on structurally constrained regimes.
+
+\[
+OOS = \frac{1}{B} \sum_{i=1}^{B} \mathbb{1}[\hat{y}_i \notin \mathcal{A}_i]
+\]
+
+Where \(\mathcal{A}_i\) is allowed target set from `allowed_target_mask`.
+
+### H4 Version consistency
+Expectation: quality does not collapse for specific process versions.
+
+Tracked keys:
+- `test_f1_<version>`
+- `test_accuracy_<version>`
+- `test_oos_<version>` (if mask exists)
+
+### H5 Prefix-length robustness
+Expectation: model remains stable on long prefixes.
+
+Length bins:
+- `len_1_5`
+- `len_6_10`
+- `len_11_20`
+- `len_21_plus`
+
+## 4. Metric Contract and Logging Schema
+
+Global metrics:
+- `test_macro_f1`
+- `test_weighted_f1`
+- `test_accuracy`
+- `test_top3_accuracy`
+- `test_ece`
+- `test_oos` (`None` when mask unavailable)
+- `test_precision_macro`
+- `test_recall_macro`
+
+Sliced metrics:
+- By length: `test_f1_len_1_5`, `test_oos_len_6_10`, etc.
+- By version: `test_f1_v1`, `test_accuracy_v2`, `test_oos_v2`, etc.
+
+Drift metrics per window:
+- `window_macro_f1`
+- `window_test_ece`
+- `window_start_ts`
+- `window_end_ts`
+
+## 5. Drift Evaluation Protocol (Operational)
+
+```mermaid
+flowchart LR
+    A[Load checkpoint + encoder state] --> B[Prepare eval_drift trace stream]
+    B --> C[Generate chronological windows size/step]
+    C --> D[Drop short tail windows]
+    D --> E[Build window loader]
+    E --> F[Forward pass]
+    F --> G[Compute F1/ECE/OOS/slices]
+    G --> H[Log per-window metrics + timestamps]
+```
+
+Anti-leakage invariant:
+- No topology fitting on evaluation windows.
+- Topology is extracted only from train split.
+
+## 6. Dual-Encoder Evaluation View (Tensor + Explainability)
+
+```mermaid
+flowchart TD
+    classDef obs fill:#e6f0ff,stroke:#1f6feb,stroke-width:2px,color:#000;
+    classDef struct fill:#e6ffed,stroke:#2ea043,stroke-width:2px,color:#000;
+    classDef eval fill:#fff4e5,stroke:#b26a00,stroke-width:2px,color:#000;
+
+    CONTRACT[GraphTensorContract] --> HOBS[Observed branch -> H_obs]:::obs
+    CONTRACT --> HNORM[Structural branch -> H_norm]:::struct
+
+    HOBS --> ATTN[Cross-attention Q/K/V]
+    HNORM --> ATTN
+    ATTN --> LOGITS[Classifier logits]
+
+    LOGITS --> YHAT[y_hat]
+    CONTRACT --> MASK[allowed_target_mask [B,C]]:::eval
+    YHAT --> OOS[OOS = ~mask[arange(B), y_hat]]:::eval
+
+    ATTN --> XAI[last_cross_attn_weights artifact]:::eval
+```
+
+Interpretability note:
+- `last_cross_attn_weights` should be captured as a research artifact (heatmap/table) for qualitative analysis across drift windows.

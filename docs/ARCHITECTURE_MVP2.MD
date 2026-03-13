@@ -130,18 +130,18 @@ flowchart LR
     SX[struct_x optional]:::struct --> SXSEL[if None -> struct_node_emb]:::struct
     SXSEL --> SENC
     SEW[structural_edge_weight optional]:::struct -. optional .-> SENC
-    SENC --> HNORM[H_norm: [C, struct_hidden_dim]]:::struct
+    SENC --> HNORM["H_norm: [C, struct_hidden_dim]"]:::struct
 
     HOBS --> Q[Q: [B,1,hidden_dim]]:::fuse
     HNORM --> PROJ["struct_to_attn\n[C,hidden_dim]"]:::fuse
-    PROJ --> KV[expand -> [B,C,hidden_dim]]:::fuse
+    PROJ --> KV["expand -> [B,C,hidden_d im]"]:::fuse
 
     Q --> ATTN[MultiheadAttention\nbatch_first=True]:::fuse
     KV --> ATTN
     ATTN --> CXT["context: [B,hidden_dim]\nattn_weights: [B,H,1,C]"]:::fuse
 
     CXT --> CPROJ["attn_to_struct\n[B,struct_hidden_dim]"]:::fuse
-    HOBS --> CONCAT[concat(H_obs, context_struct)]:::fuse
+    HOBS --> CONCAT["concat(H_obs, context_struct)"]:::fuse
     CPROJ --> CONCAT
 
     CONCAT --> FUSION["Fusion MLP\nLinear(hidden+struct_hidden -> hidden)+ReLU"]:::fuse

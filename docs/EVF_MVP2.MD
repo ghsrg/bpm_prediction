@@ -128,8 +128,8 @@ flowchart TD
     ATTN --> LOGITS[Classifier logits]
 
     LOGITS --> YHAT[y_hat]
-    CONTRACT --> MASK[allowed_target_mask [B,C]]:::eval
-    YHAT --> OOS[OOS = ~mask[arange(B), y_hat]]:::eval
+    CONTRACT --> MASK["allowed_target_mask [B,C]"]:::eval
+    YHAT --> OOS["OOS = ~mask[arange(B), y_hat]"]:::eval
 
     ATTN --> XAI[last_cross_attn_weights artifact]:::eval
 ```

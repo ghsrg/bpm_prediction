@@ -152,34 +152,34 @@ flowchart LR
 
     subgraph Observed Branch
       OI[x_cat, x_num, edge_index, batch]:::obs --> OGNN[Local GATv2 stack]:::obs
-      OGNN --> HOBS[H_obs [B,H]]:::obs
+      OGNN --> HOBS["H_obs [B,H]"]:::obs
     end
 
     subgraph Structural Branch
       SX[struct_x optional]:::struct --> SSEL{struct_x exists?}:::struct
       SSEL -->|yes| SXI[struct_x -> optional proj]:::struct
-      SSEL -->|no| EMB[struct_node_emb [C,S]]:::struct
+      SSEL -->|no| EMB["struct_node_emb [C,S]"]:::struct
       SEI[structural_edge_index]:::struct --> SGNN[struct_gnn]:::struct
       SXI --> SGNN
       EMB --> SGNN
-      SGNN --> HNORM[H_norm [C,S]]:::struct
+      SGNN --> HNORM["H_norm [C,S]"]:::struct
     end
 
-    HNORM --> STA[struct_to_attn -> [C,H]]:::fuse
-    STA --> KV[expand -> [B,C,H]]:::fuse
-    HOBS --> Q[Q [B,1,H]]:::fuse
+    HNORM --> STA["struct_to_attn -> [C,H]"]:::fuse
+    STA --> KV["expand -> [B,C,H]"]:::fuse
+    HOBS --> Q["Q [B,1,H]"]:::fuse
 
     Q --> ATTN[MultiheadAttention]:::fuse
     KV --> ATTN
 
-    ATTN --> AOUT[attn_output [B,1,H]]:::fuse
-    ATTN --> AW[last_cross_attn_weights [B,heads,1,C]]:::fuse
+    ATTN --> AOUT["attn_output [B,1,H]"]:::fuse
+    ATTN --> AW["last_cross_attn_weights [B,heads,1,C]"]:::fuse
 
-    AOUT --> ATS[attn_to_struct [B,S]]:::fuse
-    HOBS --> CAT[concat(H_obs, H_ctx)]:::fuse
+    AOUT --> ATS["attn_to_struct [B,S]"]:::fuse
+    HOBS --> CAT["concat(H_obs, H_ctx)"]:::fuse
     ATS --> CAT
     CAT --> FUS[Fusion MLP]:::fuse
-    FUS --> CLS[Classifier logits [B,C]]:::fuse
+    FUS --> CLS["Classifier logits [B,C]"]:::fuse
 ```
 
 Fallback contract:

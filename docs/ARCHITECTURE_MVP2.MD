@@ -132,7 +132,7 @@ flowchart LR
     SEW[structural_edge_weight optional]:::struct -. optional .-> SENC
     SENC --> HNORM["H_norm: [C, struct_hidden_dim]"]:::struct
 
-    HOBS --> Q["Q: [B,1,hidden_dim"]]:::fuse
+    HOBS --> Q["Q: [B,1,hidden_dim]"]:::fuse
     HNORM --> PROJ["struct_to_attn\n[C,hidden_dim]"]:::fuse
     PROJ --> KV["expand -> [B,C,hidden_d im]"]:::fuse
 

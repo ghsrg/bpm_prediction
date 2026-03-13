@@ -56,3 +56,25 @@ def test_repository_version_only_lookup_returns_none_when_ambiguous():
     repository.save_process_structure("v1", _dto("v1", [("X", "Y")]), process_name="p2")
 
     assert repository.get_process_structure("v1") is None
+
+
+def test_repository_get_graph_for_visualization_raises_for_unknown_process_or_version():
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure("v1", _dto("v1", [("A", "B")]), process_name="p1")
+
+    try:
+        repository.get_graph_for_visualization("p_unknown", "v1", min_edge_frequency=0)
+        assert False, "Expected ValueError for unknown process/version."
+    except ValueError as exc:
+        assert "No graph found" in str(exc)
+
+
+def test_repository_get_graph_for_visualization_rejects_negative_frequency():
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure("v1", _dto("v1", [("A", "B")]), process_name="p1")
+
+    try:
+        repository.get_graph_for_visualization("p1", "v1", min_edge_frequency=-1)
+        assert False, "Expected ValueError for negative min_edge_frequency."
+    except ValueError as exc:
+        assert "must be >= 0" in str(exc)

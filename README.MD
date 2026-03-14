@@ -159,12 +159,82 @@ py -3 tools/architecture_guard.py
 pytest tests/ -v
 ```
 
-Show topology gpaph 
+Show topology graph (typed colors + rich labels)
 ```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version 'bpi2012' --min-freq 100
+python main.py visualize-topology \
+  --config configs/experiments/02_train_bpi2012.yaml \
+  --version bpi2012 \
+  --renderer graphviz \
+  --label-mode id+name+type \
+  --typed-colors \
+  --min-freq 10
 ```
 
-Save topology gpaph to outputs
+Save topology graph to `outputs/`
 ```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version 'bpi2012' --out outputs/topology_v7.png --min-freq 100
+python main.py visualize-topology \
+  --config configs/experiments/02_train_bpi2012.yaml \
+  --version bpi2012 \
+  --renderer graphviz \
+  --label-mode id+name+type \
+  --typed-colors \
+  --min-freq 10 \
+  --out outputs/topology_v7.png
+```
+
+Topology CLI keys:
+```text
+--config PATH            experiment config path (includes data/mapping)
+--version VALUE          process version key to render
+--renderer               graphviz | pm4py (default: graphviz)
+--label-mode             id | name | id+name | id+name+type
+--typed-colors           enable type-based colors (use --no-typed-colors to disable)
+--min-freq N             keep only edges with frequency >= N
+--out PATH               save image to file (.png/.pdf/.svg), otherwise open viewer
+```
+
+Type color mapping (graphviz renderer):
+```text
+start/end events         green/orange
+gateways                 blue (diamond)
+user tasks               light blue
+service tasks            teal
+other events (timer/escalation/message/...) yellow
+fallback/unknown         gray
+```
+
+Show one Instance Graph (IG) for parser sanity-check:
+```bash
+    python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --list-cases --top 20
+```
+
+Render a specific process instance by id:
+```bash
+python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id <PROC_INST_ID> --out outputs/ig_case.png
+python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id 5b4f4435-1c62-11f1-8767-aa0a79ffc04e --out outputs/ig_case.png
+```
+
+Render one case by strategy (when there are thousands of cases):
+```bash
+python main.py visualize-graph \
+  --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml \
+  --pick with-call-activity \
+  --index 0 \
+  --out outputs/ig_call_case.png
+```
+
+IG CLI keys:
+```text
+--config PATH            experiment config path (camunda or xes mapping)
+--data PATH              direct XES path (XES-only mode)
+--case-id ID             exact process instance id (case_id / PROC_INST_ID_)
+--pick STRATEGY          latest | random | longest | shortest | with-call-activity
+--index N                choose N-th case in ranked list for selected strategy
+--seed N                 random seed for --pick random
+--list-cases             print ranked candidate list
+--top N                  how many rows to print with --list-cases
+--mode                   activity-centric | execution-centric (Camunda mode override)
+--max-nodes N            limit nodes/events in rendered graph (default: 500)
+--out PATH               save image to file (.png), otherwise open viewer
+--title TEXT             custom graph title
 ```

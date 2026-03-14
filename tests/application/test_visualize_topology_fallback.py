@@ -53,8 +53,9 @@ def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypa
         process_name: str | None = None,
         save_path: str | None = None,
         min_edge_freq: int = 1,
+        **kwargs,
     ) -> None:
-        _ = self
+        _ = (self, kwargs)
         selected["save_path"] = save_path
         selected["version"] = version
         selected["process_name"] = process_name
@@ -111,6 +112,10 @@ def test_visualize_topology_legacy_camunda_config_without_log_path(monkeypatch, 
     }
 
     monkeypatch.setattr(visualize_topology, "load_yaml_config", lambda _path: cfg)
+    monkeypatch.setattr(
+        "src.adapters.ingestion.camunda_trace_adapter.CamundaTraceAdapter.read",
+        lambda _self, _path, _mapping: iter([_trace("c1", "v1", ["A", "B"])]),
+    )
 
     selected: dict[str, object] = {}
 
@@ -120,8 +125,9 @@ def test_visualize_topology_legacy_camunda_config_without_log_path(monkeypatch, 
         process_name: str | None = None,
         save_path: str | None = None,
         min_edge_freq: int = 1,
+        **kwargs,
     ) -> None:
-        _ = self
+        _ = (self, kwargs)
         selected["version"] = version
         selected["process_name"] = process_name
         selected["save_path"] = save_path
@@ -204,8 +210,9 @@ def test_visualize_topology_handles_not_enough_transitions_without_traceback(mon
         process_name: str | None = None,
         save_path: str | None = None,
         min_edge_freq: int = 1,
+        **kwargs,
     ) -> None:
-        _ = (self, version, process_name, save_path, min_edge_freq)
+        _ = (self, version, process_name, save_path, min_edge_freq, kwargs)
         raise ValueError("No transitions found for process version 'v1' after min_edge_freq=100 filter.")
 
     monkeypatch.setattr("src.application.services.topology_extractor_service.TopologyExtractorService.plot_topology", _fake_plot)

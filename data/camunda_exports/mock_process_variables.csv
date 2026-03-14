@@ -1,0 +1,5 @@
+﻿process_name,version_key,case_id,proc_def_id,proc_def_key,proc_def_version,execution_id,var_name,long_value,double_value,text_value,text2_value,typed_value,removal_time_
+procurement,v1,case_1,pd_1,procurement,v1,ex_2,purchase_amount,,1200.50,,,
+procurement,v1,case_1,pd_1,procurement,v1,ex_2,priority,,,HIGH,,,
+procurement,v1,case_2,pd_1,procurement,v1,ex_5,purchase_amount,,450.00,,,
+procurement,v1,case_2,pd_1,procurement,v1,,priority,,,LOW,,,

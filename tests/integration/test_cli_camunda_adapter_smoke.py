@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from src.cli import prepare_data
 
 
-def test_cli_prepare_data_camunda_adapter_smoke():
-    export_dir = Path("data/camunda_exports").resolve()
+def _copy_mock_exports(target_dir: Path) -> None:
+    source_dir = Path("data/camunda_exports")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for file_name in (
+        "mock_historic_activity_events.csv",
+        "mock_historic_tasks.csv",
+        "mock_identity_links.csv",
+        "mock_execution_tree.csv",
+        "mock_multi_instance_variables.csv",
+        "mock_process_variables.csv",
+        "mock_process_instance_links.csv",
+    ):
+        shutil.copy2(source_dir / file_name, target_dir / file_name)
+
+
+def test_cli_prepare_data_camunda_adapter_smoke(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    _copy_mock_exports(export_dir)
     cfg = {
         "data": {
             "dataset_label": "camunda_procurement",

@@ -49,13 +49,40 @@ class CamundaTraceAdapter(IXESAdapter):
             since=since,
             until=until,
         )
+        task_rows = runtime.fetch_historic_task_events(
+            process_name=process_name,
+            version_key=version_filter,
+            since=since,
+            until=until,
+        )
+        identity_rows = runtime.fetch_identity_links(
+            process_name=process_name,
+            version_key=version_filter,
+            since=since,
+            until=until,
+        )
+        process_variable_rows = runtime.fetch_process_variables(
+            process_name=process_name,
+            version_key=version_filter,
+            since=since,
+            until=until,
+        )
+        events = self._enrich_events(
+            events=events,
+            task_rows=task_rows,
+            identity_rows=identity_rows,
+            process_variable_rows=process_variable_rows,
+        )
         logger.info(
-            "Camunda trace adapter fetched events=%d (source=%s, process=%s, version_filter=%s, dedup=%d).",
+            "Camunda trace adapter fetched events=%d (source=%s, process=%s, version_filter=%s, dedup=%d, tasks=%d, identity=%d, proc_vars=%d).",
             len(events),
             runtime_cfg.get("runtime_source", "files"),
             process_name,
             version_filter or "<all>",
             diagnostics.rows_after_dedup,
+            len(task_rows),
+            len(identity_rows),
+            len(process_variable_rows),
         )
 
         traces = self._group_events_to_traces(
@@ -148,6 +175,10 @@ class CamundaTraceAdapter(IXESAdapter):
                     "org:resource": resource_id,
                     "resource_id": resource_id,
                     "assignee": event.assignee or "",
+                    "assigned_executor": event.assigned_executor or "",
+                    "executed_by": event.executed_by or "",
+                    "potential_executor_users": ",".join(event.potential_executor_users or []),
+                    "potential_executor_groups": ",".join(event.potential_executor_groups or []),
                     "candidate_groups": ",".join(event.candidate_groups or []),
                     "time:timestamp": ts,
                     "duration": duration_sec,
@@ -158,6 +189,8 @@ class CamundaTraceAdapter(IXESAdapter):
                     "execution_id": event.execution_id or "",
                     "parent_execution_id": event.parent_execution_id or "",
                     "call_proc_inst_id": event.call_proc_inst_id or "",
+                    "call_activity_link": event.call_activity_link or {},
+                    "process_variables": event.process_variables or {},
                     "proc_def_id": event.proc_def_id or "",
                     "proc_def_key": event.proc_def_key or "",
                     "proc_def_version": event.proc_def_version or "",
@@ -218,6 +251,10 @@ class CamundaTraceAdapter(IXESAdapter):
 
     @staticmethod
     def _resolve_resource_id(event: ProcessEventDTO) -> str:
+        if event.executed_by and str(event.executed_by).strip():
+            return str(event.executed_by).strip()
+        if event.assigned_executor and str(event.assigned_executor).strip():
+            return str(event.assigned_executor).strip()
         if event.assignee and str(event.assignee).strip():
             return str(event.assignee).strip()
         if event.candidate_groups:
@@ -225,6 +262,115 @@ class CamundaTraceAdapter(IXESAdapter):
             if first_group:
                 return first_group
         return "UNKNOWN"
+
+    @classmethod
+    def _enrich_events(
+        cls,
+        *,
+        events: List[ProcessEventDTO],
+        task_rows: List[Dict[str, Any]],
+        identity_rows: List[Dict[str, Any]],
+        process_variable_rows: List[Dict[str, Any]],
+    ) -> List[ProcessEventDTO]:
+        assignee_by_task: Dict[str, str] = {}
+        candidate_groups_by_task: Dict[str, set[str]] = defaultdict(set)
+        candidate_users_by_task: Dict[str, set[str]] = defaultdict(set)
+        process_vars_by_case_execution: Dict[tuple[str, str], Dict[str, Any]] = defaultdict(dict)
+        process_vars_by_case: Dict[str, Dict[str, Any]] = defaultdict(dict)
+
+        for row in task_rows:
+            task_id = cls._norm_text(row.get("task_id"))
+            assignee = cls._norm_text(row.get("assignee"))
+            if task_id and assignee:
+                assignee_by_task[task_id] = assignee
+
+        for row in identity_rows:
+            task_id = cls._norm_text(row.get("task_id"))
+            if not task_id:
+                continue
+            link_type = cls._norm_text(row.get("link_type") or row.get("type")) or ""
+            user_id = cls._norm_text(row.get("candidate_user_id") or row.get("user_id"))
+            group_id = cls._norm_text(row.get("candidate_group_id") or row.get("group_id"))
+            if link_type in {"assignee", "owner"} and user_id:
+                assignee_by_task[task_id] = user_id
+                continue
+            if user_id:
+                candidate_users_by_task[task_id].add(user_id)
+            if group_id:
+                candidate_groups_by_task[task_id].add(group_id)
+
+        for row in process_variable_rows:
+            case_id = cls._norm_text(row.get("case_id"))
+            var_name = cls._norm_text(row.get("var_name") or row.get("name"))
+            if not case_id or not var_name:
+                continue
+            value = cls._resolve_variable_value(row)
+            execution_id = cls._norm_text(row.get("execution_id"))
+            if execution_id:
+                process_vars_by_case_execution[(case_id, execution_id)][var_name] = value
+            else:
+                process_vars_by_case[case_id][var_name] = value
+
+        enriched: List[ProcessEventDTO] = []
+        for event in events:
+            task_id = cls._norm_text(event.task_id)
+            case_id = cls._norm_text(event.case_id)
+            execution_id = cls._norm_text(event.execution_id)
+
+            potential_users = set(event.potential_executor_users or [])
+            potential_groups = set(event.potential_executor_groups or event.candidate_groups or [])
+            if task_id:
+                potential_users.update(candidate_users_by_task.get(task_id, set()))
+                potential_groups.update(candidate_groups_by_task.get(task_id, set()))
+
+            assigned = event.assigned_executor or assignee_by_task.get(task_id) or event.assignee
+            executed_by = event.executed_by or event.assignee or assigned
+
+            process_variables = dict(process_vars_by_case.get(case_id, {}))
+            if case_id and execution_id:
+                process_variables.update(process_vars_by_case_execution.get((case_id, execution_id), {}))
+
+            call_link = event.call_activity_link
+            if event.call_proc_inst_id and not call_link:
+                call_link = {
+                    "parent_case_id": case_id,
+                    "parent_execution_id": execution_id or None,
+                    "parent_activity_def_id": event.activity_def_id,
+                    "child_case_id": event.call_proc_inst_id,
+                }
+
+            enriched.append(
+                event.model_copy(
+                    update={
+                        "assigned_executor": assigned,
+                        "executed_by": executed_by,
+                        "assignee": event.assignee or executed_by or assigned,
+                        "potential_executor_users": sorted(potential_users) if potential_users else None,
+                        "potential_executor_groups": sorted(potential_groups) if potential_groups else None,
+                        "candidate_groups": sorted(potential_groups) if potential_groups else None,
+                        "process_variables": process_variables or None,
+                        "call_activity_link": call_link,
+                    }
+                )
+            )
+        return enriched
+
+    @staticmethod
+    def _resolve_variable_value(row: Dict[str, Any]) -> Any:
+        for key in ("typed_value", "double_value", "long_value", "text_value", "text2_value", "value"):
+            value = row.get(key)
+            if value is not None and value != "":
+                return value
+        return None
+
+    @staticmethod
+    def _norm_text(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.lower() in {"", "nan", "nat", "none", "null", "<na>", "na", "n/a"}:
+            return ""
+        return text
 
     @staticmethod
     def _to_utc_naive(value: Any) -> Optional[datetime]:

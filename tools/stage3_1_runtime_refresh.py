@@ -75,12 +75,20 @@ def main() -> None:
     config = _load_config(args.config)
     data_cfg = config.get("data", {})
     camunda_cfg = config.get("camunda", {})
+    if not camunda_cfg:
+        mapping_cfg = config.get("mapping", {})
+        camunda_cfg = dict(mapping_cfg.get("camunda_adapter", {})) if isinstance(mapping_cfg, dict) else {}
     runtime_cfg = dict(camunda_cfg.get("runtime", {}))
     if not runtime_cfg:
         runtime_cfg = dict(camunda_cfg)
 
-    process_name = str(data_cfg.get("process_name", camunda_cfg.get("process_name", "default_process"))).strip() or "default_process"
-    version_key = str(camunda_cfg.get("version_key", "v1")).strip() or "v1"
+    process_name = str(
+        data_cfg.get("process_name")
+        or camunda_cfg.get("process_name")
+        or data_cfg.get("dataset_name")
+        or "default_process"
+    ).strip() or "default_process"
+    version_key = str(camunda_cfg.get("version_key", "")).strip()
     lookback_hours = int(camunda_cfg.get("lookback_hours", 24))
     now = datetime.utcnow()
     since = _parse_iso(camunda_cfg.get("since")) or (now - timedelta(hours=lookback_hours))
@@ -100,7 +108,20 @@ def main() -> None:
         since=since,
         until=until,
     )
+    task_rows = adapter.fetch_historic_task_events(
+        process_name=process_name,
+        version_key=version_key,
+        since=since,
+        until=until,
+    )
     variable_rows = adapter.fetch_multi_instance_variables(process_name=process_name, version_key=version_key, since=since, until=until)
+    process_variable_rows = adapter.fetch_process_variables(process_name=process_name, version_key=version_key, since=since, until=until)
+    process_instance_links = adapter.fetch_process_instance_links(
+        process_name=process_name,
+        version_key=version_key,
+        since=since,
+        until=until,
+    )
     identity_rows = adapter.fetch_identity_links(process_name=process_name, version_key=version_key, since=since, until=until)
 
     result = assembler.build(
@@ -112,6 +133,9 @@ def main() -> None:
         identity_rows=identity_rows,
         diagnostics=diagnostics,
         config=camunda_cfg,
+        task_rows=task_rows,
+        process_variables_rows=process_variable_rows,
+        process_instance_links=process_instance_links,
     )
 
     instance_repo.save_instance_events(process_name, version_key, events)
@@ -126,8 +150,11 @@ def main() -> None:
         "mode": result.mode,
         "event_count": len(events),
         "execution_rows": len(execution_rows),
+        "task_rows": len(task_rows),
         "variable_rows": len(variable_rows),
+        "process_variable_rows": len(process_variable_rows),
         "identity_rows": len(identity_rows),
+        "process_instance_links": len(process_instance_links),
         "diagnostics": result.diagnostics.model_dump(),
         "graph_meta": result.graph.get("metadata", {}),
         "projection_keys": list(result.projection.keys()),

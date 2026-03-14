@@ -63,3 +63,22 @@ class ICamundaRuntimePort(Protocol):
         """Return loopCounter and nrOf* variables from runtime/history variable tables."""
         ...
 
+    def fetch_process_variables(
+        self,
+        process_name: str,
+        version_key: str,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return process variables for future feature enrichment of IG nodes."""
+        ...
+
+    def fetch_process_instance_links(
+        self,
+        process_name: str,
+        version_key: str,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return parent-child process instance links (callActivity hierarchy)."""
+        ...

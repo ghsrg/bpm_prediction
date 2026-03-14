@@ -26,7 +26,10 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
         "identity_links": "identity_links",
         "execution_tree": "execution_tree",
         "multi_instance_variables": "multi_instance_variables",
+        "process_variables": "process_variables",
+        "process_instance_links": "process_instance_links",
     }
+    _NULLISH_TEXT = {"", "nan", "nat", "none", "null", "<na>", "na", "n/a"}
 
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = dict(config)
@@ -128,6 +131,39 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
     ) -> List[Dict[str, Any]]:
         rows = self._fetch_table("multi_instance_variables")
         return self._filter_scope(rows, process_name=process_name, version_key=version_key, since=since, until=until)
+
+    def fetch_process_variables(
+        self,
+        process_name: str,
+        version_key: str,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        rows = self._fetch_table("process_variables")
+        return self._filter_scope(rows, process_name=process_name, version_key=version_key, since=since, until=until)
+
+    def fetch_process_instance_links(
+        self,
+        process_name: str,
+        version_key: str,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        rows = self._fetch_table("process_instance_links")
+        scoped = self._filter_scope(rows, process_name=process_name, version_key=version_key, since=since, until=until)
+        normalized: List[Dict[str, Any]] = []
+        for row in scoped:
+            item = dict(row)
+            super_id = self._str_or_none(
+                item.get("super_proc_inst_id")
+                or item.get("super_process_instance_id")
+                or item.get("SUPER_PROCESS_INSTANCE_ID_")
+            )
+            if super_id is not None:
+                item["super_proc_inst_id"] = super_id
+                item["super_process_instance_id"] = super_id
+            normalized.append(item)
+        return normalized
 
     def _fetch_table(self, table_name: str) -> List[Dict[str, Any]]:
         if self.runtime_source == "mssql":
@@ -318,13 +354,33 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
         return version_key in non_empty
 
     def _row_to_event(self, row: Dict[str, Any]) -> ProcessEventDTO:
-        groups_raw = row.get("candidate_groups")
-        if isinstance(groups_raw, str):
-            candidate_groups = [part.strip() for part in groups_raw.split(",") if part.strip()]
-        elif isinstance(groups_raw, list):
-            candidate_groups = [str(item).strip() for item in groups_raw if str(item).strip()]
-        else:
-            candidate_groups = None
+        candidate_groups = self._parse_string_list(
+            row.get("candidate_groups")
+            or row.get("potential_executor_groups")
+            or row.get("candidate_group_ids")
+        )
+        potential_users = self._parse_string_list(
+            row.get("potential_executor_users")
+            or row.get("candidate_user_ids")
+            or row.get("candidate_user_id")
+        )
+        potential_groups = self._parse_string_list(
+            row.get("potential_executor_groups")
+            or row.get("candidate_group_ids")
+            or row.get("candidate_group_id")
+            or row.get("candidate_groups")
+        )
+        assigned_executor = self._choose_non_empty(
+            row.get("assigned_executor"),
+            row.get("assigned_user_id"),
+            row.get("assignee"),
+        )
+        executed_by = self._choose_non_empty(
+            row.get("executed_by"),
+            row.get("executed_by_user_id"),
+            row.get("completed_by"),
+            row.get("assignee"),
+        )
 
         return ProcessEventDTO(
             case_id=str(row.get("case_id", "")).strip() or "unknown_case",
@@ -336,14 +392,32 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
             proc_def_version=self._str_or_none(row.get("proc_def_version")),
             task_id=self._str_or_none(row.get("task_id")),
             act_inst_id=self._str_or_none(row.get("act_inst_id")),
+            parent_act_inst_id=self._str_or_none(row.get("parent_act_inst_id")),
+            sequence_counter=self._safe_int_or_none(row.get("sequence_counter")),
             execution_id=self._str_or_none(row.get("execution_id")),
             parent_execution_id=self._str_or_none(row.get("parent_execution_id")),
+            scope_depth=self._safe_int_or_none(row.get("scope_depth") or row.get("depth")),
+            is_concurrent=self._safe_bool(row.get("is_concurrent")),
+            is_scope=self._safe_bool(row.get("is_scope")),
+            is_event_scope=self._safe_bool(row.get("is_event_scope")),
+            execution_rev=self._safe_int_or_none(row.get("rev") or row.get("execution_rev")),
             call_proc_inst_id=self._str_or_none(row.get("call_proc_inst_id")),
+            called_element=self._str_or_none(row.get("called_element")),
+            binding_type=self._str_or_none(row.get("binding_type")),
+            version_tag=self._str_or_none(row.get("version_tag")),
+            version_number=self._str_or_none(row.get("version_number")),
+            resolved_child_proc_def_id=self._str_or_none(row.get("resolved_child_proc_def_id")),
+            child_process_key=self._str_or_none(row.get("child_process_key")),
+            child_version=self._str_or_none(row.get("child_version")),
             start_time=self._parse_datetime(row.get("start_time")),
             end_time=self._parse_datetime(row.get("end_time")),
             duration_ms=self._safe_float(row.get("duration_ms")),
             assignee=self._str_or_none(row.get("assignee")),
             candidate_groups=candidate_groups,
+            assigned_executor=self._str_or_none(assigned_executor),
+            executed_by=self._str_or_none(executed_by),
+            potential_executor_users=potential_users or None,
+            potential_executor_groups=potential_groups or None,
             removal_time=self._parse_datetime(row.get("removal_time_") or row.get("removal_time")),
             extra={k: v for k, v in row.items() if k not in self._event_known_fields()},
         )
@@ -388,14 +462,41 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
             "proc_def_version",
             "task_id",
             "act_inst_id",
+            "parent_act_inst_id",
+            "sequence_counter",
             "execution_id",
             "parent_execution_id",
+            "scope_depth",
+            "depth",
+            "is_concurrent",
+            "is_scope",
+            "is_event_scope",
+            "rev",
+            "execution_rev",
             "call_proc_inst_id",
+            "called_element",
+            "binding_type",
+            "version_tag",
+            "version_number",
+            "resolved_child_proc_def_id",
+            "child_process_key",
+            "child_version",
             "start_time",
             "end_time",
             "duration_ms",
             "assignee",
             "candidate_groups",
+            "assigned_executor",
+            "assigned_user_id",
+            "executed_by",
+            "executed_by_user_id",
+            "completed_by",
+            "potential_executor_users",
+            "potential_executor_groups",
+            "candidate_user_ids",
+            "candidate_group_ids",
+            "candidate_user_id",
+            "candidate_group_id",
             "removal_time",
             "removal_time_",
         }
@@ -433,8 +534,57 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
             return 0
 
     @staticmethod
+    def _safe_int_or_none(value: Any) -> Optional[int]:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _safe_bool(value: Any) -> Optional[bool]:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "t", "yes", "y"}:
+            return True
+        if text in {"0", "false", "f", "no", "n"}:
+            return False
+        return None
+
+    @staticmethod
     def _str_or_none(value: Any) -> Optional[str]:
         if value is None:
             return None
         text = str(value).strip()
+        if text.lower() in CamundaRuntimeAdapter._NULLISH_TEXT:
+            return None
         return text or None
+
+    @classmethod
+    def _parse_string_list(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",")]
+            return [part for part in parts if part and part.lower() not in cls._NULLISH_TEXT]
+        if isinstance(value, (list, tuple, set)):
+            result: List[str] = []
+            for item in value:
+                normalized = cls._str_or_none(item)
+                if normalized:
+                    result.append(normalized)
+            return result
+        parsed = cls._str_or_none(value)
+        return [parsed] if parsed else []
+
+    @classmethod
+    def _choose_non_empty(cls, *values: Any) -> Optional[str]:
+        for value in values:
+            text = cls._str_or_none(value)
+            if text:
+                return text
+        return None

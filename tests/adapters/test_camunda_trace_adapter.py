@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from src.adapters.ingestion.camunda_trace_adapter import CamundaTraceAdapter
 
 
-def test_camunda_trace_adapter_reads_mock_files_and_builds_traces():
-    export_dir = Path("data/camunda_exports").resolve()
+def _copy_mock_exports(target_dir: Path) -> None:
+    source_dir = Path("data/camunda_exports")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for file_name in (
+        "mock_historic_activity_events.csv",
+        "mock_historic_tasks.csv",
+        "mock_identity_links.csv",
+        "mock_execution_tree.csv",
+        "mock_multi_instance_variables.csv",
+        "mock_process_variables.csv",
+        "mock_process_instance_links.csv",
+    ):
+        shutil.copy2(source_dir / file_name, target_dir / file_name)
+
+
+def test_camunda_trace_adapter_reads_mock_files_and_builds_traces(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    _copy_mock_exports(export_dir)
     adapter = CamundaTraceAdapter()
     mapping = {
         "dataset_name": "procurement",
@@ -29,6 +46,9 @@ def test_camunda_trace_adapter_reads_mock_files_and_builds_traces():
     assert {trace.process_version for trace in traces} == {"v1"}
     assert "concept:name" in traces[0].events[0].extra
     assert "org:resource" in traces[0].events[0].extra
+    assert "assigned_executor" in traces[0].events[0].extra
+    assert "executed_by" in traces[0].events[0].extra
+    assert "process_variables" in traces[0].events[0].extra
 
 
 def test_camunda_trace_adapter_without_version_filter_reads_all_versions(tmp_path: Path):

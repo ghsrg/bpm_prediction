@@ -10,6 +10,7 @@
     H.ACT_TYPE_ AS activity_type,
     H.ID_ AS act_inst_id,
     H.PARENT_ACT_INST_ID_ AS parent_act_inst_id,
+    H.SEQUENCE_COUNTER_ AS sequence_counter,
     H.TASK_ID_ AS task_id,
     H.EXECUTION_ID_ AS execution_id,
     RE.PARENT_ID_ AS parent_execution_id,

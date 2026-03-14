@@ -103,6 +103,18 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
     def _dto_to_graph(dto: ProcessStructureDTO) -> nx.DiGraph:
         graph = nx.DiGraph()
         edge_stats = dto.edge_statistics or {}
+        node_meta = dto.node_metadata or {}
+
+        for node_id, meta in node_meta.items():
+            attrs: Dict[str, str] = {}
+            name = str(meta.get("activity_name", "")).strip()
+            activity_type = str(meta.get("activity_type", "")).strip()
+            if name:
+                attrs["activity_name"] = name
+            if activity_type:
+                attrs["activity_type"] = activity_type
+            graph.add_node(str(node_id), **attrs)
+
         for src, dst in dto.allowed_edges:
             stats = edge_stats.get((src, dst), {})
             weight = int(stats.get("count", 1))

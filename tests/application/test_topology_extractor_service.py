@@ -6,7 +6,12 @@ from src.domain.entities.raw_trace import RawTrace
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
-def _event(idx: int, activity: str) -> EventRecord:
+def _event(idx: int, activity: str, activity_name: str | None = None, activity_type: str | None = None) -> EventRecord:
+    extra = {"concept:name": activity}
+    if activity_name is not None:
+        extra["activity_name"] = activity_name
+    if activity_type is not None:
+        extra["activity_type"] = activity_type
     return EventRecord(
         activity_id=activity,
         timestamp=float(1700000000 + idx),
@@ -16,7 +21,7 @@ def _event(idx: int, activity: str) -> EventRecord:
         duration=1.0,
         time_since_case_start=float(idx),
         time_since_previous_event=1.0 if idx > 0 else 0.0,
-        extra={"concept:name": activity},
+        extra=extra,
         activity_instance_id=f"ai_{idx}",
     )
 
@@ -145,3 +150,74 @@ def test_extract_from_logs_falls_back_to_process_name_for_empty_version():
     dto = service.get_process_structure("dataset_alpha", process_name="dataset_alpha")
     assert dto is not None
     assert set(dto.allowed_edges) == {("A", "B")}
+
+
+def test_extract_from_logs_persists_node_metadata_for_visualization():
+    service = _service("dataset_a")
+    trace = RawTrace(
+        case_id="c1",
+        process_version="v1",
+        events=[
+            _event(0, "StartEvent_1", activity_name="Start", activity_type="startEvent"),
+            _event(1, "Task_Approve", activity_name="Approve request", activity_type="userTask"),
+            _event(2, "EndEvent_1", activity_name="End", activity_type="endEvent"),
+        ],
+        trace_attributes={},
+    )
+    service.fit([trace], process_name="dataset_a")
+
+    graph = service.knowledge_port.get_graph_for_visualization("dataset_a", "v1", min_edge_frequency=0)
+    assert graph.nodes["Task_Approve"]["activity_name"] == "Approve request"
+    assert graph.nodes["Task_Approve"]["activity_type"] == "userTask"
+    assert graph.nodes["StartEvent_1"]["activity_type"] == "startEvent"
+
+
+def test_graphviz_category_mapping_respects_activity_type_and_start_end_fallback():
+    service = _service("dataset_a")
+    # type-based mapping
+    assert service._classify_node_category(graph=None, node_id="n1", attrs={"activity_type": "serviceTask"}) == "service_task"
+    assert service._classify_node_category(graph=None, node_id="n2", attrs={"activity_type": "exclusiveGateway"}) == "gateway"
+    assert service._classify_node_category(graph=None, node_id="n3", attrs={"activity_type": "timerBoundaryEvent"}) == "event_other"
+
+    # fallback mapping by in/out degree when type is absent
+    service.fit([_trace("c1", "v1", ["A", "B", "C"])], process_name="dataset_a")
+    graph = service.knowledge_port.get_graph_for_visualization("dataset_a", "v1", min_edge_frequency=0)
+    assert service._classify_node_category(graph=graph, node_id="A", attrs={}) == "start"
+    assert service._classify_node_category(graph=graph, node_id="C", attrs={}) == "end"
+
+
+def test_extract_from_logs_filters_invalid_edges_into_start_and_out_of_end_events():
+    service = _service("dataset_a")
+    trace = RawTrace(
+        case_id="c1",
+        process_version="v1",
+        events=[
+            _event(0, "StartEvent_1", activity_name="Start", activity_type="startEvent"),
+            _event(1, "Task_A", activity_name="Task A", activity_type="userTask"),
+            _event(2, "EndEvent_1", activity_name="End", activity_type="endEvent"),
+            _event(3, "StartEvent_2", activity_name="Start2", activity_type="startEvent"),
+            _event(4, "Task_B", activity_name="Task B", activity_type="serviceTask"),
+            _event(5, "EndEvent_2", activity_name="End2", activity_type="endEvent"),
+        ],
+        trace_attributes={},
+    )
+
+    service.fit([trace], process_name="dataset_a")
+    dto = service.get_process_structure("v1", process_name="dataset_a")
+    assert dto is not None
+
+    edges = set(dto.allowed_edges)
+    assert ("StartEvent_1", "Task_A") in edges
+    assert ("Task_A", "EndEvent_1") in edges
+    assert ("Task_B", "EndEvent_2") in edges
+    assert ("EndEvent_1", "StartEvent_2") not in edges
+    assert ("EndEvent_1", "Task_B") not in edges
+    assert ("Task_A", "StartEvent_2") not in edges
+
+    graph = service.knowledge_port.get_graph_for_visualization("dataset_a", "v1", min_edge_frequency=0)
+    for node_id, attrs in graph.nodes(data=True):
+        node_type = str(attrs.get("activity_type", "")).lower()
+        if "startevent" in node_type:
+            assert graph.in_degree(node_id) == 0
+        if "endevent" in node_type:
+            assert graph.out_degree(node_id) == 0

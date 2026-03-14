@@ -13,4 +13,4 @@ class ProcessStructureDTO(BaseModel):
     version: str
     allowed_edges: List[Tuple[str, str]]
     edge_statistics: Optional[Dict[Tuple[str, str], Dict[str, float]]] = None
-
+    node_metadata: Optional[Dict[str, Dict[str, str]]] = None

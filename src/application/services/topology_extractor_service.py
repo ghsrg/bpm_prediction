@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from graphviz.backend import ExecutableNotFound
+from graphviz import Digraph
 from pm4py.visualization.dfg import visualizer as dfg_visualizer
 
 from src.domain.entities.process_structure import ProcessStructureDTO
@@ -47,6 +49,7 @@ class TopologyExtractorService:
 
         by_version: Dict[str, Set[Tuple[str, str]]] = {}
         freq_by_version: Dict[str, Dict[Tuple[str, str], int]] = {}
+        node_meta_by_version: Dict[str, Dict[str, Dict[str, str]]] = {}
 
         for trace in train_traces:
             if not trace.events:
@@ -54,15 +57,37 @@ class TopologyExtractorService:
 
             raw_version = str(trace.process_version).strip()
             version_key = raw_version or process_key
+            node_meta = node_meta_by_version.setdefault(version_key, {})
+
+            for event in trace.events:
+                node_id = self._event_label(event)
+                if not node_id:
+                    continue
+                meta = self._extract_event_node_metadata(event=event, node_id=node_id)
+                existing = node_meta.get(node_id, {})
+                node_meta[node_id] = {
+                    "activity_name": existing.get("activity_name") or meta.get("activity_name", ""),
+                    "activity_type": existing.get("activity_type") or meta.get("activity_type", ""),
+                }
 
             if len(trace.events) < 2:
                 continue
             edges = by_version.setdefault(version_key, set())
             edge_freq = freq_by_version.setdefault(version_key, {})
             for idx in range(len(trace.events) - 1):
-                src = self._event_label(trace.events[idx])
-                dst = self._event_label(trace.events[idx + 1])
+                src_event = trace.events[idx]
+                dst_event = trace.events[idx + 1]
+                src = self._event_label(src_event)
+                dst = self._event_label(dst_event)
                 edge = (src, dst)
+                src_meta = self._extract_event_node_metadata(event=src_event, node_id=src)
+                dst_meta = self._extract_event_node_metadata(event=dst_event, node_id=dst)
+                src_type = src_meta.get("activity_type", "")
+                dst_type = dst_meta.get("activity_type", "")
+                if self._is_end_event(src_type):
+                    continue
+                if self._is_start_event(dst_type):
+                    continue
                 edges.add(edge)
                 edge_freq[edge] = edge_freq.get(edge, 0) + 1
 
@@ -74,12 +99,51 @@ class TopologyExtractorService:
                     edge: {"count": float(freq)}
                     for edge, freq in sorted(freq_by_version.get(version, {}).items())
                 },
+                node_metadata=node_meta_by_version.get(version, {}),
             )
             self.knowledge_port.save_process_structure(
                 version=version,
                 dto=dto,
                 process_name=process_key,
             )
+
+    @staticmethod
+    def _extract_event_node_metadata(event: Any, node_id: str) -> Dict[str, str]:
+        extra = getattr(event, "extra", {}) or {}
+        activity_name = ""
+        activity_type = ""
+        if isinstance(extra, dict):
+            raw_name = extra.get("activity_name")
+            if raw_name is None:
+                raw_name = extra.get("concept:name")
+            if raw_name is not None:
+                activity_name = str(raw_name).strip()
+            raw_type = extra.get("activity_type")
+            if raw_type is not None:
+                activity_type = str(raw_type).strip()
+
+        if not activity_name:
+            activity_name = str(node_id)
+        return {
+            "activity_name": activity_name,
+            "activity_type": activity_type,
+        }
+
+    @staticmethod
+    def _is_start_event(activity_type: str) -> bool:
+        raw = str(activity_type).strip().lower()
+        if not raw:
+            return False
+        normalized = raw.replace(" ", "")
+        return "startevent" in normalized
+
+    @staticmethod
+    def _is_end_event(activity_type: str) -> bool:
+        raw = str(activity_type).strip().lower()
+        if not raw:
+            return False
+        normalized = raw.replace(" ", "")
+        return "endevent" in normalized
 
     def extract_from_bpmn(self, bpmn_data: Any) -> None:
         """Reserved entrypoint for Enterprise PoC BPMN/Camunda integration.
@@ -145,10 +209,27 @@ class TopologyExtractorService:
         process_name: str | None = None,
         save_path: str | None = None,
         min_edge_freq: int = 1,
+        renderer: str = "pm4py",
+        label_mode: str = "id",
+        typed_colors: bool = False,
     ) -> None:
         """Render topology as PM4Py DFG using graph returned by the knowledge port."""
         if min_edge_freq < 1:
             raise ValueError("min_edge_freq must be >= 1.")
+        renderer_norm = str(renderer).strip().lower() or "pm4py"
+        if renderer_norm not in {"pm4py", "graphviz"}:
+            raise ValueError("renderer must be either 'pm4py' or 'graphviz'.")
+
+        if renderer_norm == "graphviz":
+            self._plot_topology_graphviz(
+                version=version,
+                process_name=process_name,
+                save_path=save_path,
+                min_edge_freq=min_edge_freq,
+                label_mode=label_mode,
+                typed_colors=typed_colors,
+            )
+            return
 
         dfg, start_activities, end_activities = self._build_dfg_payload(
             version=version,
@@ -183,6 +264,138 @@ class TopologyExtractorService:
                 "Graphviz executable 'dot' was not found. Install Graphviz and add it to PATH "
                 "to render PM4Py DFG visuals."
             ) from exc
+
+    def _plot_topology_graphviz(
+        self,
+        *,
+        version: str,
+        process_name: str | None,
+        save_path: str | None,
+        min_edge_freq: int,
+        label_mode: str,
+        typed_colors: bool,
+    ) -> None:
+        process_key = self._resolve_process_name(process_name)
+        graph = self.knowledge_port.get_graph_for_visualization(
+            process_name=process_key,
+            version_key=version,
+            min_edge_frequency=max(0, int(min_edge_freq)),
+        )
+        if graph.number_of_edges() == 0:
+            raise ValueError(
+                f"No transitions found for process version '{version}' after min_edge_freq={min_edge_freq} filter."
+            )
+
+        dot = Digraph(comment=f"Process topology {process_key}:{version}")
+        dot.attr(rankdir="LR", fontname="Helvetica")
+
+        for node_id, attrs in graph.nodes(data=True):
+            category = self._classify_node_category(graph=graph, node_id=str(node_id), attrs=attrs)
+            color, shape, peripheries = self._node_style(category=category, typed_colors=typed_colors)
+            label = self._format_node_label(node_id=str(node_id), attrs=attrs, label_mode=label_mode)
+            node_kwargs = {
+                "label": label,
+                "shape": shape,
+                "style": "filled",
+                "fillcolor": color,
+                "color": "#263238",
+                "fontname": "Helvetica",
+                "fontsize": "10",
+            }
+            if peripheries > 1:
+                node_kwargs["peripheries"] = str(peripheries)
+            dot.node(str(node_id), **node_kwargs)
+
+        for src, dst, attrs in graph.edges(data=True):
+            weight = int(attrs.get("weight", 1))
+            penwidth = 1.0 + min(5.0, math.log2(max(weight, 1) + 1.0))
+            dot.edge(
+                str(src),
+                str(dst),
+                label=str(weight),
+                color="#546E7A",
+                fontname="Helvetica",
+                fontsize="9",
+                penwidth=f"{penwidth:.2f}",
+            )
+
+        try:
+            if save_path:
+                target = Path(save_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                output_format = target.suffix.lstrip(".").lower() if target.suffix else "png"
+                dot.format = output_format or "png"
+                dot.render(filename=target.stem, directory=str(target.parent), cleanup=True)
+                return
+            dot.view(cleanup=True)
+        except ExecutableNotFound as exc:
+            raise RuntimeError(
+                "Graphviz executable 'dot' was not found. Install Graphviz and add it to PATH "
+                "to render topology visuals."
+            ) from exc
+
+    @staticmethod
+    def _format_node_label(node_id: str, attrs: Dict[str, Any], label_mode: str) -> str:
+        mode = str(label_mode).strip().lower() or "id"
+        activity_name = str(attrs.get("activity_name", "")).strip()
+        activity_type = str(attrs.get("activity_type", "")).strip()
+        if mode == "name":
+            return activity_name or node_id
+        if mode == "id+name":
+            if activity_name and activity_name != node_id:
+                return f"{node_id}\\n{activity_name}"
+            return node_id
+        if mode == "id+name+type":
+            parts = [node_id]
+            if activity_name and activity_name != node_id:
+                parts.append(activity_name)
+            if activity_type:
+                parts.append(f"[{activity_type}]")
+            return "\\n".join(parts)
+        return node_id
+
+    @staticmethod
+    def _classify_node_category(graph: Any, node_id: str, attrs: Dict[str, Any]) -> str:
+        node_type = str(attrs.get("activity_type", "")).strip().lower()
+        if node_type:
+            if "start" in node_type:
+                return "start"
+            if "end" in node_type:
+                return "end"
+            if "gateway" in node_type:
+                return "gateway"
+            if "usertask" in node_type or ("user" in node_type and "task" in node_type):
+                return "user_task"
+            if "servicetask" in node_type or ("service" in node_type and "task" in node_type):
+                return "service_task"
+            if any(token in node_type for token in ("timer", "escalation", "message", "signal", "event", "boundary")):
+                return "event_other"
+
+        if int(graph.in_degree(node_id)) == 0:
+            return "start"
+        if int(graph.out_degree(node_id)) == 0:
+            return "end"
+        return "other"
+
+    @staticmethod
+    def _node_style(category: str, typed_colors: bool) -> Tuple[str, str, int]:
+        if not typed_colors:
+            if category == "start":
+                return "#C8E6C9", "circle", 1
+            if category == "end":
+                return "#FFE0B2", "doublecircle", 2
+            return "#ECEFF1", "box", 1
+
+        style_map = {
+            "start": ("#A5D6A7", "circle", 1),
+            "end": ("#FFCC80", "doublecircle", 2),
+            "gateway": ("#90CAF9", "diamond", 1),
+            "user_task": ("#B3E5FC", "box", 1),
+            "service_task": ("#80CBC4", "box", 1),
+            "event_other": ("#FFF59D", "ellipse", 1),
+            "other": ("#CFD8DC", "box", 1),
+        }
+        return style_map.get(category, style_map["other"])
 
     def _resolve_process_name(self, process_name: str | None) -> str:
         return self._normalize_process_name(process_name) or self._default_process_name or "default_process"

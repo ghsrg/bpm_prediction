@@ -8,9 +8,9 @@ Supported files (CSV/XLSX):
 3. `identity_links.*`
 4. `execution_tree.*`
 5. `multi_instance_variables.*`
+6. `process_variables.*`
 
 The adapter also accepts `mock_*.csv` names for local testing.
 
 Current files are mocks used by automated tests.
 You can replace them with real exports without changing code.
-

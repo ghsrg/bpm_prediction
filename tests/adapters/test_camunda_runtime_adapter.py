@@ -16,6 +16,8 @@ def _copy_mock_exports(target_dir: Path) -> None:
         "mock_identity_links.csv",
         "mock_execution_tree.csv",
         "mock_multi_instance_variables.csv",
+        "mock_process_variables.csv",
+        "mock_process_instance_links.csv",
     ):
         shutil.copy2(source_dir / file_name, target_dir / file_name)
 
@@ -44,6 +46,7 @@ def test_runtime_adapter_reads_from_files_and_returns_diagnostics(tmp_path: Path
     assert diagnostics.rows_after_dedup == 5
     assert diagnostics.fallback_triggered is False
     assert "legacy_removal_time_treated_as_eternal" in diagnostics.warnings
+    assert all(event.call_proc_inst_id is None for event in events)
 
 
 def test_runtime_adapter_missing_removal_time_column_uses_auto_fallback(tmp_path: Path):
@@ -125,3 +128,34 @@ def test_runtime_adapter_accepts_flexible_file_names(tmp_path: Path):
 
     assert len(events) == 5
     assert diagnostics.rows_raw == 5
+
+
+def test_runtime_adapter_reads_process_variables_from_files(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    _copy_mock_exports(export_dir)
+    adapter = CamundaRuntimeAdapter({"runtime_source": "files", "export_dir": str(export_dir)})
+
+    rows = adapter.fetch_process_variables(
+        process_name="procurement",
+        version_key="v1",
+    )
+
+    assert len(rows) >= 2
+    assert all(str(row.get("case_id", "")).startswith("case_") for row in rows)
+    assert {str(row.get("var_name")) for row in rows} >= {"purchase_amount", "priority"}
+
+
+def test_runtime_adapter_reads_process_instance_links_from_files(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    _copy_mock_exports(export_dir)
+    adapter = CamundaRuntimeAdapter({"runtime_source": "files", "export_dir": str(export_dir)})
+
+    rows = adapter.fetch_process_instance_links(
+        process_name="procurement",
+        version_key="v1",
+    )
+
+    assert len(rows) >= 2
+    assert all(str(row.get("case_id", "")).startswith("case_") for row in rows)
+    assert any(str(row.get("super_proc_inst_id", "")).strip() == "case_1" for row in rows)
+    assert any(str(row.get("super_process_instance_id", "")).strip() == "case_1" for row in rows)

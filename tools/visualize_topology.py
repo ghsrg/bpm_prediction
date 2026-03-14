@@ -184,6 +184,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=1,
         help="Minimum edge frequency to keep in DFG (filters rare transitions). Default: 1",
     )
+    parser.add_argument(
+        "--renderer",
+        choices=["graphviz", "pm4py"],
+        default="graphviz",
+        help="Topology renderer. 'graphviz' supports typed colors/labels. Default: graphviz",
+    )
+    parser.add_argument(
+        "--label-mode",
+        choices=["id", "name", "id+name", "id+name+type"],
+        default="id+name+type",
+        help="Node label mode for graphviz renderer. Default: id+name+type",
+    )
+    parser.add_argument(
+        "--typed-colors",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable activity-type color mapping for graphviz renderer. Default: true",
+    )
 
     args = parser.parse_args(argv)
 
@@ -201,11 +219,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected_version = _resolve_plot_version(str(args.version), service.available_versions)
     try:
         service.plot_topology(
-            version=selected_version,
-            process_name=process_name,
-            save_path=args.out,
-            min_edge_freq=args.min_freq,
-        )
+        version=selected_version,
+        process_name=process_name,
+        save_path=args.out,
+        min_edge_freq=args.min_freq,
+        renderer=args.renderer,
+        label_mode=args.label_mode,
+        typed_colors=bool(args.typed_colors),
+    )
     except ValueError as exc:
         message = str(exc)
         if "No transitions found for process version" in message:

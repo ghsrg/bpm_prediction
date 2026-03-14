@@ -19,6 +19,8 @@ Canonical names:
 3. `identity_links.*`
 4. `execution_tree.*`
 5. `multi_instance_variables.*`
+6. `process_variables.*`
+7. `process_instance_links.*`
 
 Adapter also accepts:
 

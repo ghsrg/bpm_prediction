@@ -1,6 +1,8 @@
 .env
 logs/
-data/
+data/*
+!data/camunda_exports/
+!data/camunda_exports/**
 etalon/
 checkpoints/
 src/config/secrets.py

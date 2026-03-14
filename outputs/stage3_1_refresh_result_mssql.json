@@ -1,0 +1,34 @@
+{
+  "process_name": "procurement",
+  "version_key": "v1",
+  "runtime_source": "mssql",
+  "mode": "fallback_structure_only",
+  "event_count": 0,
+  "execution_rows": 0,
+  "variable_rows": 0,
+  "identity_rows": 0,
+  "diagnostics": {
+    "rows_raw": 0,
+    "rows_after_cleanup_filter": 0,
+    "rows_after_dedup": 0,
+    "cleaned_instances_percent": 0.0,
+    "history_coverage_percent": null,
+    "fallback_triggered": true,
+    "fallback_reason": "empty_history",
+    "removal_time_supported_tables": [],
+    "warnings": [],
+    "meta": {
+      "runtime_source": "mssql",
+      "canonical_mode": "fallback_structure_only"
+    }
+  },
+  "graph_meta": {
+    "mode": "fallback_structure_only",
+    "potentially_stale_child_aggregates": true
+  },
+  "projection_keys": [
+    "node_counts",
+    "transition_counts",
+    "mode"
+  ]
+}

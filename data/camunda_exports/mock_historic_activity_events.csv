@@ -1,0 +1,6 @@
+process_name,version_key,case_id,proc_def_id,proc_def_key,proc_def_version,activity_def_id,activity_name,activity_type,act_inst_id,task_id,execution_id,parent_execution_id,call_proc_inst_id,start_time,end_time,duration_ms,assignee,candidate_groups,removal_time_
+procurement,v1,case_1,pd_1,procurement,v1,StartEvent_1,Start,startEvent,ai_1,,ex_1,,,"2026-03-10T08:00:00","2026-03-10T08:00:10",10000,,,
+procurement,v1,case_1,pd_1,procurement,v1,Task_Approve,Approve,userTask,ai_2,task_1,ex_2,ex_1,,"2026-03-10T08:01:00","2026-03-10T08:05:00",240000,john,managers,
+procurement,v1,case_1,pd_1,procurement,v1,EndEvent_1,End,endEvent,ai_3,,ex_3,ex_2,,"2026-03-10T08:06:00","2026-03-10T08:06:05",5000,,,
+procurement,v1,case_2,pd_1,procurement,v1,StartEvent_1,Start,startEvent,ai_4,,ex_4,,,"2026-03-11T09:00:00","2026-03-11T09:00:10",10000,,,
+procurement,v1,case_2,pd_1,procurement,v1,Task_Approve,Approve,userTask,ai_5,task_2,ex_5,ex_4,,"2026-03-11T09:01:00","2026-03-11T09:03:00",120000,mary,managers,

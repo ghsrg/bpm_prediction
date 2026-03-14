@@ -1,0 +1,28 @@
+data:
+  process_name: "procurement"
+
+camunda:
+  version_key: "v1"
+  lookback_hours: 72
+  history_cleanup_aware: true
+  fallback_min_coverage_ratio: 0.05
+  coverage_hysteresis_fetches: 2
+  canonical_mode: "activity-centric"
+  execution_tree_depth_limit: 4
+  execution_missing_degrade_threshold: 0.5
+  max_execution_nodes_per_case: 5000
+  extreme_mi_strategy: "aggregate"
+  runtime:
+    runtime_source: "files"
+    export_dir: "data/camunda_exports"
+    history_cleanup_aware: true
+    legacy_removal_time_policy: "treat_as_eternal"
+    on_missing_removal_time: "auto_fallback"
+    sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
+
+# Optional: provides fallback edges if runtime history is empty.
+fallback_structure:
+  allowed_edges:
+    - ["StartEvent_1", "Task_Approve"]
+    - ["Task_Approve", "EndEvent_1"]
+

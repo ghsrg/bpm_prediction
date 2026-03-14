@@ -1,0 +1,3 @@
+process_name,version_key,case_id,execution_id,var_name,long_value,text_value
+procurement,v1,case_1,ex_2,loopCounter,0,
+procurement,v1,case_2,ex_5,loopCounter,1,

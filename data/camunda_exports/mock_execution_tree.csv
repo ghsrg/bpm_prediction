@@ -1,0 +1,6 @@
+process_name,version_key,case_id,execution_id,parent_execution_id,activity_def_id,is_concurrent,is_scope,depth
+procurement,v1,case_1,ex_1,,StartEvent_1,0,1,0
+procurement,v1,case_1,ex_2,ex_1,Task_Approve,1,1,1
+procurement,v1,case_1,ex_3,ex_2,EndEvent_1,0,1,2
+procurement,v1,case_2,ex_4,,StartEvent_1,0,1,0
+procurement,v1,case_2,ex_5,ex_4,Task_Approve,1,1,1

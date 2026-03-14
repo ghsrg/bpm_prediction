@@ -1,0 +1,101 @@
+data:
+  dataset_label: "camunda_procurement_sql"
+  dataset_name: "procurement"
+  # Compatibility field for IXESAdapter signature. Not used by camunda adapter.
+  log_path: "__camunda__"
+
+mapping:
+  # adapter: default is "xes"; set "camunda" to read runtime exports (CSV/XLSX or MSSQL).
+  adapter: "camunda"
+
+  camunda_adapter:
+    # process_name: defaults to data.dataset_name if omitted.
+    process_name: "procurement"
+    # version_key: optional; empty means read all versions available in source.
+    version_key: ""
+    # lookback_hours: default 0 (disabled). >0 applies [now-lookback, now] filter when since/until are missing.
+    lookback_hours: 0
+    # since/until: optional ISO-8601 bounds, e.g. "2026-01-01T00:00:00".
+    since: null
+    until: null
+    runtime:
+      # runtime_source: "files" (default) or "mssql".
+      runtime_source: "mssql"
+      # history_cleanup_aware: default true.
+      history_cleanup_aware: true
+      # legacy_removal_time_policy: default "treat_as_eternal".
+      legacy_removal_time_policy: "treat_as_eternal"
+      # on_missing_removal_time: default "auto_fallback" ("strict" is available).
+      on_missing_removal_time: "auto_fallback"
+      # sql_dir: location of SQL templates for Camunda runtime fetch.
+      sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
+      # mssql.connection_string: required when runtime_source == "mssql".
+      mssql:
+        connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=camunda;UID=sa;PWD=***;TrustServerCertificate=yes;"
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source_key: "activity_def_id"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source_key: "assignee"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "proc_def_version"
+      role: "version"
+      source: "trace"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

@@ -20,7 +20,9 @@ import torch
 from torch_geometric.data import Data
 from tqdm import tqdm
 
+from src.adapters.ingestion.camunda_trace_adapter import CamundaTraceAdapter
 from src.adapters.ingestion.xes_adapter import XESAdapter
+from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.feature_config import parse_feature_configs
@@ -166,8 +168,9 @@ def _resolve_dataset_name(data_cfg: Dict[str, Any], log_path: str) -> str:
     candidates = [
         data_cfg.get("dataset_name"),
         data_cfg.get("dataset_label"),
-        Path(log_path).stem,
     ]
+    if str(log_path).strip():
+        candidates.append(Path(log_path).stem)
     for candidate in candidates:
         value = str(candidate).strip() if candidate is not None else ""
         if value:
@@ -182,7 +185,31 @@ def _inject_dataset_name_mapping(mapping_cfg: Dict[str, Any], dataset_name: str)
     xes_cfg = dict(xes_cfg_raw) if isinstance(xes_cfg_raw, dict) else {}
     xes_cfg.setdefault("dataset_name", dataset_name)
     result["xes_adapter"] = xes_cfg
+    camunda_cfg_raw = result.get("camunda_adapter", {})
+    camunda_cfg = dict(camunda_cfg_raw) if isinstance(camunda_cfg_raw, dict) else {}
+    camunda_cfg.setdefault("dataset_name", dataset_name)
+    camunda_cfg.setdefault("process_name", dataset_name)
+    result["camunda_adapter"] = camunda_cfg
+    result.setdefault("dataset_name", dataset_name)
     return result
+
+
+def _resolve_trace_adapter_kind(mapping_cfg: Dict[str, Any]) -> str:
+    """Resolve ingestion adapter kind from mapping config."""
+    adapter_name = str(mapping_cfg.get("adapter", "")).strip().lower()
+    if adapter_name:
+        return adapter_name
+    if isinstance(mapping_cfg.get("camunda_adapter"), dict):
+        return "camunda"
+    return "xes"
+
+
+def _build_trace_adapter(mapping_cfg: Dict[str, Any]) -> IXESAdapter:
+    """Construct trace adapter by mapping config without affecting model wiring."""
+    kind = _resolve_trace_adapter_kind(mapping_cfg)
+    if kind == "camunda":
+        return CamundaTraceAdapter()
+    return XESAdapter()
 
 
 def _apply_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
@@ -256,17 +283,21 @@ def _build_graph_dataset(
     return dataset
 
 
-def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
+def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = None) -> Dict[str, Any]:
     """Prepare shared data artifacts for CLI and inspector without logic duplication."""
     logger = logging.getLogger(__name__)
     data_cfg = config.get("data", {})
     experiment_cfg = config.get("experiment", {})
     training_cfg = config.get("training", {})
     mapping_cfg_raw = config.get("mapping", {})
+    adapter = trace_adapter or _build_trace_adapter(mapping_cfg_raw)
+    adapter_kind = _resolve_trace_adapter_kind(mapping_cfg_raw)
 
-    log_path = str(data_cfg.get("log_path", ""))
+    log_path = str(data_cfg.get("log_path", "")).strip()
+    if adapter_kind == "xes" and not log_path:
+        raise ValueError("Config must define data.log_path for XES adapter")
     if not log_path:
-        raise ValueError("Config must define data.log_path")
+        log_path = "__adapter_source__"
     dataset_name = _resolve_dataset_name(data_cfg, log_path)
     mapping_cfg = _inject_dataset_name_mapping(mapping_cfg_raw, dataset_name)
 
@@ -280,13 +311,12 @@ def prepare_data(config: Dict[str, Any]) -> Dict[str, Any]:
     if mode == "eval_cross_dataset":
         split_ratio = (0.0, 0.0, 1.0)
 
-    xes_adapter = XESAdapter()
     prefix_policy = PrefixPolicy()
 
     logger.info("Preparing data artifacts for mode=%s...", mode)
-    logger.info("Reading XES for preparation...")
-    traces = list(xes_adapter.read(log_path, mapping_cfg))
-    logger.info("XES read finished: traces=%d", len(traces))
+    logger.info("Reading events for preparation via adapter=%s...", adapter.__class__.__name__)
+    traces = list(adapter.read(log_path, mapping_cfg))
+    logger.info("Event read finished: traces=%d", len(traces))
     traces = _apply_fraction(traces, fraction)
     logger.info("Applied preparation fraction=%.4f -> traces=%d", fraction, len(traces))
     data_num_traces = len(traces)
@@ -491,7 +521,8 @@ def main() -> None:
         }
         config["experiment"] = experiment_cfg
 
-    prepared = prepare_data(config)
+    trace_adapter = _build_trace_adapter(config.get("mapping", {}))
+    prepared = prepare_data(config, trace_adapter=trace_adapter)
     activity_vocab = prepared["activity_vocab"]
     resource_vocab = prepared["resource_vocab"]
 
@@ -578,7 +609,7 @@ def main() -> None:
     }
 
     trainer = ModelTrainer(
-        xes_adapter=XESAdapter(),
+        xes_adapter=trace_adapter,
         prefix_policy=PrefixPolicy(),
         graph_builder=prepared["graph_builder"],
         model=model,

@@ -9,6 +9,7 @@ Scope: Camunda Runtime Adapters + Canonical Instance Graph (cleanup-resilient)
 1. `mvp2_5_Stage3_Plan.MD` (Stage 3 split, ports, fallback direction, optional BPMS isolation).
 2. `docs/TARGET_ARCHITECTURE.MD` (Clean/Hexagonal boundaries, ports/adapters, resilience and logging).
 3. `AGENT_GUIDE.MD` (contract-first, no architecture violations, explicit planning before code).
+4. `docs/DATA_MODEL_MVP2.MD`
 
 This plan is strictly for **Stage 3.1** only.
 

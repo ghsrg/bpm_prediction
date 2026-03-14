@@ -109,3 +109,19 @@ def test_runtime_adapter_mssql_mode_without_driver_returns_empty_not_raises():
     assert tasks == []
     assert diagnostics.rows_raw == 0
 
+
+def test_runtime_adapter_accepts_flexible_file_names(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    _copy_mock_exports(export_dir)
+    original = export_dir / "mock_historic_activity_events.csv"
+    renamed = export_dir / "historic_activity_events_2026_03_export.csv"
+    original.rename(renamed)
+
+    adapter = CamundaRuntimeAdapter({"runtime_source": "files", "export_dir": str(export_dir)})
+    events, diagnostics = adapter.fetch_historic_activity_events(
+        process_name="procurement",
+        version_key="v1",
+    )
+
+    assert len(events) == 5
+    assert diagnostics.rows_raw == 5

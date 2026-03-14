@@ -187,17 +187,53 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
                 connection.close()
 
     def _find_input_file(self, base_name: str) -> Optional[Path]:
-        candidates = [
+        if not self.export_dir.exists():
+            return None
+
+        # 1) Fast path: exact canonical/mock names.
+        exact_candidates = [
             self.export_dir / f"{base_name}.csv",
             self.export_dir / f"{base_name}.xlsx",
             self.export_dir / f"{base_name}.xls",
             self.export_dir / f"mock_{base_name}.csv",
             self.export_dir / f"mock_{base_name}.xlsx",
+            self.export_dir / f"mock_{base_name}.xls",
         ]
-        for path in candidates:
+        for path in exact_candidates:
             if path.exists():
                 return path
-        return None
+
+        # 2) Flexible fallback: allow slight naming variations like:
+        #    historic_activity_events_2026-03.csv, export_historic_tasks.xlsx, etc.
+        allowed_ext = {".csv", ".xlsx", ".xls"}
+        matches: List[Path] = []
+        for path in self.export_dir.iterdir():
+            if not path.is_file() or path.suffix.lower() not in allowed_ext:
+                continue
+            name = path.stem.lower()
+            if base_name.lower() in name:
+                matches.append(path)
+
+        if not matches:
+            return None
+
+        matches.sort(key=lambda item: (self._file_name_priority(item.stem.lower(), base_name.lower()), item.name))
+        return matches[0]
+
+    @staticmethod
+    def _file_name_priority(stem: str, base_name: str) -> int:
+        """Lower is better; prefer closest match first."""
+        if stem == base_name:
+            return 0
+        if stem == f"mock_{base_name}":
+            return 1
+        if stem.startswith(base_name):
+            return 2
+        if stem.startswith(f"mock_{base_name}"):
+            return 3
+        if base_name in stem:
+            return 4
+        return 99
 
     def _apply_removal_time_guard(
         self,
@@ -402,4 +438,3 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
             return None
         text = str(value).strip()
         return text or None
-

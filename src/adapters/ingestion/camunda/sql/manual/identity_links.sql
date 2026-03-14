@@ -1,4 +1,4 @@
-/*
+﻿/*
 Manual export for: identity_links.*
 Edit TARGET_PROC_KEYS list before running.
 */
@@ -15,7 +15,7 @@ TARGET_PROCDEF AS (
         PD.ID_ AS proc_def_id,
         PD.KEY_ AS proc_def_key,
         PD.VERSION_ AS proc_def_version_num
-    FROM ACT_RE_PROCDEF PD
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD
     INNER JOIN TARGET_PROC_KEYS T ON T.proc_key = PD.KEY_
 )
 SELECT
@@ -31,8 +31,10 @@ SELECT
     L.USER_ID_ AS candidate_user_id,
     L.GROUP_ID_ AS candidate_group_id,
     L.TYPE_ AS link_type
-FROM ACT_HI_IDENTITYLINK L
-LEFT JOIN ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_IDENTITYLINK L
+LEFT JOIN bpms_camunda_mssql_tst.dbo.ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
 INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = T.PROC_DEF_ID_
 WHERE T.PROC_INST_ID_ IS NOT NULL
+  AND (T.REMOVAL_TIME_ IS NULL OR T.REMOVAL_TIME_ > SYSUTCDATETIME())
 ORDER BY T.PROC_INST_ID_, L.TASK_ID_;
+

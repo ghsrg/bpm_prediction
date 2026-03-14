@@ -1,4 +1,4 @@
-SELECT
+﻿SELECT
     PD.KEY_ AS process_name,
     CONCAT('v', CAST(PD.VERSION_ AS VARCHAR(16))) AS version_key,
     T.PROC_INST_ID_ AS case_id,
@@ -9,10 +9,11 @@ SELECT
     T.TASK_DEF_KEY_ AS activity_def_id,
     T.ASSIGNEE_ AS assignee,
     T.OWNER_ AS owner_id,
-    T.START_USER_ID_ AS starter_user_id,
     T.START_TIME_ AS start_time,
     T.END_TIME_ AS end_time,
     T.DURATION_ AS duration_ms,
     T.REMOVAL_TIME_ AS removal_time_
-FROM ACT_HI_TASKINST T
-LEFT JOIN ACT_RE_PROCDEF PD ON PD.ID_ = T.PROC_DEF_ID_;
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_TASKINST T
+LEFT JOIN bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD ON PD.ID_ = T.PROC_DEF_ID_
+WHERE (T.REMOVAL_TIME_ IS NULL OR T.REMOVAL_TIME_ > SYSUTCDATETIME());
+

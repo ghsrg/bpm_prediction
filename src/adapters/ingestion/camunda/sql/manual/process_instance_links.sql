@@ -1,5 +1,5 @@
 ﻿/*
-Manual export for: process_variables.*
+Manual export for: process_instance_links.*
 Edit TARGET_PROC_KEYS list before running.
 */
 
@@ -21,19 +21,17 @@ TARGET_PROCDEF AS (
 SELECT
     PD.proc_def_key AS process_name,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS version_key,
-    V.PROC_INST_ID_ AS case_id,
-    V.PROC_DEF_ID_ AS proc_def_id,
+    HP.ID_ AS case_id,
+    HP.PROC_DEF_ID_ AS proc_def_id,
     PD.proc_def_key AS proc_def_key,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS proc_def_version,
-    V.EXECUTION_ID_ AS execution_id,
-    V.NAME_ AS var_name,
-    V.LONG_ AS long_value,
-    V.DOUBLE_ AS double_value,
-    V.TEXT_ AS text_value,
-    V.TEXT2_ AS text2_value,
-    V.REMOVAL_TIME_ AS removal_time_
-FROM bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST V
-INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = V.PROC_DEF_ID_
-WHERE (V.REMOVAL_TIME_ IS NULL OR V.REMOVAL_TIME_ > SYSUTCDATETIME())
-ORDER BY V.PROC_INST_ID_, V.EXECUTION_ID_, V.NAME_;
+    HP.SUPER_PROC_INST_ID_ AS super_proc_inst_id,
+    HP.BUSINESS_KEY_ AS business_key,
+    HP.START_TIME_ AS start_time,
+    HP.END_TIME_ AS end_time,
+    HP.REMOVAL_TIME_ AS removal_time_
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_PROCINST HP
+INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = HP.PROC_DEF_ID_
+WHERE (HP.REMOVAL_TIME_ IS NULL OR HP.REMOVAL_TIME_ > SYSUTCDATETIME())
+ORDER BY HP.START_TIME_;
 

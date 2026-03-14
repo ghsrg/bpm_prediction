@@ -1,4 +1,4 @@
-/*
+﻿/*
 Manual export for: execution_tree.*
 Edit TARGET_PROC_KEYS list before running.
 */
@@ -15,7 +15,7 @@ TARGET_PROCDEF AS (
         PD.ID_ AS proc_def_id,
         PD.KEY_ AS proc_def_key,
         PD.VERSION_ AS proc_def_version_num
-    FROM ACT_RE_PROCDEF PD
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD
     INNER JOIN TARGET_PROC_KEYS T ON T.proc_key = PD.KEY_
 ),
 ROOTS AS (
@@ -26,9 +26,11 @@ ROOTS AS (
         E.ACT_ID_ AS activity_def_id,
         E.IS_CONCURRENT_ AS is_concurrent,
         E.IS_SCOPE_ AS is_scope,
+        E.IS_EVENT_SCOPE_ AS is_event_scope,
+        E.REV_ AS rev,
         E.PROC_DEF_ID_ AS proc_def_id,
         CAST(0 AS INT) AS depth
-    FROM ACT_RU_EXECUTION E
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RU_EXECUTION E
     INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = E.PROC_DEF_ID_
     WHERE E.PARENT_ID_ IS NULL
 ),
@@ -42,9 +44,11 @@ EXEC_TREE AS (
         C.ACT_ID_ AS activity_def_id,
         C.IS_CONCURRENT_ AS is_concurrent,
         C.IS_SCOPE_ AS is_scope,
+        C.IS_EVENT_SCOPE_ AS is_event_scope,
+        C.REV_ AS rev,
         C.PROC_DEF_ID_ AS proc_def_id,
         P.depth + 1 AS depth
-    FROM ACT_RU_EXECUTION C
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RU_EXECUTION C
     INNER JOIN EXEC_TREE P ON P.execution_id = C.PARENT_ID_
 )
 SELECT
@@ -59,8 +63,11 @@ SELECT
     T.activity_def_id AS activity_def_id,
     T.is_concurrent AS is_concurrent,
     T.is_scope AS is_scope,
+    T.is_event_scope AS is_event_scope,
+    T.rev AS rev,
     T.depth AS depth
 FROM EXEC_TREE T
 INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = T.proc_def_id
 ORDER BY T.case_id, T.depth, T.execution_id
 OPTION (MAXRECURSION 32767);
+

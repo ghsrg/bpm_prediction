@@ -1,4 +1,4 @@
-/*
+﻿/*
 Manual export for: multi_instance_variables.*
 Edit TARGET_PROC_KEYS list before running.
 */
@@ -15,7 +15,7 @@ TARGET_PROCDEF AS (
         PD.ID_ AS proc_def_id,
         PD.KEY_ AS proc_def_key,
         PD.VERSION_ AS proc_def_version_num
-    FROM ACT_RE_PROCDEF PD
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD
     INNER JOIN TARGET_PROC_KEYS T ON T.proc_key = PD.KEY_
 )
 SELECT
@@ -32,7 +32,9 @@ SELECT
     V.TEXT_ AS text_value,
     V.TEXT2_ AS text2_value,
     V.REMOVAL_TIME_ AS removal_time_
-FROM ACT_HI_VARINST V
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST V
 INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = V.PROC_DEF_ID_
 WHERE V.NAME_ IN ('loopCounter', 'nrOfInstances', 'nrOfActiveInstances', 'nrOfCompletedInstances')
+  AND (V.REMOVAL_TIME_ IS NULL OR V.REMOVAL_TIME_ > SYSUTCDATETIME())
 ORDER BY V.PROC_INST_ID_, V.EXECUTION_ID_, V.NAME_;
+

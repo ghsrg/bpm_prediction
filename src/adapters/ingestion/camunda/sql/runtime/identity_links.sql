@@ -1,4 +1,4 @@
-SELECT
+﻿SELECT
     PD.KEY_ AS process_name,
     CONCAT('v', CAST(PD.VERSION_ AS VARCHAR(16))) AS version_key,
     T.PROC_INST_ID_ AS case_id,
@@ -11,6 +11,9 @@ SELECT
     L.USER_ID_ AS candidate_user_id,
     L.GROUP_ID_ AS candidate_group_id,
     L.TYPE_ AS link_type
-FROM ACT_HI_IDENTITYLINK L
-LEFT JOIN ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
-LEFT JOIN ACT_RE_PROCDEF PD ON PD.ID_ = T.PROC_DEF_ID_;
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_IDENTITYLINK L
+LEFT JOIN bpms_camunda_mssql_tst.dbo.ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
+LEFT JOIN bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD ON PD.ID_ = T.PROC_DEF_ID_
+WHERE T.PROC_INST_ID_ IS NOT NULL
+  AND (T.REMOVAL_TIME_ IS NULL OR T.REMOVAL_TIME_ > SYSUTCDATETIME());
+

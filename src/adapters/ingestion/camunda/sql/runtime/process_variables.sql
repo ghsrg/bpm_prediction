@@ -12,5 +12,7 @@
     V.TEXT_ AS text_value,
     V.TEXT2_ AS text2_value,
     V.REMOVAL_TIME_ AS removal_time_
-FROM ACT_HI_VARINST V
-LEFT JOIN ACT_RE_PROCDEF PD ON PD.ID_ = V.PROC_DEF_ID_;
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST V
+LEFT JOIN bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD ON PD.ID_ = V.PROC_DEF_ID_
+WHERE (V.REMOVAL_TIME_ IS NULL OR V.REMOVAL_TIME_ > SYSUTCDATETIME());
+

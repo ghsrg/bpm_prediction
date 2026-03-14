@@ -1,4 +1,4 @@
-/*
+﻿/*
 Manual export for: historic_tasks.*
 Edit TARGET_PROC_KEYS list before running.
 */
@@ -15,7 +15,7 @@ TARGET_PROCDEF AS (
         PD.ID_ AS proc_def_id,
         PD.KEY_ AS proc_def_key,
         PD.VERSION_ AS proc_def_version_num
-    FROM ACT_RE_PROCDEF PD
+    FROM bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD
     INNER JOIN TARGET_PROC_KEYS T ON T.proc_key = PD.KEY_
 )
 SELECT
@@ -29,11 +29,12 @@ SELECT
     T.TASK_DEF_KEY_ AS activity_def_id,
     T.ASSIGNEE_ AS assignee,
     T.OWNER_ AS owner_id,
-    T.START_USER_ID_ AS starter_user_id,
     T.START_TIME_ AS start_time,
     T.END_TIME_ AS end_time,
     T.DURATION_ AS duration_ms,
     T.REMOVAL_TIME_ AS removal_time_
-FROM ACT_HI_TASKINST T
+FROM bpms_camunda_mssql_tst.dbo.ACT_HI_TASKINST T
 INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = T.PROC_DEF_ID_
+WHERE (T.REMOVAL_TIME_ IS NULL OR T.REMOVAL_TIME_ > SYSUTCDATETIME())
 ORDER BY T.PROC_INST_ID_, T.START_TIME_;
+

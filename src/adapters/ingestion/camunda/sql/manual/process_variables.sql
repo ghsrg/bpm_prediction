@@ -1,5 +1,5 @@
-/*
-Manual export for: identity_links.*
+﻿/*
+Manual export for: process_variables.*
 Edit TARGET_PROC_KEYS list before running.
 */
 
@@ -21,18 +21,17 @@ TARGET_PROCDEF AS (
 SELECT
     PD.proc_def_key AS process_name,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS version_key,
-    T.PROC_INST_ID_ AS case_id,
-    T.PROC_DEF_ID_ AS proc_def_id,
+    V.PROC_INST_ID_ AS case_id,
+    V.PROC_DEF_ID_ AS proc_def_id,
     PD.proc_def_key AS proc_def_key,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS proc_def_version,
-    L.TASK_ID_ AS task_id,
-    L.USER_ID_ AS user_id,
-    L.GROUP_ID_ AS group_id,
-    L.USER_ID_ AS candidate_user_id,
-    L.GROUP_ID_ AS candidate_group_id,
-    L.TYPE_ AS link_type
-FROM ACT_HI_IDENTITYLINK L
-LEFT JOIN ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
-INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = T.PROC_DEF_ID_
-WHERE T.PROC_INST_ID_ IS NOT NULL
-ORDER BY T.PROC_INST_ID_, L.TASK_ID_;
+    V.EXECUTION_ID_ AS execution_id,
+    V.NAME_ AS var_name,
+    V.LONG_ AS long_value,
+    V.DOUBLE_ AS double_value,
+    V.TEXT_ AS text_value,
+    V.TEXT2_ AS text2_value,
+    V.REMOVAL_TIME_ AS removal_time_
+FROM ACT_HI_VARINST V
+INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = V.PROC_DEF_ID_
+ORDER BY V.PROC_INST_ID_, V.EXECUTION_ID_, V.NAME_;

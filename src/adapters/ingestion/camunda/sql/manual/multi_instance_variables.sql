@@ -6,8 +6,8 @@ Edit TARGET_PROC_KEYS list before running.
 WITH TARGET_PROC_KEYS AS (
     SELECT V.proc_key
     FROM (VALUES
-        ('procurement'),
-        ('sales')
+        ('B2BContracts_ApproveProject'),
+        ('BP_MediumRiskCheck')
     ) AS V(proc_key)
 ),
 TARGET_PROCDEF AS (
@@ -28,7 +28,9 @@ SELECT
     V.EXECUTION_ID_ AS execution_id,
     V.NAME_ AS var_name,
     V.LONG_ AS long_value,
+    V.DOUBLE_ AS double_value,
     V.TEXT_ AS text_value,
+    V.TEXT2_ AS text2_value,
     V.REMOVAL_TIME_ AS removal_time_
 FROM ACT_HI_VARINST V
 INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = V.PROC_DEF_ID_

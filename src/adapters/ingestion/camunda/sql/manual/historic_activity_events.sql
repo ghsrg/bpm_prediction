@@ -6,8 +6,8 @@ Edit TARGET_PROC_KEYS list before running.
 WITH TARGET_PROC_KEYS AS (
     SELECT V.proc_key
     FROM (VALUES
-        ('procurement'),
-        ('sales')
+        ('B2BContracts_ApproveProject'),
+        ('BP_MediumRiskCheck')
     ) AS V(proc_key)
 ),
 TARGET_PROCDEF AS (
@@ -37,6 +37,10 @@ SELECT
     H.END_TIME_ AS end_time,
     H.DURATION_ AS duration_ms,
     HT.ASSIGNEE_ AS assignee,
+    HT.ASSIGNEE_ AS assigned_executor,
+    HT.ASSIGNEE_ AS executed_by,
+    IL.candidate_users AS potential_executor_users,
+    IL.candidate_groups AS potential_executor_groups,
     IL.candidate_groups AS candidate_groups,
     H.REMOVAL_TIME_ AS removal_time_
 FROM ACT_HI_ACTINST H
@@ -46,9 +50,10 @@ LEFT JOIN ACT_RU_EXECUTION RE ON RE.ID_ = H.EXECUTION_ID_
 LEFT JOIN (
     SELECT
         TASK_ID_,
+        STRING_AGG(USER_ID_, ',') AS candidate_users,
         STRING_AGG(GROUP_ID_, ',') AS candidate_groups
     FROM ACT_HI_IDENTITYLINK
-    WHERE GROUP_ID_ IS NOT NULL
+    WHERE USER_ID_ IS NOT NULL OR GROUP_ID_ IS NOT NULL
     GROUP BY TASK_ID_
 ) IL ON IL.TASK_ID_ = H.TASK_ID_
 ORDER BY H.PROC_INST_ID_, H.START_TIME_;

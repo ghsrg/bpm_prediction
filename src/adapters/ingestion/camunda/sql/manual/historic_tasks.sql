@@ -6,8 +6,8 @@ Edit TARGET_PROC_KEYS list before running.
 WITH TARGET_PROC_KEYS AS (
     SELECT V.proc_key
     FROM (VALUES
-        ('procurement'),
-        ('sales')
+        ('B2BContracts_ApproveProject'),
+        ('BP_MediumRiskCheck')
     ) AS V(proc_key)
 ),
 TARGET_PROCDEF AS (
@@ -28,6 +28,8 @@ SELECT
     T.ID_ AS task_id,
     T.TASK_DEF_KEY_ AS activity_def_id,
     T.ASSIGNEE_ AS assignee,
+    T.OWNER_ AS owner_id,
+    T.START_USER_ID_ AS starter_user_id,
     T.START_TIME_ AS start_time,
     T.END_TIME_ AS end_time,
     T.DURATION_ AS duration_ms,

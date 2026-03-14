@@ -6,8 +6,8 @@ Edit TARGET_PROC_KEYS list before running.
 WITH TARGET_PROC_KEYS AS (
     SELECT V.proc_key
     FROM (VALUES
-        ('procurement'),
-        ('sales')
+        ('B2BContracts_ApproveProject'),
+        ('BP_MediumRiskCheck')
     ) AS V(proc_key)
 ),
 TARGET_PROCDEF AS (

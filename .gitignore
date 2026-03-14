@@ -2,7 +2,9 @@
 logs/
 data/*
 !data/camunda_exports/
-!data/camunda_exports/**
+data/camunda_exports/*
+!data/camunda_exports/mock_*
+
 etalon/
 checkpoints/
 src/config/secrets.py

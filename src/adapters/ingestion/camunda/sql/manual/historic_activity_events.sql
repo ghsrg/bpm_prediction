@@ -28,7 +28,7 @@ SELECT
     H.ACT_ID_ AS activity_def_id,
     H.ACT_NAME_ AS activity_name,
     H.ACT_TYPE_ AS activity_type,
-    H.ACT_INST_ID_ AS act_inst_id,
+    H.ID_ AS act_inst_id,
     H.TASK_ID_ AS task_id,
     H.EXECUTION_ID_ AS execution_id,
     RE.PARENT_ID_ AS parent_execution_id,

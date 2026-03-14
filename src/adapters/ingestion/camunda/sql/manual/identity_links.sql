@@ -21,16 +21,16 @@ TARGET_PROCDEF AS (
 SELECT
     PD.proc_def_key AS process_name,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS version_key,
-    COALESCE(L.PROC_INST_ID_, T.PROC_INST_ID_) AS case_id,
-    COALESCE(L.PROC_DEF_ID_, T.PROC_DEF_ID_) AS proc_def_id,
+    T.PROC_INST_ID_ AS case_id,
+    T.PROC_DEF_ID_ AS proc_def_id,
     PD.proc_def_key AS proc_def_key,
     CONCAT('v', CAST(PD.proc_def_version_num AS VARCHAR(16))) AS proc_def_version,
     L.TASK_ID_ AS task_id,
     L.USER_ID_ AS candidate_user_id,
     L.GROUP_ID_ AS candidate_group_id,
-    L.TYPE_ AS link_type,
-    L.REMOVAL_TIME_ AS removal_time_
+    L.TYPE_ AS link_type
 FROM ACT_HI_IDENTITYLINK L
 LEFT JOIN ACT_HI_TASKINST T ON T.ID_ = L.TASK_ID_
-INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = COALESCE(L.PROC_DEF_ID_, T.PROC_DEF_ID_)
-ORDER BY COALESCE(L.PROC_INST_ID_, T.PROC_INST_ID_), L.TASK_ID_;
+INNER JOIN TARGET_PROCDEF PD ON PD.proc_def_id = T.PROC_DEF_ID_
+WHERE T.PROC_INST_ID_ IS NOT NULL
+ORDER BY T.PROC_INST_ID_, L.TASK_ID_;

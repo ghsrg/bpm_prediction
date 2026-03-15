@@ -102,3 +102,25 @@ When adding MVP2:
 4. `docs/ARCHITECTURE_RULES.MD`
 5. MVP docs (`ARCHITECTURE_MVP1/2`, `DATA_MODEL_MVP1/2`, `DATA_FLOWS_MVP1/2`, `LLD_MVP1/2`, `EVF_MVP1/2`)
 
+
+---
+
+## 8. MVP2.5 Snapshot (2026-03-15)
+
+Current baseline:
+- Offline topology ingestion is implemented (`main.py ingest-topology`).
+- Knowledge repository backends: `in_memory` and `file`.
+- Training and eval consume topology through repository interface.
+- Camunda runtime Stage 3.1 includes cleanup-aware fallback diagnostics.
+
+New canonical docs:
+- `docs/ARCHITECTURE_MVP2_5.MD`
+- `docs/DATA_FLOWS_MVP2_5.MD`
+- `docs/DATA_MODEL_MVP2_5.MD`
+- `docs/LLD_MVP2_5.MD`
+- `docs/EVF_MVP2_5.MD`
+
+Before Stage 3.2 BPMN parser work:
+- keep MVP1 regression shield green,
+- keep ingestion and train pipelines decoupled,
+- keep repository contract stable for future Neo4j backend.

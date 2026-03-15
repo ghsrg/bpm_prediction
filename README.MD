@@ -278,3 +278,55 @@ Notes:
 - If topology is missing, run ingest-topology first.
 - knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
 ```
+
+---
+
+## MVP2.5 Documentation Pack
+
+- [ARCHITECTURE_MVP2_5.MD](docs/ARCHITECTURE_MVP2_5.MD)
+- [DATA_FLOWS_MVP2_5.MD](docs/DATA_FLOWS_MVP2_5.MD)
+- [DATA_MODEL_MVP2_5.MD](docs/DATA_MODEL_MVP2_5.MD)
+- [LLD_MVP2_5.MD](docs/LLD_MVP2_5.MD)
+- [EVF_MVP2_5.MD](docs/EVF_MVP2_5.MD)
+- [ADAPTER_CAMUNDA_SQL.MD](docs/ADAPTER_CAMUNDA_SQL.MD)
+
+## MVP2.5 Quick Operations
+
+1. Build topology artifact (offline)
+```bash
+python main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
+```
+
+2. Train using pre-ingested structure
+```bash
+python main.py --config configs/experiments/02_train_bpi2012.yaml
+```
+
+3. Run drift evaluation
+```bash
+python main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
+```
+
+4. Visualize topology from repository (default)
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version bpi2012 --out outputs/topology_repo.png
+```
+
+5. Visualize topology from raw logs (legacy mode)
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --from-raw --version bpi2012 --out outputs/topology_raw.png
+```
+
+6. Visualize one instance graph
+```bash
+python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id <PROC_INST_ID> --out outputs/ig_case.png
+```
+
+7. Regression and full test runs
+```bash
+.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
+.\.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+Worklogs and historical plans are now stored in:
+- `docs/worklogs/`

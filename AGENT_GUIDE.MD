@@ -103,3 +103,23 @@ class GraphTensorContract(TypedDict):
 
 - Кожен логічний блок коду необхідно коментувати: що він робить і **для чого**.
 - При створенні нової суттєвої доменної змінної, якої немає в `docs/VARIABLES.MD`, додавай її в останній блок (технічні змінні в коді). Локальні змінні функцій, індекси тощо вносити у файл не потрібно.
+
+---
+
+## MVP2.5 Addendum (2026-03-15)
+
+### New mandatory docs to read for MVP2.5 tasks
+1. `docs/ARCHITECTURE_MVP2_5.MD`
+2. `docs/DATA_MODEL_MVP2_5.MD`
+3. `docs/DATA_FLOWS_MVP2_5.MD`
+4. `docs/LLD_MVP2_5.MD`
+5. `docs/EVF_MVP2_5.MD`
+6. `docs/ADAPTER_CAMUNDA_SQL.MD`
+
+### Mandatory execution rule
+- For MVP2.5, topology extraction must run in offline ingestion pipeline (`ingest-topology`).
+- Training pipeline must consume repository artifacts via `IKnowledgeGraphPort` and must not rebuild topology synchronously.
+
+### Working directories for reports and plans
+- Root must stay clean.
+- New and historical reports/plans are stored under `docs/worklogs/`.

@@ -37,12 +37,11 @@ Latest verification in current state:
 
 ## 4. Artifacts
 
-1. [MVP2_Stage3_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\MVP2_Stage3_Report.MD)
-2. [MVP2_Stage4_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\MVP2_Stage4_Report.MD)
-3. [MVP2_Stage5_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\MVP2_Stage5_Report.MD)
+1. [MVP2_Stage3_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\worklogs\MVP2_Stage3_Report.MD)
+2. [MVP2_Stage4_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\worklogs\MVP2_Stage4_Report.MD)
+3. [MVP2_Stage5_Report.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\worklogs\MVP2_Stage5_Report.MD)
 
 ## 5. Final conclusion
 
 Sprint 2 objectives are completed and verified.  
 Codebase is ready for the next MVP2 phase (integration experiments and training/evaluation runs with EOPKG configs).
-

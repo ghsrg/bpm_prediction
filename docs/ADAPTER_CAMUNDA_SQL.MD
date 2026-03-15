@@ -1,247 +1,155 @@
-*(Технічна специфікація витягування даних з Camunda 7 + Custom Tables)*
+﻿# ADAPTER_CAMUNDA_SQL.MD
 
-# Adapter Specification: Camunda SQL & BPMS
+Updated: 2026-03-15  
+Status: ACTIVE (MVP2.5 Stage 3.1), Stage 3.2 BPMN ingestion in progress
 
-**Status:** Draft v1.0
-**Source System:** Camunda BPM 7.x (MSSQL) + Custom `bpm_tasks` table.
+## 1. Purpose
+This specification defines the Camunda 7 MSSQL adapter contract used by `CamundaRuntimeAdapter` and related services.
 
-## 1. Огляд джерел даних
+Goals:
+- extract runtime activity data for Instance Graph assembly,
+- support manual file exports and direct SQL mode,
+- stay resilient to history cleanup,
+- keep clean boundaries for future BPMN ingestion and Neo4j migration.
 
-Адаптер працює з трьома групами таблиць:
-1.  **Repository (`ACT_RE_*`):** Статичні визначення процесів та XML-файли.
-2.  **History (`ACT_HI_*`):** Стандартний лог виконання Camunda.
-3.  **Business Data (`bpm_tasks`):** Кастомні таблиці збагаченна процесів бізнес даними та додатковими атрибутами.
+## 2. Source tables
+Primary tables currently used:
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_ACTINST`
+- `bpms_camunda_mssql_tst.dbo.ACT_RU_EXECUTION`
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST`
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_TASKINST`
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_IDENTITYLINK`
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_PROCINST`
 
-## 2. Логіка Екстракції (Extraction Logic)
+Optional process variables:
+- `bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST` (process-level extraction by naming convention)
 
-### 2.1. Flow A: POKG Structure Discovery (Recursion)
-Цей потік відповідає за побудову топології процесів та відновлення зв'язків `Parent-Child`.
+## 3. Adapter modes
+- `runtime_source: sql` for direct MSSQL querying.
+- `runtime_source: files` for CSV/Excel manual exports from SQL templates.
 
-**Алгоритм роботи:**
-1.  **Entry Point:** Отримання списку кореневих процесів (з конфігу, на етапі розгортання та дебагу або авто-пошук з бази).
-2.  **Recursive Fetch:** Завантаження BPMN, парсинг, пошук тегів `<callActivity>`, додавання посилань на дочірні процеси які залінковані.
-3.  **Linkage:** Створення ребер `(:Task)-[:CALLS]->(:ProcessDef)` у POKG.
+Both modes must produce the same normalized DTO contracts.
 
-### 2.2. POKG Structure Discovery (Modular Approach)
-Замість повної рекурсивної розгортки всіх вкладених процесів (що веде до надмірної довжини трас >100 вузлів), адаптер реалізує **локальний контекст**:
+## 4. Data extraction overview
+```mermaid
+flowchart TD
+    A[CamundaRuntimeAdapter] --> B[Fetch historic activities]
+    A --> C[Fetch execution tree]
+    A --> D[Fetch variables]
+    A --> E[Fetch tasks]
+    A --> F[Fetch identity links]
+    A --> G[Fetch proc instance links]
 
-1. **Context Boundary:** Навчання та інференс проводяться в межах одного `Process Definition`.
-2. **Call Activity Handling:** Вузли типу `callActivity` розглядаються як "чорні скриньки" з власним вектором стану. 
-3. **Версійність:** Оскільки кожна `Call Activity` може посилатися на різні версії дочірніх процесів, система використовує `version_id` поточного рівня для фіксації графа.
-4. **Взаємодія** Для повного циклу та розуміння helocopter view потрібно мати розуміння який процес викликав цей і які викликати наступні.
-*Перевага:* Це забезпечує масштабованість та дозволяє моделі фокусуватися на логіці поточного рівня ієрархії.
+    B --> H[Normalize ProcessEventDTO]
+    C --> H
+    D --> H
+    E --> H
+    F --> H
+    G --> H
 
-#### Крок 1: Discovery (Звідки знати process_key?)
-Система підтримує два режими виявлення точок входу:
+    H --> I[InstanceGraphAssemblerService]
+```
 
-* **Mode 1: Config-Driven (Recommended)**
-    Список кореневих процесів задається явно в `config/ingestion.yaml`. Це дозволяє обмежити POKG тільки необхідними процесами.
-    ```yaml
-    root_processes:
-      - "order_process"
-      - "invoice_approval"
-    ```
-
-* **Mode 2: Auto-Discovery (Scan)**
-    Якщо конфіг порожній, адаптер сканує БД на предмет усіх унікальних ключів процесів.
-    ```sql
-    SELECT DISTINCT KEY_ FROM ACT_RE_PROCDEF;
-    ```
-
-#### Крок 2: BPMN Extraction Query
-Запит оновлено для отримання назви та версії. Виконується ітеративно для кожного `process_key` з черги.
-
+## 5. Cleanup-aware guard
+For each historical query with `REMOVAL_TIME_` support:
 ```sql
-SELECT 
-    P.KEY_       AS process_key,
-    P.VERSION_   AS process_version,
-    P.NAME_      AS process_name,      -- Додано для читабельності в графі
-    P.ID_        AS proc_def_id,       -- Унікальний ID версії (напр., order:1:123)
-    B.BYTES_     AS bpmn_xml_content
-FROM ACT_RE_PROCDEF P
-JOIN ACT_GE_BYTEARRAY B 
-    ON P.DEPLOYMENT_ID_ = B.DEPLOYMENT_ID_
-    AND P.RESOURCE_NAME_ = B.NAME_
-WHERE P.KEY_ = :target_process_key
--- Опційно: брати тільки останню версію або всі
-ORDER BY P.VERSION_ DESC; 
-
+AND (REMOVAL_TIME_ IS NULL OR REMOVAL_TIME_ > GETDATE())
 ```
 
-#### Крок 3: Parsing & Child Discovery Strategy
+Fallback behavior:
+- if column is absent in older database version, retry query without this predicate,
+- do not hard-fail entire pipeline,
+- diagnostics must report fallback and effective coverage.
 
-Це критичний етап відновлення зв'язків, який виконується на стороні Python (`POKGBuilder`).
+## 6. Key field mapping
 
-1. Отриманий `bpmn_xml_content` передається в парсер.
-2. Парсер шукає елементи типу `callActivity`.
-3. Витягує атрибут `calledElement` (це `process_key` дочірнього процесу).
-* *Приклад:* `<bpmn:callActivity id="Activity_CheckRisk" calledElement="risk_assessment_v1" />`
+### 6.1 ACT_HI_ACTINST -> ProcessEventDTO
+| SQL field | DTO field | note |
+|---|---|---|
+| `ID_` | `activity_instance_id` | runtime unique id |
+| `PROC_INST_ID_` | `case_id` | process instance |
+| `ACT_ID_` | `activity_id` | activity definition id |
+| `ACT_TYPE_` | `activity_type` | userTask gateway etc |
+| `START_TIME_` | `start_time` | datetime |
+| `END_TIME_` | `end_time` | datetime |
+| `DURATION_` | `duration_ms` | milliseconds |
+| `TASK_ID_` | `task_id` | optional |
+| `CALL_PROC_INST_ID_` | `call_proc_inst_id` | call activity child link |
+| `PARENT_ACT_INST_ID_` | `parent_activity_instance_id` | subprocess scope |
+| `REMOVAL_TIME_` | `removal_time` | diagnostics |
 
+### 6.2 ACT_RU_EXECUTION refinement
+| SQL field | usage |
+|---|---|
+| `ID_` | execution id |
+| `ACT_ID_` | activity link |
+| `PROC_INST_ID_` | case link |
+| `PARENT_ID_` | hierarchy |
+| `IS_CONCURRENT_` | parallel token marker |
+| `IS_SCOPE_` | scope node marker |
+| `IS_EVENT_SCOPE_` | event scope marker |
+| `REV_` | optional update marker |
 
-4. Якщо `risk_assessment_v1` ще немає в графі, цей ключ додається в чергу **To-Do List** для виконання SQL-запиту (Крок 2).
-5. Після завантаження обох процесів у Neo4j створюється зв'язок:
-```cypher
-MATCH (parent:Task {bpmn_id: 'Activity_CheckRisk'})
-MATCH (child:ProcessDef {key: 'risk_assessment_v1'})
-MERGE (parent)-[:CALLS]->(child)
+### 6.3 Multi-instance variables
+Expected variable names:
+- `loopCounter`
+- `nrOfInstances`
+- `nrOfCompletedInstances`
 
-```
+## 7. Canonical graph assembly contract
+Adapter output must support both assembler modes:
+- `activity-centric` (default and scalable)
+- `execution-centric` (higher fidelity, bounded depth)
 
+Config controls:
+- `history_cleanup_aware: true`
+- `execution_tree_depth_limit`
+- `canonical_mode`
+- `call_activity_mode`
 
+## 8. Call activity support
+Required links:
+- parent call activity node retains `call_proc_inst_id`,
+- relation to child process instance resolved from `ACT_HI_PROCINST` when available,
+- unresolved links remain valid with warning and no hard failure.
 
-> **Важливо про версійність Call Activity:**
-> Camunda дозволяє викликати дочірній процес двома способами:
-> 1. *Binding "latest":* Викликається найсвіжіша версія. У графі лінкуємо на вузол `ProcessDef` (abstract).
-> 2. *Binding "version":* Викликається конкретна версія. У графі лінкуємо на конкретний `ProcessVersion`.
-> 
-> 
-> Адаптер має зчитувати атрибут `camunda:processBinding` з XML, щоб створити правильний зв'язок.
+## 9. SQL templates location
+- `src/adapters/ingestion/camunda/sql/manual/*.sql`
+- `src/adapters/ingestion/camunda/sql/runtime/*.sql`
 
-```
+Manual templates are intended for selective export (for example by process definition list).
 
-
-* **Mapping:** `bpmn_xml_content` передається в `BPMNParser` для розбору топології.
-
----
-
-### 2.2. Flow B: Отримання Логів (Runtime + Enrichment)
-
-Використовується для побудови Instance Graph (IG).
-Адаптер виконує `LEFT JOIN` стандартної історії з бізнес-таблицею.
-
-**SQL Query:**
-
+## 10. Recommended filtered query pattern
 ```sql
-SELECT 
-    -- 1. Core Identifiers
-    H.PROC_INST_ID_              AS case_id,
-    H.ACT_ID_                    AS activity_id,  -- Key for POKG Merge
-    H.PROC_DEF_ID_               AS proc_def_id,  -- Version Context
-    
-    -- 2. Temporal Data
-    H.END_TIME_                  AS timestamp,
-    H.START_TIME_                AS start_time,
-    H.DURATION_                  AS duration_ms,
-    
-    -- 3. Resource & Role (Priority Logic)
-    -- Якщо в бізнес-таблиці є логін, беремо його, інакше - технічного виконавця Camunda
-    COALESCE(B.user_compl_login, H.ASSIGNEE_) AS resource_id,
-    
-    -- Реальна посада важливіша за групу Camunda
-    B.user_compl_position        AS role_id,
-    
-    -- 4. Business Attributes (Features)
-    B.taskaction_code            AS action_code,  -- Result (Approve/Reject)
-    CAST(B.overduet_work AS INT) AS is_overdue,   -- SLA Violation Flag
-    H.ACT_TYPE_                  AS activity_type -- UserTask/Gateway/Service
-    
-FROM ACT_HI_ACTINST H
-LEFT JOIN bpm_tasks B ON H.TASK_ID_ = B.externalid
-WHERE 
-    H.PROC_DEF_KEY_ = :process_key
-    AND H.END_TIME_ IS NOT NULL -- Беремо тільки завершені події для навчання
-ORDER BY H.PROC_INST_ID_, H.START_TIME_;
-
+WHERE PROC_DEF_KEY_ IN ('B2BContracts_ApproveProject', 'BP_MediumRiskCheck')
 ```
 
-## 3. Трансформація типів (Data Casting)
+Use this filter for controlled extraction and avoid full database scan.
 
-Адаптер відповідає за приведення типів SQL до Python типів:
+## 11. Failure policy
+- Never raise fatal error on missing enrichment rows.
+- Use left joins and preserve partial records.
+- Return diagnostics with explicit warning list.
+- Instance graph must still be produced (possibly fallback mode).
 
-| Field | Source Type | Target Type (Python) | Note |
-| --- | --- | --- | --- |
-| `timestamp` | `datetime2` | `pd.Timestamp` (UTC) | timezone-aware |
-| `duration_ms` | `bigint` | `float` (Seconds) | `val / 1000.0` |
-| `is_overdue` | `bit/int` | `bool` | `1=True, 0=False` |
-| `action_code` | `varchar` | `str` / `category` | Handle `NULL` as `<NA>` |
+## 12. Diagram: SQL mode and files mode
+```mermaid
+flowchart LR
+    subgraph SQL mode
+        Q1[MSSQL query] --> N1[Normalize rows]
+    end
 
-## 4. Обробка помилок (Error Handling)
+    subgraph Files mode
+        F1[CSV XLSX export] --> N2[Normalize rows]
+    end
 
-* **Missing Business Data:** Якщо `LEFT JOIN` з `bpm_tasks` не знайшов запису (наприклад, для автоматичного `ServiceTask`), поля `role_id` та `action_code` будуть `NULL`. Адаптер має заповнити їх дефолтними значеннями: `role_id='system'`, `action_code='auto'`.
-* **Corrupted Traces:** Трейси, у яких відсутній `StartEvent`, ігноруються або позначаються прапором `valid=False`.
-
+    N1 --> M[Common adapter output]
+    N2 --> M
+    M --> A[InstanceGraphAssemblerService]
 ```
 
----
-
-### Файл 2: `DATA_MODEL.md` (Core)
-*(Чистий контракт ядра системи)*
-
-```markdown
-# Data Model & Knowledge Graph Specification (Core)
-
-**Status:** Draft v1.0
-**Scope:** Core Internal Structures (POKG, IG, Fusion, Tensors).
-
-Цей документ описує внутрішні структури даних, якими оперує ядро системи. Усі вхідні дані мають бути приведені до цих форматів відповідними Адаптерами.
-
-## 1. POKG Schema (Neo4j)
-"Холодне" сховище знань про структуру та контекст.
-
-### 1.1. Вузли (Nodes)
-| Label | Ключові властивості | Опис |
-| :--- | :--- | :--- |
-| `Task` | `id` (BPMN ID), `name`, `type` | Елементарна дія |
-| `Gateway` | `id`, `type` (XOR/AND), `direction` | Точка прийняття рішень |
-| `Role` | `name`, `code` | Організаційна одиниця |
-| `ProcessVersion`| `proc_def_id`, `version_tag` | Якір версії |
-
-### 1.2. Зв'язки (Relationships)
-* `(:Task)-[:FLOWS_TO {prob: 0.8}]->(:Task)`
-* `(:Task)-[:PERFORMED_BY]->(:Role)`
-* `(:ProcessVersion)-[:CONTAINS]->(:Task)`
-
----
-
-## 2. Internal Event Log (Intermediate)
-Уніфікований формат DataFrame, який очікує `IGBuilder`.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `case_id` | `str` | Trace Identifier |
-| `activity_id` | `str` | Link to POKG Node (`bpmn_id`) |
-| `timestamp` | `datetime` | Completion time |
-| `role_id` | `str` | Link to POKG Role |
-| `resource_id` | `str` | Specific Performer ID |
-| `duration_sec` | `float` | Activity Duration |
-| `action_code` | `str` | Result code (Decision) |
-| `is_overdue` | `bool` | SLA violation flag |
-
----
-
-## 3. Fusion Graph (ML Input)
-Об'єкт, що утворюється після злиття `IG` та `POKG`.
-
-### 3.1. Structure
-* **Nodes:** Всі події з `IG` + контекстні вузли з `POKG` (якщо застосовується розширення).
-* **Node Attributes:** Конкатенація динамічних та статичних фіч.
-
-### 3.2. Tensor Specification (PyTorch)
-Вхідний інтерфейс для GNN моделей.
-
-**Node Matrix ($X$):**
-Розмірність: `[N, D_total]`, де `D_total` визначається конфігом `features.yaml`.
-* `Features[0:4]`: Numerical (Duration, ActiveExecs...)
-* `Features[4:12]`: Time Encoding (Sin/Cos)
-* `Features[12:28]`: Structural Embedding (Node2Vec from POKG)
-* `Features[28:36]`: Role Embedding
-
-**Edge Index ($A$):**
-Розмірність: `[2, E]`. `long` тензор індексів `source -> target`.
-
-**Masks:**
-* `batch`: Вказує, до якого графа в батчі належить вузол.
-* `allow_mask` (Optional): Вектор допустимих наступних кроків (розмір `VocabSize`).
-
-```
-
----
-
-### Що далі?
-
-Тепер, коли ми розділили "мух і котлети", ми можемо спокійно:
-
-1. Створити ці файли.
-2. Перейти до деталізації **"Adapter XES"** (якщо потрібно зараз) або відразу до **"Feature Configuration"** (опис `features.yaml`), оскільки це наступний крок після отримання `Internal Event Log`.
-
-Який наступний документ беремо в роботу?
+## 13. Security and operational notes
+- use read-only DB user for runtime adapter,
+- avoid full table scans in production,
+- enforce process filters and time windows,
+- log query source and row counts per dataset.

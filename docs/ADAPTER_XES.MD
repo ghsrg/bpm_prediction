@@ -188,3 +188,23 @@ sequenceDiagram
     FE->>SR: resolve_value(cfg, raw_value)
     SR-->>FE: raw_value (identity in MVP1)
 ```
+
+---
+
+## MVP2.5 update: Offline ingestion and repository-backed topology
+
+### New execution model
+- Topology is now prepared offline with `python main.py ingest-topology --config ...`.
+- Training and evaluation consume prebuilt structure artifacts via `IKnowledgeGraphPort`.
+- `visualize-topology` defaults to repository mode; use `--from-raw` only for quick raw-log sanity checks.
+
+### Repository artifact contract
+Default file path:
+`data/knowledge_graph/<process_name>/<version>/process_structure.json`
+
+This artifact stores `ProcessStructureDTO` and schema metadata (`schema_version`).
+
+### Why this matters
+- stronger leakage control (no synchronous topology extraction during train),
+- reproducible structure snapshots,
+- backend portability (`in_memory` now, `file` now, `neo4j` next).

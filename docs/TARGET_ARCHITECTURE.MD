@@ -1,4 +1,4 @@
-# TRAGET ARCHITECTURE.MD
+# TARGET_ARCHITECTURE.MD
 (Пункт призначення): Описує фінальний вигляд системи (з Критиком, Семафором і Фабрикою Моделей, яку ми щойно додали).
 
 ## 1) Призначення
@@ -666,65 +666,36 @@ stateDiagram-v2
 
 ```text
 bpm_prediction/
-├── configs/                   # Усі конфігурації (YAML)
-│   ├── data/                  # Налаштування для Data Ingestion
-│   │   └── xes_mapping.yaml   # Правила мапінгу колонок для даних та шлях до файлу
-│   ├── experiments/           # Налаштування експерименту 
-│   │   └── bpic_2012.yaml     # Який режим і що запускаємо
-│   └── model/                 # Налаштування гіперпатраметрів моделі
-│       └── gatv2_baseline.yaml # Які колонки категоріальні, які неперервні
-├── data/                      # Локальні дані (ОБОВ'ЯЗКОВО додати в .gitignore)
-│   ├── raw/                   # Сирі дані кешу
-│   └── processed/             # Згенеровані графи та тензори (.pt)
-├──  checkpoints/              # Локальні збереження ваг моделей
-├── reports/                   # Згенеровані матриці помилок, графіки для дисертації
-├── src/
-│   ├── domain/                # Чиста математика та бізнес-логіка (Без інфраструктури!)
-│   │   ├── entities/          # DTO: EventRecord, RawTrace, PrefixSlice, GraphTensorContract
-│   │   ├── services/          # Сервіси: PrefixPolicy, FeatureEncoder, GraphBuilder
-│   │   └── models/            # BaselineGNN (MVP1)
-│   ├── application/           # Оркестрація та Use Cases
-│   │   ├── ports/             # Інтерфейси: IXESAdapter, ITracker, IGNNModelPort
-│   │   └── use_cases/         # trainer.py, evaluator.py
-│   ├── adapters/              # Інфраструктура (Реалізація портів)
-│   │   ├── ingestion/         # xes_adapter.py
-│   │   └── tracking/          # mlflow_adapter.py
-│   └── cli.py                 # Точка входу (--mode train/evaluate)
-├── tests/                     # Pytest інтеграційні тести
-├── mlruns/                    # дані ML Flow
-├── tests/                     # Pytest інтеграційні тести
-├── tools/                     # службові скрипти
-# --- ДОКУМЕНТАЦІЯ ТА КОНТРАКТИ (Джерело правди) ---
-├── README.MD                      # Головний опис проєкту
-├── AGENT_GUIDE.MD                 # Головна інструкція для ШІ
-├── AGENT_CONTEXT_MVP1.MD          # Контекст агента для MVP1
-├── PROJECT_CONTEXT.md             # Базовий загальний контекст проекту для агента
-├── docs/
-│   ├── ARCHITECTURE_GUIDELINES.MD     # Конституція архітектури, незмінні правила
-│   ├── ARCHITECTURE_RULES.md          # Жорсткі правила залежностей і заборон
-│   ├── TARGET_ARCHITECTURE.MD         # Цільова архітектура (ENTERPRISE_POC)
-│   ├── ARCHITECTURE_MVP1.MD           # Архітектура фази (MVP1)
-│   ├── ARCHITECTURE_MVP2.MD           # Архітектура фази (MVP2)
-│   ├── DATA_MODEL_MVP1.MD             # Канонічні DTO та структура даних фази 
-│   ├── DATA_MODEL_MVP2 .MD             # Канонічні DTO та структура даних фази
-│   ├── DATA_FLOWS_MVP1.MD             # Контракти сервісів і потоки даних фази
-│   ├── DATA_FLOWS_MVP2.MD             # Контракти сервісів і потоки даних фази
-│   ├── ADAPTER_XES.MD                 # Специфікація парсингу логів XES
-│   ├── ADAPTER_CAMUNDA_SQL.MD         # Специфікація парсингу з Camunda (для майбутніх фаз)
-│   ├── LLD_MVP1.MD                    # Математичне ядро та дизайн GNN фази
-│   ├── LLD_MVP2.MD                    # Математичне ядро та дизайн GNN фази
-│   ├── EVF_MVP1.MD                    # Фреймворк тестування (Temporal Split, MLflow) фази
-│   ├── EVF_MVP2.MD                    # Фреймворк тестування (Temporal Split, MLflow) фази
-│   ├── GLOSSARY.MD                    # Канон термінів
-│   ├── VARIABLES.MD                   # Математичні позначення та мапінг
-│
-# --- РЕФЕРЕНСНІ ФАЙЛИ (Тільки для довідок) ---
-├── etalon/                        # Код попередньої розробки, використовується як орієнтир а не контракт
-├── ETALON_EVENT_SCHEMA.md         
-├── ETALON_GAP_ANALYSIS.md         
-├── ETALON_GRAPH_SCHEMA.md         
-├── ETALON_TENSOR_SCHEMA.md        
-└── ETALON_TRAINING_FLOW.md
+  configs/
+    data/
+    experiments/
+    model/
+  data/
+    raw/
+    processed/
+    knowledge_graph/
+  checkpoints/
+  reports/
+  src/
+    domain/
+      entities/
+      services/
+      models/
+      ports/
+    application/
+      ports/
+      services/
+      use_cases/
+    adapters/
+      ingestion/
+      tracking/
+      gateways/
+    infrastructure/
+      repositories/
+      config/
+  tools/
+  tests/
+  docs/
 ```
 
 ---
@@ -818,14 +789,11 @@ class AgentCriticGNN(IGNNModelPort):
 # 2. Виклик у пайплайні (src/pipeline/trainer.py)
 model = ModelFactory.create(config.architecture_type) # Динамічне підключення
 ```
+
 ---
 
-## 23) MVP1 implemented extension points
-
-| Extension Point (MVP1) | Current MVP1 behavior | Planned MVP2 hook |
-|---|---|---|
-| `SchemaResolver.resolve_value(cfg, raw_value)` | Identity transform: \(\operatorname{resolve\_value}(cfg,v)=v\). No synonym/language normalization. | `SemanticMapper` for controlled semantic normalization (e.g., multilingual/synonym alignment). |
-| `IGraphBuilder.build_graph(prefix)` | `BaselineGraphBuilder` builds observed sequential graph tensors only. | `DynamicStructuralGraphBuilder` for EOPKG-aware structural enrichment without changing trainer orchestration contract. |
-
-### Architectural note
-Both hooks are intentionally implemented in MVP1 as extension boundaries, not as active semantic/structural adaptation logic.
+## 23) Related Detailed Architecture Documents
+Деталі фаз реалізації описані в окремих документах:
+- [ARCHITECTURE_MVP1.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\ARCHITECTURE_MVP1.MD)
+- [ARCHITECTURE_MVP2.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\ARCHITECTURE_MVP2.MD)
+- [ARCHITECTURE_MVP2_5.MD](C:\Users\korsr\PycharmProjects\bpm_prediction\docs\ARCHITECTURE_MVP2_5.MD)

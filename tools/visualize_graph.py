@@ -551,15 +551,40 @@ def _format_node_label(
     activity_name: str,
     activity_type: str,
     fallback_id: str,
+    occurrence_suffix: str = "",
 ) -> str:
     display_id = activity_def_id or fallback_id
     display_name = activity_name or display_id
+    if occurrence_suffix:
+        display_name = f"{display_name} {occurrence_suffix}"
     lines: List[str] = [display_name]
     if display_name != display_id:
         lines.append(f"id: {display_id}")
     if activity_type:
         lines.append(f"[{activity_type}]")
     return "\\n".join(lines)
+
+
+def _build_activity_occurrence_suffixes(nodes: Sequence[Mapping[str, Any]]) -> Dict[str, str]:
+    grouped: Dict[str, List[Tuple[datetime, str]]] = {}
+    for node in nodes:
+        node_id = _clean_text(node.get("id"))
+        if not node_id:
+            continue
+        activity_def_id = _clean_text(node.get("activity_def_id"))
+        if not activity_def_id:
+            continue
+        start_ts = _parse_iso(node.get("start_time")) or datetime.min
+        grouped.setdefault(activity_def_id, []).append((start_ts, node_id))
+
+    suffix_by_node: Dict[str, str] = {}
+    for _activity_def_id, entries in grouped.items():
+        if len(entries) <= 1:
+            continue
+        ordered = sorted(entries, key=lambda item: (item[0], item[1]))
+        for idx, (_ts, node_id) in enumerate(ordered, start=1):
+            suffix_by_node[node_id] = f"#{idx}"
+    return suffix_by_node
 
 
 def _classify_node_category(g: nx.DiGraph, node_id: str, attrs: Mapping[str, Any]) -> str:
@@ -609,12 +634,20 @@ def _edge_style(edge_type: str) -> Tuple[str, str]:
         "fork_edge": ("#FB8C00", "dashed"),
         "cancellation_edge": ("#D32F2F", "solid"),
         "call_activity_link": ("#8E24AA", "dotted"),
+        "loop_back": ("#6A1B9A", "dashed"),
     }
     return mapping.get(edge_type, ("#757575", "solid"))
 
 
-def _render_ig_graph_graphviz(graph: Mapping[str, Any], *, out_path: Optional[str], title: str) -> None:
+def _render_ig_graph_graphviz(
+    graph: Mapping[str, Any],
+    *,
+    out_path: Optional[str],
+    title: str,
+    hide_loop_back: bool = False,
+) -> None:
     g = nx.DiGraph()
+    suffix_by_node = _build_activity_occurrence_suffixes(graph.get("nodes", []))
     for node in graph.get("nodes", []):
         node_id = _clean_text(node.get("id"))
         if not node_id:
@@ -627,6 +660,7 @@ def _render_ig_graph_graphviz(graph: Mapping[str, Any], *, out_path: Optional[st
             activity_name=activity_name,
             activity_type=activity_type,
             fallback_id=node_id,
+            occurrence_suffix=suffix_by_node.get(node_id, ""),
         )
         g.add_node(node_id, label=label, activity_type=activity_type, kind="normal")
 
@@ -636,6 +670,8 @@ def _render_ig_graph_graphviz(graph: Mapping[str, Any], *, out_path: Optional[st
         if not source or not target:
             continue
         edge_type = _clean_text(edge.get("edge_type")) or "sequence"
+        if hide_loop_back and edge_type == "loop_back":
+            continue
         g.add_edge(source, target, edge_type=edge_type)
 
     for link in graph.get("metadata", {}).get("call_activity_links", []):
@@ -707,8 +743,15 @@ def _render_ig_graph_graphviz(graph: Mapping[str, Any], *, out_path: Optional[st
         ) from exc
 
 
-def _render_ig_graph_matplotlib(graph: Mapping[str, Any], *, out_path: Optional[str], title: str) -> None:
+def _render_ig_graph_matplotlib(
+    graph: Mapping[str, Any],
+    *,
+    out_path: Optional[str],
+    title: str,
+    hide_loop_back: bool = False,
+) -> None:
     g = nx.DiGraph()
+    suffix_by_node = _build_activity_occurrence_suffixes(graph.get("nodes", []))
     for node in graph.get("nodes", []):
         node_id = _clean_text(node.get("id"))
         if not node_id:
@@ -721,6 +764,7 @@ def _render_ig_graph_matplotlib(graph: Mapping[str, Any], *, out_path: Optional[
             activity_name=activity_name,
             activity_type=activity_type,
             fallback_id=node_id,
+            occurrence_suffix=suffix_by_node.get(node_id, ""),
         )
         g.add_node(node_id, label=label, activity_type=activity_type, kind="normal")
 
@@ -730,6 +774,8 @@ def _render_ig_graph_matplotlib(graph: Mapping[str, Any], *, out_path: Optional[
         if not source or not target:
             continue
         edge_type = _clean_text(edge.get("edge_type")) or "sequence"
+        if hide_loop_back and edge_type == "loop_back":
+            continue
         g.add_edge(source, target, edge_type=edge_type)
 
     for link in graph.get("metadata", {}).get("call_activity_links", []):
@@ -792,11 +838,17 @@ def _render_ig_graph_matplotlib(graph: Mapping[str, Any], *, out_path: Optional[
     plt.close()
 
 
-def _render_ig_graph(graph: Mapping[str, Any], *, out_path: Optional[str], title: str) -> None:
+def _render_ig_graph(
+    graph: Mapping[str, Any],
+    *,
+    out_path: Optional[str],
+    title: str,
+    hide_loop_back: bool = False,
+) -> None:
     try:
-        _render_ig_graph_graphviz(graph, out_path=out_path, title=title)
+        _render_ig_graph_graphviz(graph, out_path=out_path, title=title, hide_loop_back=hide_loop_back)
     except RuntimeError:
-        _render_ig_graph_matplotlib(graph, out_path=out_path, title=title)
+        _render_ig_graph_matplotlib(graph, out_path=out_path, title=title, hide_loop_back=hide_loop_back)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -818,6 +870,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--top", type=int, default=30, help="How many cases to print with --list-cases.")
     parser.add_argument("--mode", choices=["activity-centric", "execution-centric"], default=None, help="Override canonical IG mode for Camunda.")
     parser.add_argument("--max-nodes", type=int, default=500, help="Maximum events/nodes to render for selected case.")
+    parser.add_argument("--hide-loop-back", action="store_true", help="Hide loop_back edges from rendered graph.")
     parser.add_argument("--out", default=None, help="Optional output PNG path. If omitted, opens interactive window.")
     parser.add_argument("--title", default=None, help="Optional custom plot title.")
 
@@ -891,7 +944,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default_title = f"IG (XES sequence) | dataset={dataset_name} | case={selected_case_id}"
 
     title = str(args.title).strip() if args.title else default_title
-    _render_ig_graph(graph, out_path=args.out, title=title)
+    _render_ig_graph(graph, out_path=args.out, title=title, hide_loop_back=bool(args.hide_loop_back))
 
     metadata = graph.get("metadata", {})
     print(

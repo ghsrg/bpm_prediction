@@ -62,10 +62,11 @@ def test_visualize_graph_selects_explicit_case_id(monkeypatch, tmp_path):
 
     rendered: dict = {}
 
-    def _fake_render(graph, *, out_path, title):
+    def _fake_render(graph, *, out_path, title, hide_loop_back=False):
         rendered["graph"] = graph
         rendered["out_path"] = out_path
         rendered["title"] = title
+        rendered["hide_loop_back"] = hide_loop_back
 
     monkeypatch.setattr(visualize_graph, "_render_ig_graph", _fake_render)
 
@@ -111,10 +112,11 @@ def test_visualize_graph_pick_longest(monkeypatch, tmp_path):
 
     rendered: dict = {}
 
-    def _fake_render(graph, *, out_path, title):
+    def _fake_render(graph, *, out_path, title, hide_loop_back=False):
         rendered["graph"] = graph
         rendered["out_path"] = out_path
         rendered["title"] = title
+        rendered["hide_loop_back"] = hide_loop_back
 
     monkeypatch.setattr(visualize_graph, "_render_ig_graph", _fake_render)
 
@@ -156,7 +158,7 @@ def test_visualize_graph_prints_selected_case_when_picked(monkeypatch, tmp_path,
 
     monkeypatch.setattr(visualize_graph, "load_yaml_config", lambda _p: _camunda_cfg())
     monkeypatch.setattr(visualize_graph, "_load_camunda_payload_from_config", lambda _p: payload)
-    monkeypatch.setattr(visualize_graph, "_render_ig_graph", lambda graph, *, out_path, title: None)
+    monkeypatch.setattr(visualize_graph, "_render_ig_graph", lambda graph, *, out_path, title, hide_loop_back=False: None)
 
     rc = visualize_graph.main(
         [
@@ -197,7 +199,7 @@ def test_visualize_graph_list_cases_only_does_not_render(monkeypatch, capsys):
 
     called = {"render": False}
 
-    def _fake_render(graph, *, out_path, title):
+    def _fake_render(graph, *, out_path, title, hide_loop_back=False):
         _ = (graph, out_path, title)
         called["render"] = True
 
@@ -251,3 +253,57 @@ def test_format_node_label_includes_activity_name_and_id():
     assert "Approve request" in label
     assert "id: Task_Approve" in label
     assert "[userTask]" in label
+
+
+def test_format_node_label_includes_occurrence_suffix():
+    label = visualize_graph._format_node_label(
+        activity_def_id="Activity_1onmiy7",
+        activity_name="Review Task",
+        activity_type="userTask",
+        fallback_id="ai_7",
+        occurrence_suffix="#2",
+    )
+    assert "Review Task #2" in label
+
+
+def test_visualize_graph_forwards_hide_loop_back_flag(monkeypatch, tmp_path):
+    payload = {
+        "process_name": "procurement",
+        "version_key": "v1",
+        "camunda_cfg": {},
+        "events": [
+            _event("case_1", 0, "A"),
+            _event("case_1", 1, "A"),
+        ],
+        "execution_rows": [],
+        "variables_rows": [],
+        "identity_rows": [],
+        "task_rows": [],
+        "process_variables_rows": [],
+        "diagnostics": RuntimeFetchDiagnosticsDTO(),
+    }
+
+    monkeypatch.setattr(visualize_graph, "load_yaml_config", lambda _p: _camunda_cfg())
+    monkeypatch.setattr(visualize_graph, "_load_camunda_payload_from_config", lambda _p: payload)
+
+    captured = {"hide_loop_back": None}
+
+    def _fake_render(graph, *, out_path, title, hide_loop_back=False):
+        _ = (graph, out_path, title)
+        captured["hide_loop_back"] = hide_loop_back
+
+    monkeypatch.setattr(visualize_graph, "_render_ig_graph", _fake_render)
+
+    rc = visualize_graph.main(
+        [
+            "--config",
+            "dummy.yaml",
+            "--case-id",
+            "case_1",
+            "--hide-loop-back",
+            "--out",
+            str(tmp_path / "ig_case1.png"),
+        ]
+    )
+    assert rc == 0
+    assert captured["hide_loop_back"] is True

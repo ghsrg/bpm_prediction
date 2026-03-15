@@ -1,0 +1,41 @@
+﻿data:
+  dataset_name: "demo_xes"
+  dataset_label: "demo_xes"
+  log_path: "outputs/stage3_2_ingest_demo/tiny_ingest.xes"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "outputs/stage3_2_ingest_demo/knowledge"
+    strict_load: false
+    ingest_split: "train"
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+experiment:
+  mode: "train"
+  fraction: 1.0
+  split_strategy: "temporal"
+  train_ratio: 1.0
+  split_ratio: [1.0, 0.0, 0.0]
+
+training:
+  show_progress: false
+  tqdm_disable: true

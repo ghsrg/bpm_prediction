@@ -1,0 +1,13 @@
+{
+  "status": "ok",
+  "adapter": "xes",
+  "dataset_name": "bpi2012",
+  "ingest_split": "train",
+  "total_traces": 1308,
+  "selected_traces": 915,
+  "versions_saved": [
+    "bpi2012"
+  ],
+  "knowledge_backend": "file",
+  "knowledge_storage_path": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\data\\knowledge_graph"
+}

@@ -7,6 +7,15 @@ data:
 mapping:
   # adapter: default is "xes"; set "camunda" to read runtime exports (CSV/XLSX or MSSQL).
   adapter: "camunda"
+  knowledge_graph:
+    # backend: in_memory | file
+    backend: "file"
+    # path: directory where topology JSON artifacts are stored.
+    path: "data/knowledge_graph"
+    # strict_load: if true, training fails when no topology artifact exists for current process.
+    strict_load: false
+    # ingest_split: source for ingest-topology command (train | full).
+    ingest_split: "train"
 
   camunda_adapter:
     # process_name: defaults to data.dataset_name if omitted.

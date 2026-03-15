@@ -13,6 +13,11 @@ mapping:
     complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
     pairing_strategy: "lifo"
     use_classifier: true
+  knowledge_graph:
+    backend: "file"
+    path: "data/knowledge_graph"
+    strict_load: false
+    ingest_split: "train"
 
   features:
     - name: "concept:name"

@@ -1,4 +1,4 @@
-"""CLI utility for visual sanity-check of extracted process topology."""
+"""CLI utility for visual sanity-check of process topology."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.cli import load_yaml_config
 from src.domain.entities.raw_trace import RawTrace
+from src.infrastructure.repositories.knowledge_graph_repository_factory import (
+    build_knowledge_graph_repository,
+    get_knowledge_graph_settings,
+)
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
@@ -145,6 +149,17 @@ def _load_train_traces_from_config(config_path: str) -> Tuple[List[RawTrace], st
     return _prepare_train_traces(traces, experiment_cfg), dataset_name
 
 
+def _load_topology_service_from_config(config_path: str) -> Tuple[TopologyExtractorService, str]:
+    """Load topology service backed by configured knowledge-graph repository."""
+    cfg = load_yaml_config(config_path)
+    data_cfg = cfg.get("data", {})
+    log_path = str(data_cfg.get("log_path", "")).strip()
+    process_name = _resolve_dataset_name(data_cfg, log_path)
+    repository = build_knowledge_graph_repository(cfg)
+    service = TopologyExtractorService(knowledge_port=repository, process_name=process_name)
+    return service, process_name
+
+
 def _load_traces_from_data(data_path: str) -> Tuple[List[RawTrace], str]:
     """Load full trace list directly from XES path (no config cascade)."""
     dataset_name = Path(data_path).stem or "default_dataset"
@@ -176,6 +191,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--config", help="Path to experiment YAML config.")
     source_group.add_argument("--data", help="Path to source XES file.")
+    parser.add_argument(
+        "--from-raw",
+        action="store_true",
+        help="Build topology directly from raw traces (legacy mode). Default reads pre-ingested structure.",
+    )
     parser.add_argument("--version", default="1", help="Process version (kappa) to render. Default: 1")
     parser.add_argument("--out", default=None, help="Optional output PNG path. If omitted, opens interactive window.")
     parser.add_argument(
@@ -205,28 +225,45 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.config:
-        train_traces, process_name = _load_train_traces_from_config(args.config)
+    if not args.from_raw and args.data:
+        raise ValueError("--data is supported only with --from-raw. Use --config to read pre-ingested topology.")
+
+    if args.from_raw:
+        if args.config:
+            train_traces, process_name = _load_train_traces_from_config(args.config)
+        else:
+            train_traces, process_name = _load_traces_from_data(args.data)
+        if not train_traces:
+            raise ValueError("No train traces found for topology extraction.")
+        repository = InMemoryNetworkXRepository()
+        service = TopologyExtractorService(knowledge_port=repository, process_name=process_name)
+        service.fit(train_traces, process_name=process_name)
     else:
-        train_traces, process_name = _load_traces_from_data(args.data)
+        if not args.config:
+            raise ValueError("--config is required when reading topology from knowledge repository.")
+        service, process_name = _load_topology_service_from_config(args.config)
+        if not service.available_versions:
+            cfg = load_yaml_config(args.config)
+            knowledge_cfg = get_knowledge_graph_settings(cfg)
+            backend = str(knowledge_cfg.get("backend", "in_memory"))
+            path = str(knowledge_cfg.get("path", "")).strip()
+            raise ValueError(
+                f"No topology artifacts found for process '{process_name}'. "
+                f"Run ingest first: `python main.py ingest-topology --config {args.config}`. "
+                f"Backend={backend}, path={path or '<in-memory>'}."
+            )
 
-    if not train_traces:
-        raise ValueError("No train traces found for topology extraction.")
-
-    repository = InMemoryNetworkXRepository()
-    service = TopologyExtractorService(knowledge_port=repository, process_name=process_name)
-    service.fit(train_traces, process_name=process_name)
     selected_version = _resolve_plot_version(str(args.version), service.available_versions)
     try:
         service.plot_topology(
-        version=selected_version,
-        process_name=process_name,
-        save_path=args.out,
-        min_edge_freq=args.min_freq,
-        renderer=args.renderer,
-        label_mode=args.label_mode,
-        typed_colors=bool(args.typed_colors),
-    )
+            version=selected_version,
+            process_name=process_name,
+            save_path=args.out,
+            min_edge_freq=args.min_freq,
+            renderer=args.renderer,
+            label_mode=args.label_mode,
+            typed_colors=bool(args.typed_colors),
+        )
     except ValueError as exc:
         message = str(exc)
         if "No transitions found for process version" in message:

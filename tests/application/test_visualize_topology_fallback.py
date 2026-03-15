@@ -35,7 +35,9 @@ def test_visualize_topology_raises_when_no_transitions_found(monkeypatch, tmp_pa
     )
 
     with pytest.raises(ValueError, match="No traces or transitions found in the dataset"):
-        visualize_topology.main(["--config", "dummy.yaml", "--version", "1", "--out", str(tmp_path / "x.png")])
+        visualize_topology.main(
+            ["--config", "dummy.yaml", "--version", "1", "--from-raw", "--out", str(tmp_path / "x.png")]
+        )
 
 
 def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypatch, tmp_path, capsys):
@@ -64,7 +66,7 @@ def test_visualize_topology_auto_falls_back_to_single_available_version(monkeypa
     monkeypatch.setattr("src.application.services.topology_extractor_service.TopologyExtractorService.plot_topology", _fake_plot)
 
     rc = visualize_topology.main(
-        ["--config", "dummy.yaml", "--version", "1", "--out", str(tmp_path / "x.png"), "--min-freq", "7"]
+        ["--config", "dummy.yaml", "--version", "1", "--from-raw", "--out", str(tmp_path / "x.png"), "--min-freq", "7"]
     )
     out = capsys.readouterr().out
 
@@ -89,7 +91,9 @@ def test_visualize_topology_raises_with_available_versions_for_multi_version_dat
     )
 
     with pytest.raises(ValueError, match=r"Version 'Z' not found\. Available versions: \['A', 'B'\]"):
-        visualize_topology.main(["--config", "dummy.yaml", "--version", "Z", "--out", str(tmp_path / "x.png")])
+        visualize_topology.main(
+            ["--config", "dummy.yaml", "--version", "Z", "--from-raw", "--out", str(tmp_path / "x.png")]
+        )
 
 
 def test_visualize_topology_legacy_camunda_config_without_log_path(monkeypatch, tmp_path, capsys):
@@ -139,6 +143,7 @@ def test_visualize_topology_legacy_camunda_config_without_log_path(monkeypatch, 
         [
             "--config",
             "dummy.yaml",
+            "--from-raw",
             "--version",
             "bpi2012",
             "--min-freq",
@@ -218,10 +223,68 @@ def test_visualize_topology_handles_not_enough_transitions_without_traceback(mon
     monkeypatch.setattr("src.application.services.topology_extractor_service.TopologyExtractorService.plot_topology", _fake_plot)
 
     rc = visualize_topology.main(
-        ["--config", "dummy.yaml", "--version", "v1", "--min-freq", "100", "--out", str(tmp_path / "x.png")]
+        [
+            "--config",
+            "dummy.yaml",
+            "--from-raw",
+            "--version",
+            "v1",
+            "--min-freq",
+            "100",
+            "--out",
+            str(tmp_path / "x.png"),
+        ]
     )
     out = capsys.readouterr().out
 
     assert rc == 2
     assert "Not enough transitions to build a graph" in out
     assert "min_edge_freq=100" in out
+
+
+def test_visualize_topology_reads_from_knowledge_repository_by_default(monkeypatch, tmp_path):
+    selected: dict[str, object] = {}
+
+    class _DummyService:
+        available_versions = ["bpi2012"]
+
+        def plot_topology(self, **kwargs):
+            selected.update(kwargs)
+
+    monkeypatch.setattr(
+        visualize_topology,
+        "_load_topology_service_from_config",
+        lambda _cfg: (_DummyService(), "bpi2012"),
+    )
+    monkeypatch.setattr(
+        visualize_topology,
+        "_load_train_traces_from_config",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("raw loader should not run in default mode")),
+    )
+
+    rc = visualize_topology.main(["--config", "dummy.yaml", "--version", "bpi2012", "--out", str(tmp_path / "x.png")])
+    assert rc == 0
+    assert selected["version"] == "bpi2012"
+    assert selected["process_name"] == "bpi2012"
+
+
+def test_visualize_topology_requires_config_when_not_from_raw():
+    with pytest.raises(ValueError, match="--data is supported only with --from-raw"):
+        visualize_topology.main(["--data", "dummy.xes", "--version", "v1"])
+
+
+def test_visualize_topology_reports_missing_artifacts(monkeypatch):
+    cfg = {
+        "mapping": {
+            "knowledge_graph": {"backend": "file", "path": "data/knowledge_graph"},
+        },
+    }
+    monkeypatch.setattr(visualize_topology, "load_yaml_config", lambda _cfg: cfg)
+    monkeypatch.setattr(
+        visualize_topology,
+        "_load_topology_service_from_config",
+        lambda _cfg: (type("S", (), {"available_versions": []})(), "procurement"),
+    )
+
+    with pytest.raises(ValueError, match="Run ingest first"):
+        visualize_topology.main(["--config", "dummy.yaml", "--version", "procurement"])

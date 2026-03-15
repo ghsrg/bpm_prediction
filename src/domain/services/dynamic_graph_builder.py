@@ -14,16 +14,28 @@ from src.domain.services.feature_encoder import FeatureEncoder
 class DynamicGraphBuilder(BaselineGraphBuilder):
     """Extends baseline tensors with version-scoped allowed-target mask."""
 
-    def __init__(self, feature_encoder: FeatureEncoder, knowledge_port: IKnowledgeGraphPort) -> None:
+    def __init__(
+        self,
+        feature_encoder: FeatureEncoder,
+        knowledge_port: IKnowledgeGraphPort,
+        process_name: str | None = None,
+    ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
+        self.process_name = str(process_name).strip() if process_name is not None else None
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
         contract = super().build_graph(prefix)
 
         version_key = str(prefix.process_version).strip() or "default"
-        dto = self.knowledge_port.get_process_structure(version_key)
+        dto = self.knowledge_port.get_process_structure(
+            version_key,
+            process_name=self.process_name,
+        )
+        if dto is None and self.process_name is not None:
+            # Legacy compatibility for repositories where version-only lookup is still used.
+            dto = self.knowledge_port.get_process_structure(version_key)
         if dto is None or not prefix.prefix_events:
             contract["allowed_target_mask"] = None
             return contract

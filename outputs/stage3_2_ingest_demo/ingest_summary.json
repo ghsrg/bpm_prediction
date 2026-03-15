@@ -1,0 +1,13 @@
+{
+  "status": "ok",
+  "adapter": "xes",
+  "dataset_name": "demo_xes",
+  "ingest_split": "train",
+  "total_traces": 1,
+  "selected_traces": 1,
+  "versions_saved": [
+    "demo_xes"
+  ],
+  "knowledge_backend": "file",
+  "knowledge_storage_path": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\stage3_2_ingest_demo\\knowledge"
+}

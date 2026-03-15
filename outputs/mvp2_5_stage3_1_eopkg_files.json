@@ -1,0 +1,13 @@
+{
+  "status": "ok",
+  "adapter": "camunda",
+  "dataset_name": "procurement",
+  "ingest_split": "train",
+  "total_traces": 17,
+  "selected_traces": 11,
+  "versions_saved": [
+    "v5"
+  ],
+  "knowledge_backend": "file",
+  "knowledge_storage_path": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\data\\knowledge_graph"
+}

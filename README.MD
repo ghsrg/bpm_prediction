@@ -238,3 +238,43 @@ IG CLI keys:
 --out PATH               save image to file (.png), otherwise open viewer
 --title TEXT             custom graph title
 ```
+
+## Operational Commands (MVP2.5)
+
+1) Build topology artifacts (decoupled ingestion)
+```bash
+python main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
+```
+
+2) Visualize topology from knowledge repository (default mode)
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version bpi2012 --min-freq 10 --out outputs/topology_repo.png
+```
+
+3) Visualize topology directly from raw logs (legacy/quick check)
+```bash
+python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --from-raw --version bpi2012 --min-freq 10 --out outputs/topology_raw.png
+```
+
+4) Train model
+```bash
+python main.py --config configs/experiments/02_train_bpi2012.yaml
+```
+
+5) Evaluate drift
+```bash
+python main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
+```
+
+6) Run tests
+```bash
+pytest tests/ -v
+pytest -m mvp1_regression -v
+```
+
+Notes:
+```text
+- visualize-topology without --from-raw reads only pre-ingested structure via knowledge_graph backend.
+- If topology is missing, run ingest-topology first.
+- knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
+```

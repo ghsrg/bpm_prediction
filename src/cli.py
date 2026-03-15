@@ -31,9 +31,11 @@ from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
 from src.domain.services.schema_resolver import SchemaResolver
-from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.infrastructure.config.yaml_loader import load_yaml_with_includes
-from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
+from src.infrastructure.repositories.knowledge_graph_repository_factory import (
+    build_knowledge_graph_repository,
+    get_knowledge_graph_settings,
+)
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 
 
@@ -341,11 +343,27 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
-    knowledge_repo = InMemoryNetworkXRepository()
-    topology_service = TopologyExtractorService(knowledge_port=knowledge_repo, process_name=dataset_name)
-    topology_service.extract_from_logs(train_traces, process_name=dataset_name)
+    knowledge_repo = build_knowledge_graph_repository(config)
+    knowledge_cfg = get_knowledge_graph_settings(config)
+    if bool(knowledge_cfg.get("strict_load", False)):
+        available_versions = knowledge_repo.list_versions(process_name=dataset_name)
+        if not available_versions:
+            raise ValueError(
+                "knowledge_graph.strict_load=true but no topology artifacts were found for "
+                f"process '{dataset_name}'. Run 'main.py ingest-topology --config ...' first."
+            )
+    logger.info(
+        "Knowledge graph backend=%s, strict_load=%s, available_versions=%s",
+        str(knowledge_cfg.get("backend", "in_memory")),
+        bool(knowledge_cfg.get("strict_load", False)),
+        len(knowledge_repo.list_versions(process_name=dataset_name)),
+    )
     normalization_stats = _build_normalization_stats()
-    graph_builder = DynamicGraphBuilder(feature_encoder=feature_encoder, knowledge_port=knowledge_repo)
+    graph_builder = DynamicGraphBuilder(
+        feature_encoder=feature_encoder,
+        knowledge_port=knowledge_repo,
+        process_name=dataset_name,
+    )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
 

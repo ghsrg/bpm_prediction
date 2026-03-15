@@ -1,0 +1,50 @@
+{
+  "created_at_utc": "2026-03-15T09:48:44.432417+00:00",
+  "dto": {
+    "allowed_edges": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "B",
+        "C"
+      ]
+    ],
+    "edge_statistics": [
+      {
+        "dst": "B",
+        "src": "A",
+        "stats": {
+          "count": 1.0
+        }
+      },
+      {
+        "dst": "C",
+        "src": "B",
+        "stats": {
+          "count": 1.0
+        }
+      }
+    ],
+    "node_metadata": {
+      "A": {
+        "activity_name": "A",
+        "activity_type": ""
+      },
+      "B": {
+        "activity_name": "B",
+        "activity_type": ""
+      },
+      "C": {
+        "activity_name": "C",
+        "activity_type": ""
+      }
+    },
+    "version": "demo_xes"
+  },
+  "process_name": "demo_xes",
+  "repository_backend": "file",
+  "schema_version": "1.0",
+  "version": "demo_xes"
+}

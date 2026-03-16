@@ -28,14 +28,26 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         """Build baseline contract and inject OOS mask when topology is available."""
         contract = super().build_graph(prefix)
 
-        version_key = str(prefix.process_version).strip() or "default"
-        dto = self.knowledge_port.get_process_structure(
-            version_key,
-            process_name=self.process_name,
-        )
-        if dto is None and self.process_name is not None:
-            # Legacy compatibility for repositories where version-only lookup is still used.
-            dto = self.knowledge_port.get_process_structure(version_key)
+        raw_version = str(prefix.process_version).strip() or "default"
+        candidate_versions = [raw_version]
+        if raw_version.isdigit():
+            candidate_versions.append(f"v{int(raw_version)}")
+        elif raw_version.lower().startswith("v") and raw_version[1:].isdigit():
+            candidate_versions.append(str(int(raw_version[1:])))
+
+        dto = None
+        for candidate in candidate_versions:
+            dto = self.knowledge_port.get_process_structure(
+                candidate,
+                process_name=self.process_name,
+            )
+            if dto is not None:
+                break
+            if self.process_name is not None:
+                # Legacy compatibility for repositories where version-only lookup is still used.
+                dto = self.knowledge_port.get_process_structure(candidate)
+                if dto is not None:
+                    break
         if dto is None or not prefix.prefix_events:
             contract["allowed_target_mask"] = None
             return contract

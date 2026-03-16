@@ -69,3 +69,32 @@ def test_file_repo_corrupted_json_returns_none(tmp_path: Path):
     payload_path.parent.mkdir(parents=True, exist_ok=True)
     payload_path.write_text("{this-is-not-valid-json", encoding="utf-8")
     assert repo.get_process_structure("v1", process_name="proc_a") is None
+
+
+def test_file_repo_preserves_stage3_2_call_bindings_and_nodes(tmp_path: Path):
+    repo = FileBasedKnowledgeGraphRepository(base_dir=tmp_path / "kg")
+    dto = ProcessStructureDTO(
+        version="v22",
+        proc_def_id="parent_def",
+        proc_def_key="parent_proc",
+        deployment_id="dep_parent",
+        allowed_edges=[("start", "call1"), ("call1", "end")],
+        nodes=[{"id": "call1", "bpmn_tag": "callActivity"}],
+        edges=[{"source": "start", "target": "call1", "edge_type": "sequence"}],
+        graph_topology={"cycles_detected": False},
+        call_bindings={
+            "call1": {
+                "status": "unresolved",
+                "inference_fallback_strategy": "use_aggregated_stats",
+            }
+        },
+        metadata={"parser_mode": "recover"},
+    )
+    repo.save_process_structure("v22", dto, process_name="camunda_dataset")
+
+    loaded = repo.get_process_structure("v22", process_name="camunda_dataset")
+    assert loaded is not None
+    assert loaded.proc_def_id == "parent_def"
+    assert loaded.call_bindings is not None
+    assert loaded.call_bindings["call1"]["inference_fallback_strategy"] == "use_aggregated_stats"
+    assert loaded.nodes is not None and loaded.nodes[0]["id"] == "call1"

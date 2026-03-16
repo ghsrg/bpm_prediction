@@ -65,3 +65,20 @@ def test_dynamic_graph_builder_does_not_use_hardcoded_version_one_fallback(mock_
     )
     contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
     assert contract["allowed_target_mask"] is None
+
+
+def test_dynamic_graph_builder_accepts_numeric_or_v_prefixed_version_keys(mock_feature_configs):
+    traces = [_trace("c1", "v22", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    repository = InMemoryNetworkXRepository()
+    service = TopologyExtractorService(knowledge_port=repository, process_name="dataset_alpha")
+    service.extract_from_logs(traces, process_name="dataset_alpha")
+
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="22",
+        prefix_events=[_event(0, "Start"), _event(1, "Approve")],
+        target_event=_event(2, "End"),
+    )
+    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
+    assert contract["allowed_target_mask"] is not None

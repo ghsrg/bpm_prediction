@@ -143,9 +143,17 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             )
         return {
             "version": dto.version,
+            "proc_def_id": dto.proc_def_id,
+            "proc_def_key": dto.proc_def_key,
+            "deployment_id": dto.deployment_id,
             "allowed_edges": [[str(src), str(dst)] for src, dst in dto.allowed_edges],
             "edge_statistics": edge_stats_list,
             "node_metadata": dto.node_metadata or {},
+            "nodes": dto.nodes or [],
+            "edges": dto.edges or [],
+            "graph_topology": dto.graph_topology or {},
+            "call_bindings": dto.call_bindings or {},
+            "metadata": dto.metadata or {},
         }
 
     @classmethod
@@ -181,12 +189,35 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         node_metadata = payload.get("node_metadata")
         if not isinstance(node_metadata, dict):
             node_metadata = {}
+        nodes = payload.get("nodes")
+        if not isinstance(nodes, list):
+            nodes = []
+        edges = payload.get("edges")
+        if not isinstance(edges, list):
+            edges = []
+        graph_topology = payload.get("graph_topology")
+        if not isinstance(graph_topology, dict):
+            graph_topology = {}
+        call_bindings = payload.get("call_bindings")
+        if not isinstance(call_bindings, dict):
+            call_bindings = {}
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
 
         return ProcessStructureDTO(
             version=str(payload.get("version", "")).strip() or "default",
             allowed_edges=allowed_edges,
             edge_statistics=edge_stats_map or None,
             node_metadata=node_metadata or None,
+            proc_def_id=str(payload.get("proc_def_id", "")).strip() or None,
+            proc_def_key=str(payload.get("proc_def_key", "")).strip() or None,
+            deployment_id=str(payload.get("deployment_id", "")).strip() or None,
+            nodes=nodes or None,
+            edges=edges or None,
+            graph_topology=graph_topology or None,
+            call_bindings=call_bindings or None,
+            metadata=metadata or None,
         )
 
     def _safe_read_json(self, path: Path) -> Optional[Dict[str, Any]]:

@@ -5,7 +5,7 @@ SELECT TOP 1
     PD.VERSION_TAG_ AS version_tag,
     PD.DEPLOYMENT_ID_ AS deployment_id,
     PD.RESOURCE_NAME_ AS resource_name,
-    BA.BYTEARRAY_ AS bpmn_xml_content
+    BA.BYTES_ AS bpmn_xml_content
 FROM bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF PD
 JOIN bpms_camunda_mssql_tst.dbo.ACT_GE_BYTEARRAY BA
     ON BA.DEPLOYMENT_ID_ = PD.DEPLOYMENT_ID_

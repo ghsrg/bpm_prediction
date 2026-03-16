@@ -1,0 +1,68 @@
+{
+  "status": "ok",
+  "adapter": "camunda",
+  "structure_source": "bpmn",
+  "dataset_name": "procurement",
+  "process_name": "B2BContracts_ApproveProject",
+  "process_filters": [
+    "B2BContracts_ApproveProject"
+  ],
+  "ingest_split": "n/a",
+  "total_traces": 0,
+  "selected_traces": 0,
+  "total_procdefs": 6,
+  "parsed_procdefs": 2,
+  "quarantined_procdefs": 4,
+  "versions_saved": [
+    "v5",
+    "v6"
+  ],
+  "knowledge_backend": "file",
+  "knowledge_storage_path": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\data\\knowledge_graph",
+  "quarantine_records": [
+    {
+      "proc_def_id": "c73c265d-ea26-11f0-bc6c-c2b99f8cfde9",
+      "proc_def_key": "B2BContracts_ApproveProject",
+      "deployment_id": "c72e1c9b-ea26-11f0-bc6c-c2b99f8cfde9",
+      "version": "v1",
+      "severity": "error",
+      "error_code": "missing_bpmn_payload",
+      "error_message": "BPMN payload is missing for process definition.",
+      "xml_snippet": null,
+      "created_at": "2026-03-16T16:12:10.049206+00:00"
+    },
+    {
+      "proc_def_id": "6b958413-eae0-11f0-bc6c-c2b99f8cfde9",
+      "proc_def_key": "B2BContracts_ApproveProject",
+      "deployment_id": "6b8ecd51-eae0-11f0-bc6c-c2b99f8cfde9",
+      "version": "v2",
+      "severity": "error",
+      "error_code": "missing_bpmn_payload",
+      "error_message": "BPMN payload is missing for process definition.",
+      "xml_snippet": null,
+      "created_at": "2026-03-16T16:12:10.051299+00:00"
+    },
+    {
+      "proc_def_id": "0b277901-eae2-11f0-bc6c-c2b99f8cfde9",
+      "proc_def_key": "B2BContracts_ApproveProject",
+      "deployment_id": "0b20e94f-eae2-11f0-bc6c-c2b99f8cfde9",
+      "version": "v3",
+      "severity": "error",
+      "error_code": "missing_bpmn_payload",
+      "error_message": "BPMN payload is missing for process definition.",
+      "xml_snippet": null,
+      "created_at": "2026-03-16T16:12:10.051299+00:00"
+    },
+    {
+      "proc_def_id": "8c69c7af-eba1-11f0-bc6c-c2b99f8cfde9",
+      "proc_def_key": "B2BContracts_ApproveProject",
+      "deployment_id": "8c64225d-eba1-11f0-bc6c-c2b99f8cfde9",
+      "version": "v4",
+      "severity": "error",
+      "error_code": "missing_bpmn_payload",
+      "error_message": "BPMN payload is missing for process definition.",
+      "xml_snippet": null,
+      "created_at": "2026-03-16T16:12:10.051299+00:00"
+    }
+  ]
+}

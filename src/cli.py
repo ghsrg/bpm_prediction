@@ -345,18 +345,25 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
     knowledge_repo = build_knowledge_graph_repository(config)
     knowledge_cfg = get_knowledge_graph_settings(config)
+    available_versions = knowledge_repo.list_versions(process_name=dataset_name)
     if bool(knowledge_cfg.get("strict_load", False)):
-        available_versions = knowledge_repo.list_versions(process_name=dataset_name)
         if not available_versions:
             raise ValueError(
                 "knowledge_graph.strict_load=true but no topology artifacts were found for "
                 f"process '{dataset_name}'. Run 'main.py ingest-topology --config ...' first."
             )
+    elif not available_versions:
+        logger.warning(
+            "No topology artifacts found for process '%s'. Training will continue in baseline fallback mode. "
+            "Run 'python main.py ingest-topology --config <experiment.yaml>' to build structure from BPMN, "
+            "or set mapping.camunda_adapter.structure.structure_from_logs=true for explicit logs-based fallback ingestion.",
+            dataset_name,
+        )
     logger.info(
         "Knowledge graph backend=%s, strict_load=%s, available_versions=%s",
         str(knowledge_cfg.get("backend", "in_memory")),
         bool(knowledge_cfg.get("strict_load", False)),
-        len(knowledge_repo.list_versions(process_name=dataset_name)),
+        len(available_versions),
     )
     normalization_stats = _build_normalization_stats()
     graph_builder = DynamicGraphBuilder(

@@ -46,6 +46,22 @@ mapping:
       # mssql.connection_string: required when runtime_source == "mssql".
       mssql:
         connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=camunda;UID=sa;PWD=***;TrustServerCertificate=yes;"
+    structure:
+      # source:
+      # - "logs": legacy fallback extraction from traces.
+      # - "bpmn": Stage 3.2 primary path (recommended for Camunda).
+      source: "logs"
+      # structure_from_logs: explicit fallback switch when source="bpmn".
+      structure_from_logs: false
+      # bpmn_source: files | mssql.
+      bpmn_source: "mssql"
+      # sql_dir: SQL templates for process definition catalog and BPMN bytes.
+      sql_dir: "src/adapters/ingestion/camunda/sql/structure"
+      version_key_format: "vNN"
+      subprocess_mode: "flattened-no-subprocess-node"
+      call_activity:
+        # inference_fallback_strategy: skip | use_aggregated_stats | raise
+        inference_fallback_strategy: "use_aggregated_stats"
 
   features:
     - name: "concept:name"

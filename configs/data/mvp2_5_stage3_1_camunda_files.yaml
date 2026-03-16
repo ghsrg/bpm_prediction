@@ -45,6 +45,26 @@ mapping:
       on_missing_removal_time: "auto_fallback"
       # sql_dir: location of SQL templates (used by mssql mode).
       sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
+    structure:
+      # source:
+      # - "logs": legacy fallback extraction from traces.
+      # - "bpmn": Stage 3.2 primary path (recommended for Camunda).
+      source: "bpmn"
+      # structure_from_logs: explicit fallback switch when source="bpmn".
+      structure_from_logs: false
+      # bpmn_source: files | mssql.
+      bpmn_source: "files"
+      files:
+        export_dir: "data/camunda_exports"
+        catalog_file: "process_definitions.csv"
+        bpmn_dir: "data/camunda_exports/bpmn_xml"
+      # version_key_format: canonical process version key for structure artifacts.
+      version_key_format: "vNN"
+      # subprocess_mode: flatten embedded subprocesses to activity-level topology.
+      subprocess_mode: "flattened-no-subprocess-node"
+      call_activity:
+        # inference_fallback_strategy: skip | use_aggregated_stats | raise
+        inference_fallback_strategy: "use_aggregated_stats"
 
   features:
     - name: "concept:name"

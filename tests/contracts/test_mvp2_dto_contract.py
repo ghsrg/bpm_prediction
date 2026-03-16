@@ -35,10 +35,14 @@ def test_process_structure_dto_accepts_required_and_optional_fields():
         version="2",
         allowed_edges=[("A", "B"), ("B", "C")],
         edge_statistics={("A", "B"): {"count": 10.0, "prob": 0.5}},
+        proc_def_id="def_2",
+        proc_def_key="proc_key",
+        call_bindings={"call_1": {"status": "unresolved", "inference_fallback_strategy": "use_aggregated_stats"}},
     )
 
     assert dto.version == "2"
     assert ("A", "B") in dto.allowed_edges
     assert dto.edge_statistics is not None
     assert dto.edge_statistics[("A", "B")]["count"] == 10.0
-
+    assert dto.proc_def_id == "def_2"
+    assert dto.call_bindings is not None

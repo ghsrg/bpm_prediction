@@ -8,7 +8,10 @@ These SQL templates are intended for manual exports from Camunda 7 DB to CSV/XLS
 2. Edit process filter in `TARGET_PROC_KEYS` CTE:
    - Default example: `('procurement'), ('sales')`
 3. Run query and export result to file.
-4. Put exported files into `data/camunda_exports/`.
+4. Put runtime exported files into `data/camunda_exports/`.
+5. For Stage 3.2 BPMN structure ingestion, use `process_definitions.sql` and put output in:
+   - `data/camunda_exports/bpmn/process_definitions.csv`
+   - BPMN XML files in `data/camunda_exports/bpmn/bpmn_xml/<proc_def_id>.bpmn`
 
 ## Expected file names in `data/camunda_exports`
 
@@ -21,6 +24,7 @@ Canonical names:
 5. `multi_instance_variables.*`
 6. `process_variables.*`
 7. `process_instance_links.*`
+8. `process_definitions.*` (Stage 3.2 structure ingest; usually under `data/camunda_exports/bpmn/`)
 
 Adapter also accepts:
 

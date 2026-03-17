@@ -27,6 +27,19 @@ class BpmnParseResult:
 class BpmnStructureParserService:
     """Parse BPMN XML into ProcessStructureDTO with Camunda-aware metadata."""
 
+    ERROR_MISSING_BPMN_PAYLOAD = "missing_bpmn_payload"
+    ERROR_EMPTY_BPMN_PAYLOAD = "empty_bpmn_payload"
+    ERROR_XML_PARSE = "xml_parse_error"
+    ERROR_NO_PROCESS_ELEMENT = "no_process_element"
+
+    QUARANTINE_ERROR_CODES = {
+        ERROR_MISSING_BPMN_PAYLOAD,
+        ERROR_EMPTY_BPMN_PAYLOAD,
+        ERROR_XML_PARSE,
+        ERROR_NO_PROCESS_ELEMENT,
+        "missing_proc_def_id",
+    }
+
     def __init__(
         self,
         *,
@@ -63,9 +76,10 @@ class BpmnStructureParserService:
                     proc_def_key=proc_def_key,
                     deployment_id=deployment_id,
                     version=version_key,
-                    error_code="missing_bpmn_payload",
+                    error_code=self.ERROR_MISSING_BPMN_PAYLOAD,
                     error_message="BPMN payload is missing for process definition.",
                     xml_snippet=None,
+                    source_hint=f"process_name={process_name};proc_def_id={proc_def_id}",
                 ),
             )
 
@@ -78,9 +92,10 @@ class BpmnStructureParserService:
                     proc_def_key=proc_def_key,
                     deployment_id=deployment_id,
                     version=version_key,
-                    error_code="empty_bpmn_payload",
+                    error_code=self.ERROR_EMPTY_BPMN_PAYLOAD,
                     error_message="BPMN payload is empty after sanitation.",
                     xml_snippet=None,
+                    source_hint=f"process_name={process_name};proc_def_id={proc_def_id}",
                 ),
             )
 
@@ -94,9 +109,10 @@ class BpmnStructureParserService:
                     proc_def_key=proc_def_key,
                     deployment_id=deployment_id,
                     version=version_key,
-                    error_code="xml_parse_error",
+                    error_code=self.ERROR_XML_PARSE,
                     error_message=str(exc),
                     xml_snippet=sanitized[:3000],
+                    source_hint=f"process_name={process_name};proc_def_id={proc_def_id}",
                 ),
             )
 
@@ -109,9 +125,10 @@ class BpmnStructureParserService:
                     proc_def_key=proc_def_key,
                     deployment_id=deployment_id,
                     version=version_key,
-                    error_code="no_process_element",
+                    error_code=self.ERROR_NO_PROCESS_ELEMENT,
                     error_message="No <process> element found in BPMN payload.",
                     xml_snippet=sanitized[:3000],
+                    source_hint=f"process_name={process_name};proc_def_id={proc_def_id}",
                 ),
             )
 
@@ -133,6 +150,8 @@ class BpmnStructureParserService:
         if self.subprocess_mode == "flattened-no-subprocess-node":
             self._flatten_subprocess_nodes(nodes=nodes, edges=edges, warnings=warnings)
         self._remove_inlined_scope_terminal_events(nodes=nodes, edges=edges)
+        ordered_nodes = self._ordered_nodes(nodes)
+        ordered_edges = self._ordered_edges(edges)
 
         call_bindings = self._build_call_bindings(
             nodes=nodes,
@@ -144,11 +163,18 @@ class BpmnStructureParserService:
             node = nodes.get(call_node_id)
             if node is not None:
                 node["call_binding_status"] = payload.get("status", "unresolved")
+        ordered_nodes = self._ordered_nodes(nodes)
 
-        allowed_edges = sorted({(str(edge["source"]), str(edge["target"])) for edge in edges})
+        allowed_edges = sorted({(str(edge["source"]), str(edge["target"])) for edge in ordered_edges})
         cycle_count = self._count_cycles(allowed_edges)
         cycles_detected = cycle_count > 0
-        node_metadata = self._build_node_metadata(nodes=nodes)
+        node_metadata = self._build_node_metadata(nodes=ordered_nodes)
+        graph_topology = self._build_graph_topology(
+            nodes=ordered_nodes,
+            edges=ordered_edges,
+            allowed_edges=allowed_edges,
+            cycle_count=cycle_count,
+        )
 
         dto = ProcessStructureDTO(
             version=version_key,
@@ -158,20 +184,19 @@ class BpmnStructureParserService:
             allowed_edges=allowed_edges,
             edge_statistics=None,
             node_metadata=node_metadata or None,
-            nodes=list(nodes.values()),
-            edges=edges,
-            graph_topology={
-                "allowed_edges": [[src, dst] for src, dst in allowed_edges],
-                "cycles_detected": cycles_detected,
-                "cycle_count": cycle_count,
-            },
+            nodes=ordered_nodes,
+            edges=ordered_edges,
+            graph_topology=graph_topology,
             call_bindings=call_bindings or None,
             metadata={
                 "process_name": process_name,
                 "parser_mode": self.parser_mode,
-                "warnings": warnings,
+                "warnings": sorted(set(warnings)),
+                "warning_count": len(set(warnings)),
                 "subprocess_mode": self.subprocess_mode,
                 "parsed_at_utc": datetime.now(timezone.utc).isoformat(),
+                "quarantine_error_codes": sorted(self.QUARANTINE_ERROR_CODES),
+                "cycles_detected": cycles_detected,
             },
         )
         return BpmnParseResult(dto=dto, quarantine_record=None)
@@ -765,14 +790,84 @@ class BpmnStructureParserService:
             return -1
 
     @staticmethod
-    def _build_node_metadata(nodes: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+    def _ordered_nodes(nodes: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        ordered = [dict(node) for node in nodes.values()]
+        ordered.sort(
+            key=lambda item: (
+                int(item.get("scope_level", 0)),
+                str(item.get("parent_scope_id", "") or ""),
+                str(item.get("id", "")),
+            )
+        )
+        return ordered
+
+    @staticmethod
+    def _ordered_edges(edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        dedup: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+        for edge in edges:
+            source = str(edge.get("source", "")).strip()
+            target = str(edge.get("target", "")).strip()
+            if not source or not target:
+                continue
+            edge_type = str(edge.get("edge_type", "sequence")).strip() or "sequence"
+            edge_id = str(edge.get("id", "")).strip() or f"{edge_type}::{source}->{target}"
+            item = dict(edge)
+            item["source"] = source
+            item["target"] = target
+            item["edge_type"] = edge_type
+            item["id"] = edge_id
+            dedup[(source, target, edge_type, edge_id)] = item
+        ordered = list(dedup.values())
+        ordered.sort(
+            key=lambda item: (
+                str(item.get("source", "")),
+                str(item.get("target", "")),
+                str(item.get("edge_type", "")),
+                str(item.get("id", "")),
+            )
+        )
+        return ordered
+
+    @staticmethod
+    def _build_node_metadata(nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
         metadata: Dict[str, Dict[str, str]] = {}
-        for node_id, node in nodes.items():
+        for node in nodes:
+            node_id = str(node.get("id", "")).strip()
+            if not node_id:
+                continue
             metadata[str(node_id)] = {
                 "activity_name": str(node.get("name", "")).strip() or str(node_id),
                 "activity_type": str(node.get("activity_type", "")).strip() or str(node.get("bpmn_tag", "")),
             }
         return metadata
+
+    @staticmethod
+    def _build_graph_topology(
+        *,
+        nodes: List[Dict[str, Any]],
+        edges: List[Dict[str, Any]],
+        allowed_edges: List[Tuple[str, str]],
+        cycle_count: int,
+    ) -> Dict[str, Any]:
+        gateway_node_ids = sorted(
+            str(node.get("id", "")).strip()
+            for node in nodes
+            if "gateway" in str(node.get("bpmn_tag", "")).lower()
+        )
+        event_subprocess_node_ids = sorted(
+            str(node.get("id", "")).strip()
+            for node in nodes
+            if bool(node.get("is_event_subprocess", False))
+        )
+        return {
+            "allowed_edges": [[src, dst] for src, dst in allowed_edges],
+            "cycles_detected": cycle_count > 0,
+            "cycle_count": cycle_count,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "gateway_node_ids": gateway_node_ids,
+            "event_subprocess_node_ids": event_subprocess_node_ids,
+        }
 
     @staticmethod
     def _count_cycles(allowed_edges: Iterable[Tuple[str, str]]) -> int:
@@ -810,15 +905,18 @@ class BpmnStructureParserService:
         error_code: str,
         error_message: str,
         xml_snippet: Optional[str],
+        source_hint: str,
     ) -> Dict[str, Any]:
+        normalized_error_code = str(error_code).strip().lower()
         return {
             "proc_def_id": proc_def_id,
             "proc_def_key": proc_def_key,
             "deployment_id": deployment_id,
             "version": version,
             "severity": "error",
-            "error_code": error_code,
-            "error_message": error_message,
+            "error_code": normalized_error_code,
+            "error_message": str(error_message),
+            "source_hint": str(source_hint).strip(),
             "xml_snippet": xml_snippet,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }

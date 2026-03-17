@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+             xmlns:custom="http://example.com/custom">
+  <process id="proc_unknown_ext" isExecutable="true">
+    <startEvent id="start" />
+    <serviceTask id="svc1" name="Service">
+      <extensionElements>
+        <custom:magic attr="42">payload</custom:magic>
+        <camunda:executionListener event="start" class="com.example.Listener" />
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="end" />
+    <sequenceFlow id="f1" sourceRef="start" targetRef="svc1" />
+    <sequenceFlow id="f2" sourceRef="svc1" targetRef="end" />
+  </process>
+</definitions>

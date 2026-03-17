@@ -118,6 +118,7 @@ def _ingest_camunda_bpmn(
     parsed = 0
     quarantined = 0
     quarantine_records: List[Dict[str, Any]] = []
+    quarantine_error_codes: set[str] = set()
     versions_saved: set[str] = set()
 
     for definition in catalog:
@@ -128,10 +129,13 @@ def _ingest_camunda_bpmn(
                 {
                     "proc_def_id": "",
                     "proc_def_key": str(definition.get("proc_def_key", "")).strip(),
+                    "version": "v0",
                     "error_code": "missing_proc_def_id",
                     "error_message": "Catalog row does not contain proc_def_id.",
+                    "source_hint": f"process_name={process_name};catalog_row_without_proc_def_id",
                 }
             )
+            quarantine_error_codes.add("missing_proc_def_id")
             continue
         xml_content = adapter.fetch_bpmn_xml(proc_def_id)
         enriched_definition = dict(definition)
@@ -147,6 +151,9 @@ def _ingest_camunda_bpmn(
             quarantined += 1
             if result.quarantine_record:
                 quarantine_records.append(result.quarantine_record)
+                code = str(result.quarantine_record.get("error_code", "")).strip().lower()
+                if code:
+                    quarantine_error_codes.add(code)
             continue
 
         dto = result.dto
@@ -167,6 +174,7 @@ def _ingest_camunda_bpmn(
         "total_procdefs": len(catalog),
         "parsed_procdefs": parsed,
         "quarantined_procdefs": quarantined,
+        "quarantine_error_codes": sorted(quarantine_error_codes),
         "quarantine_records": quarantine_records,
         "versions_saved": sorted(versions_saved),
     }
@@ -232,6 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "total_procdefs": int(result.get("total_procdefs", 0)),
             "parsed_procdefs": int(result.get("parsed_procdefs", 0)),
             "quarantined_procdefs": int(result.get("quarantined_procdefs", 0)),
+            "quarantine_error_codes": list(result.get("quarantine_error_codes", [])),
             "versions_saved": versions,
             "knowledge_backend": knowledge_cfg.get("backend", "in_memory"),
             "knowledge_storage_path": "",

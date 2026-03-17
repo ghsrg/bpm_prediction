@@ -1,7 +1,7 @@
 # DATA_MODEL_MVP2_5.MD
 
 Updated: 2026-03-17  
-Status: ACTIVE
+Status: ACTIVE (Contract Freeze for Stage 4 readiness)
 
 ## 1. Purpose
 Canonical DTO contracts for MVP2.5 ingestion, structure persistence, runtime assembly, and model consumption.
@@ -9,109 +9,94 @@ Canonical DTO contracts for MVP2.5 ingestion, structure persistence, runtime ass
 ## 2. Core DTOs
 
 ### 2.1 EventRecord and RawTrace
-`EventRecord` and `RawTrace` remain backward compatible with MVP1.
-
-`RawTrace.process_version` is still string-based and defaults to `"1"` at DTO level, but Camunda Stage 3.2 structure artifacts are stored with `vNN` keys.
+`EventRecord` and `RawTrace` stay backward-compatible with MVP1.  
+`RawTrace.process_version` is still string-based.
 
 ### 2.2 ProcessEventDTO (Camunda runtime, Stage 3.1)
+`src/domain/entities/process_event.py` is unchanged in shape.  
+Important field for cleanup diagnostics: `removal_time: datetime | None`.
 
-Current code contract (`src/domain/entities/process_event.py`) uses:
+### 2.3 ProcessStructureDTO (Frozen, Stage 3.3 hardening)
+Source: `src/domain/entities/process_structure.py`
 
-| field | type | required | note |
-|---|---|---:|---|
-| `case_id` | `str` | yes | process instance id |
-| `activity_def_id` | `str` | yes | BPMN activity definition id |
-| `activity_name` | `str or None` | no | activity label |
-| `activity_type` | `str or None` | no | userTask/gateway/etc |
-| `proc_def_id` | `str or None` | no | process definition id |
-| `proc_def_key` | `str or None` | no | process key |
-| `proc_def_version` | `str or None` | no | version label from source |
-| `task_id` | `str or None` | no | human task id |
-| `act_inst_id` | `str or None` | no | activity instance id |
-| `parent_act_inst_id` | `str or None` | no | subprocess scope link |
-| `sequence_counter` | `int or None` | no | deterministic order helper |
-| `execution_id` | `str or None` | no | execution tree id |
-| `parent_execution_id` | `str or None` | no | execution hierarchy |
-| `scope_depth` | `int or None` | no | execution scope depth |
-| `is_concurrent` | `bool or None` | no | parallel token marker |
-| `is_scope` | `bool or None` | no | scope marker |
-| `is_event_scope` | `bool or None` | no | event scope marker |
-| `execution_rev` | `int or None` | no | revision marker |
-| `call_proc_inst_id` | `str or None` | no | call activity child case link |
-| `called_element` | `str or None` | no | call binding key |
-| `binding_type` | `str or None` | no | call binding mode |
-| `version_tag` | `str or None` | no | call binding version tag |
-| `version_number` | `str or None` | no | call binding version number |
-| `resolved_child_proc_def_id` | `str or None` | no | resolved child process definition |
-| `child_process_key` | `str or None` | no | child process key |
-| `child_version` | `str or None` | no | child version marker |
-| `start_time` | `datetime or None` | no | UTC recommended |
-| `end_time` | `datetime or None` | no | UTC recommended |
-| `duration_ms` | `float or None` | no | raw duration |
-| `assignee` | `str or None` | no | assignee |
-| `candidate_groups` | `List[str] or None` | no | candidate groups |
-| `assigned_executor` | `str or None` | no | assigned executor |
-| `executed_by` | `str or None` | no | actual executor |
-| `potential_executor_users` | `List[str] or None` | no | optional |
-| `potential_executor_groups` | `List[str] or None` | no | optional |
-| `process_variables` | `Dict[str, Any] or None` | no | optional process vars |
-| `call_activity_link` | `Dict[str, Any] or None` | no | optional call link payload |
-| `removal_time` | `datetime or None` | no | cleanup diagnostics |
-| `extra` | `Dict[str, Any]` | no | passthrough fields |
+Required:
+1. `version: str` (non-empty, `vNN` for Camunda structure artifacts)
+2. `allowed_edges: list[tuple[str, str]]` (normalized, sorted, deduplicated)
 
-### 2.3 ProcessStructureDTO (Stage 3.2)
+Optional (normalized when provided):
+1. `edge_statistics: dict[(src,dst), dict[str,float]]`
+2. `node_metadata: dict[node_id, {activity_name, activity_type}]`
+3. `proc_def_id`, `proc_def_key`, `deployment_id`
+4. `nodes: list[dict]`
+5. `edges: list[dict]`
+6. `graph_topology: dict`
+7. `call_bindings: dict[call_node_id, dict]`
+8. `metadata: dict`
 
-Current code contract (`src/domain/entities/process_structure.py`):
+Deterministic semantics:
+1. `nodes` sorted by `(scope_level, parent_scope_id, id)`
+2. `edges` sorted by `(source, target, edge_type, id)`
+3. `call_bindings` sorted by call node id
+4. `graph_topology.allowed_edges` always mirrors normalized `allowed_edges`
 
-| field | type | required | note |
-|---|---|---:|---|
-| `version` | `str` | yes | normalized version key (`vNN` for Camunda) |
-| `allowed_edges` | `List[Tuple[str,str]]` | yes | canonical transitions |
-| `edge_statistics` | `Dict[(src,dst), Dict[str,float]] or None` | no | transition counts/stats |
-| `node_metadata` | `Dict[str, Dict[str,str]] or None` | no | visualization labels/types |
-| `proc_def_id` | `str or None` | no | strict structure identity |
-| `proc_def_key` | `str or None` | no | process key |
-| `deployment_id` | `str or None` | no | deployment identity |
-| `nodes` | `List[Dict[str,Any]] or None` | no | detailed BPMN nodes |
-| `edges` | `List[Dict[str,Any]] or None` | no | detailed BPMN edges |
-| `graph_topology` | `Dict[str,Any] or None` | no | cycles/topology metadata |
-| `call_bindings` | `Dict[str, Dict[str,Any]] or None` | no | callActivity binding map |
-| `metadata` | `Dict[str,Any] or None` | no | parser diagnostics/warnings |
+Node minimal requirements (validator-enforced):
+1. `id`
+2. `bpmn_tag` (or derived from `activity_type`)
+3. `type` (fallback to `bpmn_tag` if omitted in older artifacts)
 
-#### call_bindings payload (minimum expected)
+Edge minimal requirements:
+1. `source`
+2. `target`
+3. `edge_type` (default `sequence`)
 
-For each call activity node id:
+### 2.4 call_bindings payload (frozen minimum)
+Each call binding includes:
 1. `called_element`
 2. `binding_type`
 3. `version_tag`
 4. `version_number`
 5. `resolved_child_proc_def_id`
-6. `status` (`resolved` / `unresolved`)
+6. `status` (`resolved` or `unresolved`)
 7. `reason`
-8. `requires_separate_inference` (bool)
+8. `requires_separate_inference`
 9. `inference_trigger` (`child_process_root`)
 10. `child_process_key`
 11. `child_version_tag`
 12. `inference_fallback_strategy` (`skip | use_aggregated_stats | raise`)
 
-### 2.4 RuntimeFetchDiagnosticsDTO
+### 2.5 RuntimeFetchDiagnosticsDTO
+Health/fallback diagnostics for runtime ingestion:
+1. `history_coverage_percent`
+2. `cleaned_instances_percent`
+3. `fallback_triggered`
+4. `fallback_reason`
+5. `warnings`
 
-Health/fallback diagnostics from runtime ingestion.
+## 3. Quarantine record contract (BPMN parser)
+Hard parse failures produce deterministic quarantine records with:
+1. `proc_def_id`
+2. `proc_def_key`
+3. `deployment_id`
+4. `version`
+5. `severity`
+6. `error_code`
+7. `error_message`
+8. `source_hint`
+9. `xml_snippet`
+10. `created_at`
 
-| field | type | required | note |
-|---|---|---:|---|
-| `history_coverage_percent` | `float or None` | yes | observed coverage |
-| `cleaned_instances_percent` | `float or None` | yes | cleanup impact |
-| `fallback_triggered` | `bool` | yes | fallback marker |
-| `fallback_reason` | `str or None` | no | reason |
-| `warnings` | `List[str]` | no | warnings |
+Standard error codes:
+1. `missing_bpmn_payload`
+2. `empty_bpmn_payload`
+3. `xml_parse_error`
+4. `no_process_element`
+5. `missing_proc_def_id` (ingest catalog-level)
 
-## 3. File-based structure artifact schema
-
-Repository path:
+## 4. File repository artifact schema
+Path:
 `data/knowledge_graph/<process_name>/<version>/process_structure.json`
 
-Envelope fields:
+Envelope:
 1. `schema_version`
 2. `repository_backend`
 3. `created_at_utc`
@@ -119,9 +104,12 @@ Envelope fields:
 5. `version`
 6. `dto`
 
-The `dto` block stores full `ProcessStructureDTO` including `call_bindings` and metadata.
+Schema compatibility:
+1. writer schema: `1.1`
+2. supported reader schemas: `1.0`, `1.1`
+3. unknown schema is warned but still attempted for forward compatibility
 
-## 4. GraphTensorContract extension status
+## 5. GraphTensorContract extension status
 MVP2 optional fields remain backward compatible:
 1. `structural_edge_index`
 2. `structural_edge_weight`
@@ -130,9 +118,3 @@ MVP2 optional fields remain backward compatible:
 5. `struct_x`
 
 If absent, baseline path must remain valid.
-
-## 5. Compatibility and versioning rules
-1. JSON reader must ignore unknown fields.
-2. Missing optional fields must not crash pipelines.
-3. Ambiguous version-only lookup must return `None`.
-4. For Camunda structure identity, use `(process_name, version=vNN, proc_def_id)` semantics.

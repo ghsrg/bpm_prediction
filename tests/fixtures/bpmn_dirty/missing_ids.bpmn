@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <process id="proc_missing_ids" isExecutable="true">
+    <startEvent id="start_ok" />
+    <userTask name="Task Without ID" />
+    <endEvent id="end_ok" />
+    <sequenceFlow id="f_start_end" sourceRef="start_ok" targetRef="end_ok" />
+  </process>
+</definitions>

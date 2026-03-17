@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -14,10 +15,14 @@ from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 
 
+logger = logging.getLogger(__name__)
+
+
 class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
     """Persist process structures as JSON artifacts on local filesystem."""
 
-    SCHEMA_VERSION = "1.0"
+    SCHEMA_VERSION = "1.1"
+    SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1"}
     FILE_NAME = "process_structure.json"
 
     def __init__(self, base_dir: str | Path = "data/knowledge_graph") -> None:
@@ -58,6 +63,7 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             payload = self._safe_read_json(payload_path)
             if payload is None:
                 return None
+            self._validate_schema_header(payload, payload_path)
             return self._deserialize_dto(payload.get("dto", {}))
 
         candidates = self._find_payload_candidates(version=version_key)
@@ -66,6 +72,7 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         payload = self._safe_read_json(candidates[0])
         if payload is None:
             return None
+        self._validate_schema_header(payload, candidates[0])
         return self._deserialize_dto(payload.get("dto", {}))
 
     def list_versions(self, process_name: str | None = None) -> list[str]:
@@ -149,10 +156,25 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             "allowed_edges": [[str(src), str(dst)] for src, dst in dto.allowed_edges],
             "edge_statistics": edge_stats_list,
             "node_metadata": dto.node_metadata or {},
-            "nodes": dto.nodes or [],
-            "edges": dto.edges or [],
+            "nodes": sorted(
+                (dto.nodes or []),
+                key=lambda item: (
+                    int(item.get("scope_level", 0)),
+                    str(item.get("parent_scope_id", "") or ""),
+                    str(item.get("id", "")),
+                ),
+            ),
+            "edges": sorted(
+                (dto.edges or []),
+                key=lambda item: (
+                    str(item.get("source", "")),
+                    str(item.get("target", "")),
+                    str(item.get("edge_type", "")),
+                    str(item.get("id", "")),
+                ),
+            ),
             "graph_topology": dto.graph_topology or {},
-            "call_bindings": dto.call_bindings or {},
+            "call_bindings": dict(sorted((dto.call_bindings or {}).items())),
             "metadata": dto.metadata or {},
         }
 
@@ -231,6 +253,19 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             return payload
         except (OSError, json.JSONDecodeError):
             return None
+
+    def _validate_schema_header(self, payload: Dict[str, Any], path: Path) -> None:
+        schema_version = str(payload.get("schema_version", "")).strip()
+        if not schema_version:
+            logger.warning("Knowledge artifact '%s' has no schema_version header.", path)
+            return
+        if schema_version not in self.SUPPORTED_SCHEMA_VERSIONS:
+            logger.warning(
+                "Knowledge artifact '%s' schema_version=%s is outside supported set %s.",
+                path,
+                schema_version,
+                sorted(self.SUPPORTED_SCHEMA_VERSIONS),
+            )
 
     @staticmethod
     def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:

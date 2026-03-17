@@ -1,6 +1,6 @@
 ﻿# DATA_FLOWS_MVP2_5.MD
 
-Updated: 2026-03-15  
+Updated: 2026-03-17  
 Status: ACTIVE
 
 ## 1. Scope
@@ -16,14 +16,17 @@ flowchart TD
     A1 --> D1{Camunda + structure.source=bpmn and structure_from_logs=false}
     D1 -->|yes| B1A[CamundaBpmnAdapter fetch catalog and BPMN XML]
     B1A --> B1B[BpmnStructureParserService parse and flatten]
-    B1B --> P1[IKnowledgeGraphPort save_process_structure]
+    B1B --> Q1{Parse success}
+    Q1 -->|yes| P1[IKnowledgeGraphPort save_process_structure]
+    Q1 -->|no| Q2[Append quarantine record]
     D1 -->|no| R1[Read traces]
     R1 --> F1[Apply fraction]
     F1 --> S1[Apply ingest split train or full]
     S1 --> T1[TopologyExtractorService extract_from_logs]
     T1 --> P1
     P1 --> B1[File repository JSON artifact]
-    B1 --> O1[Write ingestion summary JSON]
+    Q2 --> O1[Write ingestion summary JSON]
+    B1 --> O1
 ```
 
 ## 3. Flow B: train/eval
@@ -73,3 +76,9 @@ sequenceDiagram
 - Training split is independent and re-applied in train pipeline.
 - No evaluation records are used to build topology when `ingest_split=train`.
 - File-backed topology artifacts make split boundary explicit and reproducible.
+
+## 7. Deterministic diagnostics
+For Camunda BPMN ingest summary:
+1. `quarantined_procdefs` is explicit.
+2. `quarantine_error_codes` is a stable sorted list.
+3. `quarantine_records[*].source_hint` is available for operator debugging.

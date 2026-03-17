@@ -51,6 +51,18 @@ def _child_bpmn() -> str:
 """
 
 
+def _invalid_bpmn() -> str:
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
+  <process id="parent_proc" isExecutable="true">
+    <startEvent id="start" />
+    <endEvent id="end" />
+    <sequenceFlow id="f1" sourceRef="start" targetRef="end" />
+  </process>
+</definitions-broken>
+"""
+
+
 def _write_config(path: Path, export_dir: Path, kg_dir: Path) -> None:
     content = f"""
 data:
@@ -113,6 +125,7 @@ def test_ingest_topology_camunda_bpmn_files_mode(tmp_path: Path):
     assert summary["adapter"] == "camunda"
     assert summary["structure_source"] == "bpmn"
     assert summary["parsed_procdefs"] == 2
+    assert summary["quarantine_error_codes"] == []
     assert "v22" in summary["versions_saved"]
 
     artifact_path = kg_dir / "camunda_dataset" / "v22" / "process_structure.json"
@@ -122,3 +135,29 @@ def test_ingest_topology_camunda_bpmn_files_mode(tmp_path: Path):
     assert dto["version"] == "v22"
     assert "call1" in dto["call_bindings"]
     assert dto["call_bindings"]["call1"]["inference_fallback_strategy"] == "use_aggregated_stats"
+
+
+def test_ingest_topology_camunda_bpmn_quarantine_summary(tmp_path: Path):
+    export_dir = tmp_path / "camunda_bpmn"
+    bpmn_dir = export_dir / "bpmn_xml"
+    kg_dir = tmp_path / "knowledge_graph"
+    cfg_path = tmp_path / "cfg.yaml"
+    out_path = tmp_path / "summary.json"
+
+    export_dir.mkdir(parents=True, exist_ok=True)
+    _write_catalog(export_dir / "process_definitions.csv")
+    _write_bpmn(bpmn_dir / "parent_def.bpmn", _invalid_bpmn())
+    _write_bpmn(bpmn_dir / "child_def.bpmn", _child_bpmn())
+    _write_config(cfg_path, export_dir, kg_dir)
+
+    rc = ingest_topology_main(["--config", str(cfg_path), "--out", str(out_path)])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["quarantined_procdefs"] == 1
+    assert "xml_parse_error" in summary["quarantine_error_codes"]
+    assert len(summary["quarantine_records"]) == 1
+    record = summary["quarantine_records"][0]
+    assert record["error_code"] == "xml_parse_error"
+    assert "source_hint" in record

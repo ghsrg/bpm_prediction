@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from src.application.services.bpmn_structure_parser_service import BpmnStructureParserService
 
 
@@ -28,6 +32,11 @@ def _parent_bpmn() -> str:
   </process>
 </definitions>
 """
+
+
+def _fixture_bpmn(name: str) -> str:
+    root = Path(__file__).resolve().parents[1] / "fixtures" / "bpmn_dirty"
+    return (root / name).read_text(encoding="utf-8")
 
 
 def test_bpmn_parser_flattens_embedded_subprocess_and_builds_call_bindings():
@@ -123,3 +132,52 @@ def test_bpmn_parser_quarantines_invalid_xml():
     assert result.dto is None
     assert result.quarantine_record is not None
     assert result.quarantine_record["error_code"] == "xml_parse_error"
+    assert "source_hint" in result.quarantine_record
+
+
+@pytest.mark.parametrize(
+    "fixture_name, expected_warning",
+    [
+        ("missing_ids.bpmn", "flow_node_without_id:userTask"),
+        ("unknown_extensions.bpmn", None),
+    ],
+)
+def test_bpmn_parser_dirty_xml_is_resilient(fixture_name: str, expected_warning: str | None):
+    parser = BpmnStructureParserService()
+    result = parser.parse_definition(
+        definition={
+            "proc_def_id": "dirty_def",
+            "proc_def_key": "proc_missing_ids",
+            "version": "7",
+            "deployment_id": "dep_dirty",
+            "bpmn_xml_content": _fixture_bpmn(fixture_name),
+        },
+        catalog=[],
+        process_name="camunda_dataset",
+        process_filters=["proc_missing_ids"],
+    )
+    assert result.quarantine_record is None
+    assert result.dto is not None
+    warnings = (result.dto.metadata or {}).get("warnings", [])
+    if expected_warning is not None:
+        assert expected_warning in warnings
+
+
+def test_bpmn_parser_invalid_fixture_goes_to_quarantine():
+    parser = BpmnStructureParserService()
+    result = parser.parse_definition(
+        definition={
+            "proc_def_id": "broken_fixture",
+            "proc_def_key": "broken_proc",
+            "version": "1",
+            "deployment_id": "dep",
+            "bpmn_xml_content": _fixture_bpmn("invalid_xml.bpmn"),
+        },
+        catalog=[],
+        process_name="camunda_dataset",
+        process_filters=["broken_proc"],
+    )
+    assert result.dto is None
+    assert result.quarantine_record is not None
+    assert result.quarantine_record["error_code"] == "xml_parse_error"
+    assert result.quarantine_record["source_hint"].startswith("process_name=camunda_dataset")

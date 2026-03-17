@@ -5,6 +5,9 @@ from pathlib import Path
 
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.cli import load_yaml_config, prepare_data
+from src.infrastructure.repositories.file_based_knowledge_graph_repository import (
+    FileBasedKnowledgeGraphRepository,
+)
 from tools.ingest_topology import main as ingest_topology_main
 
 
@@ -101,7 +104,7 @@ def test_ingest_topology_creates_file_artifact_for_xes(tmp_path: Path):
     artifact_path = kg_path / "test_xes" / "test_xes" / "process_structure.json"
     assert artifact_path.exists()
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-    assert artifact["schema_version"] == "1.0"
+    assert artifact["schema_version"] == FileBasedKnowledgeGraphRepository.SCHEMA_VERSION
 
 
 def test_prepare_data_uses_prebuilt_topology_without_sync_extraction(tmp_path: Path, monkeypatch):

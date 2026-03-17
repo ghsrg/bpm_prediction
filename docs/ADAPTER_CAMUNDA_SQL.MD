@@ -135,6 +135,14 @@ Stage 3.2 manual template:
 - BPMN files should be placed as `data/camunda_exports/bpmn_xml/<proc_def_id>.bpmn` (default config path).
 - For direct MSSQL extraction of BPMN payload use `runtime/bpmn_bytes.sql` with `ACT_GE_BYTEARRAY.BYTES_`.
 
+Stage 3.3 consistency rules for Stage 3.2 parser:
+1. `runtime/procdef_catalog.sql` must expose aliases:
+   - `proc_def_id`, `proc_def_key`, `version`, `deployment_id`, `resource_name`
+2. `runtime/bpmn_bytes.sql` must expose alias:
+   - `bpmn_xml_content` from `ACT_GE_BYTEARRAY.BYTES_`
+3. All templates should use fully qualified table names:
+   - `bpms_camunda_mssql_tst.dbo.<table>`
+
 ## 10. Recommended filtered query pattern
 ```sql
 WHERE PROC_DEF_KEY_ IN ('B2BContracts_ApproveProject', 'BP_MediumRiskCheck')

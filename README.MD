@@ -18,7 +18,7 @@
 ### 2) Architecture / HLD
 - **[ARCHITECTURE_GUIDELINES.MD](docs/ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
 - **[TARGET_ARCHITECTURE.MD](docs/TARGET_ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
+- **[ARCHITECTURE_RULES.MD](docs/ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
 
 ### 3) Data specifications
 - **[ARCHITECTURE_MVP1.MD](docs/ARCHITECTURE_MVP1.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.

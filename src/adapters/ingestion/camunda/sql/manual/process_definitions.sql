@@ -6,9 +6,9 @@ Output target:
 
 After exporting CSV:
 1) Export/prepare BPMN XML files manually as:
-     data/camunda_exports/bpmn/bpmn_xml/<proc_def_id>.bpmn
+     data/camunda_exports/bpmn_xml/<proc_def_id>.bpmn
 2) Keep CSV in:
-     data/camunda_exports/bpmn/process_definitions.csv
+     data/camunda_exports/process_definitions.csv
 =========================================================================== */
 
 WITH TARGET_PROC_KEYS AS (

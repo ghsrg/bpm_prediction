@@ -10,7 +10,7 @@ Scope: Periodic Statistics & Version Refresh Service (Camunda-only, GNN-first)
 2. `mvp2_5_Stage3_1_Plan.MD`
 3. `mvp2_5_Stage3_2_Plan.MD`
 4. `docs/TARGET_ARCHITECTURE.MD`
-5. `docs/DATA_MODEL_MVP2.MD`
+5. `docs/DATA_MODEL_MVP2_5.MD`
 6. `AGENT_GUIDE.MD`
 
 ---
@@ -334,9 +334,9 @@ stats_refresh:
    - додати конфіг-прапори Stage 3.3.
 4. `configs/experiments/mvp2_*.yaml`
    - додати `stats_refresh` секцію.
-5. `docs/DATA_MODEL_MVP2.MD`
+5. `docs/DATA_MODEL_MVP2_5.MD`
    - зафіксувати новий контракт DTO.
-6. `docs/DATA_FLOWS_MVP2.MD`
+6. `docs/DATA_FLOWS_MVP2_5.MD`
    - додати flow Stage 3.3.
 
 ---
@@ -414,3 +414,4 @@ stats_refresh:
 2. Почати з `cron` кожні 30 хвилин.
 3. Спочатку запускати в dry-run режимі (без commit snapshot), порівняти метрики.
 4. Потім перейти на immutable snapshots у production режимі.
+

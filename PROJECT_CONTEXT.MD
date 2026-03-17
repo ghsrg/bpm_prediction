@@ -1,18 +1,21 @@
 # PROJECT_CONTEXT.md
 
-Updated: 2026-03-11  
-Purpose: short operational context for agents during MVP1->MVP2 transition.
+Updated: 2026-03-17  
+Purpose: short operational context for agents during MVP2.5 Stage 3.2 -> Stage 4 transition.
 
 ---
 
 ## 1. Current Project State
 
-`bpm_prediction` runs in dual-track mode:
+`bpm_prediction` is running in a decoupled architecture:
 
-- MVP1 is stable and treated as baseline runtime.
-- MVP2 is the active implementation track (EOPKG, structural constraints, fusion model).
+- Offline topology ingestion is active (`main.py ingest-topology`).
+- Training and evaluation consume topology from `IKnowledgeGraphPort`.
+- Repository backends currently implemented: `in_memory`, `file`.
+- Camunda Stage 3.1 runtime adapters are active (cleanup-aware, fallback-safe).
+- Camunda Stage 3.2 BPMN structure ingestion is implemented.
 
-Hard requirement: MVP1 experiments must stay runnable at any time.
+MVP1 baseline remains mandatory and protected by regression tests.
 
 ---
 
@@ -27,32 +30,38 @@ Invariant behavior:
 - `SchemaResolver.resolve_value` is identity in MVP1.
 - Categorical unknown maps to `<UNK>=0`.
 - Missing numeric values use zero-imputation in normalized space.
-- No EOPKG, structural mask gating, critic, reliability semaphore, or continual-learning logic in MVP1 runtime path.
+- No critic/semaphore/beta dynamic regularization in MVP1 runtime path.
 
-Mandatory pre-merge checks during transition:
+Mandatory checks before merge:
 
 1. `py -3 tools/architecture_guard.py`
-2. `pytest tests/ -v`
-3. At least one MVP1 smoke run via `python main.py --config <mvp1_config.yaml>`
+2. `pytest -m mvp1_regression -v`
+3. `pytest tests/ -v`
 
 ---
 
-## 3. MVP2 Start Point (Reality Check)
+## 3. MVP2.5 Snapshot (Actual Implementation)
 
-Documentation for MVP2 exists and is detailed (`ARCHITECTURE_MVP2`, `DATA_MODEL_MVP2`, `DATA_FLOWS_MVP2`, `LLD_MVP2`, `EVF_MVP2`), but codebase is still mostly MVP1 runtime:
+Implemented:
 
-- Available models: `BaselineGCN`, `BaselineGATv2`.
-- No implemented `EOPKGFusionGNN`.
-- No implemented `TopologyExtractorService` runtime integration.
-- `GraphTensorContract` runtime flow still uses baseline fields only.
+- `FileBasedKnowledgeGraphRepository` with atomic JSON write.
+- `InMemoryNetworkXRepository` for tests and lightweight flows.
+- `ingest-topology` command for offline structure build.
+- `visualize-topology` default mode from repository (`--from-raw` for legacy quick check).
+- `DynamicGraphBuilder` structure read by process/version with graceful fallback.
+- Camunda BPMN parser path with subprocess flattening and `call_bindings`.
 
-This means MVP2 should start as incremental implementation with strict backward compatibility gates.
+Behavioral rules:
+
+- Training must not trigger synchronous topology extraction.
+- Missing topology does not hard-fail unless `mapping.knowledge_graph.strict_load=true`.
+- `structure_from_logs` is explicit fallback for Camunda when BPMN source is configured.
 
 ---
 
 ## 4. Config Ownership Policy
 
-Dataset facts belong to `data`.
+Dataset/source facts belong to `data` and `mapping`.
 Experiment knobs belong to `experiment`.
 
 Experiment-level controls include:
@@ -62,35 +71,45 @@ Experiment-level controls include:
 - `train_ratio`
 - `fraction`
 - `split_ratio`
-- drift window parameters (`drift_window_size`, sliding/stride/overlap policy)
+- drift window parameters (`drift_window_size`, `drift_window_sliding`)
 
-Rule: do not duplicate dataset configs for each experiment; vary only `experiment` blocks.
+Rule: do not duplicate data configs per experiment; vary `experiment` and model config includes.
 
 ---
 
-## 5. MVP1 Experiments That Must Stay Handy
+## 5. MVP2.5 Operational Commands
 
-- `configs/experiments/01_train_bpi2012.yaml`
-- `configs/experiments/01_eval_drift_bpi2012.yaml`
-- `configs/experiments/01_eval_cross_dataset_bpi2012.yaml`
-
-Baseline run command:
-
+1. Offline structure ingestion:
 ```bash
-python main.py --config configs/experiments/01_train_bpi2012.yaml
+python main.py ingest-topology --config <experiment.yaml> --out outputs/<summary>.json
+```
+
+2. Train:
+```bash
+python main.py --config <experiment.yaml>
+```
+
+3. Drift evaluation:
+```bash
+python main.py --config <eval_drift_experiment.yaml>
+```
+
+4. Topology visualization from repository:
+```bash
+python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/<file>.png
 ```
 
 ---
 
-## 6. MVP2 Implementation Policy
+## 6. Next Architectural Focus
 
-When adding MVP2:
+Current priority is MVP2.5 Stage 4:
 
-- Add new code paths behind explicit mode/feature flags.
-- Keep defaults equivalent to MVP1 behavior.
-- Preserve existing MVP1 config compatibility.
-- Add focused tests per change (unit + integration where orchestration changes).
-- Do not rewrite baseline components unless required by extension boundaries.
+- switch knowledge backend from file to Neo4j under the same `IKnowledgeGraphPort`,
+- keep ingestion/train contract unchanged,
+- preserve MVP1 and MVP2.5 non-regression guarantees.
+
+BPMS enrichment remains optional and should be layered after Neo4j parity is stable.
 
 ---
 
@@ -100,27 +119,5 @@ When adding MVP2:
 2. `PROJECT_CONTEXT.md`
 3. `docs/ARCHITECTURE_GUIDELINES.MD`
 4. `docs/ARCHITECTURE_RULES.MD`
-5. MVP docs (`ARCHITECTURE_MVP1/2`, `DATA_MODEL_MVP1/2`, `DATA_FLOWS_MVP1/2`, `LLD_MVP1/2`, `EVF_MVP1/2`)
-
-
----
-
-## 8. MVP2.5 Snapshot (2026-03-15)
-
-Current baseline:
-- Offline topology ingestion is implemented (`main.py ingest-topology`).
-- Knowledge repository backends: `in_memory` and `file`.
-- Training and eval consume topology through repository interface.
-- Camunda runtime Stage 3.1 includes cleanup-aware fallback diagnostics.
-
-New canonical docs:
-- `docs/ARCHITECTURE_MVP2_5.MD`
-- `docs/DATA_FLOWS_MVP2_5.MD`
-- `docs/DATA_MODEL_MVP2_5.MD`
-- `docs/LLD_MVP2_5.MD`
-- `docs/EVF_MVP2_5.MD`
-
-Before Stage 3.2 BPMN parser work:
-- keep MVP1 regression shield green,
-- keep ingestion and train pipelines decoupled,
-- keep repository contract stable for future Neo4j backend.
+5. `docs/TARGET_ARCHITECTURE.MD`
+6. Phase docs (`ARCHITECTURE_MVPx`, `DATA_MODEL_MVPx`, `DATA_FLOWS_MVPx`, `LLD_MVPx`, `EVF_MVPx`)

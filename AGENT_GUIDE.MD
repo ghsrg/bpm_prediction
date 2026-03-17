@@ -9,23 +9,20 @@
 Читай і виконуй у такому порядку (від найвищого пріоритету до найнижчого):
 
 1. **AGENT_GUIDE.MD** — цей файл (ти зараз його читаєш).
-2. **PROJECT_CONTEXT.MD** — Короткий опис контекста проекту.
+2. **PROJECT_CONTEXT.MD** — короткий актуальний контекст проекту.
 3. **docs/ARCHITECTURE_GUIDELINES.MD** — конституція архітектури, незмінні правила.
 4. **docs/ARCHITECTURE_RULES.MD** — жорсткі правила залежностей і заборон.
-5. **docs/TARGET_ARCHITECTURE.MD** — цільова архітектура (ENTERPRISE_POC режим).
-6.1. **docs/ARCHITECTURE_MVP1.MD** — що саме реалізували (MVP1 — logs-only baseline).
-6.2. **docs/ARCHITECTURE_MVP2.MD** — що саме реалізувати зараз (MVP2 — eopkg).
-7.1. **docs/DATA_MODEL_MVP1.MD** — канонічні DTO та структура даних для MVP1.
-7.2. **docs/DATA_MODEL_MVP2.MD** — канонічні DTO та структура даних для MVP2.
-8.1. **docs/DATA_FLOWS_MVP1.MD** — контракти сервісів і потоки даних для MVP1.
-8.2. **docs/DATA_FLOWS_MVP2.MD** — контракти сервісів і потоки даних для MVP2.
-9. **docs/ADAPTER_XES.MD** — специфікація парсингу XES (як читати логи).
-10. **docs/VARIABLES.MD** — математичні позначення та snake_case мапінг.
-11. **docs/GLOSSARY.MD** — канон термінів.
-12.1. **docs/LLD_MVP1.MD** — техзавдання для коду (що будувати з математичної точки зору) для MVP1.
-12.2. **docs/LLD_MVP2.MD** — техзавдання для коду (що будувати з математичної точки зору) для MVP2.
-13.1. **docs/EVF_MVP1.MD** — науковий стандарт оцінки (Temporal Split, метрики MLflow) для MVP1.
-13.2. **docs/EVF_MVP2.MD** — науковий стандарт оцінки (Temporal Split, метрики MLflow) для MVP2.
+5. **docs/TARGET_ARCHITECTURE.MD** — цільова архітектура (поточний target blueprint).
+6. **docs/ARCHITECTURE_MVP2_5.MD** — поточна активна архітектурна фаза (MVP2.5).
+7. **docs/DATA_MODEL_MVP2_5.MD** — актуальні DTO/контракти даних для MVP2.5.
+8. **docs/DATA_FLOWS_MVP2_5.MD** — актуальні потоки даних для MVP2.5.
+9. **docs/LLD_MVP2_5.MD** — low-level дизайн поточного етапу.
+10. **docs/EVF_MVP2_5.MD** — рамка валідації для MVP2.5.
+11. **docs/ADAPTER_CAMUNDA_SQL.MD** — специфіка Camunda SQL/BPMN ingestion.
+12. **docs/ADAPTER_XES.MD** — специфіка XES ingestion.
+13. **docs/VARIABLES.MD** — математичні позначення та snake_case мапінг.
+14. **docs/GLOSSARY.MD** — канон термінів.
+15. **MVP1/MVP2 docs** (ARCHITECTURE_MVP1/2, DATA_MODEL_MVP1/2, DATA_FLOWS_MVP1/2, LLD_MVP1/2, EVF_MVP1/2) — використовуй тільки для backward compatibility або історичного контексту.
 
 **Правило вирішення конфліктів:** Якщо в цих файлах є суперечність — пріоритет завжди у того документа, що стоїть **вище у цьому списку** (ближче до пункту 1). Є файл Дисертація Коротенко.docx, це теоретичний канон. 
 Але якщо суперечності критичні — зупинись і задай питання розробнику!

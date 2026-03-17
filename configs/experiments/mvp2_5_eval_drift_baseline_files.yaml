@@ -1,0 +1,20 @@
+include:
+  - "../data/mvp2_5_stage3_1_camunda_files2.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_drift_base"
+  mode: "eval_drift"
+  fraction: 1
+  split_strategy: "temporal"
+  train_ratio: 0
+  split_ratio: [0.7, 0.2, 0.1]
+  load_checkpoint: "checkpoints/MVP2_5_Stage3_1_Baseline_Files_camunda_procurement_GATv2_best.pth"
+  drift_window_size: 500
+  drift_window_sliding: 100
+
+training:
+  retrain: false
+
+seed: 42

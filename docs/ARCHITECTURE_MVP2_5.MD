@@ -1,7 +1,7 @@
 ﻿# ARCHITECTURE_MVP2_5.MD
 
-Updated: 2026-03-15  
-Status: ACTIVE (MVP2.5 Stage 3.x)
+Updated: 2026-03-17  
+Status: ACTIVE (Stage 3.2 completed, Stage 4 preparation)
 
 ## 1. Purpose
 This document fixes the architecture baseline for MVP2.5 after introducing:
@@ -10,7 +10,7 @@ This document fixes the architecture baseline for MVP2.5 after introducing:
 - file-backed implementation (`FileBasedKnowledgeGraphRepository`),
 - runtime Camunda adapters and resilient fallback behavior in Stage 3.1.
 
-MVP2.5 keeps MVP1 training compatibility while preparing Stage 3.2 BPMN ingestion and Stage 4 Neo4j backend.
+MVP2.5 keeps MVP1 training compatibility while Stage 3.2 BPMN ingestion is already integrated and Stage 4 Neo4j backend is next.
 
 ## 2. Architectural Principle
 Core principle: **decouple ingestion from training/inference**.

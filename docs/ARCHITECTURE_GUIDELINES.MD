@@ -115,7 +115,7 @@ Layer separation is mandatory:
 - адаптери,
 - зовнішні системи.)
 
-Dependency inversion rules are enforced via ARCHITECTURE_RULES.md.
+Dependency inversion rules are enforced via ARCHITECTURE_RULES.MD.
 
 (Технічні обмеження залежностей перевіряються окремим файлом правил.)
 

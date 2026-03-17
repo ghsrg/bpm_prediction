@@ -249,10 +249,48 @@ def _strict_temporal_split(
     return list(ordered[:train_end]), list(ordered[train_end:val_end]), list(ordered[val_end:])
 
 
+def _apply_cascade_prepare(
+    traces: Sequence[RawTrace],
+    *,
+    mode: str,
+    split_strategy: str,
+    train_ratio: float,
+    fraction: float,
+) -> List[RawTrace]:
+    """Apply cascade filter in contract order: temporal sort -> macro split -> fraction."""
+    if split_strategy not in {"temporal", "none"}:
+        raise ValueError("experiment.split_strategy must be 'temporal' or 'none'.")
+    if train_ratio < 0.0 or train_ratio > 1.0:
+        raise ValueError("experiment.train_ratio must be within [0.0, 1.0].")
+    if fraction <= 0.0 or fraction > 1.0:
+        raise ValueError("experiment.fraction must be within (0.0, 1.0].")
+
+    traces_with_events = [trace for trace in traces if trace.events]
+    if split_strategy == "temporal":
+        ordered = sorted(traces_with_events, key=lambda tr: tr.events[0].timestamp)
+    else:
+        ordered = list(traces_with_events)
+
+    split_idx = int(len(ordered) * train_ratio)
+    mode_key = str(mode).strip().lower()
+    if mode_key == "train":
+        macro = ordered[:split_idx]
+    elif mode_key in {"eval_drift", "eval_cross_dataset"}:
+        macro = ordered[split_idx:]
+    else:
+        macro = ordered
+
+    if fraction >= 1.0:
+        return macro
+    keep_count = int(len(macro) * fraction)
+    return macro[:keep_count]
+
+
 def _build_graph_dataset(
     traces: Sequence[RawTrace],
     prefix_policy: PrefixPolicy,
     graph_builder: DynamicGraphBuilder,
+    version_to_idx: Dict[str, int],
     *,
     show_progress: bool,
     tqdm_disable: bool,
@@ -270,15 +308,35 @@ def _build_graph_dataset(
     for idx, trace in enumerate(iterator, start=1):
         for prefix_slice in prefix_policy.generate_slices(trace):
             contract = graph_builder.build_graph(prefix_slice)
-            dataset.append(
-                Data(
-                    x_cat=contract["x_cat"],
-                    x_num=contract["x_num"],
-                    edge_index=contract["edge_index"],
-                    edge_type=contract["edge_type"],
-                    y=contract["y"],
-                    num_nodes=int(contract["num_nodes"]),
+            version_label = str(prefix_slice.process_version)
+            version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
+            prefix_len = int(len(prefix_slice.prefix_events))
+            payload: Dict[str, Any] = {
+                "x_cat": contract["x_cat"],
+                "x_num": contract["x_num"],
+                "edge_index": contract["edge_index"],
+                "edge_type": contract["edge_type"],
+                "y": contract["y"],
+                "num_nodes": int(contract["num_nodes"]),
+                "prefix_len": torch.tensor([prefix_len], dtype=torch.long),
+                "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
+            }
+            allowed_mask = contract.get("allowed_target_mask")
+            if isinstance(allowed_mask, torch.Tensor):
+                payload["allowed_target_mask"] = (
+                    allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
                 )
+            struct_x = contract.get("struct_x")
+            if isinstance(struct_x, torch.Tensor):
+                payload["struct_x"] = struct_x
+            structural_edge_index = contract.get("structural_edge_index")
+            if isinstance(structural_edge_index, torch.Tensor):
+                payload["structural_edge_index"] = structural_edge_index
+            structural_edge_weight = contract.get("structural_edge_weight")
+            if isinstance(structural_edge_weight, torch.Tensor):
+                payload["structural_edge_weight"] = structural_edge_weight
+            dataset.append(
+                Data(**payload)
             )
         if idx % 1000 == 0:
             iterator.set_postfix({"graphs": len(dataset)})
@@ -319,8 +377,14 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     logger.info("Reading events for preparation via adapter=%s...", adapter.__class__.__name__)
     traces = list(adapter.read(log_path, mapping_cfg))
     logger.info("Event read finished: traces=%d", len(traces))
-    traces = _apply_fraction(traces, fraction)
-    logger.info("Applied preparation fraction=%.4f -> traces=%d", fraction, len(traces))
+    traces = _apply_cascade_prepare(
+        traces,
+        mode=mode,
+        split_strategy=split_strategy,
+        train_ratio=train_ratio,
+        fraction=fraction,
+    )
+    logger.info("Applied cascade filter (mode=%s, fraction=%.4f) -> traces=%d", mode, fraction, len(traces))
     data_num_traces = len(traces)
     data_num_events = sum(len(trace.events) for trace in traces)
 
@@ -380,10 +444,12 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         len(val_traces),
         len(test_traces),
     )
+    version_to_idx: Dict[str, int] = {}
     train_dataset = _build_graph_dataset(
         train_traces,
         prefix_policy,
         graph_builder,
+        version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build train graphs",
@@ -392,6 +458,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         val_traces,
         prefix_policy,
         graph_builder,
+        version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build val graphs",
@@ -400,10 +467,12 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         test_traces,
         prefix_policy,
         graph_builder,
+        version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build test graphs",
     )
+    idx_to_version = {idx: version for version, idx in version_to_idx.items()}
     logger.info(
         "Graph datasets ready: train_graphs=%d, val_graphs=%d, test_graphs=%d",
         len(train_dataset),
@@ -447,6 +516,12 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "train_dataset": train_dataset,
         "val_dataset": val_dataset,
         "test_dataset": test_dataset,
+        "prepared_traces": list(traces),
+        "train_traces": list(train_traces),
+        "val_traces": list(val_traces),
+        "test_traces": list(test_traces),
+        "idx_to_version": idx_to_version,
+        "version_to_idx": version_to_idx,
     }
 
 
@@ -642,6 +717,7 @@ def main() -> None:
         config=trainer_config,
         tracker=tracker,
         class_weights=class_weights,
+        prepared_data=prepared,
     )
 
     try:

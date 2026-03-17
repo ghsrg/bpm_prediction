@@ -60,6 +60,7 @@ class ModelTrainer:
         config: Dict[str, Any],
         tracker: Optional[ITracker] = None,
         class_weights: Optional[torch.Tensor] = None,
+        prepared_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.xes_adapter = xes_adapter
         self.prefix_policy = prefix_policy
@@ -69,6 +70,7 @@ class ModelTrainer:
         self.config = config
         self.tracker = tracker
         self.class_weights = class_weights
+        self.prepared_data = dict(prepared_data) if isinstance(prepared_data, dict) else None
 
         self.batch_size = int(config.get("batch_size", 32))
         self.epochs = int(config.get("epochs", 10))
@@ -106,6 +108,18 @@ class ModelTrainer:
         self._logged_oos_math = False
         self._logged_peak_vram = False
 
+        if self.prepared_data is not None:
+            raw_idx_to_version = self.prepared_data.get("idx_to_version", {})
+            if isinstance(raw_idx_to_version, dict):
+                normalized_idx_to_version: Dict[int, str] = {}
+                for raw_idx, raw_label in raw_idx_to_version.items():
+                    try:
+                        normalized_idx_to_version[int(raw_idx)] = str(raw_label)
+                    except (TypeError, ValueError):
+                        continue
+                self._idx_to_version.update(normalized_idx_to_version)
+                self._version_to_idx.update({label: idx for idx, label in self._idx_to_version.items()})
+
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
         self.model.to(self.device)
@@ -122,19 +136,49 @@ class ModelTrainer:
         if self.tracker is not None and self.config_path:
             self.tracker.log_artifact(self.config_path)
 
-        raw_traces = self._read_raw_traces_with_progress()
-
         is_eval_cross = self.mode == "eval_cross_dataset"
         is_eval_drift = self.mode == "eval_drift"
         is_eval_mode = is_eval_cross or is_eval_drift
+        prebuilt_datasets = None
+        if self.prepared_data is not None:
+            logger.info("Using preloaded prepared data from CLI (single-read mode).")
+            prepared_traces_raw = self.prepared_data.get("prepared_traces", [])
+            prepared_traces = list(prepared_traces_raw) if prepared_traces_raw is not None else []
+            train_traces_raw = self.prepared_data.get("train_traces", [])
+            val_traces_raw = self.prepared_data.get("val_traces", [])
+            test_traces_raw = self.prepared_data.get("test_traces", [])
+            if all(item is not None for item in (train_traces_raw, val_traces_raw, test_traces_raw)):
+                split_data = SplitData(
+                    train=list(train_traces_raw),
+                    val=list(val_traces_raw),
+                    test=list(test_traces_raw),
+                )
+            else:
+                split_data = self._prepare_split_data(prepared_traces)
 
-        prepared_traces = self._prepare_data(raw_traces, mode=self.mode)
-        split_data = self._prepare_split_data(prepared_traces)
+            train_dataset = self.prepared_data.get("train_dataset")
+            val_dataset = self.prepared_data.get("val_dataset")
+            test_dataset = self.prepared_data.get("test_dataset")
+            if all(item is not None for item in (train_dataset, val_dataset, test_dataset)):
+                prebuilt_datasets = {
+                    "train": list(train_dataset),
+                    "val": list(val_dataset),
+                    "test": list(test_dataset),
+                }
+        else:
+            raw_traces = self._read_raw_traces_with_progress()
+            prepared_traces = self._prepare_data(raw_traces, mode=self.mode)
+            split_data = self._prepare_split_data(prepared_traces)
 
         checkpoint, start_epoch, best_val_loss, best_epoch = self._prepare_checkpoint_state(is_eval_mode=is_eval_mode)
 
         if is_eval_cross:
-            return self._run_eval_cross_dataset(split_data=split_data, best_epoch=best_epoch, best_val_loss=best_val_loss)
+            return self._run_eval_cross_dataset(
+                split_data=split_data,
+                best_epoch=best_epoch,
+                best_val_loss=best_val_loss,
+                prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
+            )
 
         if is_eval_drift:
             return self._run_eval_drift(
@@ -150,6 +194,7 @@ class ModelTrainer:
             start_epoch=start_epoch,
             best_val_loss=best_val_loss,
             best_epoch=best_epoch,
+            prebuilt_datasets=prebuilt_datasets,
         )
 
     def _read_raw_traces_with_progress(self) -> List[RawTrace]:
@@ -205,9 +250,19 @@ class ModelTrainer:
 
         return checkpoint, start_epoch, best_val_loss, best_epoch
 
-    def _run_eval_cross_dataset(self, split_data: SplitData, best_epoch: int, best_val_loss: float) -> Dict[str, Any]:
+    def _run_eval_cross_dataset(
+        self,
+        split_data: SplitData,
+        best_epoch: int,
+        best_val_loss: float,
+        prebuilt_test_dataset: Optional[Sequence[Data]] = None,
+    ) -> Dict[str, Any]:
         """Run eval_cross_dataset scenario with preloaded checkpoint state."""
-        test_loader = self._build_loader(split_data.test, shuffle=False)
+        test_loader = (
+            self._build_loader_from_dataset(prebuilt_test_dataset, shuffle=False)
+            if prebuilt_test_dataset is not None
+            else self._build_loader(split_data.test, shuffle=False)
+        )
         self._log_topology_metrics_and_artifacts()
         logger.info("DataLoaders ready for eval_cross_dataset: test_batches=%d", len(test_loader))
         test_metrics = self._evaluate_test(test_loader)
@@ -246,11 +301,21 @@ class ModelTrainer:
         start_epoch: int,
         best_val_loss: float,
         best_epoch: int,
+        prebuilt_datasets: Optional[Dict[str, Sequence[Data]]] = None,
     ) -> Dict[str, Any]:
         """Run train/validation/test scenario with optional resume checkpoint."""
-        train_loader = self._build_loader(split_data.train, shuffle=True)
-        val_loader = self._build_loader(split_data.val, shuffle=False)
-        test_loader = self._build_loader(split_data.test, shuffle=False)
+        has_prebuilt = bool(
+            prebuilt_datasets
+            and all(prebuilt_datasets.get(key) is not None for key in ("train", "val", "test"))
+        )
+        if has_prebuilt:
+            train_loader = self._build_loader_from_dataset(prebuilt_datasets.get("train"), shuffle=True)
+            val_loader = self._build_loader_from_dataset(prebuilt_datasets.get("val"), shuffle=False)
+            test_loader = self._build_loader_from_dataset(prebuilt_datasets.get("test"), shuffle=False)
+        else:
+            train_loader = self._build_loader(split_data.train, shuffle=True)
+            val_loader = self._build_loader(split_data.val, shuffle=False)
+            test_loader = self._build_loader(split_data.test, shuffle=False)
         self._log_topology_metrics_and_artifacts()
 
         logger.info(
@@ -564,6 +629,34 @@ class ModelTrainer:
                 if isinstance(structural_edge_weight, torch.Tensor):
                     payload["structural_edge_weight"] = structural_edge_weight
                 graphs.append(Data(**payload))
+        return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
+
+    def _build_loader_from_dataset(self, dataset: Optional[Sequence[Data]], shuffle: bool) -> DataLoader:
+        """Wrap prebuilt graph dataset into DataLoader and collect topology diagnostics."""
+        graphs = list(dataset or [])
+        for graph in graphs:
+            num_nodes_attr = getattr(graph, "num_nodes", None)
+            if num_nodes_attr is None:
+                num_nodes = int(graph.x_cat.size(0))
+            else:
+                num_nodes = int(num_nodes_attr)
+            num_edges = int(graph.edge_index.shape[1]) if hasattr(graph, "edge_index") else 0
+            self._topology_nodes.append(num_nodes)
+            self._topology_edges.append(num_edges)
+
+            if hasattr(graph, "prefix_len"):
+                prefix_tensor = graph.prefix_len
+                if isinstance(prefix_tensor, torch.Tensor) and prefix_tensor.numel() > 0:
+                    self._prefix_lengths.append(int(prefix_tensor.view(-1)[0].item()))
+
+            if hasattr(graph, "process_version_idx"):
+                version_tensor = graph.process_version_idx
+                if isinstance(version_tensor, torch.Tensor) and version_tensor.numel() > 0:
+                    idx = int(version_tensor.view(-1)[0].item())
+                    if idx not in self._idx_to_version:
+                        self._idx_to_version[idx] = f"v{idx}"
+                    self._version_to_idx.setdefault(self._idx_to_version[idx], idx)
+
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
 
     def _run_epoch(self, loader: Iterable[Data], optimizer: Optional[Adam], training: bool) -> Tuple[float, float, float, float]:

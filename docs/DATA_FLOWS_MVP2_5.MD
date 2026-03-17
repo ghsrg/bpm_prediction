@@ -13,11 +13,15 @@ This document defines runtime data flows for MVP2.5 with strict separation betwe
 flowchart TD
     C1[CLI ingest-topology --config] --> L1[Load YAML includes]
     L1 --> A1[Resolve adapter xes or camunda]
-    A1 --> R1[Read traces]
+    A1 --> D1{Camunda + structure.source=bpmn and structure_from_logs=false}
+    D1 -->|yes| B1A[CamundaBpmnAdapter fetch catalog and BPMN XML]
+    B1A --> B1B[BpmnStructureParserService parse and flatten]
+    B1B --> P1[IKnowledgeGraphPort save_process_structure]
+    D1 -->|no| R1[Read traces]
     R1 --> F1[Apply fraction]
     F1 --> S1[Apply ingest split train or full]
     S1 --> T1[TopologyExtractorService extract_from_logs]
-    T1 --> P1[IKnowledgeGraphPort save_process_structure]
+    T1 --> P1
     P1 --> B1[File repository JSON artifact]
     B1 --> O1[Write ingestion summary JSON]
 ```

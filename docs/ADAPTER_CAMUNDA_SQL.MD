@@ -1,7 +1,7 @@
 ﻿# ADAPTER_CAMUNDA_SQL.MD
 
-Updated: 2026-03-15  
-Status: ACTIVE (MVP2.5 Stage 3.1), Stage 3.2 BPMN ingestion in progress
+Updated: 2026-03-17  
+Status: ACTIVE (MVP2.5 Stage 3.1 + 3.2)
 
 ## 1. Purpose
 This specification defines the Camunda 7 MSSQL adapter contract used by `CamundaRuntimeAdapter` and related services.
@@ -21,12 +21,20 @@ Primary tables currently used:
 - `bpms_camunda_mssql_tst.dbo.ACT_HI_IDENTITYLINK`
 - `bpms_camunda_mssql_tst.dbo.ACT_HI_PROCINST`
 
+Structure (BPMN) tables used in Stage 3.2:
+- `bpms_camunda_mssql_tst.dbo.ACT_RE_PROCDEF`
+- `bpms_camunda_mssql_tst.dbo.ACT_GE_BYTEARRAY`
+
 Optional process variables:
 - `bpms_camunda_mssql_tst.dbo.ACT_HI_VARINST` (process-level extraction by naming convention)
 
 ## 3. Adapter modes
 - `runtime_source: sql` for direct MSSQL querying.
 - `runtime_source: files` for CSV/Excel manual exports from SQL templates.
+
+For Stage 3.2 structure ingestion:
+- `structure.bpmn_source: mssql`
+- `structure.bpmn_source: files`
 
 Both modes must produce the same normalized DTO contracts.
 
@@ -66,16 +74,18 @@ Fallback behavior:
 ### 6.1 ACT_HI_ACTINST -> ProcessEventDTO
 | SQL field | DTO field | note |
 |---|---|---|
-| `ID_` | `activity_instance_id` | runtime unique id |
+| `ID_` | `act_inst_id` | runtime unique id |
 | `PROC_INST_ID_` | `case_id` | process instance |
-| `ACT_ID_` | `activity_id` | activity definition id |
+| `ACT_ID_` | `activity_def_id` | activity definition id |
+| `ACT_NAME_` | `activity_name` | activity label |
 | `ACT_TYPE_` | `activity_type` | userTask gateway etc |
 | `START_TIME_` | `start_time` | datetime |
 | `END_TIME_` | `end_time` | datetime |
 | `DURATION_` | `duration_ms` | milliseconds |
 | `TASK_ID_` | `task_id` | optional |
 | `CALL_PROC_INST_ID_` | `call_proc_inst_id` | call activity child link |
-| `PARENT_ACT_INST_ID_` | `parent_activity_instance_id` | subprocess scope |
+| `PARENT_ACT_INST_ID_` | `parent_act_inst_id` | subprocess scope |
+| `SEQUENCE_COUNTER_` | `sequence_counter` | deterministic order helper |
 | `REMOVAL_TIME_` | `removal_time` | diagnostics |
 
 ### 6.2 ACT_RU_EXECUTION refinement
@@ -116,8 +126,14 @@ Required links:
 ## 9. SQL templates location
 - `src/adapters/ingestion/camunda/sql/manual/*.sql`
 - `src/adapters/ingestion/camunda/sql/runtime/*.sql`
+- `src/adapters/ingestion/camunda/sql/structure/*.sql`
 
 Manual templates are intended for selective export (for example by process definition list).
+
+Stage 3.2 manual template:
+- `manual/process_definitions.sql` -> `process_definitions.csv`
+- BPMN files should be placed as `data/camunda_exports/bpmn_xml/<proc_def_id>.bpmn` (default config path).
+- For direct MSSQL extraction of BPMN payload use `runtime/bpmn_bytes.sql` with `ACT_GE_BYTEARRAY.BYTES_`.
 
 ## 10. Recommended filtered query pattern
 ```sql

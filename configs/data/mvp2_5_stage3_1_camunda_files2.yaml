@@ -21,7 +21,7 @@ mapping:
     # process_name: defaults to data.dataset_name if omitted.
     process_name: "B2BContracts_ApproveProject"
     # version_key: optional; empty means read all versions available in source.
-    version_key: "v5"
+    version_key: "v6"
     # subprocess_graph_mode:
     # - "flattened-no-subprocess-node" (recommended for GNN): remove subProcess containers, keep only internal activity flow.
     # - "flattened": keep subProcess container nodes + internal flow.

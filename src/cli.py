@@ -430,10 +430,17 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         len(available_versions),
     )
     normalization_stats = _build_normalization_stats()
+    graph_feature_mapping_raw = mapping_cfg.get("graph_feature_mapping", {})
+    graph_feature_mapping = (
+        dict(graph_feature_mapping_raw) if isinstance(graph_feature_mapping_raw, dict) else {}
+    )
+    stats_time_policy = str(experiment_cfg.get("stats_time_policy", "latest")).strip().lower() or "latest"
     graph_builder = DynamicGraphBuilder(
         feature_encoder=feature_encoder,
         knowledge_port=knowledge_repo,
         process_name=dataset_name,
+        graph_feature_mapping=graph_feature_mapping,
+        stats_time_policy=stats_time_policy,
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

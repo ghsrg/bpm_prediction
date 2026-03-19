@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from types import MethodType
 
 from src.domain.entities.process_structure import ProcessStructureDTO
@@ -173,3 +175,96 @@ def test_get_graph_for_visualization_filters_edges_by_frequency():
     repo.get_process_structure = MethodType(lambda self, version, process_name=None: dto, repo)
     graph = repo.get_graph_for_visualization("proc", "v1", min_edge_frequency=3)
     assert set(graph.edges()) == {("A", "B"), ("B", "C")}
+
+
+def test_save_process_structure_snapshot_uses_composite_key_and_json_payload():
+    repo = _build_repo()
+    writes = []
+
+    def _capture_write(self, *, operation, query, params):
+        writes.append((operation, query, params))
+
+    def _fake_read(self, *, operation, query, params):
+        del query, params
+        if operation == "resolve_next_stats_kv_seq":
+            return [{"max_seq": 3}]
+        return []
+
+    repo._run_write = MethodType(_capture_write, repo)
+    repo._run_read = MethodType(_fake_read, repo)
+
+    dto = ProcessStructureDTO(
+        version="v22",
+        proc_def_id="PROC_DEF_22",
+        allowed_edges=[("A", "B")],
+        node_stats={"windows": {"last_30d": {"version": {"exec_count": {"A": 10}}}}},
+        edge_stats={"windows": {"last_30d": {"version": {"transition_probability": {"A|||B": 0.7}}}}},
+        gnn_features={"windows": {"last_30d": {"version": {"resource_handover_entropy": 0.2}}}},
+        stats_diagnostics={"history_coverage_percent": 88.0},
+        metadata={"source": "unit-test"},
+    )
+    kv = repo.save_process_structure_snapshot(
+        version="v22",
+        dto=dto,
+        process_name="procurement@tenant_a",
+        as_of_ts=datetime(2026, 3, 19, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert kv == "k000004"
+    stats_writes = [item for item in writes if item[0] == "upsert_stats_snapshot"]
+    assert len(stats_writes) == 1
+    _, query, params = stats_writes[0]
+    assert "StatsSnapshot" in query
+    assert params["tenant_id"] == "tenant_a"
+    assert params["process_name"] == "procurement@tenant_a"
+    assert params["version_key"] == "v22"
+    assert params["proc_def_id"] == "PROC_DEF_22"
+    assert params["knowledge_version"] == "k000004"
+    assert json.loads(params["node_stats_json"])["windows"]["last_30d"]["version"]["exec_count"]["A"] == 10
+
+
+def test_get_process_structure_asof_overlays_stats_snapshot_json():
+    repo = _build_repo()
+
+    base_dto = ProcessStructureDTO(
+        version="v22",
+        proc_def_id="PROC_DEF_22",
+        allowed_edges=[("A", "B")],
+        metadata={"base": "yes"},
+    )
+    repo.get_process_structure = MethodType(
+        lambda self, version, process_name=None: base_dto.model_copy(deep=True),
+        repo,
+    )
+
+    def _fake_read(self, *, operation, query, params):
+        del query, params
+        if operation == "load_stats_snapshot_as_of":
+            return [
+                {
+                    "knowledge_version": "k000010",
+                    "as_of_ts": "2026-03-19T09:00:00Z",
+                    "node_stats_json": '{"windows":{"last_30d":{"version":{"exec_count":{"A":3}}}}}',
+                    "edge_stats_json": '{"windows":{"last_30d":{"version":{"transition_probability":{"A|||B":0.5}}}}}',
+                    "gnn_features_json": '{"windows":{"last_30d":{"version":{"resource_handover_entropy":0.25}}}}',
+                    "stats_diagnostics_json": '{"history_coverage_percent":77.7}',
+                    "metadata_json": '{"snapshot_meta":"ok"}',
+                }
+            ]
+        return []
+
+    repo._run_read = MethodType(_fake_read, repo)
+
+    loaded = repo.get_process_structure_as_of(
+        version="v22",
+        process_name="procurement@tenant_a",
+        as_of_ts=datetime(2026, 3, 19, 12, 0, tzinfo=timezone.utc),
+    )
+    assert loaded is not None
+    assert loaded.node_stats is not None
+    assert loaded.edge_stats is not None
+    assert loaded.gnn_features is not None
+    assert loaded.stats_diagnostics is not None
+    assert loaded.metadata is not None
+    assert loaded.metadata["knowledge_version"] == "k000010"
+    assert loaded.metadata["snapshot_meta"] == "ok"

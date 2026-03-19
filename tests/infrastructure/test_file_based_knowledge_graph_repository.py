@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.domain.entities.process_structure import ProcessStructureDTO
@@ -98,3 +99,37 @@ def test_file_repo_preserves_stage3_2_call_bindings_and_nodes(tmp_path: Path):
     assert loaded.call_bindings is not None
     assert loaded.call_bindings["call1"]["inference_fallback_strategy"] == "use_aggregated_stats"
     assert loaded.nodes is not None and loaded.nodes[0]["id"] == "call1"
+
+
+def test_file_repo_snapshot_roundtrip_and_asof_lookup(tmp_path: Path):
+    repo = FileBasedKnowledgeGraphRepository(base_dir=tmp_path / "kg")
+    dto = ProcessStructureDTO(version="v1", allowed_edges=[("A", "B")])
+    as_of_1 = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+    as_of_2 = datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc)
+
+    kv1 = repo.save_process_structure_snapshot(
+        "v1",
+        dto.model_copy(update={"metadata": {"marker": "first"}}),
+        process_name="proc_a",
+        as_of_ts=as_of_1,
+    )
+    kv2 = repo.save_process_structure_snapshot(
+        "v1",
+        dto.model_copy(update={"metadata": {"marker": "second"}}),
+        process_name="proc_a",
+        as_of_ts=as_of_2,
+    )
+
+    assert kv1 != kv2
+    assert repo.list_process_names() == ["proc_a"]
+
+    between = datetime(2026, 3, 10, 18, 0, tzinfo=timezone.utc)
+    loaded_between = repo.get_process_structure_as_of("v1", process_name="proc_a", as_of_ts=between)
+    assert loaded_between is not None
+    assert loaded_between.metadata is not None
+    assert loaded_between.metadata["marker"] == "first"
+
+    loaded_latest = repo.get_process_structure_as_of("v1", process_name="proc_a")
+    assert loaded_latest is not None
+    assert loaded_latest.metadata is not None
+    assert loaded_latest.metadata["marker"] == "second"

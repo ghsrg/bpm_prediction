@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
@@ -61,21 +62,32 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
     ) -> None:
         version_key = self._normalize_version(version)
         process_key = self._normalize_process_name(process_name, version_key)
+        dto_payload = dto.model_copy(deep=True)
+        metadata = dict(dto_payload.metadata or {})
+        if dto_payload.node_stats is not None:
+            metadata["node_stats"] = dto_payload.node_stats
+        if dto_payload.edge_stats is not None:
+            metadata["edge_stats"] = dto_payload.edge_stats
+        if dto_payload.gnn_features is not None:
+            metadata["gnn_features"] = dto_payload.gnn_features
+        if dto_payload.stats_diagnostics is not None:
+            metadata["stats_diagnostics"] = dto_payload.stats_diagnostics
+        dto_payload.metadata = metadata or None
 
-        self._upsert_process_version(process_name=process_key, version_key=version_key, dto=dto)
-        for node in dto.nodes or []:
+        self._upsert_process_version(process_name=process_key, version_key=version_key, dto=dto_payload)
+        for node in dto_payload.nodes or []:
             self._upsert_node(
                 process_name=process_key,
                 version_key=version_key,
                 node=node,
-                node_metadata=(dto.node_metadata or {}).get(str(node.get("id", "")), {}),
+                node_metadata=(dto_payload.node_metadata or {}).get(str(node.get("id", "")), {}),
             )
-        for edge in dto.edges or self._edges_from_allowed(dto.allowed_edges):
+        for edge in dto_payload.edges or self._edges_from_allowed(dto_payload.allowed_edges):
             self._upsert_edge(
                 process_name=process_key,
                 version_key=version_key,
                 edge=edge,
-                edge_stats=(dto.edge_statistics or {}).get(
+                edge_stats=(dto_payload.edge_statistics or {}).get(
                     (str(edge.get("source", "")), str(edge.get("target", ""))),
                     {},
                 ),
@@ -225,6 +237,12 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             allowed_edges.append((source, target))
             edge_statistics[(source, target)] = {"count": float(row.get("frequency_count", 1.0) or 1.0)}
 
+        metadata_obj = self._safe_json_object(meta.get("metadata_json")) or None
+        node_stats = metadata_obj.get("node_stats") if isinstance(metadata_obj, dict) else None
+        edge_stats = metadata_obj.get("edge_stats") if isinstance(metadata_obj, dict) else None
+        gnn_features = metadata_obj.get("gnn_features") if isinstance(metadata_obj, dict) else None
+        stats_diagnostics = metadata_obj.get("stats_diagnostics") if isinstance(metadata_obj, dict) else None
+
         return ProcessStructureDTO(
             version=version_key,
             allowed_edges=allowed_edges,
@@ -237,7 +255,11 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             edges=edges or None,
             graph_topology=self._safe_json_object(meta.get("graph_topology_json")) or None,
             call_bindings=self._safe_json_object(meta.get("call_bindings_json")) or None,
-            metadata=self._safe_json_object(meta.get("metadata_json")) or None,
+            node_stats=node_stats if isinstance(node_stats, dict) else None,
+            edge_stats=edge_stats if isinstance(edge_stats, dict) else None,
+            gnn_features=gnn_features if isinstance(gnn_features, dict) else None,
+            stats_diagnostics=stats_diagnostics if isinstance(stats_diagnostics, dict) else None,
+            metadata=metadata_obj,
         )
 
     def list_versions(self, process_name: str | None = None) -> list[str]:
@@ -269,6 +291,225 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             {str(row.get("version_key", "")).strip() for row in rows if str(row.get("version_key", "")).strip()}
         )
 
+    def list_process_names(self) -> list[str]:
+        rows = self._run_read(
+            operation="list_process_names",
+            query="""
+            MATCH (p:Process)
+            RETURN DISTINCT p.process_name AS process_name
+            ORDER BY process_name
+            """,
+            params={},
+        )
+        return sorted(
+            {
+                str(row.get("process_name", "")).strip()
+                for row in rows
+                if str(row.get("process_name", "")).strip()
+            }
+        )
+
+    def save_process_structure_snapshot(
+        self,
+        version: str,
+        dto: ProcessStructureDTO,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+        knowledge_version: str | None = None,
+    ) -> str:
+        version_key = self._normalize_version(version)
+        process_key = self._normalize_process_name(process_name, version_key)
+        tenant_id = self._resolve_tenant_id(process_name=process_key, dto=dto)
+        proc_def_id = self._resolve_proc_def_id(
+            process_name=process_key,
+            version_key=version_key,
+            dto=dto,
+        )
+        as_of_utc = self._to_utc(as_of_ts) or datetime.now(timezone.utc)
+
+        # Keep latest structure up-to-date for backward-compatible readers.
+        self.save_process_structure(version=version_key, dto=dto, process_name=process_key)
+
+        if knowledge_version is None:
+            rows = self._run_read(
+                operation="resolve_next_stats_kv_seq",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  proc_def_id: $proc_def_id
+                })
+                RETURN coalesce(max(ss.kv_seq), 0) AS max_seq
+                """,
+                params={
+                    "process_name": process_key,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "proc_def_id": proc_def_id,
+                },
+            )
+            max_seq = int(rows[0].get("max_seq", 0) or 0) if rows else 0
+            seq = max_seq + 1
+            knowledge_version = f"k{seq:06d}"
+        else:
+            text = str(knowledge_version).strip()
+            knowledge_version = text or "k000001"
+            seq = self._knowledge_version_seq(knowledge_version)
+
+        stats_payload = {
+            "node_stats_json": self._to_json(dto.node_stats),
+            "edge_stats_json": self._to_json(dto.edge_stats),
+            "gnn_features_json": self._to_json(dto.gnn_features),
+            "stats_diagnostics_json": self._to_json(dto.stats_diagnostics),
+            "metadata_json": self._to_json(dto.metadata),
+        }
+        params = {
+            "process_name": process_key,
+            "tenant_id": tenant_id,
+            "version_key": version_key,
+            "proc_def_id": proc_def_id,
+            "knowledge_version": knowledge_version,
+            "kv_seq": int(seq),
+            "as_of_iso": as_of_utc.isoformat(),
+            **stats_payload,
+        }
+        self._run_write(
+            operation="upsert_stats_snapshot",
+            query="""
+            MERGE (p:Process {process_name: $process_name})
+            SET p.tenant_id = $tenant_id
+            MERGE (pv:ProcessVersion {process_name: $process_name, version_key: $version_key})
+            SET pv.proc_def_id = coalesce(pv.proc_def_id, $proc_def_id),
+                pv.tenant_id = $tenant_id
+            MERGE (p)-[:HAS_VERSION]->(pv)
+            MERGE (ss:StatsSnapshot {
+              process_name: $process_name,
+              tenant_id: $tenant_id,
+              version_key: $version_key,
+              proc_def_id: $proc_def_id,
+              knowledge_version: $knowledge_version
+            })
+            SET ss.kv_seq = $kv_seq,
+                ss.as_of_ts = datetime($as_of_iso),
+                ss.created_at_utc = datetime(),
+                ss.node_stats_json = $node_stats_json,
+                ss.edge_stats_json = $edge_stats_json,
+                ss.gnn_features_json = $gnn_features_json,
+                ss.stats_diagnostics_json = $stats_diagnostics_json,
+                ss.metadata_json = $metadata_json
+            MERGE (pv)-[:HAS_STATS_SNAPSHOT]->(ss)
+            """,
+            params=params,
+        )
+        return knowledge_version
+
+    def get_process_structure_as_of(
+        self,
+        version: str,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+    ) -> Optional[ProcessStructureDTO]:
+        version_key = self._normalize_version(version)
+        resolved_process_name = self._resolve_process_name_for_version(
+            version_key=version_key,
+            process_name=process_name,
+        )
+        if resolved_process_name is None:
+            return None
+        base = self.get_process_structure(version=version_key, process_name=resolved_process_name)
+        if base is None:
+            return None
+
+        tenant_id = self._resolve_tenant_id(process_name=resolved_process_name, dto=base)
+        proc_def_id = self._resolve_proc_def_id(
+            process_name=resolved_process_name,
+            version_key=version_key,
+            dto=base,
+        )
+        as_of_utc = self._to_utc(as_of_ts)
+
+        if as_of_utc is not None:
+            rows = self._run_read(
+                operation="load_stats_snapshot_as_of",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  proc_def_id: $proc_def_id
+                })
+                WHERE ss.as_of_ts <= datetime($as_of_iso)
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                ORDER BY ss.as_of_ts DESC, ss.kv_seq DESC
+                LIMIT 1
+                """,
+                params={
+                    "process_name": resolved_process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "proc_def_id": proc_def_id,
+                    "as_of_iso": as_of_utc.isoformat(),
+                },
+            )
+        else:
+            rows = self._run_read(
+                operation="load_latest_stats_snapshot",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  proc_def_id: $proc_def_id
+                })
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                ORDER BY ss.as_of_ts DESC, ss.kv_seq DESC
+                LIMIT 1
+                """,
+                params={
+                    "process_name": resolved_process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "proc_def_id": proc_def_id,
+                },
+            )
+        if not rows:
+            return base
+
+        row = rows[0]
+        base.node_stats = self._safe_json_object(row.get("node_stats_json")) or None
+        base.edge_stats = self._safe_json_object(row.get("edge_stats_json")) or None
+        base.gnn_features = self._safe_json_object(row.get("gnn_features_json")) or None
+        base.stats_diagnostics = self._safe_json_object(row.get("stats_diagnostics_json")) or None
+
+        snapshot_meta = self._safe_json_object(row.get("metadata_json"))
+        merged_meta = dict(base.metadata or {})
+        merged_meta.update(snapshot_meta)
+        knowledge_version = self._optional_text(row.get("knowledge_version"))
+        if knowledge_version is not None:
+            merged_meta["knowledge_version"] = knowledge_version
+        as_of_text = self._optional_text(row.get("as_of_ts"))
+        if as_of_text is not None:
+            merged_meta["as_of_ts"] = as_of_text
+        base.metadata = merged_meta or None
+        return base
+
     def get_graph_for_visualization(
         self,
         process_name: str,
@@ -299,8 +540,10 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         version_key: str,
         dto: ProcessStructureDTO,
     ) -> None:
+        tenant_id = self._resolve_tenant_id(process_name=process_name, dto=dto)
         params = {
             "process_name": process_name,
+            "tenant_id": tenant_id,
             "version_key": version_key,
             "proc_def_id": dto.proc_def_id,
             "proc_def_key": dto.proc_def_key,
@@ -313,9 +556,11 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             operation="upsert_process_version",
             query="""
             MERGE (p:Process {process_name: $process_name})
+            SET p.tenant_id = $tenant_id
             MERGE (pv:ProcessVersion {process_name: $process_name, version_key: $version_key})
             MERGE (p)-[:HAS_VERSION]->(pv)
             SET
+              pv.tenant_id = $tenant_id,
               pv.proc_def_id = $proc_def_id,
               pv.proc_def_key = $proc_def_key,
               pv.deployment_id = $deployment_id,
@@ -487,6 +732,31 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             return None
         return names[0]
 
+    def _resolve_proc_def_id(
+        self,
+        *,
+        process_name: str,
+        version_key: str,
+        dto: ProcessStructureDTO,
+    ) -> str:
+        text = self._optional_text(dto.proc_def_id)
+        if text is not None:
+            return text
+        rows = self._run_read(
+            operation="resolve_proc_def_id_for_version",
+            query="""
+            MATCH (pv:ProcessVersion {process_name: $process_name, version_key: $version_key})
+            RETURN pv.proc_def_id AS proc_def_id
+            LIMIT 1
+            """,
+            params={"process_name": process_name, "version_key": version_key},
+        )
+        if rows:
+            resolved = self._optional_text(rows[0].get("proc_def_id"))
+            if resolved is not None:
+                return resolved
+        return "__unknown_proc_def__"
+
     def _run_write(self, *, operation: str, query: str, params: Dict[str, Any]) -> None:
         del operation
         with self._driver.session(database=self._database) as session:
@@ -639,6 +909,39 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         except json.JSONDecodeError:
             return {}
         return {}
+
+    @staticmethod
+    def _resolve_tenant_id(*, process_name: str, dto: ProcessStructureDTO) -> str:
+        if "@" in process_name:
+            _, tenant = process_name.rsplit("@", 1)
+            tenant_text = tenant.strip()
+            if tenant_text:
+                return tenant_text
+        if isinstance(dto.metadata, dict):
+            tenant_meta = dto.metadata.get("tenant_id")
+            if tenant_meta is not None:
+                text = str(tenant_meta).strip()
+                if text:
+                    return text
+        return "default"
+
+    @staticmethod
+    def _knowledge_version_seq(knowledge_version: str) -> int:
+        text = str(knowledge_version).strip()
+        if not text.startswith("k"):
+            return 0
+        digits = text[1:]
+        if digits.isdigit():
+            return int(digits)
+        return 0
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _dto_to_graph(dto: ProcessStructureDTO) -> nx.DiGraph:

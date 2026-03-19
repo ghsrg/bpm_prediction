@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional, Protocol
 
 import networkx as nx
@@ -31,6 +32,32 @@ class IKnowledgeGraphPort(Protocol):
 
     def list_versions(self, process_name: str | None = None) -> list[str]:
         """Return available versions (optionally scoped by process name)."""
+        ...
+
+    def list_process_names(self) -> list[str]:
+        """Return available process namespaces in knowledge storage."""
+        ...
+
+    def save_process_structure_snapshot(
+        self,
+        version: str,
+        dto: ProcessStructureDTO,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+        knowledge_version: str | None = None,
+    ) -> str:
+        """Persist immutable snapshot and return assigned knowledge_version."""
+        ...
+
+    def get_process_structure_as_of(
+        self,
+        version: str,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+    ) -> Optional[ProcessStructureDTO]:
+        """Return latest snapshot up to as_of_ts; fallback to current structure when unavailable."""
         ...
 
     def get_graph_for_visualization(

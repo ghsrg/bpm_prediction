@@ -28,6 +28,10 @@ class ProcessStructureDTO(BaseModel):
     edges: Optional[List[Dict[str, Any]]] = None
     graph_topology: Optional[Dict[str, Any]] = None
     call_bindings: Optional[Dict[str, Dict[str, Any]]] = None
+    node_stats: Optional[Dict[str, Any]] = None
+    edge_stats: Optional[Dict[str, Any]] = None
+    gnn_features: Optional[Dict[str, Any]] = None
+    stats_diagnostics: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
 
     @field_validator("version")

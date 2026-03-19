@@ -1,0 +1,32 @@
+﻿include:
+  - "../data/mvp2_5_stage3_4_camunda_files.yaml"
+  - "../model/gatv2_eopkg.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_Stage3_4_EOPKG_Files"
+  mode: "train"
+  fraction: 1.0
+  split_strategy: "temporal"
+  train_ratio: 1.0
+  split_ratio: [0.7, 0.2, 0.1]
+  stats_time_policy: "strict_asof"
+
+training:
+  retrain: true
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  freshness_half_life_days: 14
+  confidence_weights:
+    sample_size: 0.4
+    freshness: 0.3
+    coverage: 0.3
+  process_filters: ["procurement"]
+  tenant_filters: []
+  show_progress: true
+
+seed: 42

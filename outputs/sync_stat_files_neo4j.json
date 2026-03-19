@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "mode": "sync-stats",
+  "tier": "A",
+  "stats_time_policy": "strict_asof",
+  "process_scope_policy": "up_to_target_version",
+  "as_of_ts": "2026-03-19T12:40:52.750622+00:00",
+  "knowledge_backend": "neo4j",
+  "processed_versions": 2,
+  "skipped_versions": 0,
+  "processes_total": 1,
+  "processes_selected": 1,
+  "details": [
+    {
+      "process_namespace": "B2BContracts_ApproveProject",
+      "version": "v5",
+      "history_coverage_percent": 100.0,
+      "num_node_metrics": 6608,
+      "num_edge_metrics": 3288,
+      "knowledge_version": "k000002",
+      "tenant_id": null
+    },
+    {
+      "process_namespace": "B2BContracts_ApproveProject",
+      "version": "v6",
+      "history_coverage_percent": 100.0,
+      "num_node_metrics": 9632,
+      "num_edge_metrics": 4584,
+      "knowledge_version": "k000002",
+      "tenant_id": null
+    }
+  ]
+}

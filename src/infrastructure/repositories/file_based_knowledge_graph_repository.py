@@ -24,6 +24,7 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
     SCHEMA_VERSION = "1.1"
     SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1"}
     FILE_NAME = "process_structure.json"
+    SNAPSHOT_DIR_NAME = "snapshots"
 
     def __init__(self, base_dir: str | Path = "data/knowledge_graph") -> None:
         self.base_dir = Path(base_dir).resolve()
@@ -84,7 +85,9 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
                 for version_dir in process_dir.iterdir():
                     if not version_dir.is_dir():
                         continue
-                    if (version_dir / self.FILE_NAME).exists():
+                    if (version_dir / self.FILE_NAME).exists() or any(
+                        (version_dir / self.SNAPSHOT_DIR_NAME).glob("*.json")
+                    ):
                         versions.add(version_dir.name)
             return sorted(versions)
 
@@ -95,9 +98,90 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         versions = [
             version_dir.name
             for version_dir in process_dir.iterdir()
-            if version_dir.is_dir() and (version_dir / self.FILE_NAME).exists()
+            if version_dir.is_dir()
+            and (
+                (version_dir / self.FILE_NAME).exists()
+                or any((version_dir / self.SNAPSHOT_DIR_NAME).glob("*.json"))
+            )
         ]
         return sorted(versions)
+
+    def list_process_names(self) -> list[str]:
+        if not self.base_dir.exists():
+            return []
+        return sorted(
+            process_dir.name
+            for process_dir in self.base_dir.iterdir()
+            if process_dir.is_dir()
+        )
+
+    def save_process_structure_snapshot(
+        self,
+        version: str,
+        dto: ProcessStructureDTO,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+        knowledge_version: str | None = None,
+    ) -> str:
+        version_key = self._normalize_version(version)
+        process_key = self._normalize_process_name(process_name, version_key)
+        dt = self._to_utc(as_of_ts) or datetime.now(timezone.utc)
+
+        snapshot_dir = self._snapshot_dir(process_name=process_key, version=version_key)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
+        if knowledge_version is None:
+            knowledge_version = self._next_knowledge_version(snapshot_dir)
+        safe_ts = dt.strftime("%Y%m%dT%H%M%SZ")
+        snapshot_path = snapshot_dir / f"{knowledge_version}__{safe_ts}.json"
+
+        dto_copy = dto.model_copy(deep=True)
+        metadata = dict(dto_copy.metadata or {})
+        metadata["knowledge_version"] = knowledge_version
+        metadata["as_of_ts"] = dt.isoformat()
+        dto_copy.metadata = metadata
+
+        payload = {
+            "schema_version": self.SCHEMA_VERSION,
+            "repository_backend": "file",
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "process_name": process_key,
+            "version": version_key,
+            "knowledge_version": knowledge_version,
+            "as_of_ts": dt.isoformat(),
+            "dto": self._serialize_dto(dto_copy),
+        }
+        self._atomic_write_json(snapshot_path, payload)
+        # Keep latest structure file in sync for backward-compatible consumers.
+        self.save_process_structure(version=version_key, dto=dto_copy, process_name=process_key)
+        return knowledge_version
+
+    def get_process_structure_as_of(
+        self,
+        version: str,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+    ) -> Optional[ProcessStructureDTO]:
+        version_key = self._normalize_version(version)
+        target_ts = self._to_utc(as_of_ts)
+
+        if process_name is not None:
+            process_key = self._normalize_process_name(process_name, version_key)
+            dto = self._load_snapshot_as_of(process_name=process_key, version=version_key, target_ts=target_ts)
+            if dto is not None:
+                return dto
+            return self.get_process_structure(version=version_key, process_name=process_key)
+
+        candidates = self._find_snapshot_candidates(version=version_key)
+        if len(candidates) != 1:
+            return self.get_process_structure(version=version_key, process_name=process_name)
+        process_key = candidates[0]
+        dto = self._load_snapshot_as_of(process_name=process_key, version=version_key, target_ts=target_ts)
+        if dto is not None:
+            return dto
+        return self.get_process_structure(version=version_key, process_name=process_key)
 
     def get_graph_for_visualization(
         self,
@@ -125,6 +209,9 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
     def _payload_path(self, *, process_name: str, version: str) -> Path:
         return self.base_dir / process_name / version / self.FILE_NAME
 
+    def _snapshot_dir(self, *, process_name: str, version: str) -> Path:
+        return self.base_dir / process_name / version / self.SNAPSHOT_DIR_NAME
+
     def _find_payload_candidates(self, *, version: str) -> list[Path]:
         matches: list[Path] = []
         if not self.base_dir.exists():
@@ -135,6 +222,18 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             candidate = process_dir / version / self.FILE_NAME
             if candidate.exists():
                 matches.append(candidate)
+        return sorted(matches)
+
+    def _find_snapshot_candidates(self, *, version: str) -> list[str]:
+        matches: list[str] = []
+        if not self.base_dir.exists():
+            return matches
+        for process_dir in self.base_dir.iterdir():
+            if not process_dir.is_dir():
+                continue
+            snapshot_dir = process_dir / version / self.SNAPSHOT_DIR_NAME
+            if snapshot_dir.exists() and any(snapshot_dir.glob("*.json")):
+                matches.append(process_dir.name)
         return sorted(matches)
 
     @classmethod
@@ -175,6 +274,10 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             ),
             "graph_topology": dto.graph_topology or {},
             "call_bindings": dict(sorted((dto.call_bindings or {}).items())),
+            "node_stats": dto.node_stats or {},
+            "edge_stats": dto.edge_stats or {},
+            "gnn_features": dto.gnn_features or {},
+            "stats_diagnostics": dto.stats_diagnostics or {},
             "metadata": dto.metadata or {},
         }
 
@@ -223,6 +326,18 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         call_bindings = payload.get("call_bindings")
         if not isinstance(call_bindings, dict):
             call_bindings = {}
+        node_stats = payload.get("node_stats")
+        if not isinstance(node_stats, dict):
+            node_stats = {}
+        edge_stats = payload.get("edge_stats")
+        if not isinstance(edge_stats, dict):
+            edge_stats = {}
+        gnn_features = payload.get("gnn_features")
+        if not isinstance(gnn_features, dict):
+            gnn_features = {}
+        stats_diagnostics = payload.get("stats_diagnostics")
+        if not isinstance(stats_diagnostics, dict):
+            stats_diagnostics = {}
         metadata = payload.get("metadata")
         if not isinstance(metadata, dict):
             metadata = {}
@@ -239,6 +354,10 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             edges=edges or None,
             graph_topology=graph_topology or None,
             call_bindings=call_bindings or None,
+            node_stats=node_stats or None,
+            edge_stats=edge_stats or None,
+            gnn_features=gnn_features or None,
+            stats_diagnostics=stats_diagnostics or None,
             metadata=metadata or None,
         )
 
@@ -253,6 +372,55 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             return payload
         except (OSError, json.JSONDecodeError):
             return None
+
+    def _load_snapshot_as_of(
+        self,
+        *,
+        process_name: str,
+        version: str,
+        target_ts: datetime | None,
+    ) -> Optional[ProcessStructureDTO]:
+        snapshot_dir = self._snapshot_dir(process_name=process_name, version=version)
+        if not snapshot_dir.exists():
+            return None
+
+        candidates: list[tuple[datetime, str, Path]] = []
+        for path in snapshot_dir.glob("*.json"):
+            payload = self._safe_read_json(path)
+            if payload is None:
+                continue
+            as_of_text = str(payload.get("as_of_ts", "")).strip()
+            as_of_dt = self._parse_datetime(as_of_text)
+            if as_of_dt is None:
+                continue
+            kv = str(payload.get("knowledge_version", "")).strip() or "k000000"
+            candidates.append((as_of_dt, kv, path))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+
+        if target_ts is None:
+            selected_path = candidates[-1][2]
+            selected_payload = self._safe_read_json(selected_path)
+            if selected_payload is None:
+                return None
+            self._validate_schema_header(selected_payload, selected_path)
+            return self._deserialize_dto(selected_payload.get("dto", {}))
+
+        selected_path: Optional[Path] = None
+        for snap_ts, _, snap_path in candidates:
+            if snap_ts <= target_ts:
+                selected_path = snap_path
+            else:
+                break
+        if selected_path is None:
+            return None
+
+        selected_payload = self._safe_read_json(selected_path)
+        if selected_payload is None:
+            return None
+        self._validate_schema_header(selected_payload, selected_path)
+        return self._deserialize_dto(selected_payload.get("dto", {}))
 
     def _validate_schema_header(self, payload: Dict[str, Any], path: Path) -> None:
         schema_version = str(payload.get("schema_version", "")).strip()
@@ -273,6 +441,39 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         data = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
         tmp_path.write_text(data, encoding="utf-8")
         os.replace(tmp_path, path)
+
+    @staticmethod
+    def _parse_datetime(value: str) -> datetime | None:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return FileBasedKnowledgeGraphRepository._to_utc(dt)
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _next_knowledge_version(snapshot_dir: Path) -> str:
+        max_seq = 0
+        for path in snapshot_dir.glob("k*.json"):
+            prefix = path.stem.split("__", 1)[0]
+            if not prefix.startswith("k"):
+                continue
+            try:
+                seq = int(prefix[1:])
+            except ValueError:
+                continue
+            max_seq = max(max_seq, seq)
+        return f"k{max_seq + 1:06d}"
 
     @staticmethod
     def _normalize_process_name(process_name: str | None, fallback: str) -> str:

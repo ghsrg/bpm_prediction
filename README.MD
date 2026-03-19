@@ -284,10 +284,30 @@ python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_c
 python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml --out outputs/sync_xes_dir_file.json
 ```
 
+8) Sync Tier A runtime statistics (Stage 3.4)
+```bash
+# Files exports -> file knowledge backend
+python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml --out outputs/sync_stats_files.json
+
+# SQL runtime -> file knowledge backend
+python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_sql.yaml --out outputs/sync_stats_sql.json
+
+# Explicit cutoff timestamp for strict historical evaluation
+python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml --as-of 2026-03-12T00:00:00Z --out outputs/sync_stats_asof.json
+```
+
+sync-stats CLI keys:
+```text
+--config PATH            experiment config (must include mapping.adapter=camunda)
+--out PATH               summary JSON output path
+--as-of ISO_TS           optional historical cutoff for strict_asof policy
+```
+
 Notes:
 ```text
 - visualize-topology without --from-raw reads only pre-ingested structure via knowledge_graph backend.
 - If topology is missing, run ingest-topology first.
+- For drift-safe research runs use: sync-topology -> sync-stats (strict_asof) -> train/eval.
 - knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
 - sync-topology writes Camunda namespaces as process_key@tenant when tenant_id is available.
 ```
@@ -349,6 +369,16 @@ configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_file.yaml
 configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_neo4j.yaml
 configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml
 configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
+```
+
+9. Stage 3.4 stats configs
+```text
+configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml
+configs/experiments/mvp2_5_stage3_4_sync_stats_sql.yaml
+configs/experiments/mvp2_5_stage3_4_baseline_files.yaml
+configs/experiments/mvp2_5_stage3_4_eopkg_files.yaml
+configs/experiments/mvp2_5_stage3_4_baseline_sql.yaml
+configs/experiments/mvp2_5_stage3_4_eopkg_sql.yaml
 ```
 
 Worklogs and historical plans are now stored in:

@@ -1,0 +1,177 @@
+﻿data:
+  dataset_label: "camunda_procurement_stage3_4_sql"
+  dataset_name: "procurement"
+  log_path: "__camunda__"
+
+mapping:
+  adapter: "camunda"
+  knowledge_graph:
+    backend: "file"
+    path: "data/knowledge_graph"
+    strict_load: true
+    ingest_split: "full"
+
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+      - name: "node_exec_count_v30"
+        metric: "exec_count"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_duration_median_v30"
+        metric: "duration_median"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_duration_p95_v30"
+        metric: "duration_p95"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_loop_density_v30"
+        metric: "loop_density"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_parallel_var_v30"
+        metric: "parallel_token_variance"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_freshness_v30"
+        metric: "freshness_score"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_confidence_v30"
+        metric: "confidence_score"
+        window: "last_30d"
+        scope: "version"
+      - name: "node_exec_count_p30"
+        metric: "exec_count"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_duration_median_p30"
+        metric: "duration_median"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_duration_p95_p30"
+        metric: "duration_p95"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_loop_density_p30"
+        metric: "loop_density"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_parallel_var_p30"
+        metric: "parallel_token_variance"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_freshness_p30"
+        metric: "freshness_score"
+        window: "last_30d"
+        scope: "process"
+      - name: "node_confidence_p30"
+        metric: "confidence_score"
+        window: "last_30d"
+        scope: "process"
+    edge_weight:
+      metric: "transition_probability"
+      window: "last_30d"
+      scope: "version"
+      default: 1.0
+
+  camunda_adapter:
+    process_name: "procurement"
+    process_filters: ["procurement"]
+    tenant_id: ""
+    tenant_filters: []
+    version_key: ""
+    subprocess_graph_mode: "flattened-no-subprocess-node"
+    lookback_hours: 0
+    since: null
+    until: null
+    runtime:
+      runtime_source: "mssql"
+      connections_file: "configs/connections/mssql_camunda.yaml"
+      connection_profile: "local"
+      history_cleanup_aware: true
+      legacy_removal_time_policy: "treat_as_eternal"
+      on_missing_removal_time: "auto_fallback"
+      sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
+      mssql:
+        connection_profile: "local"
+    structure:
+      source: "bpmn"
+      structure_from_logs: false
+      bpmn_source: "mssql"
+      connections_file: "configs/connections/mssql_camunda.yaml"
+      connection_profile: "local"
+      sql_dir: "src/adapters/ingestion/camunda/sql/structure"
+      subprocess_mode: "flattened-no-subprocess-node"
+      call_activity:
+        inference_fallback_strategy: "use_aggregated_stats"
+      mssql:
+        connection_profile: "local"
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source_key: "activity_def_id"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source_key: "assignee"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "proc_def_version"
+      role: "version"
+      source: "trace"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

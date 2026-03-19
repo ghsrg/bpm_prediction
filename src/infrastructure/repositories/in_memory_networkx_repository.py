@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 import networkx as nx
@@ -16,6 +17,7 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
     def __init__(self) -> None:
         self._structures: Dict[Tuple[str, str], ProcessStructureDTO] = {}
         self._graphs: Dict[Tuple[str, str], nx.DiGraph] = {}
+        self._snapshots: Dict[Tuple[str, str], list[Tuple[datetime, str, ProcessStructureDTO]]] = {}
         # Version-only index for legacy consumers that do not pass process_name.
         # None value marks ambiguous version across multiple processes.
         self._version_index: Dict[str, Optional[Tuple[str, str]]] = {}
@@ -62,6 +64,73 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
         process_key = self._normalize_process_name(process_name, "")
         return sorted({version for proc, version in self._structures.keys() if proc == process_key})
 
+    def list_process_names(self) -> list[str]:
+        return sorted({process_name for process_name, _ in self._structures.keys()})
+
+    def save_process_structure_snapshot(
+        self,
+        version: str,
+        dto: ProcessStructureDTO,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+        knowledge_version: str | None = None,
+    ) -> str:
+        version_key = self._normalize_version(version)
+        process_key = self._normalize_process_name(process_name, version_key)
+        storage_key = (process_key, version_key)
+
+        dt = self._to_utc(as_of_ts) or datetime.now(timezone.utc)
+        if knowledge_version is None:
+            seq = len(self._snapshots.get(storage_key, [])) + 1
+            knowledge_version = f"k{seq:06d}"
+
+        payload_dto = dto.model_copy(deep=True)
+        metadata = dict(payload_dto.metadata or {})
+        metadata["knowledge_version"] = knowledge_version
+        metadata["as_of_ts"] = dt.isoformat()
+        payload_dto.metadata = metadata
+
+        self._snapshots.setdefault(storage_key, []).append((dt, knowledge_version, payload_dto))
+        self._snapshots[storage_key].sort(key=lambda item: (item[0], item[1]))
+        self.save_process_structure(version=version_key, dto=payload_dto, process_name=process_key)
+        return knowledge_version
+
+    def get_process_structure_as_of(
+        self,
+        version: str,
+        process_name: str | None = None,
+        *,
+        as_of_ts: datetime | None = None,
+    ) -> Optional[ProcessStructureDTO]:
+        version_key = self._normalize_version(version)
+        if process_name is None:
+            indexed = self._version_index.get(version_key)
+            if indexed is None:
+                return None
+            storage_key = indexed
+        else:
+            process_key = self._normalize_process_name(process_name, version_key)
+            storage_key = (process_key, version_key)
+
+        snapshots = self._snapshots.get(storage_key, [])
+        if not snapshots:
+            return self._structures.get(storage_key)
+
+        target = self._to_utc(as_of_ts)
+        if target is None:
+            return snapshots[-1][2]
+
+        selected: Optional[ProcessStructureDTO] = None
+        for snap_ts, _, snap_dto in snapshots:
+            if snap_ts <= target:
+                selected = snap_dto
+            else:
+                break
+        if selected is not None:
+            return selected
+        return self._structures.get(storage_key)
+
     def get_graph_for_visualization(
         self,
         process_name: str,
@@ -98,6 +167,14 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
     def _normalize_version(version: str) -> str:
         normalized = str(version).strip()
         return normalized or "default"
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _dto_to_graph(dto: ProcessStructureDTO) -> nx.DiGraph:

@@ -22,6 +22,7 @@ SELECT
     PD.ID_ AS proc_def_id,
     PD.KEY_ AS proc_def_key,
     CAST(PD.VERSION_ AS VARCHAR(32)) AS version,
+    PD.TENANT_ID_ AS tenant_id,
     PD.VERSION_TAG_ AS version_tag,
     PD.DEPLOYMENT_ID_ AS deployment_id,
     PD.RESOURCE_NAME_ AS resource_name,

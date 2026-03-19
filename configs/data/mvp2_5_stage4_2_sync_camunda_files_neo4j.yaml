@@ -1,0 +1,37 @@
+data:
+  dataset_label: "camunda_sync_files_neo4j"
+  dataset_name: "camunda_sync"
+  log_path: "__camunda__"
+
+mapping:
+  adapter: "camunda"
+  knowledge_graph:
+    backend: "neo4j"
+    strict_load: false
+    ingest_split: "full"
+    neo4j:
+      connection_profile: "local"
+      connections_file: "configs/connections/neo4j.yaml"
+      verify_connectivity: true
+
+  camunda_adapter:
+    process_filters: []
+    tenant_id: ""
+    tenant_filters: []
+    structure:
+      source: "bpmn"
+      structure_from_logs: false
+      bpmn_source: "files"
+      parser_mode: "recover"
+      subprocess_mode: "flattened-no-subprocess-node"
+      files:
+        export_dir: "data/camunda_exports"
+        catalog_file: "process_definitions.csv"
+        bpmn_dir: "data/camunda_exports/bpmn_xml"
+      call_activity:
+        inference_fallback_strategy: "use_aggregated_stats"
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_Stage4_2_Sync_Camunda_Files_Neo4j"
+  mode: "train"

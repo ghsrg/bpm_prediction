@@ -1,0 +1,21 @@
+data:
+  dataset_label: "xes_sync_dir_neo4j"
+  dataset_name: "xes_sync"
+  # For sync-topology: set this to a directory with many .xes files.
+  log_path: "data/xes_sync"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "neo4j"
+    strict_load: false
+    ingest_split: "full"
+    neo4j:
+      connection_profile: "local"
+      connections_file: "configs/connections/neo4j.yaml"
+      verify_connectivity: true
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_Stage4_2_Sync_XES_Dir_Neo4j"
+  mode: "train"

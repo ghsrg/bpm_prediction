@@ -20,6 +20,10 @@ mapping:
   camunda_adapter:
     # process_name: defaults to data.dataset_name if omitted.
     process_name: "B2BContracts_ApproveProject"
+    # tenant_id: optional fallback tenant when catalog row does not include tenant_id.
+    tenant_id: ""
+    # tenant_filters: optional list of tenant ids for filtering catalog rows.
+    tenant_filters: []
     # version_key: optional; empty means read all versions available in source.
     version_key: "v6"
     # subprocess_graph_mode:

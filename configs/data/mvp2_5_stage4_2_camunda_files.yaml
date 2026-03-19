@@ -1,6 +1,6 @@
 data:
-  dataset_label: "camunda_procurement"
-  dataset_name: "procurement"
+  dataset_label: "camunda_b2bcontracts"
+  dataset_name: "B2BContracts_ApproveProject"
   # Compatibility field for IXESAdapter signature. Not used by camunda adapter.
   log_path: "__camunda__"
 
@@ -8,14 +8,20 @@ mapping:
   # adapter: default is "xes"; set "camunda" to read runtime exports (CSV/XLSX or MSSQL).
   adapter: "camunda"
   knowledge_graph:
-    # backend: in_memory | file
-    backend: "file"
+    # backend: in_memory | file | neo4j
+    backend: "neo4j"
     # path: directory where topology JSON artifacts are stored.
     path: "data/knowledge_graph"
     # strict_load: if true, training fails when no topology artifact exists for current process.
-    strict_load: false
+    strict_load: true
     # ingest_split: source for ingest-topology command (train | full).
     ingest_split: "train"
+    neo4j:
+      # Use connection profile from configs/connections/neo4j.yaml.
+      connection_profile: "local"
+      connections_file: "configs/connections/neo4j.yaml"
+      # true -> check connectivity during repository init.
+      verify_connectivity: true
 
   camunda_adapter:
     # process_name: defaults to data.dataset_name if omitted.
@@ -24,8 +30,11 @@ mapping:
     tenant_id: ""
     # tenant_filters: optional list of tenant ids for filtering catalog rows.
     tenant_filters: []
+    # process_filters: keep a single process for one-dataset ingestion run.
+    process_filters:
+      - "B2BContracts_ApproveProject"
     # version_key: optional; empty means read all versions available in source.
-    version_key: "v5"
+    version_key: ""
     # subprocess_graph_mode:
     # - "flattened-no-subprocess-node" (recommended for GNN): remove subProcess containers, keep only internal activity flow.
     # - "flattened": keep subProcess container nodes + internal flow.

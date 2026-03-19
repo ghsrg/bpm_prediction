@@ -1,0 +1,13 @@
+mssql_camunda:
+  profiles:
+    local:
+      driver: "ODBC Driver 18 for SQL Server"
+      host: "localhost"
+      port: 1433
+      database: "camunda"
+      encrypt: false
+      trust_server_certificate: true
+      user_env: "BPM_MSSQL_USER"
+      password_env: "BPM_MSSQL_PASSWORD"
+      # Optional:
+      # connection_string_env: "BPM_MSSQL_CONNECTION_STRING"

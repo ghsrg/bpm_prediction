@@ -20,6 +20,10 @@ mapping:
   camunda_adapter:
     # process_name: defaults to data.dataset_name if omitted.
     process_name: "procurement"
+    # tenant_id: optional fallback tenant when catalog row does not include tenant_id.
+    tenant_id: ""
+    # tenant_filters: optional list of tenant ids for filtering catalog rows.
+    tenant_filters: []
     # version_key: optional; empty means read all versions available in source.
     version_key: ""
     # subprocess_graph_mode:
@@ -35,6 +39,10 @@ mapping:
     runtime:
       # runtime_source: "files" (default) or "mssql".
       runtime_source: "mssql"
+      # connections_file: centralized non-secret connection profiles.
+      connections_file: "configs/connections/mssql_camunda.yaml"
+      # connection_profile: profile key inside connections_file.
+      connection_profile: "local"
       # history_cleanup_aware: default true.
       history_cleanup_aware: true
       # legacy_removal_time_policy: default "treat_as_eternal".
@@ -43,9 +51,11 @@ mapping:
       on_missing_removal_time: "auto_fallback"
       # sql_dir: location of SQL templates for Camunda runtime fetch.
       sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
-      # mssql.connection_string: required when runtime_source == "mssql".
+      # mssql connection uses profile + env secrets (preferred).
+      # Legacy connection_string is still supported for backward compatibility.
       mssql:
-        connection_string: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=camunda;UID=sa;PWD=***;TrustServerCertificate=yes;"
+        connection_profile: "local"
+        # connection_string_env: "BPM_MSSQL_CONNECTION_STRING"
     structure:
       # source:
       # - "logs": legacy fallback extraction from traces.
@@ -55,6 +65,9 @@ mapping:
       structure_from_logs: false
       # bpmn_source: files | mssql.
       bpmn_source: "mssql"
+      # Reuse centralized profile resolver for BPMN SQL source as well.
+      connections_file: "configs/connections/mssql_camunda.yaml"
+      connection_profile: "local"
       # sql_dir: SQL templates for process definition catalog and BPMN bytes.
       sql_dir: "src/adapters/ingestion/camunda/sql/structure"
       version_key_format: "vNN"
@@ -62,6 +75,8 @@ mapping:
       call_activity:
         # inference_fallback_strategy: skip | use_aggregated_stats | raise
         inference_fallback_strategy: "use_aggregated_stats"
+      mssql:
+        connection_profile: "local"
 
   features:
     - name: "concept:name"

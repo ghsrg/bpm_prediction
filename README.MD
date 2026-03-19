@@ -272,11 +272,24 @@ pytest tests/ -v
 pytest -m mvp1_regression -v
 ```
 
+7) Bulk sync topology (all process definitions / all XES files)
+```bash
+# Camunda files -> Neo4j
+python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_camunda_files_neo4j.yaml --out outputs/sync_camunda_files_neo4j.json
+
+# Camunda SQL -> Neo4j
+python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_neo4j.yaml --out outputs/sync_camunda_sql_neo4j.json
+
+# XES directory -> file backend
+python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml --out outputs/sync_xes_dir_file.json
+```
+
 Notes:
 ```text
 - visualize-topology without --from-raw reads only pre-ingested structure via knowledge_graph backend.
 - If topology is missing, run ingest-topology first.
 - knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
+- sync-topology writes Camunda namespaces as process_key@tenant when tenant_id is available.
 ```
 
 ---
@@ -326,6 +339,16 @@ python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_base
 ```bash
 .\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
 .\.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+8. Sync-topology config matrix
+```text
+configs/experiments/mvp2_5_stage4_2_sync_camunda_files_file.yaml
+configs/experiments/mvp2_5_stage4_2_sync_camunda_files_neo4j.yaml
+configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_file.yaml
+configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_neo4j.yaml
+configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml
+configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
 ```
 
 Worklogs and historical plans are now stored in:

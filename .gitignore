@@ -1,4 +1,5 @@
 .env
+.env.local
 logs/
 data/*
 !data/camunda_exports/
@@ -12,6 +13,7 @@ src/config/secrets.py
 mlruns/
 __pycache__/
 *.pyc
+configs/secrets/
 
 !configs/data/
 !configs/data/*.yaml

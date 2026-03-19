@@ -113,6 +113,42 @@ def test_runtime_adapter_mssql_mode_without_driver_returns_empty_not_raises():
     assert diagnostics.rows_raw == 0
 
 
+def test_runtime_adapter_resolves_mssql_connection_from_profile(tmp_path: Path, monkeypatch):
+    profile_path = tmp_path / "mssql_camunda.yaml"
+    profile_path.write_text(
+        """
+mssql_camunda:
+  profiles:
+    local:
+      driver: "ODBC Driver 18 for SQL Server"
+      host: "localhost"
+      port: 1433
+      database: "camunda"
+      trust_server_certificate: true
+      user_env: "BPM_MSSQL_USER"
+      password_env: "BPM_MSSQL_PASSWORD"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BPM_MSSQL_USER", "sa")
+    monkeypatch.setenv("BPM_MSSQL_PASSWORD", "secret")
+
+    adapter = CamundaRuntimeAdapter(
+        {
+            "runtime_source": "mssql",
+            "sql_dir": "src/adapters/ingestion/camunda/sql/runtime",
+            "mssql": {
+                "connections_file": str(profile_path),
+                "connection_profile": "local",
+            },
+        }
+    )
+    assert "SERVER=localhost,1433" in adapter.mssql_connection_string
+    assert "UID=sa" in adapter.mssql_connection_string
+    assert "PWD=secret" in adapter.mssql_connection_string
+
+
 def test_runtime_adapter_accepts_flexible_file_names(tmp_path: Path):
     export_dir = tmp_path / "exports"
     _copy_mock_exports(export_dir)

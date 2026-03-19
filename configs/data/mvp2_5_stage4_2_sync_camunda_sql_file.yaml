@@ -1,0 +1,35 @@
+data:
+  dataset_label: "camunda_sync_sql_file"
+  dataset_name: "camunda_sync"
+  log_path: "__camunda__"
+
+mapping:
+  adapter: "camunda"
+  knowledge_graph:
+    backend: "file"
+    path: "data/knowledge_graph"
+    strict_load: false
+    ingest_split: "full"
+
+  camunda_adapter:
+    process_filters: []
+    tenant_id: ""
+    tenant_filters: []
+    structure:
+      source: "bpmn"
+      structure_from_logs: false
+      bpmn_source: "mssql"
+      parser_mode: "recover"
+      subprocess_mode: "flattened-no-subprocess-node"
+      connections_file: "configs/connections/mssql_camunda.yaml"
+      connection_profile: "local"
+      sql_dir: "src/adapters/ingestion/camunda/sql/structure"
+      mssql:
+        connection_profile: "local"
+      call_activity:
+        inference_fallback_strategy: "use_aggregated_stats"
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_Stage4_2_Sync_Camunda_SQL_File"
+  mode: "train"

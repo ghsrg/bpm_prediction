@@ -9,6 +9,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from src.domain.ports.camunda_bpmn_port import ICamundaBpmnPort
+from src.infrastructure.config.connection_resolver import (
+    resolve_mssql_connection_string,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -52,9 +55,21 @@ class CamundaBpmnAdapter(ICamundaBpmnPort):
         runtime_mssql = runtime_cfg.get("mssql", {})
         if not isinstance(runtime_mssql, dict):
             runtime_mssql = {}
-        self.mssql_connection_string = str(
-            mssql_cfg.get("connection_string", runtime_mssql.get("connection_string", ""))
-        ).strip()
+        merged_mssql = {**runtime_mssql, **mssql_cfg}
+        self.mssql_connection_string = resolve_mssql_connection_string(
+            cfg={
+                "mssql": merged_mssql,
+                "connections_file": self.structure_cfg.get("connections_file")
+                or self.config.get("connections_file")
+                or runtime_cfg.get("connections_file"),
+                "connection_profile": self.structure_cfg.get("connection_profile")
+                or self.config.get("connection_profile")
+                or runtime_cfg.get("connection_profile"),
+                "profile": self.structure_cfg.get("profile")
+                or self.config.get("profile")
+                or runtime_cfg.get("profile"),
+            }
+        )
 
         self._catalog_by_proc_def_id: Dict[str, Dict[str, Any]] = {}
 
@@ -194,6 +209,7 @@ class CamundaBpmnAdapter(ICamundaBpmnPort):
         version = CamundaBpmnAdapter._pick_text(row, "version", "version_")
         version_tag = CamundaBpmnAdapter._pick_text(row, "version_tag", "version_tag_")
         deployment_id = CamundaBpmnAdapter._pick_text(row, "deployment_id", "deployment_id_")
+        tenant_id = CamundaBpmnAdapter._pick_text(row, "tenant_id", "tenant_id_")
         resource_name = CamundaBpmnAdapter._pick_text(row, "resource_name", "resource_name_")
         bpmn_path = CamundaBpmnAdapter._pick_text(row, "bpmn_path", "bpmn_file", "bpmn_file_path")
         executable_raw = CamundaBpmnAdapter._pick_text(row, "is_executable", "isexecutable")
@@ -206,6 +222,7 @@ class CamundaBpmnAdapter(ICamundaBpmnPort):
             "version": version,
             "version_tag": version_tag,
             "deployment_id": deployment_id,
+            "tenant_id": tenant_id,
             "resource_name": resource_name,
             "bpmn_path": bpmn_path,
             "bpmn_xml_content": row.get("bpmn_xml_content"),
@@ -232,14 +249,30 @@ class CamundaBpmnAdapter(ICamundaBpmnPort):
             if name:
                 filters = [name]
 
-        if not filters:
-            return rows
+        tenant_filters: List[str] = []
+        from_tenant_filters = self.config.get("tenant_filters")
+        if isinstance(from_tenant_filters, list):
+            tenant_filters = [
+                str(item).strip()
+                for item in from_tenant_filters
+                if str(item).strip()
+            ]
+        single_tenant = str(self.config.get("tenant_id", "")).strip()
+        if single_tenant and single_tenant not in tenant_filters:
+            tenant_filters.append(single_tenant)
+
         lowered = {item.lower() for item in filters}
+        lowered_tenant = {item.lower() for item in tenant_filters}
         filtered: List[Dict[str, Any]] = []
         for row in rows:
             key = str(row.get("proc_def_key", "")).strip().lower()
-            if key and key in lowered:
-                filtered.append(row)
+            tenant = str(row.get("tenant_id", "")).strip().lower()
+
+            if filters and (not key or key not in lowered):
+                continue
+            if lowered_tenant and (not tenant or tenant not in lowered_tenant):
+                continue
+            filtered.append(row)
         return filtered
 
     def _run_mssql_query(self, sql_text: str, *, label: str) -> List[Dict[str, Any]]:

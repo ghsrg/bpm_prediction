@@ -12,6 +12,7 @@ def test_runtime_procdef_catalog_template_has_required_columns():
     assert "as proc_def_id" in sql
     assert "as proc_def_key" in sql
     assert "as version" in sql
+    assert "as tenant_id" in sql
     assert "as deployment_id" in sql
     assert "as resource_name" in sql
     assert "bpms_camunda_mssql_tst.dbo.act_re_procdef" in sql

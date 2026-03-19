@@ -12,6 +12,9 @@ import pandas as pd
 from src.domain.entities.process_event import ProcessEventDTO
 from src.domain.entities.runtime_fetch_diagnostics import RuntimeFetchDiagnosticsDTO
 from src.domain.ports.camunda_runtime_port import ICamundaRuntimePort
+from src.infrastructure.config.connection_resolver import (
+    resolve_mssql_connection_string,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,16 @@ class CamundaRuntimeAdapter(ICamundaRuntimePort):
         self.on_missing_removal_time = str(self.config.get("on_missing_removal_time", "auto_fallback")).strip().lower()
 
         mssql_cfg = self.config.get("mssql", {})
-        self.mssql_connection_string = str(mssql_cfg.get("connection_string", "")).strip()
+        if not isinstance(mssql_cfg, dict):
+            mssql_cfg = {}
+        self.mssql_connection_string = resolve_mssql_connection_string(
+            cfg={
+                "mssql": mssql_cfg,
+                "connections_file": self.config.get("connections_file"),
+                "connection_profile": self.config.get("connection_profile"),
+                "profile": self.config.get("profile"),
+            }
+        )
 
     def fetch_historic_activity_events(
         self,

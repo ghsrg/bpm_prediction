@@ -1,0 +1,4 @@
+include:
+  - "../data/mvp2_5_stage4_2_sync_xes_dir_file.yaml"
+
+seed: 42

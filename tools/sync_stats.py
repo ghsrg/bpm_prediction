@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 from tqdm import tqdm
 
+from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.adapters.ingestion.camunda_runtime_adapter import CamundaRuntimeAdapter
 from src.cli import load_yaml_config
 from src.domain.entities.process_event import ProcessEventDTO
@@ -602,6 +603,145 @@ def _derive_process_tenant_filters(config: Dict[str, Any], sync_cfg: Dict[str, A
     return process_filters, tenant_filters
 
 
+def _inject_xes_dataset_name(mapping: Dict[str, Any], dataset_name: str) -> Dict[str, Any]:
+    result = dict(mapping)
+    xes_raw = result.get("xes_adapter", {})
+    xes_cfg = dict(xes_raw) if isinstance(xes_raw, dict) else {}
+    xes_cfg.setdefault("dataset_name", dataset_name)
+    result["xes_adapter"] = xes_cfg
+    return result
+
+
+def _iter_xes_paths(log_path: str) -> List[Path]:
+    path = Path(str(log_path)).resolve()
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        raise ValueError(f"XES log_path does not exist: {log_path}")
+    candidates = list(path.glob("*.xes")) + list(path.glob("*.mxml"))
+    return sorted(candidates)
+
+
+def _trace_to_process_events(
+    trace: Any,
+    *,
+    fallback_process: str,
+) -> tuple[List[ProcessEventDTO], int, int]:
+    events_out: List[ProcessEventDTO] = []
+    total = 0
+    valid = 0
+    # For sync-stats XES path we bind event version to the resolved process namespace.
+    # This avoids version-scope mismatches when config dataset_name alias differs from
+    # the topology process/version keys stored in the knowledge repository.
+    trace_version = _normalize_text(fallback_process) or _normalize_text(getattr(trace, "process_version", "")) or fallback_process
+    case_id = _normalize_text(getattr(trace, "case_id", "")) or "unknown_case"
+    for idx, event in enumerate(getattr(trace, "events", []) or []):
+        total += 1
+        try:
+            ts = float(getattr(event, "timestamp", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(ts):
+            continue
+        valid += 1
+        end_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        duration_sec = float(getattr(event, "duration", 0.0) or 0.0)
+        duration_sec = max(0.0, duration_sec)
+        start_dt = end_dt - timedelta(seconds=duration_sec)
+        activity = _normalize_text(getattr(event, "activity_id", "")) or "UNKNOWN_ACTIVITY"
+        resource = _normalize_text(getattr(event, "resource_id", "")) or "UNKNOWN"
+        act_inst_id = _normalize_text(getattr(event, "activity_instance_id", "")) or f"{case_id}:{idx}"
+        extra_raw = getattr(event, "extra", {})
+        extra = dict(extra_raw) if isinstance(extra_raw, dict) else {}
+        extra.setdefault("source_adapter", "xes")
+        events_out.append(
+            ProcessEventDTO(
+                case_id=case_id,
+                activity_def_id=activity,
+                activity_name=activity,
+                activity_type=_normalize_text(extra.get("activity_type")) or None,
+                proc_def_key=trace_version,
+                proc_def_version=trace_version,
+                act_inst_id=act_inst_id,
+                sequence_counter=idx,
+                start_time=start_dt,
+                end_time=end_dt,
+                duration_ms=float(duration_sec * 1000.0),
+                assignee=resource,
+                assigned_executor=resource,
+                executed_by=resource,
+                is_concurrent=False,
+                extra=extra,
+            )
+        )
+    return events_out, total, valid
+
+
+def _load_xes_events_by_process(
+    *,
+    config: Dict[str, Any],
+    selected_processes: Sequence[str],
+    show_progress: bool,
+) -> tuple[Dict[str, List[ProcessEventDTO]], Dict[str, float]]:
+    mapping = config.get("mapping", {})
+    if not isinstance(mapping, dict):
+        mapping = {}
+    data_cfg = config.get("data", {})
+    if not isinstance(data_cfg, dict):
+        data_cfg = {}
+    log_path = _normalize_text(data_cfg.get("log_path"))
+    if not log_path:
+        raise ValueError("sync-stats for xes requires data.log_path.")
+    dataset_name_cfg = _normalize_text(data_cfg.get("dataset_name"))
+
+    process_set = {_normalize_text(item) for item in selected_processes if _normalize_text(item)}
+    process_set_l = {item.lower(): item for item in process_set}
+    adapter = XESAdapter()
+    process_events: Dict[str, List[ProcessEventDTO]] = defaultdict(list)
+    total_count: Counter[str] = Counter()
+    valid_count: Counter[str] = Counter()
+
+    paths = _iter_xes_paths(log_path)
+    iterator: Iterable[Path] = paths
+    if show_progress:
+        iterator = tqdm(paths, desc="sync-stats xes files", unit="file")
+
+    for file_path in iterator:
+        fallback_name = dataset_name_cfg or file_path.stem
+        mapping_for_file = _inject_xes_dataset_name(mapping, fallback_name)
+        for trace in adapter.read(str(file_path), mapping_for_file):
+            trace_version = _normalize_text(getattr(trace, "process_version", ""))
+            resolved_namespace = ""
+            candidates = [trace_version, dataset_name_cfg, file_path.stem, fallback_name]
+            for candidate in candidates:
+                norm = _normalize_text(candidate)
+                if not norm:
+                    continue
+                if process_set:
+                    matched = process_set_l.get(norm.lower())
+                    if matched:
+                        resolved_namespace = matched
+                        break
+                if not resolved_namespace:
+                    resolved_namespace = norm
+
+            process_namespace = resolved_namespace
+            if process_set and process_namespace not in process_set:
+                continue
+            events, total, valid = _trace_to_process_events(trace, fallback_process=process_namespace)
+            if events:
+                process_events[process_namespace].extend(events)
+            total_count[process_namespace] += total
+            valid_count[process_namespace] += valid
+
+    coverage: Dict[str, float] = {}
+    for process_namespace in process_set or process_events.keys():
+        total = float(total_count.get(process_namespace, 0))
+        valid = float(valid_count.get(process_namespace, 0))
+        coverage[process_namespace] = float((valid / total) * 100.0) if total > 0.0 else 0.0
+    return dict(process_events), coverage
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     parser = argparse.ArgumentParser(description="Refresh process statistics snapshots (Stage 3.4 Tier A).")
@@ -615,8 +755,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not isinstance(mapping, dict):
         mapping = {}
     adapter_kind = _normalize_text(mapping.get("adapter", "camunda")).lower() or "camunda"
-    if adapter_kind != "camunda":
-        raise ValueError("sync-stats currently supports only mapping.adapter='camunda'.")
+    if adapter_kind not in {"camunda", "xes"}:
+        raise ValueError("sync-stats supports mapping.adapter in {'camunda','xes'}.")
 
     sync_cfg_raw = config.get("sync_stats", {})
     sync_cfg = dict(sync_cfg_raw) if isinstance(sync_cfg_raw, dict) else {}
@@ -653,8 +793,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         tenant_filters=tenant_filters,
     )
 
-    runtime_cfg = _resolve_runtime_config(config)
-    runtime = CamundaRuntimeAdapter(runtime_cfg)
+    runtime: CamundaRuntimeAdapter | None = None
+    xes_events: Dict[str, List[ProcessEventDTO]] = {}
+    xes_coverage: Dict[str, float] = {}
+    if adapter_kind == "camunda":
+        runtime_cfg = _resolve_runtime_config(config)
+        runtime = CamundaRuntimeAdapter(runtime_cfg)
+    else:
+        xes_events, xes_coverage = _load_xes_events_by_process(
+            config=config,
+            selected_processes=selected_processes,
+            show_progress=show_progress,
+        )
 
     details: List[Dict[str, Any]] = []
     processed = 0
@@ -676,16 +826,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             skipped += 1
             continue
 
-        until_arg = as_of_ts.replace(tzinfo=None) if stats_time_policy == "strict_asof" else None
-        all_events, diagnostics = runtime.fetch_historic_activity_events(
-            process_name=process_key,
-            version_key="",
-            since=None,
-            until=until_arg,
-        )
-        all_events = _filter_by_tenant(all_events, tenant_id)
-
-        coverage_percent = float(diagnostics.history_coverage_percent or 0.0)
+        if adapter_kind == "camunda":
+            if runtime is None:
+                raise RuntimeError("Camunda runtime adapter is not initialized.")
+            until_arg = as_of_ts.replace(tzinfo=None) if stats_time_policy == "strict_asof" else None
+            all_events, diagnostics = runtime.fetch_historic_activity_events(
+                process_name=process_key,
+                version_key="",
+                since=None,
+                until=until_arg,
+            )
+            all_events = _filter_by_tenant(all_events, tenant_id)
+            coverage_percent = float(diagnostics.history_coverage_percent or 0.0)
+        else:
+            all_events = list(xes_events.get(process_namespace, []))
+            coverage_percent = float(xes_coverage.get(process_namespace, 0.0))
 
         version_iter: Iterable[str]
         version_iter = sorted(versions, key=lambda item: (_version_rank(item) is None, _version_rank(item) or 10**9, item))
@@ -729,6 +884,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary = {
         "status": "ok",
         "mode": "sync-stats",
+        "adapter": adapter_kind,
         "tier": "A",
         "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,

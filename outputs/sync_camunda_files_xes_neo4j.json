@@ -1,0 +1,43 @@
+{
+  "status": "ok",
+  "mode": "sync-stats",
+  "adapter": "xes",
+  "tier": "A",
+  "stats_time_policy": "strict_asof",
+  "process_scope_policy": "up_to_target_version",
+  "as_of_ts": "2026-03-19T17:55:03.407147+00:00",
+  "knowledge_backend": "neo4j",
+  "processed_versions": 3,
+  "skipped_versions": 0,
+  "processes_total": 2,
+  "processes_selected": 2,
+  "details": [
+    {
+      "process_namespace": "B2BContracts_ApproveProject",
+      "version": "v5",
+      "history_coverage_percent": 0.0,
+      "num_node_metrics": 6608,
+      "num_edge_metrics": 3288,
+      "knowledge_version": "k000004",
+      "tenant_id": null
+    },
+    {
+      "process_namespace": "B2BContracts_ApproveProject",
+      "version": "v6",
+      "history_coverage_percent": 0.0,
+      "num_node_metrics": 9632,
+      "num_edge_metrics": 4584,
+      "knowledge_version": "k000004",
+      "tenant_id": null
+    },
+    {
+      "process_namespace": "BPI_Challenge_2012",
+      "version": "BPI_Challenge_2012",
+      "history_coverage_percent": 0.0,
+      "num_node_metrics": 1288,
+      "num_edge_metrics": 3312,
+      "knowledge_version": "k000002",
+      "tenant_id": null
+    }
+  ]
+}

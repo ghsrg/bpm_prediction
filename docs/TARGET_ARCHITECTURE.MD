@@ -168,3 +168,18 @@ Any architectural change must keep:
 1. MVP1 regression shield green,
 2. deterministic config-driven execution,
 3. explicit data contracts between pipeline stages.
+
+## 12. Target Knowledge Lifecycle
+
+The target lifecycle for knowledge artifacts is:
+1. Offline structure build (`ingest-topology` / `sync-topology`).
+2. Offline statistical enrichment (`sync-stats`) with immutable snapshots.
+3. Runtime consumption in train/eval/infer via `IKnowledgeGraphPort` only.
+
+This lifecycle is backend-agnostic and must remain stable when switching from file to Neo4j.
+
+```mermaid
+flowchart LR
+    K1[Offline topology build] --> K2[Offline stats snapshots]
+    K2 --> K3[Repository-backed runtime consumption]
+```

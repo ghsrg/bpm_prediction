@@ -177,3 +177,30 @@ flowchart LR
 - avoid full table scans in production,
 - enforce process filters and time windows,
 - log query source and row counts per dataset.
+
+## 14. Stage 3.4 Statistics Sync Integration
+
+`sync-stats` uses this adapter as runtime data source and enriches already-ingested structure artifacts.
+
+Flow:
+```mermaid
+flowchart TD
+    S1[sync-stats] --> S2[CamundaRuntimeAdapter fetch events]
+    S2 --> S3[Load ProcessStructureDTO from repository]
+    S3 --> S4[Compute window metrics by as_of]
+    S4 --> S5[Save immutable stats snapshot]
+```
+
+Timestamp semantics:
+1. `--as-of` provided: windows are computed relative to provided cutoff.
+2. no `--as-of`: windows are computed relative to current UTC.
+
+Stored windows:
+1. `last_7d`
+2. `last_30d`
+3. `last_90d`
+4. `all_time`
+
+Important boundary:
+1. This adapter does not parse BPMN for Stage 3.4 stats sync.
+2. BPMN structure parsing remains in Stage 3.2 ingestion path.

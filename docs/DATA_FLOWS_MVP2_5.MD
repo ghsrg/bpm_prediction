@@ -1,84 +1,97 @@
 ﻿# DATA_FLOWS_MVP2_5.MD
 
-Updated: 2026-03-17  
+Updated: 2026-03-19
 Status: ACTIVE
 
 ## 1. Scope
-This document defines runtime data flows for MVP2.5 with strict separation between:
-- topology ingestion,
-- model train and eval.
+Runtime and offline data flows for MVP2.5 after Stage 3.4.
 
-## 2. Flow A: ingest-topology
+## 2. Flow A - ingest-topology (single dataset)
 ```mermaid
 flowchart TD
-    C1[CLI ingest-topology --config] --> L1[Load YAML includes]
-    L1 --> A1[Resolve adapter xes or camunda]
-    A1 --> D1{Camunda + structure.source=bpmn and structure_from_logs=false}
-    D1 -->|yes| B1A[CamundaBpmnAdapter fetch catalog and BPMN XML]
-    B1A --> B1B[BpmnStructureParserService parse and flatten]
-    B1B --> Q1{Parse success}
-    Q1 -->|yes| P1[IKnowledgeGraphPort save_process_structure]
-    Q1 -->|no| Q2[Append quarantine record]
-    D1 -->|no| R1[Read traces]
-    R1 --> F1[Apply fraction]
-    F1 --> S1[Apply ingest split train or full]
-    S1 --> T1[TopologyExtractorService extract_from_logs]
-    T1 --> P1
-    P1 --> B1[File repository JSON artifact]
-    Q2 --> O1[Write ingestion summary JSON]
-    B1 --> O1
+    A1[CLI ingest-topology] --> A2[Load config and includes]
+    A2 --> A3[Select adapter xes or camunda]
+    A3 --> A4[Read traces or BPMN source]
+    A4 --> A5[Build ProcessStructureDTO]
+    A5 --> A6[IKnowledgeGraphPort save_process_structure]
+    A6 --> A7[Write summary JSON]
 ```
 
-## 3. Flow B: train/eval
+## 3. Flow B - sync-topology (bulk)
 ```mermaid
 flowchart TD
-    C2[CLI main --config] --> L2[Load YAML includes]
-    L2 --> A2[Resolve trace adapter]
-    A2 --> R2[Read traces]
-    R2 --> P2[Prefix generation]
-    P2 --> E2[FeatureEncoder fit and encode]
-    E2 --> G2[DynamicGraphBuilder]
-    G2 --> K2[IKnowledgeGraphPort get_process_structure]
-    K2 --> M2[Build GraphTensorContract]
-    M2 --> D2[Model forward and loss]
-    D2 --> X2[Metrics and tracker]
+    B1[CLI sync-topology] --> B2[Resolve source catalog]
+    B2 --> B3[Iterate process definitions or files]
+    B3 --> B4[Build ProcessStructureDTO per process and version]
+    B4 --> B5[IKnowledgeGraphPort save_process_structure]
+    B5 --> B6[Sync summary and warnings]
 ```
 
-## 4. Train flow with fallback branch
+## 4. Flow C - sync-stats (offline enrichment)
 ```mermaid
-flowchart LR
-    G[DynamicGraphBuilder] --> K[Repository lookup by process and version]
-    K -->|found| S[Build allowed_target_mask]
-    K -->|missing| F[Fallback no structure fields]
-    S --> T[Tensor contract]
-    F --> T
+flowchart TD
+    C1[CLI sync-stats] --> C2[Load runtime events from Camunda adapter]
+    C2 --> C3[Load structure by process and version]
+    C3 --> C4[Compute window metrics]
+    C4 --> C5[Build stats_index and diagnostics]
+    C5 --> C6[save_process_structure_snapshot]
+    C6 --> C7[Immutable knowledge_version created]
+    C7 --> C8[Summary JSON]
 ```
 
-## 5. Sequence for repository-backed visualization
+## 5. Flow D - train/eval/infer consumption
+```mermaid
+flowchart TD
+    D1[Read traces] --> D2[PrefixPolicy]
+    D2 --> D3[FeatureEncoder]
+    D3 --> D4[DynamicGraphBuilder]
+    D4 --> D5{stats_time_policy}
+    D5 -->|strict_asof| D6[get_process_structure_as_of]
+    D5 -->|latest| D7[get_process_structure]
+    D6 --> D8[Build struct_x and structural tensors]
+    D7 --> D8
+    D8 --> D9[GraphTensorContract]
+    D9 --> D10[Model forward]
+```
+
+## 6. Timestamp Semantics
+
+### 6.1 Snapshot creation timestamp
+1. `sync-stats --as-of <ISO>`: snapshot uses provided timestamp.
+2. `sync-stats` without `--as-of`: snapshot uses current UTC timestamp.
+
+### 6.2 Snapshot retrieval timestamp
+1. `strict_asof`: builder uses prefix last-event timestamp as lookup time.
+2. `latest`: builder ignores prefix time and reads latest structure/snapshot.
+
+### 6.3 Selection rule
+For `get_process_structure_as_of`:
+1. select latest snapshot where `snapshot.as_of_ts <= requested_as_of`.
+2. if no snapshot matches, repository fallback path is applied (current implementation behavior).
+
+## 7. Stats Windows and Scopes
+Computed during `sync-stats`:
+1. windows: `last_7d`, `last_30d`, `last_90d`, `all_time`
+2. scopes: `version`, `process`
+3. flattened index key: `window.scope.metric`
+
+## 8. Leakage Control Points
+1. Structure and stats are generated offline.
+2. Experiment timeline is controlled via `--as-of` snapshots.
+3. Runtime consumes repository artifacts only.
+4. To avoid future leakage in research timelines, maintain historical snapshot cadence and isolated namespace/storage for experiments.
+
+## 9. Visualization Flow
 ```mermaid
 sequenceDiagram
     participant U as User
     participant V as visualize-topology
     participant R as IKnowledgeGraphPort
-    participant P as plot_topology
+    participant P as Renderer
 
-    U->>V: run visualize-topology --config
-    V->>R: list_versions(process_name)
-    R-->>V: available_versions
-    V->>R: get_graph_for_visualization(process_name, version, min_freq)
-    R-->>V: nx.DiGraph
-    V->>P: render graphviz or pm4py
-    P-->>U: image file or viewer
+    U->>V: run command with config and version
+    V->>R: get_graph_for_visualization(process, version, min_freq)
+    R-->>V: graph
+    V->>P: render graph
+    P-->>U: image output
 ```
-
-## 6. Data leakage control points
-- Ingestion split uses chronological train subset by default.
-- Training split is independent and re-applied in train pipeline.
-- No evaluation records are used to build topology when `ingest_split=train`.
-- File-backed topology artifacts make split boundary explicit and reproducible.
-
-## 7. Deterministic diagnostics
-For Camunda BPMN ingest summary:
-1. `quarantined_procdefs` is explicit.
-2. `quarantine_error_codes` is a stable sorted list.
-3. `quarantine_records[*].source_hint` is available for operator debugging.

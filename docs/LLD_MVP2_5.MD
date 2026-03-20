@@ -1,85 +1,105 @@
-# LLD_MVP2_5.MD
+﻿# LLD_MVP2_5.MD
 
-Updated: 2026-03-17  
+Updated: 2026-03-19
 Status: ACTIVE
 
 ## 1. Purpose
-Low-level behavior of MVP2.5 decoupled ingestion, file-backed structure storage, and graceful degradation in training/eval.
+Low-level behavior for MVP2.5 repositories, stats snapshots, and runtime tensor mapping.
 
-## 2. FileBasedKnowledgeGraphRepository
+## 2. Repository Algorithms
 
-### 2.1 Responsibilities
-1. Persist `ProcessStructureDTO` to JSON artifact.
-2. Read artifact by `(process_name, version)` with version-only fallback only if unambiguous.
-3. Serve visualization graph with edge-frequency filtering.
+### 2.1 `save_process_structure_snapshot`
+Inputs:
+1. `version`
+2. `ProcessStructureDTO`
+3. `process_name`
+4. optional `as_of_ts`
+5. optional `knowledge_version`
 
-### 2.2 Atomic write
-```text
-payload = serialize(dto)
-write payload -> target.tmp
-os.replace(target.tmp, target)
+Algorithm:
+1. Resolve strict scope identifiers (`tenant_id`, `process_name`, `version_key`, `proc_def_id`).
+2. Resolve `as_of_ts` (provided or `now_utc`).
+3. Persist latest base structure for backward-compatible readers.
+4. If `knowledge_version` not provided, compute next sequence (`k000001`, ...).
+5. Persist immutable snapshot with JSON payload fields.
+6. Link snapshot to process version.
+
+### 2.2 `get_process_structure_as_of`
+Inputs:
+1. `version`
+2. `process_name`
+3. optional `as_of_ts`
+
+Algorithm:
+1. Load base structure.
+2. If `as_of_ts` is provided:
+   - select snapshot with max timestamp where `snapshot.as_of_ts <= as_of_ts`.
+3. If `as_of_ts` not provided:
+   - select latest snapshot.
+4. Overlay stats JSON payload onto returned `ProcessStructureDTO`.
+5. Add snapshot metadata (`knowledge_version`, effective `as_of_ts`) into returned metadata.
+
+## 3. JSON-Only Stats Policy
+
+Hard rule:
+1. No normalized stat subgraph (`NodeStat`, `EdgeStat`) in Stage 3.4.
+2. Stats are stored in JSON payload fields only.
+3. TTL is not applied.
+
+## 4. DynamicGraphBuilder Mapping
+
+### 4.1 Input contract
+Builder expects:
+1. `ProcessStructureDTO.metadata.stats_index`
+2. config block `mapping.graph_feature_mapping`
+
+### 4.2 Mapping algorithm
+1. For each configured node metric spec:
+   - locate key `window.scope.metric` in `stats_index.node`.
+2. Build `struct_x` tensor by activity vocabulary index.
+3. Fill missing values with metric default.
+4. Optionally map edge metric into `structural_edge_weight`.
+
+### 4.3 Time policy behavior
+1. `latest`: use regular structure lookup.
+2. `strict_asof`: use prefix last-event timestamp for as-of lookup.
+
+## 5. Sync-Stats Runtime Calculation
+
+`sync-stats` computes:
+1. node metrics (`exec_count`, duration stats, loop/parallel/freshness/confidence)
+2. edge metrics (`transition_probability`, latency stats)
+3. global metrics (`resource_handover_entropy`, coverage)
+
+And stores:
+1. windowed nested stats (`node_stats`, `edge_stats`, `gnn_features`)
+2. flattened `metadata.stats_index`
+3. diagnostics (`stats_diagnostics`)
+
+## 6. Sequence Diagram - Stats to Forward
+```mermaid
+sequenceDiagram
+    participant S as sync-stats
+    participant R as Knowledge Repository
+    participant B as DynamicGraphBuilder
+    participant M as EOPKG Model
+
+    S->>R: save_process_structure_snapshot(dto, as_of)
+    B->>R: get_process_structure_as_of(version, process, prefix_ts)
+    R-->>B: ProcessStructureDTO with stats
+    B->>B: build struct_x and structural tensors
+    B->>M: GraphTensorContract
+    M-->>B: logits
 ```
 
-### 2.3 Schema policy
-1. Current writer header: `schema_version=1.1`
-2. Reader supports: `1.0`, `1.1`
-3. Unknown schema version logs warning and still attempts parse
-
-## 3. BPMN parser hardening (Stage 3.3)
-Service: `BpmnStructureParserService`
-
-Deterministic output guarantees:
-1. nodes sorted by scope and id
-2. edges sorted by source-target-edge_type-id with deduplication
-3. call bindings deterministic by key
-4. `graph_topology` enriched with:
-   - `allowed_edges`
-   - `cycles_detected`, `cycle_count`
-   - `node_count`, `edge_count`
-   - `gateway_node_ids`
-   - `event_subprocess_node_ids`
-
-Quarantine contract:
-1. parser returns `dto=None` + structured quarantine record for hard failures
-2. quarantine includes `source_hint` for fast operational triage
-3. standardized error codes:
-   - `missing_bpmn_payload`
-   - `empty_bpmn_payload`
-   - `xml_parse_error`
-   - `no_process_element`
-   - `missing_proc_def_id` (ingest pre-parse)
-
-## 4. ingest-topology summary contract (Camunda BPMN path)
-Mandatory summary fields:
-1. `total_procdefs`
-2. `parsed_procdefs`
-3. `quarantined_procdefs`
-4. `quarantine_error_codes`
-5. `quarantine_records`
-6. `versions_saved`
-
-This summary is deterministic and machine-readable for CI smoke checks.
-
-## 5. DynamicGraphBuilder graceful degradation
-1. Resolve structure version from prefix and version variants (`22` <-> `v22`).
-2. Read via `IKnowledgeGraphPort`.
-3. If structure exists, build `allowed_target_mask`.
-4. If missing, keep structural tensors/mask as `None`; baseline path continues.
-5. Strict mode (`mapping.knowledge_graph.strict_load=true`) fails fast when structure is expected but unavailable.
-
-## 6. Failure matrix
-| Component | Failure | Behavior |
+## 7. Failure and Fallback Matrix
+| Component | Condition | Behavior |
 |---|---|---|
-| File repo write | disk IO error | explicit exception |
-| File repo read | missing file | returns `None` |
-| File repo read | corrupted JSON | returns `None` |
-| BPMN parser | malformed XML | quarantine + continue batch |
-| BPMN parser | node without id | warning + partial graph |
-| Trainer graph build | structure missing | fallback unless strict mode |
+| snapshot save | backend write error | raise explicit exception |
+| as_of lookup | no matching snapshot | fallback to repository default path |
+| stats index mapping | missing metric key | use metric default |
+| structure missing | no DTO | baseline-compatible contract (unless strict load) |
 
-## 7. Test coverage focus
-1. DTO contract freeze validators.
-2. Dirty BPMN resilience and quarantine correctness.
-3. ingest summary stability for Camunda BPMN mode.
-4. repository schema header/roundtrip compatibility.
-5. full non-regression (`mvp1_regression` + full `tests/`).
+## 8. Known Limitation (Stage 3.4)
+Current stats mapping uses direct numeric projection with defaults.
+Full graph feature encoding policy (fit/transform/state for stats features) is the next implementation step.

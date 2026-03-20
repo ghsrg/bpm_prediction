@@ -223,6 +223,40 @@ def test_save_process_structure_snapshot_uses_composite_key_and_json_payload():
     assert json.loads(params["node_stats_json"])["windows"]["last_30d"]["version"]["exec_count"]["A"] == 10
 
 
+def test_save_process_structure_synthesizes_nodes_from_allowed_edges_when_nodes_missing():
+    repo = _build_repo()
+    writes = []
+
+    def _capture_write(self, *, operation, query, params):
+        writes.append((operation, query, params))
+
+    repo._run_write = MethodType(_capture_write, repo)
+
+    dto = ProcessStructureDTO(
+        version="BPI_Challenge_2012",
+        allowed_edges=[("A_START", "B_TASK"), ("B_TASK", "C_END")],
+        node_metadata={
+            "A_START": {"activity_name": "Start", "activity_type": "startEvent"},
+            "B_TASK": {"activity_name": "Approve", "activity_type": "userTask"},
+            "C_END": {"activity_name": "End", "activity_type": "endEvent"},
+        },
+        # Important: nodes intentionally omitted to emulate XES topology payload.
+        nodes=[],
+        edges=[],
+    )
+
+    repo.save_process_structure(version="BPI_Challenge_2012", dto=dto, process_name="BPI_Challenge_2012")
+
+    node_writes = [item for item in writes if item[0] == "upsert_node"]
+    edge_writes = [item for item in writes if item[0] == "upsert_edge"]
+
+    assert len(node_writes) == 3
+    assert len(edge_writes) == 2
+    assert any("set n:startevent" in query.lower() for _, query, _ in node_writes)
+    assert any("set n:task:usertask" in query.lower() for _, query, _ in node_writes)
+    assert any("set n:endevent" in query.lower() for _, query, _ in node_writes)
+
+
 def test_get_process_structure_asof_overlays_stats_snapshot_json():
     repo = _build_repo()
 

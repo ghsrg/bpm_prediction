@@ -1,117 +1,152 @@
 ﻿# ARCHITECTURE_MVP2_5.MD
 
-Updated: 2026-03-17  
-Status: ACTIVE (Stage 3.2 completed, Stage 4 preparation)
+Updated: 2026-03-19
+Status: ACTIVE (Stage 3.4 completed, Stage 4 in progress)
 
 ## 1. Purpose
-This document fixes the architecture baseline for MVP2.5 after introducing:
-- offline topology ingestion (`ingest-topology`),
-- repository-backed knowledge storage (`IKnowledgeGraphPort`),
-- file-backed implementation (`FileBasedKnowledgeGraphRepository`),
-- runtime Camunda adapters and resilient fallback behavior in Stage 3.1.
+This document is the canonical architecture baseline for MVP2.5.
 
-MVP2.5 keeps MVP1 training compatibility while Stage 3.2 BPMN ingestion is already integrated and Stage 4 Neo4j backend is next.
+MVP2.5 currently includes:
+1. Offline topology ingestion (`ingest-topology`, `sync-topology`).
+2. Offline statistics enrichment (`sync-stats`).
+3. Repository-backed structure consumption in train/eval/infer via `IKnowledgeGraphPort`.
+4. Snapshot-based historical lookup (`as_of`) for temporal-safe experiments.
 
-## 2. Architectural Principle
-Core principle: **decouple ingestion from training/inference**.
+## 2. Core Architecture Principle
+The system is split into independent pipelines:
+1. Ingestion pipeline: reads raw sources and persists structure/snapshots.
+2. Runtime ML pipeline: reads traces and consumes prebuilt artifacts only.
 
-- Ingestion pipeline builds and persists structure artifacts.
-- Training/evaluation pipeline consumes already persisted structure artifacts.
-- Runtime does not synchronously rebuild process topology during model training.
+Training must not build topology/stats synchronously from raw sources.
 
-## 3. Hexagonal Architecture View
+## 3. Hexagonal View
 ```mermaid
 flowchart LR
     subgraph Drivers
-        CLI1[CLI ingest-topology]
-        CLI2[CLI train eval]
-        Tool1[visualize-topology]
+        CLI_INGEST[CLI ingest-topology]
+        CLI_SYNC[CLI sync-topology]
+        CLI_STATS[CLI sync-stats]
+        CLI_TRAIN[CLI train and eval]
+        TOOL_VIS[CLI visualize-topology]
     end
 
     subgraph Application
-        UC1[IngestTopologyUseCase]
-        UC2[TrainEvalUseCase]
-        UC3[VisualizeTopologyUseCase]
+        UC_INGEST[IngestTopologyUseCase]
+        UC_SYNC[SyncTopologyUseCase]
+        UC_STATS[SyncStatsUseCase]
+        UC_TRAIN[TrainEvalUseCase]
+        UC_VIS[VisualizeTopologyUseCase]
     end
 
     subgraph Ports
-        P1[IKnowledgeGraphPort]
-        P2[IXESAdapter]
-        P3[ICamundaTraceAdapter]
-        P4[ICamundaRuntimePort]
-    end
-
-    subgraph Adapters
-        A1[XESAdapter]
-        A2[CamundaTraceAdapter]
-        A3[CamundaRuntimeAdapter]
-        A4[FileBasedKnowledgeGraphRepository]
-        A5[InMemoryNetworkXRepository]
-        A6[Neo4jKnowledgeGraphRepository future]
+        PORT_TRACE[IXESAdapter and ICamundaTracePort]
+        PORT_RUNTIME[ICamundaRuntimePort]
+        PORT_KG[IKnowledgeGraphPort]
+        PORT_TRACK[ITracker]
     end
 
     subgraph Domain
-        D1[TopologyExtractorService]
-        D2[DynamicGraphBuilder]
-        D3[FeatureEncoder PrefixPolicy]
-        D4[GNN models]
+        SVC_EXTRACT[TopologyExtractorService]
+        SVC_PARSER[BpmnStructureParserService]
+        SVC_BUILDER[DynamicGraphBuilder]
+        SVC_ENCODER[FeatureEncoder and PrefixPolicy]
+        SVC_MODEL[GNN Models]
     end
 
-    CLI1 --> UC1
-    CLI2 --> UC2
-    Tool1 --> UC3
+    subgraph Adapters
+        AD_XES[XESAdapter]
+        AD_CAM_TRACE[CamundaTraceAdapter]
+        AD_CAM_RT[CamundaRuntimeAdapter]
+        AD_REPO_FILE[FileBasedKnowledgeGraphRepository]
+        AD_REPO_MEM[InMemoryNetworkXRepository]
+        AD_REPO_NEO[Neo4jKnowledgeGraphRepository]
+        AD_TRACK[MLflowTracker]
+    end
 
-    UC1 --> P2
-    UC1 --> P3
-    UC1 --> D1
-    D1 --> P1
+    CLI_INGEST --> UC_INGEST
+    CLI_SYNC --> UC_SYNC
+    CLI_STATS --> UC_STATS
+    CLI_TRAIN --> UC_TRAIN
+    TOOL_VIS --> UC_VIS
 
-    UC2 --> P2
-    UC2 --> P3
-    UC2 --> D3
-    UC2 --> D2
-    D2 --> P1
-    UC2 --> D4
+    UC_INGEST --> PORT_TRACE
+    UC_INGEST --> SVC_EXTRACT
+    UC_INGEST --> SVC_PARSER
+    SVC_EXTRACT --> PORT_KG
+    SVC_PARSER --> PORT_KG
 
-    UC3 --> P1
+    UC_SYNC --> PORT_TRACE
+    UC_SYNC --> SVC_EXTRACT
+    SVC_EXTRACT --> PORT_KG
 
-    P2 --> A1
-    P3 --> A2
-    P4 --> A3
-    P1 --> A4
-    P1 --> A5
-    P1 -. future .-> A6
+    UC_STATS --> PORT_RUNTIME
+    UC_STATS --> PORT_KG
+
+    UC_TRAIN --> PORT_TRACE
+    UC_TRAIN --> SVC_ENCODER
+    UC_TRAIN --> SVC_BUILDER
+    SVC_BUILDER --> PORT_KG
+    UC_TRAIN --> SVC_MODEL
+    UC_TRAIN --> PORT_TRACK
+
+    UC_VIS --> PORT_KG
+
+    PORT_TRACE --> AD_XES
+    PORT_TRACE --> AD_CAM_TRACE
+    PORT_RUNTIME --> AD_CAM_RT
+    PORT_KG --> AD_REPO_FILE
+    PORT_KG --> AD_REPO_MEM
+    PORT_KG --> AD_REPO_NEO
+    PORT_TRACK --> AD_TRACK
 ```
 
 ## 4. Pipeline Separation
-### 4.1 Ingestion Pipeline (offline)
-1. Read traces from XES or Camunda trace adapter.
-2. Apply configured split policy for ingestion scope (`train` or `full`).
-3. Extract process transitions with `TopologyExtractorService`.
-4. Persist `ProcessStructureDTO` through `IKnowledgeGraphPort`.
-5. Emit machine-readable ingestion summary.
 
-### 4.2 Training and Evaluation Pipeline
-1. Read traces/events via adapter.
-2. Fit feature encoder and build prefixes.
-3. Build tensors with `DynamicGraphBuilder`.
-4. Resolve structure from `IKnowledgeGraphPort` (file or memory backend).
-5. If structure missing, fallback path remains valid (no crash).
+### 4.1 Structure ingestion (offline)
+1. Read traces or BPMN source.
+2. Build `ProcessStructureDTO`.
+3. Save structure through `IKnowledgeGraphPort`.
 
-## 5. Repository Backends
-### 5.1 Current backends
-- `in_memory`: fast tests and local transient flow.
-- `file`: persistent JSON artifacts in `data/knowledge_graph`.
+### 4.2 Topology bulk sync (offline)
+1. Iterate all configured process definitions/files.
+2. Save/update structure by `(process_name, version)`.
 
-### 5.2 Target backend
-- `neo4j` is planned as production backend under same port contract.
+### 4.3 Stats sync (offline)
+1. Read runtime activity events from Camunda runtime adapter.
+2. Load existing structure from repository.
+3. Compute Tier A stats windows (`last_7d`, `last_30d`, `last_90d`, `all_time`) relative to `as_of`.
+4. Persist immutable snapshot (`knowledge_version`) in repository.
 
-## 6. Resilience Strategy
-- Missing topology artifact must not crash baseline training unless `strict_load=true`.
-- Camunda runtime fetch remains cleanup-aware and fallback-safe.
-- Training always has a valid path (structure-enhanced or baseline fallback).
+### 4.4 Train/eval/infer (online runtime)
+1. Read traces and build prefixes.
+2. Resolve structure (+ stats snapshot) from repository.
+3. Build tensors (`GraphTensorContract`) and run model forward.
 
-## 7. Physical Directory Structure
+## 5. Stage 3.4 Snapshot Policy
+
+1. Immutable snapshots are append-only.
+2. Snapshot key is strict:
+   - `tenant_id + process_name + version_key + proc_def_id + knowledge_version`.
+3. Stats storage is JSON-only payload in snapshot node/document.
+4. `as_of` lookup returns nearest snapshot with timestamp `<= as_of`.
+5. TTL is not used.
+
+## 6. Timestamp Semantics
+
+1. `sync-stats --as-of <ISO>`: snapshot timestamp is forced to provided value.
+2. `sync-stats` without `--as-of`: snapshot timestamp is current UTC time.
+3. In train/eval with `experiment.stats_time_policy = strict_asof`:
+   - builder uses prefix last-event timestamp as runtime `as_of`.
+4. In `latest` policy:
+   - builder uses latest available structure/snapshot.
+
+## 7. Backward Compatibility and Fallback
+
+1. MVP1 path must remain functional.
+2. Missing structure/snapshot does not crash unless strict load mode is explicitly enabled.
+3. EOPKG stats enrichment is additive to existing contracts.
+
+## 8. Physical Structure (relevant)
 ```text
 bpm_prediction/
   configs/
@@ -120,33 +155,15 @@ bpm_prediction/
     model/
   data/
     knowledge_graph/
-      <process_name>/<version>/process_structure.json
     camunda_exports/
-  docs/
-    ARCHITECTURE_MVP2_5.MD
-    DATA_FLOWS_MVP2_5.MD
-    DATA_MODEL_MVP2_5.MD
-    LLD_MVP2_5.MD
-    EVF_MVP2_5.MD
-    ADAPTER_CAMUNDA_SQL.MD
-    ADAPTER_XES.MD
-    TARGET_ARCHITECTURE.MD
   src/
     adapters/ingestion/
-    application/services/
     application/use_cases/
     domain/services/
     infrastructure/repositories/
   tools/
     ingest_topology.py
+    sync_topology.py
+    sync_stats.py
     visualize_topology.py
-    visualize_graph.py
 ```
-
-## 8. MVP1 Compatibility Guard
-MVP1 regression remains mandatory:
-- architecture_guard,
-- `pytest -m mvp1_regression`,
-- at least one MVP1 smoke training run.
-
-No MVP2.5 component may break baseline execution path.

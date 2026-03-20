@@ -120,3 +120,25 @@ class GraphTensorContract(TypedDict):
 ### Working directories for reports and plans
 - Root must stay clean.
 - New and historical reports/plans are stored under `docs/worklogs/`.
+
+## MVP2.5 Stage 3.4 Addendum (2026-03-19)
+
+### Mandatory docs for any task related to structure/stats/train timing
+Read in this strict order:
+1. `docs/ARCHITECTURE_MVP2_5.MD`
+2. `docs/DATA_MODEL_MVP2_5.MD`
+3. `docs/DATA_FLOWS_MVP2_5.MD`
+4. `docs/LLD_MVP2_5.MD`
+5. `docs/EVF_MVP2_5.MD`
+6. `README.MD` section `MVP2.5 Stage 3.4 Runbook (Canonical)`
+
+### Hard execution rules
+1. Topology and stats are prepared offline (`ingest-topology`, `sync-topology`, `sync-stats`).
+2. Train/eval/infer must consume repository artifacts only.
+3. For temporal-safe studies, use `experiment.stats_time_policy = strict_asof` and maintain snapshot timeline.
+
+### Snapshot policy (must not be violated)
+1. Immutable snapshots only.
+2. Strict key: `tenant_id + process_name + version_key + proc_def_id + knowledge_version`.
+3. JSON-only stats payload (no `NodeStat`/`EdgeStat` normalization).
+4. No TTL.

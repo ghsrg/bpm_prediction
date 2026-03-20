@@ -383,3 +383,118 @@ configs/experiments/mvp2_5_stage3_4_eopkg_sql.yaml
 
 Worklogs and historical plans are now stored in:
 - `docs/worklogs/`
+
+## MVP2.5 Stage 3.4 Runbook (Canonical)
+
+Use this section as the primary operational reference for MVP2.5.
+
+### 1. Modes and Commands
+
+1. `train`
+```bash
+python main.py --config <train_experiment.yaml>
+```
+
+2. `eval_drift`
+```bash
+python main.py --config <eval_drift_experiment.yaml>
+```
+
+3. `eval_cross_dataset`
+```bash
+python main.py --config <eval_cross_dataset_experiment.yaml>
+```
+
+4. `ingest-topology` (single dataset structure build)
+```bash
+python main.py ingest-topology --config <experiment.yaml> --out outputs/ingest_summary.json
+```
+
+5. `sync-topology` (bulk structure sync)
+```bash
+python main.py sync-topology --config <sync_topology_experiment.yaml> --out outputs/sync_topology.json
+```
+
+6. `sync-stats` (offline stats enrichment)
+```bash
+python main.py sync-stats --config <sync_stats_experiment.yaml> --out outputs/sync_stats.json
+python main.py sync-stats --config <sync_stats_experiment.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
+```
+XES-lite examples:
+```bash
+python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --out outputs/sync_stats_xes.json
+python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_xes_asof.json
+```
+
+7. `visualize-topology` (repository-first)
+```bash
+python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
+```
+
+8. `visualize-topology --from-raw` (legacy quick check)
+```bash
+python main.py visualize-topology --config <experiment.yaml> --from-raw --version <version_key> --out outputs/topology_raw.png
+```
+
+9. `visualize-graph` (single IG)
+```bash
+python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
+```
+
+### 2. Key Config Attributes
+
+#### 2.1 `experiment` block
+1. `mode`: `train | eval_drift | eval_cross_dataset`
+2. `split_strategy`: `temporal | none`
+3. `train_ratio`, `fraction`, `split_ratio`
+4. `stats_time_policy`: `latest | strict_asof`
+
+#### 2.2 `mapping.knowledge_graph` block
+1. `backend`: `in_memory | file | neo4j`
+2. `strict_load`: fail-fast when topology is required
+3. backend-specific storage/connection settings
+
+#### 2.3 `mapping.graph_feature_mapping` block
+1. `enabled: true`
+2. `node_numeric`: list of mapped stats metrics
+3. `edge_weight`: edge metric mapping
+
+### 3. How Sync and Timestamps Work
+
+#### 3.1 `sync-stats` timestamp source
+1. With `--as-of`: snapshot timestamp is forced to provided ISO time.
+2. Without `--as-of`: snapshot timestamp is current UTC.
+
+#### 3.2 Runtime lookup timestamp
+1. If `stats_time_policy = strict_asof`:
+   - for each prefix, lookup uses timestamp of the last event in that prefix.
+2. If `stats_time_policy = latest`:
+   - latest available snapshot/structure is used.
+
+#### 3.3 Window semantics in snapshot payload
+Each snapshot stores windows relative to its own `as_of`:
+1. `last_7d`
+2. `last_30d`
+3. `last_90d`
+4. `all_time`
+
+Each window is computed for scopes:
+1. `version`
+2. `process`
+
+Source note:
+1. `mapping.adapter: camunda` -> Tier A full runtime stats (recommended).
+2. `mapping.adapter: xes` -> Tier A-lite stats (no execution-tree concurrency semantics).
+
+### 4. Recommended Stage 3.4 Workflow
+```mermaid
+flowchart LR
+    R1[sync-topology] --> R2[sync-stats timeline]
+    R2 --> R3[train or eval with strict_asof]
+    R3 --> R4[visualize and report]
+```
+
+### 5. Notes for Research Safety
+1. For temporal studies, create periodic snapshots (for example monthly) and run with `strict_asof`.
+2. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
+3. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.

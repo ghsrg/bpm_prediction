@@ -1,0 +1,160 @@
+data:
+  dataset_label: "bpi2012_stage3_4_xes"
+  dataset_name: "bpi2012"
+  log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "data/knowledge_graph"
+    strict_load: true
+    ingest_split: "train"
+
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+      - name: "node_exec_count_v30"
+        metric: "exec_count"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_duration_median_v30"
+        metric: "duration_median"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_duration_p95_v30"
+        metric: "duration_p95"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_loop_density_v30"
+        metric: "loop_density"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_parallel_var_v30"
+        metric: "parallel_token_variance"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_freshness_v30"
+        metric: "freshness_score"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_confidence_v30"
+        metric: "confidence_score"
+        window: "last_30d"
+        scope: "version"
+        default: 0.0
+      - name: "node_exec_count_p30"
+        metric: "exec_count"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_duration_median_p30"
+        metric: "duration_median"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_duration_p95_p30"
+        metric: "duration_p95"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_loop_density_p30"
+        metric: "loop_density"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_parallel_var_p30"
+        metric: "parallel_token_variance"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_freshness_p30"
+        metric: "freshness_score"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+      - name: "node_confidence_p30"
+        metric: "confidence_score"
+        window: "last_30d"
+        scope: "process"
+        default: 0.0
+    edge_weight:
+      metric: "transition_probability"
+      window: "last_30d"
+      scope: "version"
+      default: 1.0
+
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: true
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

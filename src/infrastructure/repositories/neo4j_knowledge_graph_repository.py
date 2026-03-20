@@ -75,7 +75,13 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         dto_payload.metadata = metadata or None
 
         self._upsert_process_version(process_name=process_key, version_key=version_key, dto=dto_payload)
-        for node in dto_payload.nodes or []:
+        nodes_for_upsert = list(dto_payload.nodes or [])
+        if not nodes_for_upsert:
+            nodes_for_upsert = self._build_nodes_from_allowed_edges(
+                allowed_edges=dto_payload.allowed_edges,
+                node_metadata=dto_payload.node_metadata or {},
+            )
+        for node in nodes_for_upsert:
             self._upsert_node(
                 process_name=process_key,
                 version_key=version_key,
@@ -879,6 +885,37 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             "is_interrupting",
         }
         return {str(k): v for k, v in edge.items() if k not in known}
+
+    @staticmethod
+    def _build_nodes_from_allowed_edges(
+        *,
+        allowed_edges: Iterable[tuple[str, str]],
+        node_metadata: Dict[str, Dict[str, str]],
+    ) -> List[Dict[str, Any]]:
+        node_ids: set[str] = set()
+        for src, dst in allowed_edges:
+            s = str(src).strip()
+            d = str(dst).strip()
+            if s:
+                node_ids.add(s)
+            if d:
+                node_ids.add(d)
+        synthesized: List[Dict[str, Any]] = []
+        for node_id in sorted(node_ids):
+            meta = node_metadata.get(node_id, {}) if isinstance(node_metadata, dict) else {}
+            activity_name = str(meta.get("activity_name", "")).strip() or node_id
+            activity_type = str(meta.get("activity_type", "")).strip() or "activity"
+            synthesized.append(
+                {
+                    "id": node_id,
+                    "name": activity_name,
+                    "bpmn_tag": activity_type,
+                    "type": activity_type,
+                    "activity_type": activity_type,
+                    "scope_level": 0,
+                }
+            )
+        return synthesized
 
     @staticmethod
     def _optional_text(value: Any) -> Optional[str]:

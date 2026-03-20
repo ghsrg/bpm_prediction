@@ -208,3 +208,17 @@ This artifact stores `ProcessStructureDTO` and schema metadata (`schema_version`
 - stronger leakage control (no synchronous topology extraction during train),
 - reproducible structure snapshots,
 - backend portability (`in_memory` now, `file` now, `neo4j` next).
+
+## MVP2.5 Stage 3.4 note (XES path)
+
+XES adapter remains a trace-ingestion adapter only.
+
+Stage 3.4 interaction:
+1. XES can be used to build topology artifacts (`ingest-topology` / `sync-topology`).
+2. `sync-stats` supports `mapping.adapter: xes` in Tier A-lite mode.
+3. XES Tier A-lite does not include execution-tree concurrency semantics from Camunda runtime tables.
+4. Train/eval consume repository artifacts through `IKnowledgeGraphPort`.
+
+Operational rule:
+1. For XES-only research, keep structure and stats artifacts isolated in dedicated storage namespace/path.
+2. Use `stats_time_policy` in experiment config to control runtime lookup behavior (`latest` vs `strict_asof`).

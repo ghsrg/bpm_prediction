@@ -48,6 +48,64 @@ def _write_xes(path: Path, case_id: str, a1: str, a2: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _write_xes_with_trace_version(path: Path, case_id: str, version: str, a1: str, a2: str) -> None:
+    content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<log xes.version="1.0" xes.features="nested-attributes">
+  <trace>
+    <string key="concept:name" value="{case_id}" />
+    <string key="concept:version" value="{version}" />
+    <event>
+      <string key="concept:name" value="{a1}" />
+      <date key="time:timestamp" value="2024-01-01T00:00:00+00:00" />
+      <string key="org:resource" value="u1" />
+    </event>
+    <event>
+      <string key="concept:name" value="{a2}" />
+      <date key="time:timestamp" value="2024-01-01T01:00:00+00:00" />
+      <string key="org:resource" value="u2" />
+    </event>
+  </trace>
+</log>
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _write_xes_two_traces(path: Path) -> None:
+    content = """<?xml version="1.0" encoding="UTF-8" ?>
+<log xes.version="1.0" xes.features="nested-attributes">
+  <trace>
+    <string key="concept:name" value="C1" />
+    <event>
+      <string key="concept:name" value="A" />
+      <date key="time:timestamp" value="2024-01-01T00:00:00+00:00" />
+      <string key="org:resource" value="u1" />
+    </event>
+    <event>
+      <string key="concept:name" value="B" />
+      <date key="time:timestamp" value="2024-01-01T01:00:00+00:00" />
+      <string key="org:resource" value="u2" />
+    </event>
+  </trace>
+  <trace>
+    <string key="concept:name" value="C2" />
+    <event>
+      <string key="concept:name" value="A" />
+      <date key="time:timestamp" value="2024-01-02T00:00:00+00:00" />
+      <string key="org:resource" value="u3" />
+    </event>
+    <event>
+      <string key="concept:name" value="B" />
+      <date key="time:timestamp" value="2024-01-02T01:00:00+00:00" />
+      <string key="org:resource" value="u4" />
+    </event>
+  </trace>
+</log>
+"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def test_sync_stats_builds_tier_a_snapshot_and_indexes(tmp_path: Path):
     export_dir = tmp_path / "exports"
     kg_dir = tmp_path / "kg"
@@ -215,7 +273,13 @@ def test_sync_stats_xes_matches_process_by_file_stem_when_dataset_alias_differs(
     cfg_path = tmp_path / "cfg_sync_stats_xes_alias.yaml"
     out_path = tmp_path / "sync_stats_xes_alias_summary.json"
 
-    _write_xes(xes_path, case_id="C1", a1="A", a2="B")
+    _write_xes_with_trace_version(
+        xes_path,
+        case_id="C1",
+        version="BPI_Challenge_2012",
+        a1="A",
+        a2="B",
+    )
 
     repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
     repo.save_process_structure(
@@ -283,3 +347,233 @@ experiment:
     all_time = loaded.node_stats.get("windows", {}).get("all_time", {})
     version_exec = all_time.get("version", {}).get("exec_count", {})
     assert float(version_exec.get("A", 0.0)) > 0.0
+
+
+def test_sync_stats_xes_uses_trace_version_for_ranked_version_scope(tmp_path: Path):
+    xes_path = tmp_path / "proc.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_xes_vn.yaml"
+    out_path = tmp_path / "sync_stats_xes_vn_summary.json"
+
+    _write_xes_with_trace_version(xes_path, case_id="C1", version="v5", a1="A", a2="B")
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "v5",
+        ProcessStructureDTO(
+            version="v5",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="proc",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "proc"
+  dataset_label: "proc"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["proc"]
+  show_progress: false
+
+experiment:
+  mode: "train"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-15T00:00:00Z"])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["processed_versions"] == 1
+    assert summary["skipped_versions"] == 0
+
+    loaded = repo.get_process_structure("v5", process_name="proc")
+    assert loaded is not None and loaded.node_stats is not None
+    all_time = loaded.node_stats.get("windows", {}).get("all_time", {})
+    version_exec = all_time.get("version", {}).get("exec_count", {})
+    assert float(version_exec.get("A", 0.0)) > 0.0
+
+
+def test_sync_stats_xes_skips_snapshot_when_no_scope_events(tmp_path: Path):
+    xes_path = tmp_path / "proc.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_xes_skip.yaml"
+    out_path = tmp_path / "sync_stats_xes_skip_summary.json"
+
+    # No concept:version in trace -> fallback dataset/process "proc" (non-ranked),
+    # while topology version is ranked "v5", so no scope match is expected.
+    _write_xes(xes_path, case_id="C1", a1="A", a2="B")
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "v5",
+        ProcessStructureDTO(
+            version="v5",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="proc",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "proc"
+  dataset_label: "proc"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["proc"]
+  show_progress: false
+
+experiment:
+  mode: "train"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-15T00:00:00Z"])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["processed_versions"] == 0
+    assert summary["skipped_versions"] == 1
+    assert summary["skipped_details"]
+    assert summary["skipped_details"][0]["reason"] == "no_scope_events_up_to_as_of"
+    assert summary["skipped_details"][0]["process_name"] == "proc"
+    assert summary["skipped_details"][0]["version"] == "v5"
+
+    loaded = repo.get_process_structure("v5", process_name="proc")
+    assert loaded is not None
+    assert loaded.node_stats is None
+    assert loaded.edge_stats is None
+    assert loaded.gnn_features is None
+
+
+def test_sync_stats_xes_auto_asof_uses_train_cut(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_xes_auto_asof.yaml"
+    out_path = tmp_path / "sync_stats_xes_auto_asof_summary.json"
+
+    _write_xes_two_traces(xes_path)
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "alpha",
+        ProcessStructureDTO(
+            version="alpha",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="alpha",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "alpha"
+  dataset_label: "alpha"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["alpha"]
+  show_progress: false
+
+experiment:
+  mode: "train"
+  split_strategy: "temporal"
+  train_ratio: 0.5
+  fraction: 1.0
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path)])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["as_of_ts"] == "auto:max_event_ts_per_process"
+    assert summary["processed_versions"] == 1
+    assert summary["details"]
+    assert summary["details"][0]["effective_as_of_ts"].startswith("2024-01-01T01:00:00")

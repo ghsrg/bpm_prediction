@@ -1,6 +1,6 @@
 data:
   dataset_label: "bpi2012_stage3_4_xes"
-  dataset_name: "bpi2012"
+  dataset_name: "BPI_Challenge_2012"
   log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
 
 mapping:
@@ -99,7 +99,7 @@ mapping:
     version_key: "concept:version"
     complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
     pairing_strategy: "lifo"
-    use_classifier: true
+    use_classifier: false
 
   features:
     - name: "concept:name"

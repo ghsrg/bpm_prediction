@@ -368,15 +368,167 @@ def _filter_by_scope_policy(
                 if event_rank <= target_rank:
                     filtered.append(event)
                 continue
-            if event_version and event_version == target_norm:
-                filtered.append(event)
-                continue
-            if not event_version:
+            # For non-ranked versions (not vN), and mixed rank/non-rank cases,
+            # we keep exact-match behavior only.
+            if event_version == target_norm:
                 filtered.append(event)
             continue
 
         filtered.append(event)
     return filtered
+
+
+def _normalize_split_strategy(raw: Any) -> str:
+    text = _normalize_text(raw).lower() or "temporal"
+    if text == "time":
+        text = "temporal"
+    if text not in {"temporal", "none"}:
+        raise ValueError("experiment.split_strategy must be 'temporal' or 'none'.")
+    return text
+
+
+def _resolve_train_cut_config(config: Dict[str, Any]) -> tuple[str, float, float]:
+    experiment_cfg = config.get("experiment", {})
+    if not isinstance(experiment_cfg, dict):
+        experiment_cfg = {}
+    split_strategy = _normalize_split_strategy(experiment_cfg.get("split_strategy", "temporal"))
+
+    train_ratio = float(experiment_cfg.get("train_ratio", 1.0) or 1.0)
+    if train_ratio < 0.0 or train_ratio > 1.0:
+        raise ValueError("experiment.train_ratio must be within [0.0, 1.0].")
+
+    fraction = float(experiment_cfg.get("fraction", 1.0) or 1.0)
+    if fraction <= 0.0 or fraction > 1.0:
+        raise ValueError("experiment.fraction must be within (0.0, 1.0].")
+    return split_strategy, train_ratio, fraction
+
+
+def _trace_start_ts(trace: Any) -> datetime | None:
+    events = getattr(trace, "events", None) or []
+    if not events:
+        return None
+    try:
+        ts = float(getattr(events[0], "timestamp", 0.0))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(ts):
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def _trace_end_ts(trace: Any) -> datetime | None:
+    events = getattr(trace, "events", None) or []
+    if not events:
+        return None
+    try:
+        ts = float(getattr(events[-1], "timestamp", 0.0))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(ts):
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def _max_event_ts(events: Sequence[ProcessEventDTO]) -> datetime | None:
+    latest: datetime | None = None
+    for event in events:
+        ts = _event_ts(event)
+        if ts is None:
+            continue
+        if latest is None or ts > latest:
+            latest = ts
+    return latest
+
+
+def _select_train_traces(
+    traces: Sequence[Any],
+    *,
+    split_strategy: str,
+    train_ratio: float,
+    fraction: float,
+) -> tuple[List[Any], datetime | None, int, int]:
+    traces_with_events = [trace for trace in traces if getattr(trace, "events", None)]
+    if split_strategy == "temporal":
+        ordered = sorted(
+            traces_with_events,
+            key=lambda tr: _trace_start_ts(tr) or datetime.min.replace(tzinfo=timezone.utc),
+        )
+    else:
+        ordered = list(traces_with_events)
+
+    split_idx = int(len(ordered) * train_ratio)
+    macro = ordered[:split_idx]
+    selected = macro if fraction >= 1.0 else macro[: int(len(macro) * fraction)]
+
+    max_ts: datetime | None = None
+    for trace in selected:
+        trace_ts = _trace_end_ts(trace)
+        if trace_ts is None:
+            continue
+        if max_ts is None or trace_ts > max_ts:
+            max_ts = trace_ts
+    return selected, max_ts, len(ordered), len(selected)
+
+
+def _select_train_events(
+    events: Sequence[ProcessEventDTO],
+    *,
+    split_strategy: str,
+    train_ratio: float,
+    fraction: float,
+) -> tuple[List[ProcessEventDTO], datetime | None, int, int]:
+    grouped = _group_by_case(events)
+    case_items: List[tuple[str, List[ProcessEventDTO], datetime]] = []
+    for case_id, case_events in grouped.items():
+        first_ts = _event_ts(case_events[0]) if case_events else None
+        case_items.append((case_id, case_events, first_ts or datetime.min.replace(tzinfo=timezone.utc)))
+
+    if split_strategy == "temporal":
+        case_items.sort(key=lambda item: item[2])
+
+    split_idx = int(len(case_items) * train_ratio)
+    macro = case_items[:split_idx]
+    selected_cases = macro if fraction >= 1.0 else macro[: int(len(macro) * fraction)]
+    selected_case_ids = {case_id for case_id, _, _ in selected_cases}
+
+    selected_events: List[ProcessEventDTO] = []
+    for case_id, case_events in grouped.items():
+        if case_id in selected_case_ids:
+            selected_events.extend(case_events)
+    selected_events = sorted(
+        selected_events,
+        key=lambda item: (
+            _event_ts(item) or datetime.min.replace(tzinfo=timezone.utc),
+            _normalize_text(item.case_id),
+            _normalize_text(item.act_inst_id),
+            _normalize_text(item.activity_def_id),
+        ),
+    )
+    return selected_events, _max_event_ts(selected_events), len(case_items), len(selected_case_ids)
+
+
+def _scope_event_counts(
+    events: Sequence[ProcessEventDTO],
+    *,
+    target_version: str,
+    process_scope_policy: str,
+    as_of_ts: datetime,
+) -> tuple[int, int]:
+    version_events = _filter_by_scope_policy(
+        events,
+        target_version=target_version,
+        scope="version",
+        process_scope_policy=process_scope_policy,
+    )
+    process_events = _filter_by_scope_policy(
+        events,
+        target_version=target_version,
+        scope="process",
+        process_scope_policy=process_scope_policy,
+    )
+    version_events = _filter_events_by_time(version_events, start_ts=None, end_ts=as_of_ts)
+    process_events = _filter_events_by_time(process_events, start_ts=None, end_ts=as_of_ts)
+    return len(version_events), len(process_events)
 
 
 def _build_stats_for_dto(
@@ -386,6 +538,7 @@ def _build_stats_for_dto(
     all_events: Sequence[ProcessEventDTO],
     as_of_ts: datetime,
     windows_days: Sequence[int],
+    stats_time_policy: str,
     process_scope_policy: str,
     coverage_percent: float,
     confidence_weights: Dict[str, float],
@@ -471,7 +624,7 @@ def _build_stats_for_dto(
                 stats_index_global[f"{window_name}.{scope_name}.{metric_name}"] = float(metric_value)
 
     stats_diagnostics = {
-        "stats_time_policy": "strict_asof",
+        "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,
         "as_of_ts": as_of_ts.isoformat(),
         "history_coverage_percent": float(coverage_percent),
@@ -494,7 +647,7 @@ def _build_stats_for_dto(
         "global": stats_index_global,
     }
     metadata["stats_policy"] = {
-        "stats_time_policy": "strict_asof",
+        "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,
     }
     payload.metadata = metadata
@@ -630,10 +783,10 @@ def _trace_to_process_events(
     events_out: List[ProcessEventDTO] = []
     total = 0
     valid = 0
-    # For sync-stats XES path we bind event version to the resolved process namespace.
-    # This avoids version-scope mismatches when config dataset_name alias differs from
-    # the topology process/version keys stored in the knowledge repository.
-    trace_version = _normalize_text(fallback_process) or _normalize_text(getattr(trace, "process_version", "")) or fallback_process
+    # Version policy for XES stats:
+    # 1) use trace.process_version (concept:version or dataset fallback from XES adapter)
+    # 2) fallback to resolved process namespace only when version is absent.
+    trace_version = _normalize_text(getattr(trace, "process_version", "")) or _normalize_text(fallback_process) or fallback_process
     case_id = _normalize_text(getattr(trace, "case_id", "")) or "unknown_case"
     for idx, event in enumerate(getattr(trace, "events", []) or []):
         total += 1
@@ -682,7 +835,10 @@ def _load_xes_events_by_process(
     config: Dict[str, Any],
     selected_processes: Sequence[str],
     show_progress: bool,
-) -> tuple[Dict[str, List[ProcessEventDTO]], Dict[str, float]]:
+    split_strategy: str,
+    train_ratio: float,
+    fraction: float,
+) -> tuple[Dict[str, List[ProcessEventDTO]], Dict[str, float], Dict[str, datetime | None], Dict[str, Dict[str, int]]]:
     mapping = config.get("mapping", {})
     if not isinstance(mapping, dict):
         mapping = {}
@@ -697,9 +853,7 @@ def _load_xes_events_by_process(
     process_set = {_normalize_text(item) for item in selected_processes if _normalize_text(item)}
     process_set_l = {item.lower(): item for item in process_set}
     adapter = XESAdapter()
-    process_events: Dict[str, List[ProcessEventDTO]] = defaultdict(list)
-    total_count: Counter[str] = Counter()
-    valid_count: Counter[str] = Counter()
+    traces_by_process: Dict[str, List[Any]] = defaultdict(list)
 
     paths = _iter_xes_paths(log_path)
     iterator: Iterable[Path] = paths
@@ -728,18 +882,39 @@ def _load_xes_events_by_process(
             process_namespace = resolved_namespace
             if process_set and process_namespace not in process_set:
                 continue
+            traces_by_process[process_namespace].append(trace)
+
+    process_events: Dict[str, List[ProcessEventDTO]] = defaultdict(list)
+    coverage: Dict[str, float] = {}
+    effective_as_of: Dict[str, datetime | None] = {}
+    selection_meta: Dict[str, Dict[str, int]] = {}
+    target_processes = sorted(process_set or set(traces_by_process.keys()))
+    for process_namespace in target_processes:
+        process_traces = traces_by_process.get(process_namespace, [])
+        selected_traces, max_ts, total_traces, selected_traces_count = _select_train_traces(
+            process_traces,
+            split_strategy=split_strategy,
+            train_ratio=train_ratio,
+            fraction=fraction,
+        )
+        total_count = 0
+        valid_count = 0
+        for trace in selected_traces:
             events, total, valid = _trace_to_process_events(trace, fallback_process=process_namespace)
             if events:
                 process_events[process_namespace].extend(events)
-            total_count[process_namespace] += total
-            valid_count[process_namespace] += valid
+            total_count += total
+            valid_count += valid
+        coverage[process_namespace] = float((valid_count / total_count) * 100.0) if total_count > 0 else 0.0
+        effective_as_of[process_namespace] = max_ts
+        selection_meta[process_namespace] = {
+            "total_traces": int(total_traces),
+            "selected_traces": int(selected_traces_count),
+            "total_events": int(total_count),
+            "selected_events": int(valid_count),
+        }
 
-    coverage: Dict[str, float] = {}
-    for process_namespace in process_set or process_events.keys():
-        total = float(total_count.get(process_namespace, 0))
-        valid = float(valid_count.get(process_namespace, 0))
-        coverage[process_namespace] = float((valid / total) * 100.0) if total > 0.0 else 0.0
-    return dict(process_events), coverage
+    return dict(process_events), coverage, effective_as_of, selection_meta
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -764,9 +939,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.info("sync_stats.enabled=false -> nothing to do.")
         return 0
 
-    as_of_ts = _parse_as_of(args.as_of or sync_cfg.get("as_of"))
+    as_of_input = _normalize_text(args.as_of or sync_cfg.get("as_of"))
+    as_of_ts_explicit = _parse_as_of(as_of_input) if as_of_input else None
     stats_time_policy = _normalize_text(sync_cfg.get("stats_time_policy", "strict_asof")).lower() or "strict_asof"
     process_scope_policy = _normalize_text(sync_cfg.get("process_scope_policy", "up_to_target_version")).lower() or "up_to_target_version"
+    split_strategy, train_ratio, fraction = _resolve_train_cut_config(config)
     windows_days = sync_cfg.get("windows_days", [7, 30, 90])
     if not isinstance(windows_days, list):
         windows_days = [7, 30, 90]
@@ -796,17 +973,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime: CamundaRuntimeAdapter | None = None
     xes_events: Dict[str, List[ProcessEventDTO]] = {}
     xes_coverage: Dict[str, float] = {}
+    xes_as_of: Dict[str, datetime | None] = {}
+    xes_selection: Dict[str, Dict[str, int]] = {}
     if adapter_kind == "camunda":
         runtime_cfg = _resolve_runtime_config(config)
         runtime = CamundaRuntimeAdapter(runtime_cfg)
     else:
-        xes_events, xes_coverage = _load_xes_events_by_process(
+        xes_events, xes_coverage, xes_as_of, xes_selection = _load_xes_events_by_process(
             config=config,
             selected_processes=selected_processes,
             show_progress=show_progress,
+            split_strategy=split_strategy,
+            train_ratio=train_ratio,
+            fraction=fraction,
         )
 
     details: List[Dict[str, Any]] = []
+    skipped_details: List[Dict[str, Any]] = []
     processed = 0
     skipped = 0
 
@@ -819,28 +1002,91 @@ def main(argv: Sequence[str] | None = None) -> int:
         versions = knowledge_repo.list_versions(process_name=process_namespace)
         if not versions:
             skipped += 1
+            skipped_details.append(
+                {
+                    "process_name": process_namespace,
+                    "version": None,
+                    "reason": "no_versions_for_process",
+                    "effective_as_of_ts": None,
+                }
+            )
             continue
 
         process_key, tenant_id = _split_namespace(process_namespace)
         if not process_key:
             skipped += 1
+            skipped_details.append(
+                {
+                    "process_name": process_namespace,
+                    "version": None,
+                    "reason": "invalid_process_namespace",
+                    "effective_as_of_ts": None,
+                }
+            )
             continue
 
         if adapter_kind == "camunda":
             if runtime is None:
                 raise RuntimeError("Camunda runtime adapter is not initialized.")
-            until_arg = as_of_ts.replace(tzinfo=None) if stats_time_policy == "strict_asof" else None
-            all_events, diagnostics = runtime.fetch_historic_activity_events(
+            until_arg = (
+                as_of_ts_explicit.replace(tzinfo=None)
+                if (stats_time_policy == "strict_asof" and as_of_ts_explicit is not None)
+                else None
+            )
+            source_events, diagnostics = runtime.fetch_historic_activity_events(
                 process_name=process_key,
                 version_key="",
                 since=None,
                 until=until_arg,
             )
-            all_events = _filter_by_tenant(all_events, tenant_id)
+            source_events = _filter_by_tenant(source_events, tenant_id)
+            all_events, derived_as_of, total_cases, selected_cases = _select_train_events(
+                source_events,
+                split_strategy=split_strategy,
+                train_ratio=train_ratio,
+                fraction=fraction,
+            )
             coverage_percent = float(diagnostics.history_coverage_percent or 0.0)
+            selection_info = {
+                "total_cases": int(total_cases),
+                "selected_cases": int(selected_cases),
+                "total_events": int(len(source_events)),
+                "selected_events": int(len(all_events)),
+            }
         else:
             all_events = list(xes_events.get(process_namespace, []))
             coverage_percent = float(xes_coverage.get(process_namespace, 0.0))
+            derived_as_of = xes_as_of.get(process_namespace)
+            selection_info = dict(xes_selection.get(process_namespace, {}))
+
+        effective_as_of = as_of_ts_explicit or derived_as_of
+        logger.info(
+            "sync-stats process=%s events=%d coverage=%.2f%% split=%s train_ratio=%.4f fraction=%.4f effective_as_of=%s",
+            process_namespace,
+            len(all_events),
+            coverage_percent,
+            split_strategy,
+            train_ratio,
+            fraction,
+            effective_as_of.isoformat() if effective_as_of is not None else "none",
+        )
+        if effective_as_of is None:
+            logger.warning(
+                "No events available for process=%s after train-cut. Skip all versions.",
+                process_namespace,
+            )
+            for version in versions:
+                skipped_details.append(
+                    {
+                        "process_name": process_namespace,
+                        "version": version,
+                        "reason": "no_events_after_train_cut",
+                        "effective_as_of_ts": None,
+                        **selection_info,
+                    }
+                )
+            skipped += len(versions)
+            continue
 
         version_iter: Iterable[str]
         version_iter = sorted(versions, key=lambda item: (_version_rank(item) is None, _version_rank(item) or 10**9, item))
@@ -851,14 +1097,49 @@ def main(argv: Sequence[str] | None = None) -> int:
             dto = knowledge_repo.get_process_structure(version=version, process_name=process_namespace)
             if dto is None:
                 skipped += 1
+                skipped_details.append(
+                    {
+                        "process_name": process_namespace,
+                        "version": version,
+                        "reason": "process_structure_not_found",
+                        "effective_as_of_ts": effective_as_of.isoformat(),
+                    }
+                )
+                continue
+            version_event_count, process_event_count = _scope_event_counts(
+                all_events,
+                target_version=version,
+                process_scope_policy=process_scope_policy,
+                as_of_ts=effective_as_of,
+            )
+            if version_event_count == 0 and process_event_count == 0:
+                logger.warning(
+                    "Skip stats snapshot for process=%s version=%s: no events matched scope policy up to as_of=%s.",
+                    process_namespace,
+                    version,
+                    effective_as_of.isoformat(),
+                )
+                skipped += 1
+                skipped_details.append(
+                    {
+                        "process_name": process_namespace,
+                        "version": version,
+                        "reason": "no_scope_events_up_to_as_of",
+                        "effective_as_of_ts": effective_as_of.isoformat(),
+                        "scope_events_version": int(version_event_count),
+                        "scope_events_process": int(process_event_count),
+                        **selection_info,
+                    }
+                )
                 continue
 
             enriched_dto, stat_summary = _build_stats_for_dto(
                 dto=dto,
                 process_namespace=process_namespace,
                 all_events=all_events,
-                as_of_ts=as_of_ts,
+                as_of_ts=effective_as_of,
                 windows_days=windows_days,
+                stats_time_policy=stats_time_policy,
                 process_scope_policy=process_scope_policy,
                 coverage_percent=coverage_percent,
                 confidence_weights=confidence_weights,
@@ -869,7 +1150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 version=version,
                 dto=enriched_dto,
                 process_name=process_namespace,
-                as_of_ts=as_of_ts,
+                as_of_ts=effective_as_of,
             )
 
             details.append(
@@ -877,6 +1158,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     **stat_summary,
                     "knowledge_version": knowledge_version,
                     "tenant_id": tenant_id or None,
+                    "effective_as_of_ts": effective_as_of.isoformat(),
+                    "scope_events_version": int(version_event_count),
+                    "scope_events_process": int(process_event_count),
+                    **selection_info,
                 }
             )
             processed += 1
@@ -888,13 +1173,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "tier": "A",
         "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,
-        "as_of_ts": as_of_ts.isoformat(),
+        "as_of_ts": as_of_ts_explicit.isoformat() if as_of_ts_explicit is not None else "auto:max_event_ts_per_process",
+        "split_strategy": split_strategy,
+        "train_ratio": float(train_ratio),
+        "fraction": float(fraction),
         "knowledge_backend": knowledge_settings.get("backend", "in_memory"),
         "processed_versions": processed,
         "skipped_versions": skipped,
         "processes_total": len(all_processes),
         "processes_selected": len(selected_processes),
         "details": details,
+        "skipped_details": skipped_details,
     }
 
     out_path = Path(str(args.out)).resolve()

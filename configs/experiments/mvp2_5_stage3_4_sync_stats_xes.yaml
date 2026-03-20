@@ -11,7 +11,7 @@ sync_stats:
     sample_size: 0.4
     freshness: 0.3
     coverage: 0.3
-  process_filters: []
+  process_filters: ["BPI_Challenge_2012"]
   tenant_filters: []
   show_progress: true
 

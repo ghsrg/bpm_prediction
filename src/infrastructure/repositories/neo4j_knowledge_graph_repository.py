@@ -138,6 +138,11 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                   -[:CONTAINS_NODE]->
                   (n:ProcessNode {process_name: $process_name})
             WHERE $version_key IN coalesce(n.versions, [])
+            WITH
+              n,
+              coalesce(n[$parent_scope_key], '') AS parent_scope_id,
+              n[$loop_cardinality_key] AS loop_cardinality_expr,
+              n[$attached_to_key] AS attached_to
             RETURN
               n.node_id AS node_id,
               n.name AS name,
@@ -146,17 +151,23 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
               n.logical_type AS logical_type,
               n.activity_type AS activity_type,
               n.scope_level AS scope_level,
-              n.parent_scope_id AS parent_scope_id,
+              parent_scope_id AS parent_scope_id,
               n.is_event_subprocess AS is_event_subprocess,
               n.is_multi_instance AS is_multi_instance,
               n.is_sequential_mi AS is_sequential_mi,
-              n.loop_cardinality_expr AS loop_cardinality_expr,
-              n.attached_to AS attached_to,
+              loop_cardinality_expr AS loop_cardinality_expr,
+              attached_to AS attached_to,
               n.extensions_json AS extensions_json,
               n.extra_json AS extra_json
-            ORDER BY coalesce(n.scope_level, 0), coalesce(n.parent_scope_id, ''), n.node_id
+            ORDER BY coalesce(n.scope_level, 0), parent_scope_id, n.node_id
             """,
-            params={"process_name": resolved_process_name, "version_key": version_key},
+            params={
+                "process_name": resolved_process_name,
+                "version_key": version_key,
+                "parent_scope_key": "parent_scope_id",
+                "loop_cardinality_key": "loop_cardinality_expr",
+                "attached_to_key": "attached_to",
+            },
         )
 
         edge_rows = self._run_read(

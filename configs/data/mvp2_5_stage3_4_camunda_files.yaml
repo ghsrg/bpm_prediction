@@ -128,7 +128,7 @@ mapping:
       source: "event"
       dtype: "string"
       fill_na: "<UNK>"
-      encoding: ["embedding"]
+        encoding: ["embedding"]
 
     - name: "org:resource"
       role: "resource"

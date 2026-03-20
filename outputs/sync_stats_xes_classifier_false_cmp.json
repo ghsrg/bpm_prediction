@@ -21,7 +21,7 @@
       "history_coverage_percent": 100.0,
       "num_node_metrics": 1288,
       "num_edge_metrics": 3312,
-      "knowledge_version": "k000007",
+      "knowledge_version": "k000005",
       "tenant_id": null,
       "effective_as_of_ts": "2012-03-14T15:04:54.681000+00:00",
       "scope_events_version": 164506,

@@ -296,6 +296,15 @@ python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stat
 python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml --as-of 2026-03-12T00:00:00Z --out outputs/sync_stats_asof.json
 ```
 
+8.1) Historical backfill for periodic snapshots (recommended for `strict_asof`)
+```bash
+# Auto-detect first/last event and run weekly sync-stats snapshots
+python main.py sync-stats-backfill --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml --step weekly --out-dir outputs/sync_stats_backfill
+
+# Monthly backfill in custom bounds
+python main.py sync-stats-backfill --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml --step monthly --from 2023-01-01T00:00:00Z --to 2026-03-01T00:00:00Z
+```
+
 sync-stats CLI keys:
 ```text
 --config PATH            experiment config (must include mapping.adapter=camunda)
@@ -303,11 +312,23 @@ sync-stats CLI keys:
 --as-of ISO_TS           optional historical cutoff for strict_asof policy
 ```
 
+sync-stats-backfill CLI keys:
+```text
+--config PATH            experiment config (camunda or xes adapter)
+--out-dir PATH           directory for per-run sync summaries
+--summary-out PATH       optional path for aggregated backfill summary JSON
+--step VALUE             daily | weekly | monthly
+--step-days N            custom step in days (overrides --step)
+--from ISO_TS            optional lower bound override
+--to ISO_TS              optional upper bound override
+--dry-run                print planned points without executing sync-stats
+```
+
 Notes:
 ```text
 - visualize-topology without --from-raw reads only pre-ingested structure via knowledge_graph backend.
 - If topology is missing, run ingest-topology first.
-- For drift-safe research runs use: sync-topology -> sync-stats (strict_asof) -> train/eval.
+- For drift-safe research runs use: sync-topology -> sync-stats-backfill (timeline) -> train/eval with strict_asof.
 - knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
 - sync-topology writes Camunda namespaces as process_key@tenant when tenant_id is available.
 ```
@@ -427,17 +448,23 @@ python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stat
 python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_xes_asof.json
 ```
 
-7. `visualize-topology` (repository-first)
+7. `sync-stats-backfill` (periodic historical sync wrapper)
+```bash
+python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step weekly --out-dir outputs/sync_stats_backfill
+python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
+```
+
+8. `visualize-topology` (repository-first)
 ```bash
 python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
 ```
 
-8. `visualize-topology --from-raw` (legacy quick check)
+9. `visualize-topology --from-raw` (legacy quick check)
 ```bash
 python main.py visualize-topology --config <experiment.yaml> --from-raw --version <version_key> --out outputs/topology_raw.png
 ```
 
-9. `visualize-graph` (single IG)
+10. `visualize-graph` (single IG)
 ```bash
 python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
 ```
@@ -480,6 +507,9 @@ python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_I
    - for each prefix, lookup uses timestamp of the last event in that prefix.
 2. If `stats_time_policy = latest`:
    - latest available snapshot/structure is used.
+3. If strict lookup has no eligible `as_of <= prefix_ts` snapshot:
+   - repository returns base structure payload (can contain latest embedded stats),
+   - this is why timeline backfill is required for strict historical studies.
 
 #### 3.3 Window semantics in snapshot payload
 Each snapshot stores windows relative to its own `as_of`:
@@ -506,6 +536,7 @@ flowchart LR
 
 ### 5. Notes for Research Safety
 1. For temporal studies, create periodic snapshots (for example monthly) and run with `strict_asof`.
-2. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
-3. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
-4. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.
+2. Prefer `sync-stats-backfill --step weekly|monthly` for initial historical bootstrap.
+3. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
+4. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
+5. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.

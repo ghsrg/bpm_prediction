@@ -90,6 +90,7 @@ Key format:
 3. `metadata.stats_contract.identity`
 4. `metadata.stats_contract.quality`
 5. `metadata.stats_contract.policy`
+6. `metadata.stats_contract.alignment`
 
 Quality block includes (producer-side):
 1. `history_coverage_percent`
@@ -101,6 +102,23 @@ Quality block includes (producer-side):
 7. `is_usable_for_training`
 8. `quality_reason`
 9. `quality_failures`
+
+Alignment block includes (producer-side):
+1. `is_aligned`
+2. `alignment_reason`
+3. `alignment_failures`
+4. `event_match_ratio`
+5. `unique_activity_coverage`
+6. `node_coverage`
+7. `min_event_match_ratio`
+8. `min_unique_activity_coverage`
+9. `min_node_coverage`
+10. `scope_used`
+
+Identity/provenance notes:
+1. `identity.knowledge_version` and `identity.as_of_ts` are expected for snapshot-backed reads.
+2. During strict_asof lookup, if no eligible `snapshot.as_of_ts <= prefix_ts` exists, runtime may fall back to base structure payload; in that case snapshot provenance fields can be missing at forward level.
+3. To minimize this gap, initialize timeline snapshots with `sync-stats-backfill`.
 
 ## 5. GraphTensorContract (MVP2 extension)
 
@@ -121,6 +139,7 @@ Current Stage 4.2 semantics:
 3. Dtype: `float32`.
 4. Missing values use configured defaults.
 5. Consumer quality gate may suppress stats tensors while preserving baseline-compatible forward path.
+6. Forward diagnostics may report `stats_snapshot_versions=none` when no eligible as-of snapshot is resolved for the prefix timestamp.
 
 ## 6. Quarantine Contract (BPMN parser)
 

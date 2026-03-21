@@ -80,6 +80,24 @@ And stores:
 3. universal contract block `metadata.stats_contract` (`version=1.0`, identity, quality, policy)
 4. diagnostics (`stats_diagnostics`)
 
+## 5.1 Sync-Stats-Backfill Wrapper
+
+`sync-stats-backfill` orchestrates historical bootstrap for strict_asof.
+
+Inputs:
+1. `--config`
+2. `--step` (`daily|weekly|monthly`) or `--step-days`
+3. optional `--from`, `--to`
+4. optional `--out-dir`, `--summary-out`
+
+Algorithm:
+1. Resolve adapter kind (`camunda|xes`) from config.
+2. Discover selected process namespaces from knowledge repository filters.
+3. Detect global `[first_event_ts, last_event_ts]` for selected scope.
+4. Build as-of timeline points by step policy.
+5. For each as-of point, invoke `sync-stats --as-of <point>` and store per-run summary JSON.
+6. Write aggregate backfill summary with run statuses and boundaries.
+
 ## 6. Sequence Diagram - Stats to Forward
 ```mermaid
 sequenceDiagram
@@ -100,11 +118,12 @@ sequenceDiagram
 | Component | Condition | Behavior |
 |---|---|---|
 | snapshot save | backend write error | raise explicit exception |
-| as_of lookup | no matching snapshot | fallback to repository default path |
+| as_of lookup | no matching snapshot by strict key | fallback query without proc_def_id |
+| as_of lookup | still no matching snapshot | return base structure payload |
 | stats index mapping | missing metric key | use metric default |
 | structure missing | no DTO | baseline-compatible contract (unless strict load) |
 
 ## 8. Known Limitation (Stage 4.2)
 1. Structural stats are currently forwarded with Option-A batch policy (first-graph structural payload when PyG batch mixes copies).
 2. Mixed snapshot batches are allowed but warned; full snapshot-homogeneous batching policy is deferred.
-3. `strict_asof` still uses repository fallback behavior when no eligible snapshot is found for requested timestamp.
+3. If no eligible snapshot exists for prefix timestamp, strict_asof can still consume base payload; temporal no-leak enforcement remains open technical debt.

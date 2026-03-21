@@ -1,0 +1,82 @@
+{
+  "status": "ok",
+  "mode": "sync-stats-backfill",
+  "config": "configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml",
+  "adapter": "camunda",
+  "selected_processes": [
+    "B2BContracts_ApproveProject"
+  ],
+  "time_bounds_discovered": {
+    "first_event_ts": "2026-01-20T15:22:37.224000+00:00",
+    "last_event_ts": "2026-03-10T09:32:06.153000+00:00"
+  },
+  "time_bounds_effective": {
+    "from_ts": "2026-01-20T15:22:37.224000+00:00",
+    "to_ts": "2026-03-10T09:32:06.153000+00:00"
+  },
+  "step": {
+    "mode": "days",
+    "days": 7
+  },
+  "runs_total": 8,
+  "runs_completed": 8,
+  "dry_run": false,
+  "runs": [
+    {
+      "index": 1,
+      "as_of_ts": "2026-01-20T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0001_20260120T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 2,
+      "as_of_ts": "2026-01-27T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0002_20260127T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 3,
+      "as_of_ts": "2026-02-03T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0003_20260203T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 4,
+      "as_of_ts": "2026-02-10T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0004_20260210T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 5,
+      "as_of_ts": "2026-02-17T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0005_20260217T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 6,
+      "as_of_ts": "2026-02-24T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0006_20260224T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 7,
+      "as_of_ts": "2026-03-03T15:22:37.224000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0007_20260303T152237Z.json",
+      "status": "ok",
+      "rc": 0
+    },
+    {
+      "index": 8,
+      "as_of_ts": "2026-03-10T09:32:06.153000Z",
+      "out": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\sync_stats_backfill\\sync_stats_0008_20260310T093206Z.json",
+      "status": "ok",
+      "rc": 0
+    }
+  ]
+}

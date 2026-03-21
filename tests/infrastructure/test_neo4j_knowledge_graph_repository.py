@@ -221,6 +221,14 @@ def test_save_process_structure_snapshot_uses_composite_key_and_json_payload():
     assert params["proc_def_id"] == "PROC_DEF_22"
     assert params["knowledge_version"] == "k000004"
     assert json.loads(params["node_stats_json"])["windows"]["last_30d"]["version"]["exec_count"]["A"] == 10
+    process_version_writes = [item for item in writes if item[0] == "upsert_process_version"]
+    assert process_version_writes
+    _, _, pv_params = process_version_writes[-1]
+    pv_meta = json.loads(pv_params.get("metadata_json", "{}"))
+    assert pv_meta.get("knowledge_version") == "k000004"
+    stats_contract = pv_meta.get("stats_contract", {})
+    identity = stats_contract.get("identity", {}) if isinstance(stats_contract, dict) else {}
+    assert identity.get("knowledge_version") == "k000004"
 
 
 def test_save_process_structure_synthesizes_nodes_from_allowed_edges_when_nodes_missing():
@@ -302,3 +310,48 @@ def test_get_process_structure_asof_overlays_stats_snapshot_json():
     assert loaded.metadata is not None
     assert loaded.metadata["knowledge_version"] == "k000010"
     assert loaded.metadata["snapshot_meta"] == "ok"
+
+
+def test_get_process_structure_asof_falls_back_without_proc_def_filter_when_primary_empty():
+    repo = _build_repo()
+
+    base_dto = ProcessStructureDTO(
+        version="v22",
+        proc_def_id="PROC_DEF_22_DIFFERENT",
+        allowed_edges=[("A", "B")],
+        metadata={"base": "yes"},
+    )
+    repo.get_process_structure = MethodType(
+        lambda self, version, process_name=None: base_dto.model_copy(deep=True),
+        repo,
+    )
+
+    def _fake_read(self, *, operation, query, params):
+        del query, params
+        if operation == "load_stats_snapshot_as_of":
+            return []
+        if operation == "load_stats_snapshot_as_of_fallback_no_proc_def":
+            return [
+                {
+                    "knowledge_version": "k000042",
+                    "as_of_ts": "2026-03-19T09:00:00Z",
+                    "node_stats_json": '{"windows":{"all_time":{"version":{"exec_count":{"A":7}}}}}',
+                    "edge_stats_json": '{"windows":{"all_time":{"version":{"transition_probability":{"A|||B":0.8}}}}}',
+                    "gnn_features_json": '{"windows":{"all_time":{"version":{"resource_handover_entropy":0.1}}}}',
+                    "stats_diagnostics_json": '{"history_coverage_percent":100.0}',
+                    "metadata_json": '{"snapshot_meta":"fallback"}',
+                }
+            ]
+        return []
+
+    repo._run_read = MethodType(_fake_read, repo)
+
+    loaded = repo.get_process_structure_as_of(
+        version="v22",
+        process_name="procurement@tenant_a",
+        as_of_ts=datetime(2026, 3, 19, 12, 0, tzinfo=timezone.utc),
+    )
+    assert loaded is not None
+    assert loaded.metadata is not None
+    assert loaded.metadata["knowledge_version"] == "k000042"
+    assert loaded.metadata["snapshot_meta"] == "fallback"

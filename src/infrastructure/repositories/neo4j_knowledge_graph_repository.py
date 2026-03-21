@@ -420,6 +420,24 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             """,
             params=params,
         )
+        # Also enrich latest ProcessVersion metadata with provenance of the
+        # snapshot used for stats payload currently mirrored in base structure.
+        enriched = dto.model_copy(deep=True)
+        enriched_meta = dict(enriched.metadata or {})
+        enriched_meta["knowledge_version"] = knowledge_version
+        enriched_meta["as_of_ts"] = as_of_utc.isoformat()
+        stats_contract = enriched_meta.get("stats_contract", {})
+        if isinstance(stats_contract, dict):
+            identity = stats_contract.get("identity", {})
+            if isinstance(identity, dict):
+                identity = dict(identity)
+                identity["knowledge_version"] = knowledge_version
+                identity["as_of_ts"] = as_of_utc.isoformat()
+                stats_contract = dict(stats_contract)
+                stats_contract["identity"] = identity
+                enriched_meta["stats_contract"] = stats_contract
+        enriched.metadata = enriched_meta
+        self.save_process_structure(version=version_key, dto=enriched, process_name=process_key)
         return knowledge_version
 
     def get_process_structure_as_of(
@@ -478,6 +496,36 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                     "as_of_iso": as_of_utc.isoformat(),
                 },
             )
+            if not rows:
+                # Fallback for legacy/heterogeneous proc_def_id snapshots:
+                # resolve by process+tenant+version only, keep latest as_of <= cutoff.
+                rows = self._run_read(
+                    operation="load_stats_snapshot_as_of_fallback_no_proc_def",
+                    query="""
+                    MATCH (ss:StatsSnapshot {
+                      process_name: $process_name,
+                      tenant_id: $tenant_id,
+                      version_key: $version_key
+                    })
+                    WHERE ss.as_of_ts <= datetime($as_of_iso)
+                    RETURN
+                      ss.knowledge_version AS knowledge_version,
+                      toString(ss.as_of_ts) AS as_of_ts,
+                      ss.node_stats_json AS node_stats_json,
+                      ss.edge_stats_json AS edge_stats_json,
+                      ss.gnn_features_json AS gnn_features_json,
+                      ss.stats_diagnostics_json AS stats_diagnostics_json,
+                      ss.metadata_json AS metadata_json
+                    ORDER BY ss.as_of_ts DESC, ss.kv_seq DESC
+                    LIMIT 1
+                    """,
+                    params={
+                        "process_name": resolved_process_name,
+                        "tenant_id": tenant_id,
+                        "version_key": version_key,
+                        "as_of_iso": as_of_utc.isoformat(),
+                    },
+                )
         else:
             rows = self._run_read(
                 operation="load_latest_stats_snapshot",
@@ -506,6 +554,32 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                     "proc_def_id": proc_def_id,
                 },
             )
+            if not rows:
+                rows = self._run_read(
+                    operation="load_latest_stats_snapshot_fallback_no_proc_def",
+                    query="""
+                    MATCH (ss:StatsSnapshot {
+                      process_name: $process_name,
+                      tenant_id: $tenant_id,
+                      version_key: $version_key
+                    })
+                    RETURN
+                      ss.knowledge_version AS knowledge_version,
+                      toString(ss.as_of_ts) AS as_of_ts,
+                      ss.node_stats_json AS node_stats_json,
+                      ss.edge_stats_json AS edge_stats_json,
+                      ss.gnn_features_json AS gnn_features_json,
+                      ss.stats_diagnostics_json AS stats_diagnostics_json,
+                      ss.metadata_json AS metadata_json
+                    ORDER BY ss.as_of_ts DESC, ss.kv_seq DESC
+                    LIMIT 1
+                    """,
+                    params={
+                        "process_name": resolved_process_name,
+                        "tenant_id": tenant_id,
+                        "version_key": version_key,
+                    },
+                )
         if not rows:
             return base
 

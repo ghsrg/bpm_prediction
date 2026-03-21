@@ -724,23 +724,47 @@ class ModelTrainer:
         all_pred: List[int] = []
         batches = 0
         forward_stats = self._new_forward_stats_accumulator()
+        contract_sanitized_batches = 0
+        logits_sanitized_batches = 0
+        non_finite_loss_batches = 0
 
         iterator = tqdm(loader, desc=("Train epoch" if training else "Validation epoch"), leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
         for data in iterator:
             data = data.to(self.device)
             contract = self._data_to_contract(data)
+            if self._sanitize_contract_numeric_tensors(contract):
+                contract_sanitized_batches += 1
             self._accumulate_forward_stats(forward_stats, contract)
             if training and optimizer is not None:
                 optimizer.zero_grad()
 
             with torch.set_grad_enabled(training):
                 logits = self.model(contract)
+                if not self._is_finite_tensor(logits):
+                    logits_sanitized_batches += 1
+                    logger.warning(
+                        "Numeric guard [epoch:%s]: non-finite logits detected. Applying nan_to_num.",
+                        "train" if training else "validation",
+                    )
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
                 targets = data.y.view(-1).long()
                 loss = self.criterion(logits, targets)
+                skip_optimizer_step = False
+                if not self._is_finite_tensor(loss):
+                    non_finite_loss_batches += 1
+                    skip_optimizer_step = True
+                    logger.warning(
+                        "Numeric guard [epoch:%s]: non-finite loss detected. Skipping optimizer step for this batch.",
+                        "train" if training else "validation",
+                    )
+                    if training and optimizer is not None:
+                        optimizer.zero_grad(set_to_none=True)
+                    loss = torch.zeros_like(loss)
                 if training and optimizer is not None:
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                    optimizer.step()
+                    if not skip_optimizer_step:
+                        loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                        optimizer.step()
 
             total_loss += float(loss.detach().cpu().item())
             batches += 1
@@ -754,6 +778,14 @@ class ModelTrainer:
         macro_f1 = float(f1_score(all_true, all_pred, average="macro", zero_division=0))
         weighted_f1 = float(f1_score(all_true, all_pred, average="weighted", zero_division=0))
         avg_loss = total_loss / batches
+        if contract_sanitized_batches > 0 or logits_sanitized_batches > 0 or non_finite_loss_batches > 0:
+            logger.info(
+                "Numeric guard [epoch:%s]: contract_sanitized_batches=%d logits_sanitized_batches=%d non_finite_loss_batches=%d",
+                "train" if training else "validation",
+                contract_sanitized_batches,
+                logits_sanitized_batches,
+                non_finite_loss_batches,
+            )
         self._log_forward_stats_summary("train" if training else "validation", forward_stats)
         return avg_loss, macro_f1, weighted_f1, duration
 
@@ -772,19 +804,38 @@ class ModelTrainer:
         inference_started = perf_counter()
         first_batch_debug_logged = False
         forward_stats = self._new_forward_stats_accumulator()
+        contract_sanitized_batches = 0
+        logits_sanitized_batches = 0
+        probs_sanitized_batches = 0
 
         with torch.no_grad():
             iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
             for data in iterator:
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
+                if self._sanitize_contract_numeric_tensors(contract):
+                    contract_sanitized_batches += 1
                 self._accumulate_forward_stats(forward_stats, contract)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 logits = self.model(contract)
+                if not self._is_finite_tensor(logits):
+                    logits_sanitized_batches += 1
+                    logger.warning(
+                        "Numeric guard [%s]: non-finite logits detected. Applying nan_to_num.",
+                        stage_label,
+                    )
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 probs = torch.softmax(logits, dim=1)
+                if not self._is_finite_tensor(probs):
+                    probs_sanitized_batches += 1
+                    probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
+                    if probs.dim() == 2 and probs.size(1) > 0:
+                        row_sum = probs.sum(dim=1, keepdim=True)
+                        safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
+                        probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
                 targets = data.y.view(-1).long().cpu().numpy()
                 pred_tensor = torch.argmax(probs, dim=1).long()
                 preds = pred_tensor.cpu().numpy()
@@ -857,6 +908,14 @@ class ModelTrainer:
 
         total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
         inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
+        if contract_sanitized_batches > 0 or logits_sanitized_batches > 0 or probs_sanitized_batches > 0:
+            logger.info(
+                "Numeric guard [%s]: contract_sanitized_batches=%d logits_sanitized_batches=%d probs_sanitized_batches=%d",
+                stage_label,
+                contract_sanitized_batches,
+                logits_sanitized_batches,
+                probs_sanitized_batches,
+            )
         self._log_forward_stats_summary(stage_label, forward_stats)
 
         if not all_true:
@@ -876,6 +935,14 @@ class ModelTrainer:
         y_true = np.asarray(all_true)
         y_pred = np.asarray(all_pred)
         y_prob = np.asarray(all_probs)
+        y_prob = np.nan_to_num(y_prob, nan=0.0, posinf=1.0, neginf=0.0)
+        if y_prob.ndim == 2 and y_prob.shape[1] > 0:
+            row_sums = np.sum(y_prob, axis=1, keepdims=True)
+            zero_rows = row_sums <= 1e-12
+            if np.any(zero_rows):
+                y_prob[zero_rows[:, 0], :] = 1.0 / float(y_prob.shape[1])
+                row_sums = np.sum(y_prob, axis=1, keepdims=True)
+            y_prob = y_prob / np.clip(row_sums, 1e-12, None)
         num_classes = y_prob.shape[1]
         top_k = min(3, num_classes)
         if num_classes <= 2:
@@ -904,6 +971,26 @@ class ModelTrainer:
             )
         )
         return metrics
+
+    @staticmethod
+    def _is_finite_tensor(value: Any) -> bool:
+        if not isinstance(value, torch.Tensor):
+            return True
+        if value.numel() == 0:
+            return True
+        return bool(torch.isfinite(value).all().item())
+
+    def _sanitize_contract_numeric_tensors(self, contract: GraphTensorContract) -> bool:
+        sanitized = False
+        for key in ("x_num", "struct_x", "structural_edge_weight"):
+            tensor = contract.get(key)
+            if not isinstance(tensor, torch.Tensor):
+                continue
+            if self._is_finite_tensor(tensor):
+                continue
+            contract[key] = torch.nan_to_num(tensor, nan=0.0, posinf=0.0, neginf=0.0)
+            sanitized = True
+        return sanitized
 
     def _evaluate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Dict[str, float]]:
         """Run fixed-size chronological window evaluation for concept-drift tracking."""

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterator
 import logging
+import math
 
 import pytest
 import torch
@@ -43,6 +44,18 @@ class _TrainableBinaryModel(nn.Module):
         batch = contract["batch"]
         num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
         return self.logit_bias.unsqueeze(0).repeat(num_graphs, 1)
+
+
+class _NaNLogitModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        logits = torch.full((num_graphs, 4), float("nan"), dtype=torch.float32, device=batch.device)
+        return logits + (self.dummy * 0.0)
 
 
 def _sample(y_value: int, *, snapshot_idx: int, snapshot_epoch: float) -> Data:
@@ -218,3 +231,54 @@ def test_data_to_contract_warns_when_batch_has_mixed_snapshot_versions():
     assert contract.get("stats_snapshot_versions") is not None
     assert "k000007" in contract["stats_snapshot_versions"]
     assert "k000008" in contract["stats_snapshot_versions"]
+
+
+def test_trainer_numeric_guard_sanitizes_nan_logits_in_eval():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_NaNLogitModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+    )
+    metrics = trainer._evaluate_test(loader, stage_label="inference")
+    assert math.isfinite(float(metrics["test_macro_f1"]))
+    assert math.isfinite(float(metrics["test_top3_accuracy"]))
+    assert math.isfinite(float(metrics["test_ece"]))
+
+
+def test_trainer_numeric_guard_keeps_run_epoch_finite_with_nan_logits():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_NaNLogitModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    avg_loss, macro_f1, weighted_f1, _ = trainer._run_epoch(loader, optimizer=optimizer, training=True)
+    assert math.isfinite(float(avg_loss))
+    assert math.isfinite(float(macro_f1))
+    assert math.isfinite(float(weighted_f1))

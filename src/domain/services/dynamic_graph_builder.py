@@ -126,17 +126,26 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         return contract
 
     @staticmethod
+    def _clean_optional_text(value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if text.lower() in {"", "none", "null", "nan"}:
+            return ""
+        return text
+
+    @staticmethod
     def _stats_snapshot_metadata(dto: ProcessStructureDTO) -> Dict[str, str | None]:
         metadata = dto.metadata if isinstance(dto.metadata, dict) else {}
-        knowledge_version = str(metadata.get("knowledge_version", "")).strip() if isinstance(metadata, dict) else ""
-        as_of_ts = str(metadata.get("as_of_ts", "")).strip() if isinstance(metadata, dict) else ""
+        knowledge_version = DynamicGraphBuilder._clean_optional_text(metadata.get("knowledge_version")) if isinstance(metadata, dict) else ""
+        as_of_ts = DynamicGraphBuilder._clean_optional_text(metadata.get("as_of_ts")) if isinstance(metadata, dict) else ""
         if not knowledge_version or not as_of_ts:
             stats_contract = metadata.get("stats_contract", {}) if isinstance(metadata, dict) else {}
             identity = stats_contract.get("identity", {}) if isinstance(stats_contract, dict) else {}
             if not knowledge_version:
-                knowledge_version = str(identity.get("knowledge_version", "")).strip() if isinstance(identity, dict) else ""
+                knowledge_version = DynamicGraphBuilder._clean_optional_text(identity.get("knowledge_version")) if isinstance(identity, dict) else ""
             if not as_of_ts:
-                as_of_ts = str(identity.get("as_of_ts", "")).strip() if isinstance(identity, dict) else ""
+                as_of_ts = DynamicGraphBuilder._clean_optional_text(identity.get("as_of_ts")) if isinstance(identity, dict) else ""
         return {
             "knowledge_version": knowledge_version or None,
             "as_of_ts": as_of_ts or None,

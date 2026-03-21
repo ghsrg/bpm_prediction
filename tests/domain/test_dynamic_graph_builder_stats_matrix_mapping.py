@@ -265,3 +265,54 @@ def test_builder_reads_snapshot_metadata_from_stats_contract_identity(mock_featu
     assert contract.get("stats_snapshot_version_seq") == 321
     expected_epoch = float(datetime(2026, 3, 20, 18, 15, tzinfo=timezone.utc).timestamp())
     assert float(contract.get("stats_snapshot_as_of_epoch") or 0.0) == pytest.approx(expected_epoch, abs=1e-6)
+
+
+def test_builder_treats_string_none_snapshot_version_as_missing(mock_feature_configs):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    repo = InMemoryNetworkXRepository()
+    dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("Start", "Approve"), ("Approve", "End")],
+        nodes=[
+            {"id": "Start", "bpmn_tag": "startEvent", "type": "startEvent", "activity_type": "startEvent"},
+            {"id": "Approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "End", "bpmn_tag": "endEvent", "type": "endEvent", "activity_type": "endEvent"},
+        ],
+        metadata={
+            "stats_contract": {
+                "identity": {
+                    "knowledge_version": "None",
+                    "as_of_ts": "2026-03-20T18:15:00+00:00",
+                }
+            },
+            "stats_index": {
+                "node": {
+                    "all_time.version.exec_count": {"Start": 1.0, "Approve": 2.0, "End": 3.0},
+                },
+                "edge": {},
+                "global": {},
+            },
+        },
+    )
+    repo.save_process_structure("v1", dto, process_name="dataset_a")
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repo,
+        process_name="dataset_a",
+        graph_feature_mapping={
+            "enabled": True,
+            "node_numeric": [
+                {
+                    "name": "node_exec_count_v",
+                    "metric": "exec_count",
+                    "window": "all_time",
+                    "scope": "version",
+                    "default": 0.0,
+                    "encoding": ["identity"],
+                }
+            ],
+        },
+    )
+    contract = builder.build_graph(_prefix())
+    assert contract.get("stats_snapshot_version_seq") is None

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import Any, Dict, Optional
+import logging
 
 import torch
 
@@ -13,6 +15,9 @@ from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
+
+
+logger = logging.getLogger(__name__)
 
 
 class DynamicGraphBuilder(BaselineGraphBuilder):
@@ -25,6 +30,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         process_name: str | None = None,
         graph_feature_mapping: Optional[Dict[str, Any]] = None,
         stats_time_policy: str = "latest",
+        stats_quality_gate: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -33,6 +39,8 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self.stats_time_policy = str(stats_time_policy).strip().lower() or "latest"
         if self.stats_time_policy not in {"latest", "strict_asof"}:
             self.stats_time_policy = "latest"
+        self.stats_quality_gate = self._resolve_quality_gate_config(stats_quality_gate)
+        self._quality_warned_keys: set[tuple[str, str, str]] = set()
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
@@ -50,6 +58,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             contract["allowed_target_mask"] = None
             return contract
 
+        stats_allowed, quality_reason = self._should_use_stats(dto=dto, version_key=raw_version)
+        snapshot_meta = self._stats_snapshot_metadata(dto)
+        contract["stats_snapshot_version_seq"] = self._snapshot_version_seq(snapshot_meta.get("knowledge_version"))
+        contract["stats_snapshot_as_of_epoch"] = self._snapshot_as_of_epoch(snapshot_meta.get("as_of_ts"))
+        contract["stats_allowed"] = bool(stats_allowed)
         target_feature = self.feature_encoder.activity_feature_name
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
         num_classes = len(activity_vocab)
@@ -58,8 +71,12 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         structural_dst: list[int] = []
         structural_weight: list[float] = []
         edge_stats = dto.edge_statistics or {}
-        edge_weight_spec = self._edge_weight_spec()
-        edge_weight_index = self._edge_stats_index(dto)
+        edge_weight_spec = self._edge_weight_spec() if stats_allowed else None
+        edge_weight_index = self._edge_stats_index(dto) if stats_allowed else {}
+        if quality_reason not in {"ok", "quality_gate_disabled", "quality_metadata_not_required"}:
+            self._emit_quality_warning(version_key=raw_version, reason=quality_reason, stats_allowed=stats_allowed)
+        if not stats_allowed:
+            edge_stats = {}
 
         last_activity = str(
             self.feature_encoder.resolve_event_feature(
@@ -94,16 +111,163 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
 
         if structural_src:
             contract["structural_edge_index"] = torch.tensor([structural_src, structural_dst], dtype=torch.long)
-            contract["structural_edge_weight"] = torch.tensor(structural_weight, dtype=torch.float32)
+            weight_tensor = torch.tensor(structural_weight, dtype=torch.float32)
+            if edge_weight_spec is not None:
+                weight_tensor = self._apply_numeric_encodings(weight_tensor, list(edge_weight_spec.get("encoding", ["identity"])))
+            contract["structural_edge_weight"] = weight_tensor
         else:
             contract["structural_edge_index"] = torch.zeros((2, 0), dtype=torch.long)
             contract["structural_edge_weight"] = torch.zeros((0,), dtype=torch.float32)
 
-        struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab)
+        struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
         if struct_x is not None:
             contract["struct_x"] = struct_x
         contract["allowed_target_mask"] = allowed_mask
         return contract
+
+    @staticmethod
+    def _stats_snapshot_metadata(dto: ProcessStructureDTO) -> Dict[str, str | None]:
+        metadata = dto.metadata if isinstance(dto.metadata, dict) else {}
+        knowledge_version = str(metadata.get("knowledge_version", "")).strip() if isinstance(metadata, dict) else ""
+        as_of_ts = str(metadata.get("as_of_ts", "")).strip() if isinstance(metadata, dict) else ""
+        if not knowledge_version or not as_of_ts:
+            stats_contract = metadata.get("stats_contract", {}) if isinstance(metadata, dict) else {}
+            identity = stats_contract.get("identity", {}) if isinstance(stats_contract, dict) else {}
+            if not knowledge_version:
+                knowledge_version = str(identity.get("knowledge_version", "")).strip() if isinstance(identity, dict) else ""
+            if not as_of_ts:
+                as_of_ts = str(identity.get("as_of_ts", "")).strip() if isinstance(identity, dict) else ""
+        return {
+            "knowledge_version": knowledge_version or None,
+            "as_of_ts": as_of_ts or None,
+        }
+
+    @staticmethod
+    def _snapshot_version_seq(raw: str | None) -> int | None:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        if text.lower().startswith("k") and text[1:].isdigit():
+            return int(text[1:])
+        if text.isdigit():
+            return int(text)
+        return None
+
+    @staticmethod
+    def _snapshot_as_of_epoch(raw: str | None) -> float | None:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        normalized = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return float(parsed.timestamp())
+
+    def _resolve_quality_gate_config(self, gate_cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        graph_cfg = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
+        raw = gate_cfg
+        if raw is None:
+            nested = graph_cfg.get("stats_quality_gate")
+            raw = dict(nested) if isinstance(nested, dict) else {}
+        cfg = dict(raw) if isinstance(raw, dict) else {}
+
+        enabled = bool(cfg.get("enabled", True))
+        require_quality_metadata = bool(cfg.get("require_quality_metadata", False))
+        warn_on_fail = bool(cfg.get("warn_on_fail", True))
+
+        zero_dominant_threshold = float(cfg.get("zero_dominant_threshold", 0.95) or 0.95)
+        min_non_zero_ratio_overall = float(cfg.get("min_non_zero_ratio_overall", 0.0) or 0.0)
+        min_history_coverage_percent = float(cfg.get("min_history_coverage_percent", 0.0) or 0.0)
+        on_fail = str(cfg.get("on_fail", "ignore_with_warning")).strip().lower() or "ignore_with_warning"
+        if on_fail not in {"ignore_with_warning", "allow_with_warning", "raise"}:
+            on_fail = "ignore_with_warning"
+
+        return {
+            "enabled": enabled,
+            "require_quality_metadata": require_quality_metadata,
+            "warn_on_fail": warn_on_fail,
+            "zero_dominant_threshold": float(min(max(zero_dominant_threshold, 0.0), 1.0)),
+            "min_non_zero_ratio_overall": float(min(max(min_non_zero_ratio_overall, 0.0), 1.0)),
+            "min_history_coverage_percent": float(min(max(min_history_coverage_percent, 0.0), 100.0)),
+            "on_fail": on_fail,
+        }
+
+    def _should_use_stats(self, *, dto: ProcessStructureDTO, version_key: str) -> tuple[bool, str]:
+        gate = self.stats_quality_gate
+        if not bool(gate.get("enabled", True)):
+            return True, "quality_gate_disabled"
+
+        metadata = dto.metadata if isinstance(dto.metadata, dict) else {}
+        contract = metadata.get("stats_contract", {}) if isinstance(metadata, dict) else {}
+        quality = contract.get("quality", {}) if isinstance(contract, dict) else {}
+        if not isinstance(quality, dict) or not quality:
+            if bool(gate.get("require_quality_metadata", False)):
+                reason = "missing_quality_metadata"
+                action = str(gate.get("on_fail", "ignore_with_warning"))
+                if action == "raise":
+                    raise ValueError(f"Stats quality metadata is required but missing for version '{version_key}'.")
+                if action == "allow_with_warning":
+                    return True, reason
+                return False, reason
+            return True, "quality_metadata_not_required"
+
+        reasons: list[str] = []
+        try:
+            coverage = float(quality.get("history_coverage_percent", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            coverage = 0.0
+        if coverage < float(gate.get("min_history_coverage_percent", 0.0)):
+            reasons.append("below_min_coverage_threshold")
+
+        try:
+            non_zero_ratio = float(quality.get("non_zero_ratio_overall", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            non_zero_ratio = 0.0
+        if non_zero_ratio < float(gate.get("min_non_zero_ratio_overall", 0.0)):
+            reasons.append("below_min_non_zero_ratio_threshold")
+
+        zero_dominant = bool(quality.get("zero_dominant", False))
+        if zero_dominant:
+            reasons.append("zero_dominant")
+
+        if not bool(quality.get("is_usable_for_training", True)):
+            reasons.append(str(quality.get("quality_reason", "producer_marked_unusable")))
+
+        if not reasons:
+            return True, "ok"
+
+        reason = reasons[0]
+        action = str(gate.get("on_fail", "ignore_with_warning"))
+        if action == "raise":
+            raise ValueError(f"Stats quality gate rejected version '{version_key}': {reason}")
+        if action == "allow_with_warning":
+            return True, reason
+        return False, reason
+
+    def _emit_quality_warning(self, *, version_key: str, reason: str, stats_allowed: bool) -> None:
+        if not bool(self.stats_quality_gate.get("warn_on_fail", True)):
+            return
+        process = self.process_name or "__auto__"
+        key = (process, str(version_key), str(reason))
+        if key in self._quality_warned_keys:
+            return
+        self._quality_warned_keys.add(key)
+        logger.warning(
+            "Stats quality gate: process=%s version=%s reason=%s action=%s stats_allowed=%s.",
+            process,
+            version_key,
+            reason,
+            self.stats_quality_gate.get("on_fail", "ignore_with_warning"),
+            bool(stats_allowed),
+        )
 
     def _resolve_dto(
         self,
@@ -164,6 +328,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     "window": window,
                     "scope": scope,
                     "default": float(item.get("default", 0.0) or 0.0),
+                    "encoding": self._normalize_encodings(item.get("encoding", ["identity"])),
                 }
             )
         return specs
@@ -183,6 +348,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "window": str(raw.get("window", "last_30d")).strip() or "last_30d",
             "scope": str(raw.get("scope", "version")).strip() or "version",
             "default": float(raw.get("default", 1.0) or 1.0),
+            "encoding": self._normalize_encodings(raw.get("encoding", ["identity"])),
         }
 
     @staticmethod
@@ -230,6 +396,60 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             key = f"{spec['window']}.{spec['scope']}.{spec['metric']}"
             values = node_index.get(key, {})
             default = float(spec["default"])
+            col_values = torch.full((num_classes,), default, dtype=torch.float32)
             for token, idx in activity_vocab.items():
-                out[int(idx), col] = float(values.get(str(token), default))
+                col_values[int(idx)] = float(values.get(str(token), default))
+            out[:, col] = self._apply_numeric_encodings(col_values, spec["encoding"])
+        return out
+
+    @staticmethod
+    def _normalize_encodings(raw: Any) -> list[str]:
+        values: list[str] = []
+        if isinstance(raw, (list, tuple)):
+            for item in raw:
+                text = str(item).strip().lower()
+                if text:
+                    values.append(text)
+        elif raw is not None:
+            text = str(raw).strip().lower()
+            if text:
+                values.append(text)
+        if not values:
+            return ["identity"]
+        return values
+
+    @staticmethod
+    def _apply_numeric_encodings(column: torch.Tensor, encodings: list[str]) -> torch.Tensor:
+        out = column.clone().to(dtype=torch.float32)
+        if out.numel() == 0:
+            return out
+
+        for enc in encodings:
+            mode = str(enc).strip().lower()
+            if mode in {"", "identity", "none", "embedding"}:
+                continue
+
+            if mode == "log1p":
+                out = torch.sign(out) * torch.log1p(torch.abs(out))
+                continue
+
+            if mode == "z-score":
+                finite_mask = torch.isfinite(out)
+                if not bool(torch.any(finite_mask)):
+                    out = torch.zeros_like(out)
+                    continue
+                finite = out[finite_mask]
+                mean = torch.mean(finite)
+                std = torch.std(finite, unbiased=False)
+                if float(std) <= 1e-12 or not math.isfinite(float(std)):
+                    out = torch.zeros_like(out)
+                else:
+                    normalized = (out - mean) / std
+                    normalized = torch.where(torch.isfinite(normalized), normalized, torch.zeros_like(normalized))
+                    out = normalized
+                continue
+
+            # Unknown encoding mode is treated as no-op for backward compatibility.
+            continue
+
         return out

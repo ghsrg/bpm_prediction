@@ -1,7 +1,7 @@
 ﻿# DATA_MODEL_MVP2_5.MD
 
-Updated: 2026-03-19
-Status: ACTIVE (Stage 3.4 contract freeze)
+Updated: 2026-03-21
+Status: ACTIVE (Stage 4.2 contract sync)
 
 ## 1. Purpose
 Canonical DTO and artifact contracts for MVP2.5:
@@ -31,7 +31,7 @@ Optional structure:
 3. `edge_statistics`, `node_metadata`
 4. `call_bindings`, `graph_topology`, `metadata`
 
-Optional stats payload (Stage 3.4):
+Optional stats payload (Stage 3.4+):
 1. `node_stats: dict`
 2. `edge_stats: dict`
 3. `gnn_features: dict`
@@ -82,6 +82,26 @@ Key format:
 1. `"<window>.<scope>.<metric>"`
 2. example: `"last_30d.version.exec_count"`
 
+## 4.1 `metadata.stats_contract` (universal contract v1)
+
+`sync-stats` writes:
+1. `metadata.stats_contract.version` (`"1.0"`)
+2. `metadata.stats_contract.key_format`
+3. `metadata.stats_contract.identity`
+4. `metadata.stats_contract.quality`
+5. `metadata.stats_contract.policy`
+
+Quality block includes (producer-side):
+1. `history_coverage_percent`
+2. `non_zero_ratio_node`
+3. `non_zero_ratio_edge`
+4. `non_zero_ratio_global`
+5. `non_zero_ratio_overall`
+6. `zero_dominant`
+7. `is_usable_for_training`
+8. `quality_reason`
+9. `quality_failures`
+
 ## 5. GraphTensorContract (MVP2 extension)
 
 Optional fields used by EOPKG path:
@@ -89,12 +109,18 @@ Optional fields used by EOPKG path:
 2. `structural_edge_weight: torch.FloatTensor | None`
 3. `allowed_target_mask: torch.BoolTensor | None`
 4. `struct_x: torch.FloatTensor | None`
+5. `stats_snapshot_version_seq: int | None`
+6. `stats_snapshot_as_of_epoch: float | None`
+7. `stats_allowed: bool | None`
+8. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
+9. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
 
-Current Stage 3.4 semantics:
+Current Stage 4.2 semantics:
 1. `struct_x` is built from `metadata.stats_index` mapping.
 2. Shape: `[num_classes, num_graph_features]`.
 3. Dtype: `float32`.
 4. Missing values use configured defaults.
+5. Consumer quality gate may suppress stats tensors while preserving baseline-compatible forward path.
 
 ## 6. Quarantine Contract (BPMN parser)
 

@@ -371,20 +371,21 @@ configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml
 configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
 ```
 
-9. Stage 3.4 stats configs
+9. Stage 4.2 stats configs (sync + stat-aware train/eval)
 ```text
 configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml
 configs/experiments/mvp2_5_stage3_4_sync_stats_sql.yaml
-configs/experiments/mvp2_5_stage3_4_baseline_files.yaml
-configs/experiments/mvp2_5_stage3_4_eopkg_files.yaml
-configs/experiments/mvp2_5_stage3_4_baseline_sql.yaml
-configs/experiments/mvp2_5_stage3_4_eopkg_sql.yaml
+configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml
+configs/experiments/mvp2_5_stage4_2_baseline_files_stat.yaml
+configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+configs/experiments/mvp2_5_stage4_2_baseline_xes_stat.yaml
+configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml
 ```
 
 Worklogs and historical plans are now stored in:
 - `docs/worklogs/`
 
-## MVP2.5 Stage 3.4 Runbook (Canonical)
+## MVP2.5 Stage 4.2 Runbook (Canonical)
 
 Use this section as the primary operational reference for MVP2.5.
 
@@ -458,12 +459,21 @@ python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_I
 1. `enabled: true`
 2. `node_numeric`: list of mapped stats metrics
 3. `edge_weight`: edge metric mapping
+4. `node_numeric[*].encoding` / `edge_weight.encoding`: `identity | log1p | z-score`
+5. `stats_quality_gate`: consumer-side policy (`ignore_with_warning | allow_with_warning | raise`)
+
+#### 2.4 `sync_stats.quality_gate` block
+1. `enabled`
+2. `zero_dominant_threshold`
+3. `min_non_zero_ratio_overall`
+4. `min_history_coverage_percent`
+5. `on_fail`: `write_with_flag | skip_snapshot`
 
 ### 3. How Sync and Timestamps Work
 
 #### 3.1 `sync-stats` timestamp source
 1. With `--as-of`: snapshot timestamp is forced to provided ISO time.
-2. Without `--as-of`: snapshot timestamp is current UTC.
+2. Without `--as-of`: effective timestamp is derived per process from `max(event_ts)` after train-cut (`split_strategy/train_ratio/fraction`).
 
 #### 3.2 Runtime lookup timestamp
 1. If `stats_time_policy = strict_asof`:
@@ -486,7 +496,7 @@ Source note:
 1. `mapping.adapter: camunda` -> Tier A full runtime stats (recommended).
 2. `mapping.adapter: xes` -> Tier A-lite stats (no execution-tree concurrency semantics).
 
-### 4. Recommended Stage 3.4 Workflow
+### 4. Recommended Stage 4.2 Workflow
 ```mermaid
 flowchart LR
     R1[sync-topology] --> R2[sync-stats timeline]
@@ -498,3 +508,4 @@ flowchart LR
 1. For temporal studies, create periodic snapshots (for example monthly) and run with `strict_asof`.
 2. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
 3. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
+4. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.

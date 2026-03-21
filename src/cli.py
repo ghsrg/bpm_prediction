@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 import logging
@@ -286,11 +287,29 @@ def _apply_cascade_prepare(
     return macro[:keep_count]
 
 
+def _safe_iso_to_epoch(value: Any) -> float | None:
+    """Parse ISO datetime string into UTC epoch seconds; return None on invalid values."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return float(parsed.timestamp())
+
+
 def _build_graph_dataset(
     traces: Sequence[RawTrace],
     prefix_policy: PrefixPolicy,
     graph_builder: DynamicGraphBuilder,
     version_to_idx: Dict[str, int],
+    stats_snapshot_version_to_idx: Dict[str, int],
     *,
     show_progress: bool,
     tqdm_disable: bool,
@@ -335,6 +354,33 @@ def _build_graph_dataset(
             structural_edge_weight = contract.get("structural_edge_weight")
             if isinstance(structural_edge_weight, torch.Tensor):
                 payload["structural_edge_weight"] = structural_edge_weight
+            stats_allowed = contract.get("stats_allowed")
+            if isinstance(stats_allowed, bool):
+                payload["stats_allowed"] = torch.tensor([1 if stats_allowed else 0], dtype=torch.long)
+            snapshot_seq_raw = contract.get("stats_snapshot_version_seq")
+            if isinstance(snapshot_seq_raw, (int, float)) and not isinstance(snapshot_seq_raw, bool):
+                snapshot_idx = int(snapshot_seq_raw)
+                snapshot_version = f"k{snapshot_idx:06d}"
+                stats_snapshot_version_to_idx.setdefault(snapshot_version, snapshot_idx)
+                payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+            else:
+                # Backward compatibility for contracts that still expose text metadata.
+                stats_snapshot_version = contract.get("stats_snapshot_version")
+                if stats_snapshot_version is not None:
+                    snapshot_version = str(stats_snapshot_version).strip()
+                    if snapshot_version:
+                        snapshot_idx = stats_snapshot_version_to_idx.setdefault(snapshot_version, len(stats_snapshot_version_to_idx))
+                        payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+
+            snapshot_as_of_epoch = None
+            snapshot_as_of_epoch_raw = contract.get("stats_snapshot_as_of_epoch")
+            if isinstance(snapshot_as_of_epoch_raw, (int, float)) and not isinstance(snapshot_as_of_epoch_raw, bool):
+                snapshot_as_of_epoch = float(snapshot_as_of_epoch_raw)
+            if snapshot_as_of_epoch is None:
+                snapshot_as_of_ts = contract.get("stats_snapshot_as_of_ts")
+                snapshot_as_of_epoch = _safe_iso_to_epoch(snapshot_as_of_ts)
+            if snapshot_as_of_epoch is not None:
+                payload["stats_snapshot_as_of_epoch"] = torch.tensor([snapshot_as_of_epoch], dtype=torch.float64)
             dataset.append(
                 Data(**payload)
             )
@@ -343,11 +389,67 @@ def _build_graph_dataset(
     return dataset
 
 
+def _resolve_model_family(model_type: str) -> str:
+    text = str(model_type).strip().lower()
+    if text.startswith("eopkg"):
+        return "eopkg"
+    if text.startswith("baseline"):
+        return "baseline"
+    return "custom"
+
+
+def _summarize_graph_feature_mapping(graph_feature_mapping: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(graph_feature_mapping, dict):
+        return {
+            "enabled": False,
+            "node_feature_count": 0,
+            "node_scopes": [],
+            "edge_weight_enabled": False,
+            "edge_weight_metric": "none",
+            "stats_quality_gate_enabled": False,
+            "stats_quality_gate_on_fail": "none",
+        }
+
+    enabled = bool(graph_feature_mapping.get("enabled", False))
+    node_raw = graph_feature_mapping.get("node_numeric", [])
+    node_specs = [item for item in node_raw if isinstance(item, dict)] if isinstance(node_raw, list) else []
+    node_scopes = sorted(
+        {
+            str(item.get("scope", "version")).strip() or "version"
+            for item in node_specs
+            if str(item.get("metric", "")).strip()
+        }
+    )
+
+    edge_cfg = graph_feature_mapping.get("edge_weight", {})
+    edge_weight_enabled = isinstance(edge_cfg, dict) and bool(str(edge_cfg.get("metric", "")).strip())
+    edge_weight_metric = str(edge_cfg.get("metric", "")).strip() if isinstance(edge_cfg, dict) else ""
+
+    quality_gate_cfg = graph_feature_mapping.get("stats_quality_gate", {})
+    stats_quality_gate_enabled = bool(quality_gate_cfg.get("enabled", False)) if isinstance(quality_gate_cfg, dict) else False
+    stats_quality_gate_on_fail = (
+        str(quality_gate_cfg.get("on_fail", "ignore_with_warning")).strip()
+        if isinstance(quality_gate_cfg, dict)
+        else "ignore_with_warning"
+    )
+
+    return {
+        "enabled": enabled,
+        "node_feature_count": int(len(node_specs)),
+        "node_scopes": node_scopes,
+        "edge_weight_enabled": bool(edge_weight_enabled),
+        "edge_weight_metric": edge_weight_metric or "none",
+        "stats_quality_gate_enabled": bool(stats_quality_gate_enabled),
+        "stats_quality_gate_on_fail": stats_quality_gate_on_fail or "ignore_with_warning",
+    }
+
+
 def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = None) -> Dict[str, Any]:
     """Prepare shared data artifacts for CLI and inspector without logic duplication."""
     logger = logging.getLogger(__name__)
     data_cfg = config.get("data", {})
     experiment_cfg = config.get("experiment", {})
+    model_cfg = config.get("model", {})
     training_cfg = config.get("training", {})
     mapping_cfg_raw = config.get("mapping", {})
     adapter = trace_adapter or _build_trace_adapter(mapping_cfg_raw)
@@ -434,7 +536,76 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     graph_feature_mapping = (
         dict(graph_feature_mapping_raw) if isinstance(graph_feature_mapping_raw, dict) else {}
     )
+    feature_summary = _summarize_graph_feature_mapping(graph_feature_mapping)
     stats_time_policy = str(experiment_cfg.get("stats_time_policy", "latest")).strip().lower() or "latest"
+    model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
+    model_family = _resolve_model_family(model_type)
+    xes_cfg = mapping_cfg.get("xes_adapter", {})
+    xes_use_classifier = None
+    xes_activity_key = ""
+    xes_version_key = ""
+    if isinstance(xes_cfg, dict):
+        xes_use_classifier = bool(xes_cfg.get("use_classifier", True))
+        xes_activity_key = str(xes_cfg.get("activity_key", "concept:name")).strip() or "concept:name"
+        xes_version_key = str(xes_cfg.get("version_key", "concept:version")).strip() or "concept:version"
+    run_profile = {
+        "mode": mode,
+        "adapter_kind": adapter_kind,
+        "dataset_name": dataset_name,
+        "model_type": model_type,
+        "model_family": model_family,
+        "graph_features_enabled": bool(feature_summary.get("enabled", False)),
+        "node_feature_count": int(feature_summary.get("node_feature_count", 0)),
+        "node_scopes": list(feature_summary.get("node_scopes", [])),
+        "edge_weight_enabled": bool(feature_summary.get("edge_weight_enabled", False)),
+        "edge_weight_metric": str(feature_summary.get("edge_weight_metric", "none")),
+        "stats_quality_gate_enabled": bool(feature_summary.get("stats_quality_gate_enabled", False)),
+        "stats_quality_gate_on_fail": str(feature_summary.get("stats_quality_gate_on_fail", "ignore_with_warning")),
+        "global_process_stats_forward_enabled": False,
+        "stats_time_policy": stats_time_policy,
+        "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
+        "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
+        "knowledge_versions_count": int(len(available_versions)),
+        "xes_use_classifier": xes_use_classifier,
+        "xes_activity_key": xes_activity_key or None,
+        "xes_version_key": xes_version_key or None,
+    }
+    logger.info("========== RUN PROFILE ==========")
+    logger.info(
+        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s",
+        mode,
+        model_type,
+        model_family,
+        adapter_kind,
+        dataset_name,
+        stats_time_policy,
+    )
+    logger.info(
+        "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
+        run_profile["knowledge_backend"],
+        run_profile["knowledge_strict_load"],
+        run_profile["knowledge_versions_count"],
+        "on" if run_profile["graph_features_enabled"] else "off",
+        run_profile["node_feature_count"],
+        ",".join(str(item) for item in run_profile["node_scopes"]) or "none",
+        "on" if run_profile["edge_weight_enabled"] else "off",
+        run_profile["edge_weight_metric"],
+        "on" if run_profile["global_process_stats_forward_enabled"] else "off",
+    )
+    if adapter_kind == "xes":
+        logger.info(
+            "RUN_PROFILE xes use_classifier=%s activity_key=%s version_key=%s",
+            bool(xes_use_classifier),
+            xes_activity_key or "concept:name",
+            xes_version_key or "concept:version",
+        )
+    logger.info(
+        "RUN_PROFILE checks alignment_guard=%s quality_guard=%s forward_stats_summary=%s",
+        "manual",
+        "on" if run_profile["stats_quality_gate_enabled"] else "off",
+        "on",
+    )
+    logger.info("=================================")
     graph_builder = DynamicGraphBuilder(
         feature_encoder=feature_encoder,
         knowledge_port=knowledge_repo,
@@ -452,11 +623,13 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         len(test_traces),
     )
     version_to_idx: Dict[str, int] = {}
+    stats_snapshot_version_to_idx: Dict[str, int] = {}
     train_dataset = _build_graph_dataset(
         train_traces,
         prefix_policy,
         graph_builder,
         version_to_idx,
+        stats_snapshot_version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build train graphs",
@@ -466,6 +639,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         prefix_policy,
         graph_builder,
         version_to_idx,
+        stats_snapshot_version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build val graphs",
@@ -475,11 +649,15 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         prefix_policy,
         graph_builder,
         version_to_idx,
+        stats_snapshot_version_to_idx,
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build test graphs",
     )
     idx_to_version = {idx: version for version, idx in version_to_idx.items()}
+    idx_to_stats_snapshot_version = {
+        idx: snapshot_version for snapshot_version, idx in stats_snapshot_version_to_idx.items()
+    }
     logger.info(
         "Graph datasets ready: train_graphs=%d, val_graphs=%d, test_graphs=%d",
         len(train_dataset),
@@ -529,6 +707,9 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "test_traces": list(test_traces),
         "idx_to_version": idx_to_version,
         "version_to_idx": version_to_idx,
+        "idx_to_stats_snapshot_version": idx_to_stats_snapshot_version,
+        "stats_snapshot_version_to_idx": stats_snapshot_version_to_idx,
+        "run_profile": run_profile,
     }
 
 
@@ -681,6 +862,7 @@ def main() -> None:
         **training_cfg,
         "mapping_config": prepared["mapping_config"],
         "data_config": prepared["data_config"],
+        "run_profile": prepared.get("run_profile", {}),
         "model_config": model_cfg,
         "experiment_config": trainer_experiment_cfg,
         "tracking_config": tracking_cfg,

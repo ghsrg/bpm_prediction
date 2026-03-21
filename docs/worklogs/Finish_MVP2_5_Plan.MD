@@ -42,6 +42,10 @@ Status: Updated (with universal stats contract plan)
 1. Config-driven GNN stats feature mapping за `encoding`.
 2. Cross-backend parity tests (`file` vs `neo4j`) для stats payload semantics.
 3. Короткий quality summary у CLI-output і run logs.
+Додати runtime quality gate у двох місцях:
+producer (sync-stats) обчислює quality-поля,
+consumer (DynamicGraphBuilder) блокує/скипає stats tensors при degraded snapshot.
+
 
 `P2` (можна в MVP3 backlog):
 1. Автоматичний discovery mapping між XES/BPMN.

@@ -1,6 +1,6 @@
 ﻿# LLD_MVP2_5.MD
 
-Updated: 2026-03-19
+Updated: 2026-03-21
 Status: ACTIVE
 
 ## 1. Purpose
@@ -59,6 +59,8 @@ Builder expects:
 2. Build `struct_x` tensor by activity vocabulary index.
 3. Fill missing values with metric default.
 4. Optionally map edge metric into `structural_edge_weight`.
+5. Apply numeric `encoding` chain per feature/edge spec (`identity|log1p|z-score`).
+6. Evaluate consumer quality gate and disable stats tensors when policy rejects snapshot quality.
 
 ### 4.3 Time policy behavior
 1. `latest`: use regular structure lookup.
@@ -70,11 +72,13 @@ Builder expects:
 1. node metrics (`exec_count`, duration stats, loop/parallel/freshness/confidence)
 2. edge metrics (`transition_probability`, latency stats)
 3. global metrics (`resource_handover_entropy`, coverage)
+4. producer quality telemetry (`non_zero_ratio_*`, `zero_dominant`, `is_usable_for_training`)
 
 And stores:
 1. windowed nested stats (`node_stats`, `edge_stats`, `gnn_features`)
 2. flattened `metadata.stats_index`
-3. diagnostics (`stats_diagnostics`)
+3. universal contract block `metadata.stats_contract` (`version=1.0`, identity, quality, policy)
+4. diagnostics (`stats_diagnostics`)
 
 ## 6. Sequence Diagram - Stats to Forward
 ```mermaid
@@ -100,6 +104,7 @@ sequenceDiagram
 | stats index mapping | missing metric key | use metric default |
 | structure missing | no DTO | baseline-compatible contract (unless strict load) |
 
-## 8. Known Limitation (Stage 3.4)
-Current stats mapping uses direct numeric projection with defaults.
-Full graph feature encoding policy (fit/transform/state for stats features) is the next implementation step.
+## 8. Known Limitation (Stage 4.2)
+1. Structural stats are currently forwarded with Option-A batch policy (first-graph structural payload when PyG batch mixes copies).
+2. Mixed snapshot batches are allowed but warned; full snapshot-homogeneous batching policy is deferred.
+3. `strict_asof` still uses repository fallback behavior when no eligible snapshot is found for requested timestamp.

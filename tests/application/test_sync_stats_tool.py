@@ -176,7 +176,14 @@ experiment:
 
     summary = json.loads(out_path.read_text(encoding="utf-8"))
     assert summary["status"] == "ok"
+    assert summary["stats_contract_version"] == "1.0"
     assert summary["processed_versions"] == 1
+    assert summary["details"]
+    detail = summary["details"][0]
+    assert detail["stats_contract_version"] == "1.0"
+    assert "non_zero_ratio_overall" in detail
+    assert "is_usable_for_training" in detail
+    assert "quality_reason" in detail
 
     loaded = repo.get_process_structure("v1", process_name="procurement")
     assert loaded is not None
@@ -186,6 +193,27 @@ experiment:
     assert loaded.stats_diagnostics is not None
     assert loaded.metadata is not None
     assert "stats_index" in loaded.metadata
+    contract = loaded.metadata.get("stats_contract")
+    assert isinstance(contract, dict)
+    assert contract.get("version") == "1.0"
+    assert contract.get("key_format") == "{window}.{scope}.{metric}"
+    identity = contract.get("identity")
+    assert isinstance(identity, dict)
+    assert identity.get("process_name") == "procurement"
+    assert identity.get("version_key") == "v1"
+    assert identity.get("as_of_ts") == "2026-03-12T00:00:00+00:00"
+    policy = contract.get("policy")
+    assert isinstance(policy, dict)
+    assert policy.get("stats_time_policy") == "strict_asof"
+    assert policy.get("process_scope_policy") == "up_to_target_version"
+    quality = contract.get("quality")
+    assert isinstance(quality, dict)
+    assert "non_zero_ratio_node" in quality
+    assert "non_zero_ratio_edge" in quality
+    assert "non_zero_ratio_global" in quality
+    assert "non_zero_ratio_overall" in quality
+    assert "is_usable_for_training" in quality
+    assert "quality_reason" in quality
 
     snapshot_dir = kg_dir / "procurement" / "v1" / "snapshots"
     snapshots = list(snapshot_dir.glob("*.json"))
@@ -491,6 +519,7 @@ experiment:
 
     summary = json.loads(out_path.read_text(encoding="utf-8"))
     assert summary["status"] == "ok"
+    assert summary["stats_contract_version"] == "1.0"
     assert summary["processed_versions"] == 0
     assert summary["skipped_versions"] == 1
     assert summary["skipped_details"]
@@ -577,3 +606,266 @@ experiment:
     assert summary["processed_versions"] == 1
     assert summary["details"]
     assert summary["details"][0]["effective_as_of_ts"].startswith("2024-01-01T01:00:00")
+
+
+def test_sync_stats_producer_quality_gate_can_skip_snapshot(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_quality_gate_skip.yaml"
+    out_path = tmp_path / "sync_stats_quality_gate_skip_summary.json"
+
+    _write_xes_with_trace_version(xes_path, case_id="C1", version="alpha", a1="A", a2="B")
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "alpha",
+        ProcessStructureDTO(
+            version="alpha",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="alpha",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "alpha"
+  dataset_label: "alpha"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["alpha"]
+  quality_gate:
+    enabled: true
+    zero_dominant_threshold: 0.0
+    on_fail: "skip_snapshot"
+  show_progress: false
+
+experiment:
+  mode: "train"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-15T00:00:00Z"])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["processed_versions"] == 0
+    assert summary["skipped_versions"] == 1
+    assert summary["quality_gate"]["on_fail"] == "skip_snapshot"
+    assert summary["skipped_details"]
+    assert summary["skipped_details"][0]["reason"] == "quality_gate_rejected"
+    assert summary["skipped_details"][0]["quality_reason"] == "zero_dominant"
+
+    loaded = repo.get_process_structure("alpha", process_name="alpha")
+    assert loaded is not None
+    assert loaded.node_stats is None
+    assert loaded.edge_stats is None
+    assert loaded.gnn_features is None
+
+
+def test_sync_stats_alignment_gate_can_skip_snapshot_on_activity_mismatch(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_alignment_gate_skip.yaml"
+    out_path = tmp_path / "sync_stats_alignment_gate_skip_summary.json"
+
+    _write_xes(xes_path, case_id="C1", a1="A", a2="B")
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "alpha",
+        ProcessStructureDTO(
+            version="alpha",
+            allowed_edges=[("Task_A", "Task_B")],
+            nodes=[
+                {"id": "Task_A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "Task_B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="alpha",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "alpha"
+  dataset_label: "alpha"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["alpha"]
+  alignment_gate:
+    enabled: true
+    min_event_match_ratio: 1.0
+    min_unique_activity_coverage: 1.0
+    min_node_coverage: 1.0
+    on_fail: "skip_snapshot"
+    warn_on_fail: false
+  show_progress: false
+
+experiment:
+  mode: "train"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-15T00:00:00Z"])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["processed_versions"] == 0
+    assert summary["skipped_versions"] == 1
+    assert summary["alignment_gate"]["on_fail"] == "skip_snapshot"
+    assert summary["skipped_details"]
+    detail = summary["skipped_details"][0]
+    assert detail["reason"] == "alignment_gate_rejected"
+    assert detail["alignment_is_ok"] is False
+    assert detail["alignment_reason"] == "below_min_event_match_ratio"
+    assert float(detail["alignment_event_match_ratio"]) == 0.0
+
+    loaded = repo.get_process_structure("alpha", process_name="alpha")
+    assert loaded is not None
+    assert loaded.node_stats is None
+    assert loaded.edge_stats is None
+    assert loaded.gnn_features is None
+
+
+def test_sync_stats_alignment_gate_write_with_flag_persists_alignment_metadata(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg_sync_stats_alignment_gate_write.yaml"
+    out_path = tmp_path / "sync_stats_alignment_gate_write_summary.json"
+
+    _write_xes(xes_path, case_id="C1", a1="A", a2="B")
+
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    repo.save_process_structure(
+        "alpha",
+        ProcessStructureDTO(
+            version="alpha",
+            allowed_edges=[("Task_A", "Task_B")],
+            nodes=[
+                {"id": "Task_A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "Task_B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+        process_name="alpha",
+    )
+
+    cfg_path.write_text(
+        f"""
+data:
+  dataset_name: "alpha"
+  dataset_label: "alpha"
+  log_path: "{xes_path.as_posix()}"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30, 90]
+  process_filters: ["alpha"]
+  alignment_gate:
+    enabled: true
+    min_event_match_ratio: 1.0
+    min_unique_activity_coverage: 1.0
+    min_node_coverage: 1.0
+    on_fail: "write_with_flag"
+    warn_on_fail: false
+  show_progress: false
+
+experiment:
+  mode: "train"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-15T00:00:00Z"])
+    assert rc == 0
+
+    summary = json.loads(out_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "ok"
+    assert summary["processed_versions"] == 1
+    assert summary["skipped_versions"] == 0
+    assert summary["details"]
+    detail = summary["details"][0]
+    assert detail["alignment_is_ok"] is False
+    assert detail["alignment_reason"] == "below_min_event_match_ratio"
+    assert float(detail["alignment_event_match_ratio"]) == 0.0
+
+    loaded = repo.get_process_structure("alpha", process_name="alpha")
+    assert loaded is not None
+    assert isinstance(loaded.metadata, dict)
+    contract = loaded.metadata.get("stats_contract", {})
+    assert isinstance(contract, dict)
+    alignment = contract.get("alignment", {})
+    assert isinstance(alignment, dict)
+    assert alignment.get("is_aligned") is False
+    assert alignment.get("alignment_reason") == "below_min_event_match_ratio"

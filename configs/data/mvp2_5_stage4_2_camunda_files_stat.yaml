@@ -1,0 +1,212 @@
+data:
+  dataset_label: "camunda_b2bcontracts_stage4_2_stat"
+  dataset_name: "B2BContracts_ApproveProject"
+  log_path: "__camunda__"
+
+mapping:
+  adapter: "camunda"
+  knowledge_graph:
+    backend: "neo4j"
+    path: "data/knowledge_graph"
+    strict_load: true
+    ingest_split: "train"
+    neo4j:
+      connection_profile: "local"
+      connections_file: "configs/connections/neo4j.yaml"
+      verify_connectivity: true
+
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+      - name: "node_exec_count_v_all"
+        metric: "exec_count"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_median_v_all"
+        metric: "duration_median"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_p95_v_all"
+        metric: "duration_p95"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_loop_density_v_all"
+        metric: "loop_density"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_parallel_var_v_all"
+        metric: "parallel_token_variance"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_freshness_v_all"
+        metric: "freshness_score"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_confidence_v_all"
+        metric: "confidence_score"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_exec_count_p_all"
+        metric: "exec_count"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_median_p_all"
+        metric: "duration_median"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_p95_p_all"
+        metric: "duration_p95"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_loop_density_p_all"
+        metric: "loop_density"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_parallel_var_p_all"
+        metric: "parallel_token_variance"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_freshness_p_all"
+        metric: "freshness_score"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_confidence_p_all"
+        metric: "confidence_score"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+    edge_weight:
+      metric: "transition_probability"
+      window: "all_time"
+      scope: "version"
+      default: 1.0
+      encoding: ["identity"]
+    stats_quality_gate:
+      enabled: true
+      on_fail: "allow_with_warning"
+      warn_on_fail: true
+
+  camunda_adapter:
+    process_name: "B2BContracts_ApproveProject"
+    tenant_id: ""
+    tenant_filters: []
+    process_filters:
+      - "B2BContracts_ApproveProject"
+    version_key: ""
+    subprocess_graph_mode: "flattened-no-subprocess-node"
+    lookback_hours: 0
+    since: null
+    until: null
+    runtime:
+      runtime_source: "files"
+      export_dir: "data/camunda_exports"
+      history_cleanup_aware: true
+      legacy_removal_time_policy: "treat_as_eternal"
+      on_missing_removal_time: "auto_fallback"
+      sql_dir: "src/adapters/ingestion/camunda/sql/runtime"
+    structure:
+      source: "bpmn"
+      structure_from_logs: false
+      bpmn_source: "files"
+      files:
+        export_dir: "data/camunda_exports"
+        catalog_file: "process_definitions.csv"
+        bpmn_dir: "data/camunda_exports/bpmn_xml"
+      version_key_format: "vNN"
+      subprocess_mode: "flattened-no-subprocess-node"
+      call_activity:
+        inference_fallback_strategy: "use_aggregated_stats"
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source_key: "activity_def_id"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source_key: "assignee"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "proc_def_version"
+      role: "version"
+      source: "trace"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

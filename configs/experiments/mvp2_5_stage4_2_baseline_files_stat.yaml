@@ -1,0 +1,18 @@
+include:
+  - "../data/mvp2_5_stage4_2_camunda_files_stat.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+experiment:
+  project: "bpm_prediction_mvp2_5"
+  name: "MVP2_5_Stage4_2_Baseline_Files_Stat"
+  mode: "train"
+  fraction: 1.0
+  split_strategy: "temporal"
+  train_ratio: 1.0
+  split_ratio: [0.7, 0.2, 0.1]
+  stats_time_policy: "strict_asof"
+
+training:
+  retrain: true
+
+seed: 42

@@ -1,0 +1,179 @@
+data:
+  dataset_label: "bpi2012_stage4_2_xes_stat"
+  dataset_name: "BPI_Challenge_2012"
+  log_path: "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "neo4j"
+    path: "data/knowledge_graph"
+    strict_load: true
+    ingest_split: "train"
+
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+      - name: "node_exec_count_v_all"
+        metric: "exec_count"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_median_v_all"
+        metric: "duration_median"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_p95_v_all"
+        metric: "duration_p95"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_loop_density_v_all"
+        metric: "loop_density"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_parallel_var_v_all"
+        metric: "parallel_token_variance"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_freshness_v_all"
+        metric: "freshness_score"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_confidence_v_all"
+        metric: "confidence_score"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_exec_count_p_all"
+        metric: "exec_count"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_median_p_all"
+        metric: "duration_median"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_duration_p95_p_all"
+        metric: "duration_p95"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_loop_density_p_all"
+        metric: "loop_density"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_parallel_var_p_all"
+        metric: "parallel_token_variance"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_freshness_p_all"
+        metric: "freshness_score"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+      - name: "node_confidence_p_all"
+        metric: "confidence_score"
+        window: "all_time"
+        scope: "process"
+        default: 0.0
+        encoding: ["identity"]
+    edge_weight:
+      metric: "transition_probability"
+      window: "all_time"
+      scope: "version"
+      default: 1.0
+      encoding: ["identity"]
+    stats_quality_gate:
+      enabled: true
+      on_fail: "allow_with_warning"
+      warn_on_fail: true
+
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+  features:
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

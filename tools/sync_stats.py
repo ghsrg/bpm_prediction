@@ -29,6 +29,27 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
 logger = logging.getLogger(__name__)
 
 
+_STATS_CONTRACT_VERSION = "1.0"
+_NON_ZERO_EPSILON = 1e-12
+_ZERO_DOMINANT_THRESHOLD = 0.95
+_DEFAULT_QUALITY_GATE = {
+    "enabled": True,
+    "zero_dominant_threshold": 0.95,
+    "min_non_zero_ratio_overall": 0.0,
+    "min_history_coverage_percent": 0.0,
+    "on_fail": "write_with_flag",
+    "warn_on_fail": True,
+}
+_DEFAULT_ALIGNMENT_GATE = {
+    "enabled": True,
+    "min_event_match_ratio": 0.6,
+    "min_unique_activity_coverage": 0.6,
+    "min_node_coverage": 0.0,
+    "on_fail": "write_with_flag",
+    "warn_on_fail": True,
+}
+
+
 @dataclass
 class ScopeStatsResult:
     node_index: Dict[str, Dict[str, float]]
@@ -403,6 +424,80 @@ def _resolve_train_cut_config(config: Dict[str, Any]) -> tuple[str, float, float
     return split_strategy, train_ratio, fraction
 
 
+def _resolve_quality_gate_config(sync_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    raw = sync_cfg.get("quality_gate", {})
+    cfg = dict(raw) if isinstance(raw, dict) else {}
+
+    enabled = bool(cfg.get("enabled", _DEFAULT_QUALITY_GATE["enabled"]))
+    warn_on_fail = bool(cfg.get("warn_on_fail", _DEFAULT_QUALITY_GATE["warn_on_fail"]))
+
+    zero_dominant_threshold = float(cfg.get("zero_dominant_threshold", _DEFAULT_QUALITY_GATE["zero_dominant_threshold"]) or 0.0)
+    if zero_dominant_threshold < 0.0 or zero_dominant_threshold > 1.0:
+        raise ValueError("sync_stats.quality_gate.zero_dominant_threshold must be within [0.0, 1.0].")
+
+    min_non_zero_ratio_overall = float(
+        cfg.get("min_non_zero_ratio_overall", _DEFAULT_QUALITY_GATE["min_non_zero_ratio_overall"]) or 0.0
+    )
+    if min_non_zero_ratio_overall < 0.0 or min_non_zero_ratio_overall > 1.0:
+        raise ValueError("sync_stats.quality_gate.min_non_zero_ratio_overall must be within [0.0, 1.0].")
+
+    min_history_coverage_percent = float(
+        cfg.get("min_history_coverage_percent", _DEFAULT_QUALITY_GATE["min_history_coverage_percent"]) or 0.0
+    )
+    if min_history_coverage_percent < 0.0 or min_history_coverage_percent > 100.0:
+        raise ValueError("sync_stats.quality_gate.min_history_coverage_percent must be within [0.0, 100.0].")
+
+    on_fail = _normalize_text(cfg.get("on_fail", _DEFAULT_QUALITY_GATE["on_fail"])).lower() or "write_with_flag"
+    if on_fail not in {"write_with_flag", "skip_snapshot"}:
+        raise ValueError("sync_stats.quality_gate.on_fail must be one of {'write_with_flag', 'skip_snapshot'}.")
+
+    return {
+        "enabled": enabled,
+        "zero_dominant_threshold": float(zero_dominant_threshold),
+        "min_non_zero_ratio_overall": float(min_non_zero_ratio_overall),
+        "min_history_coverage_percent": float(min_history_coverage_percent),
+        "on_fail": on_fail,
+        "warn_on_fail": warn_on_fail,
+    }
+
+
+def _resolve_alignment_gate_config(sync_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    raw = sync_cfg.get("alignment_gate", {})
+    cfg = dict(raw) if isinstance(raw, dict) else {}
+
+    enabled = bool(cfg.get("enabled", _DEFAULT_ALIGNMENT_GATE["enabled"]))
+    warn_on_fail = bool(cfg.get("warn_on_fail", _DEFAULT_ALIGNMENT_GATE["warn_on_fail"]))
+
+    min_event_match_ratio = float(cfg.get("min_event_match_ratio", _DEFAULT_ALIGNMENT_GATE["min_event_match_ratio"]) or 0.0)
+    if min_event_match_ratio < 0.0 or min_event_match_ratio > 1.0:
+        raise ValueError("sync_stats.alignment_gate.min_event_match_ratio must be within [0.0, 1.0].")
+
+    min_unique_activity_coverage = float(
+        cfg.get("min_unique_activity_coverage", _DEFAULT_ALIGNMENT_GATE["min_unique_activity_coverage"]) or 0.0
+    )
+    if min_unique_activity_coverage < 0.0 or min_unique_activity_coverage > 1.0:
+        raise ValueError("sync_stats.alignment_gate.min_unique_activity_coverage must be within [0.0, 1.0].")
+
+    min_node_coverage = float(cfg.get("min_node_coverage", _DEFAULT_ALIGNMENT_GATE["min_node_coverage"]) or 0.0)
+    if min_node_coverage < 0.0 or min_node_coverage > 1.0:
+        raise ValueError("sync_stats.alignment_gate.min_node_coverage must be within [0.0, 1.0].")
+
+    on_fail = _normalize_text(cfg.get("on_fail", _DEFAULT_ALIGNMENT_GATE["on_fail"])).lower() or "write_with_flag"
+    if on_fail not in {"write_with_flag", "skip_snapshot", "raise"}:
+        raise ValueError(
+            "sync_stats.alignment_gate.on_fail must be one of {'write_with_flag', 'skip_snapshot', 'raise'}."
+        )
+
+    return {
+        "enabled": enabled,
+        "min_event_match_ratio": float(min_event_match_ratio),
+        "min_unique_activity_coverage": float(min_unique_activity_coverage),
+        "min_node_coverage": float(min_node_coverage),
+        "on_fail": on_fail,
+        "warn_on_fail": warn_on_fail,
+    }
+
+
 def _trace_start_ts(trace: Any) -> datetime | None:
     events = getattr(trace, "events", None) or []
     if not events:
@@ -507,13 +602,26 @@ def _select_train_events(
     return selected_events, _max_event_ts(selected_events), len(case_items), len(selected_case_ids)
 
 
-def _scope_event_counts(
+def _dto_activity_ids(dto: ProcessStructureDTO) -> List[str]:
+    activity_ids = sorted(
+        {
+            str(item.get("id", "")).strip()
+            for item in (dto.nodes or [])
+            if isinstance(item, dict) and str(item.get("id", "")).strip()
+        }
+    )
+    if activity_ids:
+        return activity_ids
+    return sorted({src for src, _ in dto.allowed_edges} | {dst for _, dst in dto.allowed_edges})
+
+
+def _collect_scope_events(
     events: Sequence[ProcessEventDTO],
     *,
     target_version: str,
     process_scope_policy: str,
     as_of_ts: datetime,
-) -> tuple[int, int]:
+) -> tuple[List[ProcessEventDTO], List[ProcessEventDTO]]:
     version_events = _filter_by_scope_policy(
         events,
         target_version=target_version,
@@ -528,7 +636,186 @@ def _scope_event_counts(
     )
     version_events = _filter_events_by_time(version_events, start_ts=None, end_ts=as_of_ts)
     process_events = _filter_events_by_time(process_events, start_ts=None, end_ts=as_of_ts)
+    return version_events, process_events
+
+
+def _scope_event_counts(
+    events: Sequence[ProcessEventDTO],
+    *,
+    target_version: str,
+    process_scope_policy: str,
+    as_of_ts: datetime,
+) -> tuple[int, int]:
+    version_events, process_events = _collect_scope_events(
+        events,
+        target_version=target_version,
+        process_scope_policy=process_scope_policy,
+        as_of_ts=as_of_ts,
+    )
     return len(version_events), len(process_events)
+
+
+def _count_non_zero_nested(index_map: Dict[str, Dict[str, float]]) -> tuple[int, int]:
+    total = 0
+    non_zero = 0
+    for metric_values in index_map.values():
+        if not isinstance(metric_values, dict):
+            continue
+        for value in metric_values.values():
+            total += 1
+            try:
+                as_float = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(as_float) and abs(as_float) > _NON_ZERO_EPSILON:
+                non_zero += 1
+    return non_zero, total
+
+
+def _count_non_zero_flat(index_map: Dict[str, float]) -> tuple[int, int]:
+    total = 0
+    non_zero = 0
+    for value in index_map.values():
+        total += 1
+        try:
+            as_float = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(as_float) and abs(as_float) > _NON_ZERO_EPSILON:
+            non_zero += 1
+    return non_zero, total
+
+
+def _safe_ratio(non_zero: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return float(non_zero / total)
+
+
+def _build_stats_quality(
+    *,
+    coverage_percent: float,
+    stats_index_node: Dict[str, Dict[str, float]],
+    stats_index_edge: Dict[str, Dict[str, float]],
+    stats_index_global: Dict[str, float],
+    quality_gate_cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    node_non_zero, node_total = _count_non_zero_nested(stats_index_node)
+    edge_non_zero, edge_total = _count_non_zero_nested(stats_index_edge)
+    global_non_zero, global_total = _count_non_zero_flat(stats_index_global)
+
+    total_non_zero = int(node_non_zero + edge_non_zero + global_non_zero)
+    total_values = int(node_total + edge_total + global_total)
+    overall_non_zero_ratio = _safe_ratio(total_non_zero, total_values)
+    zero_ratio = 1.0 - overall_non_zero_ratio
+    zero_dominant_threshold = float(quality_gate_cfg.get("zero_dominant_threshold", _ZERO_DOMINANT_THRESHOLD))
+    min_non_zero_ratio_overall = float(quality_gate_cfg.get("min_non_zero_ratio_overall", 0.0))
+    min_history_coverage_percent = float(quality_gate_cfg.get("min_history_coverage_percent", 0.0))
+    zero_dominant = bool(total_values > 0 and zero_ratio >= zero_dominant_threshold)
+
+    quality_failures: List[str] = []
+    is_usable_for_training = True
+    if float(coverage_percent) <= 0.0:
+        quality_failures.append("no_coverage")
+    if float(coverage_percent) < min_history_coverage_percent:
+        quality_failures.append("below_min_coverage_threshold")
+    if total_values <= 0:
+        quality_failures.append("empty_stats")
+    if zero_dominant:
+        quality_failures.append("zero_dominant")
+    if overall_non_zero_ratio < min_non_zero_ratio_overall:
+        quality_failures.append("below_min_non_zero_ratio_threshold")
+
+    quality_reason = "ok"
+    if quality_failures:
+        quality_reason = quality_failures[0]
+        is_usable_for_training = False
+
+    return {
+        "history_coverage_percent": float(coverage_percent),
+        "non_zero_ratio_node": _safe_ratio(node_non_zero, node_total),
+        "non_zero_ratio_edge": _safe_ratio(edge_non_zero, edge_total),
+        "non_zero_ratio_global": _safe_ratio(global_non_zero, global_total),
+        "non_zero_ratio_overall": float(overall_non_zero_ratio),
+        "zero_dominant_threshold": float(zero_dominant_threshold),
+        "min_non_zero_ratio_overall": float(min_non_zero_ratio_overall),
+        "min_history_coverage_percent": float(min_history_coverage_percent),
+        "zero_dominant": bool(zero_dominant),
+        "is_usable_for_training": bool(is_usable_for_training),
+        "quality_reason": quality_reason,
+        "quality_failures": list(dict.fromkeys(quality_failures)),
+    }
+
+
+def _build_alignment_summary(
+    *,
+    events: Sequence[ProcessEventDTO],
+    activity_ids: Sequence[str],
+    gate_cfg: Dict[str, Any],
+    scope_used: str,
+) -> Dict[str, Any]:
+    node_ids = {_normalize_text(item) for item in activity_ids if _normalize_text(item)}
+    node_count = int(len(node_ids))
+
+    normalized_event_ids = [
+        _normalize_text(event.activity_def_id)
+        for event in events
+        if _normalize_text(event.activity_def_id)
+    ]
+    event_count = int(len(normalized_event_ids))
+    unique_event_ids = {item for item in normalized_event_ids if item}
+    unique_event_count = int(len(unique_event_ids))
+
+    matched_event_count = int(sum(1 for item in normalized_event_ids if item in node_ids))
+    matched_unique_ids = unique_event_ids.intersection(node_ids)
+    matched_unique_count = int(len(matched_unique_ids))
+
+    event_match_ratio = _safe_ratio(matched_event_count, event_count)
+    unique_activity_coverage = _safe_ratio(matched_unique_count, unique_event_count)
+    node_coverage = _safe_ratio(matched_unique_count, node_count)
+
+    unmatched_counter = Counter(item for item in normalized_event_ids if item and item not in node_ids)
+    unmatched_top = [key for key, _ in unmatched_counter.most_common(10)]
+
+    min_event_match_ratio = float(gate_cfg.get("min_event_match_ratio", _DEFAULT_ALIGNMENT_GATE["min_event_match_ratio"]))
+    min_unique_activity_coverage = float(
+        gate_cfg.get("min_unique_activity_coverage", _DEFAULT_ALIGNMENT_GATE["min_unique_activity_coverage"])
+    )
+    min_node_coverage = float(gate_cfg.get("min_node_coverage", _DEFAULT_ALIGNMENT_GATE["min_node_coverage"]))
+
+    failures: List[str] = []
+    if node_count <= 0:
+        failures.append("empty_structure_nodes")
+    if event_count <= 0:
+        failures.append("no_events_for_alignment")
+    if event_count > 0 and event_match_ratio < min_event_match_ratio:
+        failures.append("below_min_event_match_ratio")
+    if unique_event_count > 0 and unique_activity_coverage < min_unique_activity_coverage:
+        failures.append("below_min_unique_activity_coverage")
+    if node_count > 0 and node_coverage < min_node_coverage:
+        failures.append("below_min_node_coverage")
+
+    alignment_reason = failures[0] if failures else "ok"
+    is_aligned = not failures
+
+    return {
+        "scope_used": str(scope_used),
+        "event_count": int(event_count),
+        "unique_event_activity_count": int(unique_event_count),
+        "structure_node_count": int(node_count),
+        "matched_event_count": int(matched_event_count),
+        "matched_unique_activity_count": int(matched_unique_count),
+        "event_match_ratio": float(event_match_ratio),
+        "unique_activity_coverage": float(unique_activity_coverage),
+        "node_coverage": float(node_coverage),
+        "min_event_match_ratio": float(min_event_match_ratio),
+        "min_unique_activity_coverage": float(min_unique_activity_coverage),
+        "min_node_coverage": float(min_node_coverage),
+        "is_aligned": bool(is_aligned),
+        "alignment_reason": alignment_reason,
+        "alignment_failures": list(dict.fromkeys(failures)),
+        "unmatched_event_activities_top": unmatched_top,
+    }
 
 
 def _build_stats_for_dto(
@@ -543,10 +830,13 @@ def _build_stats_for_dto(
     coverage_percent: float,
     confidence_weights: Dict[str, float],
     freshness_half_life_days: float,
+    split_strategy: str,
+    train_ratio: float,
+    fraction: float,
+    quality_gate_cfg: Dict[str, Any],
+    alignment_summary: Dict[str, Any] | None = None,
 ) -> tuple[ProcessStructureDTO, Dict[str, Any]]:
-    activity_ids = sorted({str(item.get("id", "")).strip() for item in (dto.nodes or []) if str(item.get("id", "")).strip()})
-    if not activity_ids:
-        activity_ids = sorted({src for src, _ in dto.allowed_edges} | {dst for _, dst in dto.allowed_edges})
+    activity_ids = _dto_activity_ids(dto)
     allowed_edges = list(dto.allowed_edges)
 
     windows = _iter_windows(as_of_ts, windows_days)
@@ -624,6 +914,7 @@ def _build_stats_for_dto(
                 stats_index_global[f"{window_name}.{scope_name}.{metric_name}"] = float(metric_value)
 
     stats_diagnostics = {
+        "stats_contract_version": _STATS_CONTRACT_VERSION,
         "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,
         "as_of_ts": as_of_ts.isoformat(),
@@ -632,6 +923,7 @@ def _build_stats_for_dto(
         "version": dto.version,
         "windows": list(windows.keys()),
         "tier": "A",
+        "alignment": dict(alignment_summary or {}),
     }
 
     payload = dto.model_copy(deep=True)
@@ -640,24 +932,70 @@ def _build_stats_for_dto(
     payload.gnn_features = gnn_features
     payload.stats_diagnostics = stats_diagnostics
 
+    process_key, tenant_id = _split_namespace(process_namespace)
+    stats_quality = _build_stats_quality(
+        coverage_percent=coverage_percent,
+        stats_index_node=stats_index_node,
+        stats_index_edge=stats_index_edge,
+        stats_index_global=stats_index_global,
+        quality_gate_cfg=quality_gate_cfg,
+    )
+    alignment_payload = dict(alignment_summary or {})
+    stats_policy = {
+        "stats_time_policy": stats_time_policy,
+        "process_scope_policy": process_scope_policy,
+        "split_strategy": split_strategy,
+        "train_ratio": float(train_ratio),
+        "fraction": float(fraction),
+    }
+    stats_identity = {
+        "tenant_id": tenant_id or None,
+        "process_name": process_namespace,
+        "process_key": process_key,
+        "version_key": dto.version,
+        "proc_def_id": _normalize_text(dto.proc_def_id) or None,
+        "knowledge_version": None,
+        "as_of_ts": as_of_ts.isoformat(),
+    }
+
     metadata = dict(payload.metadata or {})
     metadata["stats_index"] = {
         "node": stats_index_node,
         "edge": stats_index_edge,
         "global": stats_index_global,
     }
-    metadata["stats_policy"] = {
-        "stats_time_policy": stats_time_policy,
-        "process_scope_policy": process_scope_policy,
+    metadata["stats_policy"] = stats_policy
+    metadata["stats_contract"] = {
+        "version": _STATS_CONTRACT_VERSION,
+        "key_format": "{window}.{scope}.{metric}",
+        "identity": stats_identity,
+        "quality": stats_quality,
+        "alignment": alignment_payload,
+        "policy": stats_policy,
     }
     payload.metadata = metadata
 
     summary = {
+        "stats_contract_version": _STATS_CONTRACT_VERSION,
         "process_namespace": process_namespace,
         "version": dto.version,
         "history_coverage_percent": float(coverage_percent),
         "num_node_metrics": int(sum(len(values) for values in stats_index_node.values())),
         "num_edge_metrics": int(sum(len(values) for values in stats_index_edge.values())),
+        "non_zero_ratio_node": float(stats_quality["non_zero_ratio_node"]),
+        "non_zero_ratio_edge": float(stats_quality["non_zero_ratio_edge"]),
+        "non_zero_ratio_global": float(stats_quality["non_zero_ratio_global"]),
+        "non_zero_ratio_overall": float(stats_quality["non_zero_ratio_overall"]),
+        "is_usable_for_training": bool(stats_quality["is_usable_for_training"]),
+        "quality_reason": str(stats_quality["quality_reason"]),
+        "quality_failures": list(stats_quality.get("quality_failures", [])),
+        "alignment_is_ok": bool(alignment_payload.get("is_aligned", True)),
+        "alignment_reason": str(alignment_payload.get("alignment_reason", "ok")),
+        "alignment_failures": list(alignment_payload.get("alignment_failures", [])),
+        "alignment_event_match_ratio": float(alignment_payload.get("event_match_ratio", 1.0)),
+        "alignment_unique_activity_coverage": float(alignment_payload.get("unique_activity_coverage", 1.0)),
+        "alignment_node_coverage": float(alignment_payload.get("node_coverage", 1.0)),
+        "alignment_scope_used": str(alignment_payload.get("scope_used", "none")),
     }
     return payload, summary
 
@@ -957,6 +1295,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         confidence_weights = {"sample_size": 0.4, "freshness": 0.3, "coverage": 0.3}
 
     freshness_half_life_days = float(sync_cfg.get("freshness_half_life_days", 14.0) or 14.0)
+    quality_gate_cfg = _resolve_quality_gate_config(sync_cfg)
+    alignment_gate_cfg = _resolve_alignment_gate_config(sync_cfg)
     show_progress = bool(sync_cfg.get("show_progress", True))
 
     knowledge_repo = build_knowledge_graph_repository(config)
@@ -969,6 +1309,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         process_filters=process_filters,
         tenant_filters=tenant_filters,
     )
+
+    logger.info("========== SYNC-STATS PROFILE ==========")
+    logger.info(
+        "SYNC_STATS_PROFILE adapter=%s stats_time_policy=%s process_scope_policy=%s split=%s train_ratio=%.4f fraction=%.4f as_of=%s",
+        adapter_kind,
+        stats_time_policy,
+        process_scope_policy,
+        split_strategy,
+        train_ratio,
+        fraction,
+        as_of_ts_explicit.isoformat() if as_of_ts_explicit is not None else "auto:max_event_ts_per_process",
+    )
+    logger.info(
+        "SYNC_STATS_GATES quality=%s(on_fail=%s) alignment=%s(on_fail=%s) selected_processes=%d/%d",
+        "on" if bool(quality_gate_cfg.get("enabled", True)) else "off",
+        quality_gate_cfg.get("on_fail", "write_with_flag"),
+        "on" if bool(alignment_gate_cfg.get("enabled", True)) else "off",
+        alignment_gate_cfg.get("on_fail", "write_with_flag"),
+        len(selected_processes),
+        len(all_processes),
+    )
+    logger.info("========================================")
 
     runtime: CamundaRuntimeAdapter | None = None
     xes_events: Dict[str, List[ProcessEventDTO]] = {}
@@ -1106,12 +1468,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     }
                 )
                 continue
-            version_event_count, process_event_count = _scope_event_counts(
+            version_scope_events, process_scope_events = _collect_scope_events(
                 all_events,
                 target_version=version,
                 process_scope_policy=process_scope_policy,
                 as_of_ts=effective_as_of,
             )
+            version_event_count = len(version_scope_events)
+            process_event_count = len(process_scope_events)
             if version_event_count == 0 and process_event_count == 0:
                 logger.warning(
                     "Skip stats snapshot for process=%s version=%s: no events matched scope policy up to as_of=%s.",
@@ -1133,6 +1497,57 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 continue
 
+            alignment_scope_used = "version" if version_event_count > 0 else "process"
+            alignment_events = version_scope_events if version_event_count > 0 else process_scope_events
+            alignment_summary = _build_alignment_summary(
+                events=alignment_events,
+                activity_ids=_dto_activity_ids(dto),
+                gate_cfg=alignment_gate_cfg,
+                scope_used=alignment_scope_used,
+            )
+            alignment_rejected = bool(alignment_gate_cfg.get("enabled", True)) and (not bool(alignment_summary.get("is_aligned", True)))
+            if alignment_rejected and alignment_gate_cfg.get("warn_on_fail", True):
+                logger.warning(
+                    "Alignment gate rejected stats snapshot for process=%s version=%s: reason=%s failures=%s event_match_ratio=%.4f unique_activity_coverage=%.4f node_coverage=%.4f.",
+                    process_namespace,
+                    version,
+                    alignment_summary.get("alignment_reason"),
+                    ",".join(str(item) for item in alignment_summary.get("alignment_failures", [])),
+                    float(alignment_summary.get("event_match_ratio", 0.0)),
+                    float(alignment_summary.get("unique_activity_coverage", 0.0)),
+                    float(alignment_summary.get("node_coverage", 0.0)),
+                )
+            if alignment_rejected:
+                on_fail = str(alignment_gate_cfg.get("on_fail", "write_with_flag"))
+                if on_fail == "raise":
+                    raise ValueError(
+                        f"Alignment gate rejected process='{process_namespace}' version='{version}': "
+                        f"{alignment_summary.get('alignment_reason')}"
+                    )
+                if on_fail == "skip_snapshot":
+                    skipped += 1
+                    skipped_details.append(
+                        {
+                            "process_name": process_namespace,
+                            "version": version,
+                            "reason": "alignment_gate_rejected",
+                            "effective_as_of_ts": effective_as_of.isoformat(),
+                            "alignment_is_ok": bool(alignment_summary.get("is_aligned", False)),
+                            "alignment_reason": str(alignment_summary.get("alignment_reason", "rejected")),
+                            "alignment_failures": list(alignment_summary.get("alignment_failures", [])),
+                            "alignment_event_match_ratio": float(alignment_summary.get("event_match_ratio", 0.0)),
+                            "alignment_unique_activity_coverage": float(
+                                alignment_summary.get("unique_activity_coverage", 0.0)
+                            ),
+                            "alignment_node_coverage": float(alignment_summary.get("node_coverage", 0.0)),
+                            "alignment_scope_used": str(alignment_summary.get("scope_used", "none")),
+                            "scope_events_version": int(version_event_count),
+                            "scope_events_process": int(process_event_count),
+                            **selection_info,
+                        }
+                    )
+                    continue
+
             enriched_dto, stat_summary = _build_stats_for_dto(
                 dto=dto,
                 process_namespace=process_namespace,
@@ -1144,7 +1559,47 @@ def main(argv: Sequence[str] | None = None) -> int:
                 coverage_percent=coverage_percent,
                 confidence_weights=confidence_weights,
                 freshness_half_life_days=freshness_half_life_days,
+                split_strategy=split_strategy,
+                train_ratio=train_ratio,
+                fraction=fraction,
+                quality_gate_cfg=quality_gate_cfg,
+                alignment_summary=alignment_summary,
             )
+
+            logger.info(
+                "SYNC_STATS_CHECK process=%s version=%s alignment=%s(reason=%s) quality=%s(reason=%s)",
+                process_namespace,
+                version,
+                "pass" if bool(stat_summary.get("alignment_is_ok", True)) else "fail",
+                stat_summary.get("alignment_reason"),
+                "pass" if bool(stat_summary.get("is_usable_for_training", True)) else "fail",
+                stat_summary.get("quality_reason"),
+            )
+
+            quality_rejected = quality_gate_cfg.get("enabled", True) and (not bool(stat_summary.get("is_usable_for_training", True)))
+            if quality_rejected and quality_gate_cfg.get("warn_on_fail", True):
+                logger.warning(
+                    "Quality gate rejected stats snapshot for process=%s version=%s: reason=%s failures=%s.",
+                    process_namespace,
+                    version,
+                    stat_summary.get("quality_reason"),
+                    ",".join(str(item) for item in stat_summary.get("quality_failures", [])),
+                )
+
+            if quality_rejected and str(quality_gate_cfg.get("on_fail", "write_with_flag")) == "skip_snapshot":
+                skipped += 1
+                skipped_details.append(
+                    {
+                        "process_name": process_namespace,
+                        "version": version,
+                        "reason": "quality_gate_rejected",
+                        "effective_as_of_ts": effective_as_of.isoformat(),
+                        "quality_reason": stat_summary.get("quality_reason"),
+                        "quality_failures": list(stat_summary.get("quality_failures", [])),
+                        **selection_info,
+                    }
+                )
+                continue
 
             knowledge_version = knowledge_repo.save_process_structure_snapshot(
                 version=version,
@@ -1171,9 +1626,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "mode": "sync-stats",
         "adapter": adapter_kind,
         "tier": "A",
+        "stats_contract_version": _STATS_CONTRACT_VERSION,
         "stats_time_policy": stats_time_policy,
         "process_scope_policy": process_scope_policy,
         "as_of_ts": as_of_ts_explicit.isoformat() if as_of_ts_explicit is not None else "auto:max_event_ts_per_process",
+        "quality_gate": dict(quality_gate_cfg),
+        "alignment_gate": dict(alignment_gate_cfg),
         "split_strategy": split_strategy,
         "train_ratio": float(train_ratio),
         "fraction": float(fraction),

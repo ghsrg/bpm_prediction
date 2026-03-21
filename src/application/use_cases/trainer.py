@@ -8,12 +8,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import math
 from pathlib import Path
 import tempfile
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+import warnings
 
 import numpy as np
 import psutil
@@ -104,6 +106,9 @@ class ModelTrainer:
         self._prefix_lengths: List[int] = []
         self._version_to_idx: Dict[str, int] = {}
         self._idx_to_version: Dict[int, str] = {}
+        self._stats_snapshot_version_to_idx: Dict[str, int] = {}
+        self._idx_to_stats_snapshot_version: Dict[int, str] = {}
+        self._warned_mixed_snapshot_batches: set[tuple[int, ...]] = set()
         self._logged_mask_debug = False
         self._logged_oos_math = False
         self._logged_peak_vram = False
@@ -119,6 +124,18 @@ class ModelTrainer:
                         continue
                 self._idx_to_version.update(normalized_idx_to_version)
                 self._version_to_idx.update({label: idx for idx, label in self._idx_to_version.items()})
+            raw_snapshot_idx_to_version = self.prepared_data.get("idx_to_stats_snapshot_version", {})
+            if isinstance(raw_snapshot_idx_to_version, dict):
+                normalized_snapshot_idx_to_version: Dict[int, str] = {}
+                for raw_idx, raw_label in raw_snapshot_idx_to_version.items():
+                    try:
+                        normalized_snapshot_idx_to_version[int(raw_idx)] = str(raw_label)
+                    except (TypeError, ValueError):
+                        continue
+                self._idx_to_stats_snapshot_version.update(normalized_snapshot_idx_to_version)
+                self._stats_snapshot_version_to_idx.update(
+                    {label: idx for idx, label in self._idx_to_stats_snapshot_version.items()}
+                )
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -265,7 +282,7 @@ class ModelTrainer:
         )
         self._log_topology_metrics_and_artifacts()
         logger.info("DataLoaders ready for eval_cross_dataset: test_batches=%d", len(test_loader))
-        test_metrics = self._evaluate_test(test_loader)
+        test_metrics = self._evaluate_test(test_loader, stage_label="inference")
         logger.info("Eval cross-dataset test metrics: %s", test_metrics)
         self._log_test_metrics(test_metrics)
         return {
@@ -402,7 +419,7 @@ class ModelTrainer:
         best_epoch = int(best_checkpoint["epoch"])
         best_val_loss = float(best_checkpoint["val_loss"])
 
-        test_metrics = self._evaluate_test(test_loader)
+        test_metrics = self._evaluate_test(test_loader, stage_label="inference")
         logger.info("Final test metrics: %s", test_metrics)
         self._log_test_metrics(test_metrics)
 
@@ -628,6 +645,34 @@ class ModelTrainer:
                 structural_edge_weight = contract.get("structural_edge_weight")
                 if isinstance(structural_edge_weight, torch.Tensor):
                     payload["structural_edge_weight"] = structural_edge_weight
+                snapshot_seq_raw = contract.get("stats_snapshot_version_seq")
+                if isinstance(snapshot_seq_raw, (int, float)) and not isinstance(snapshot_seq_raw, bool):
+                    snapshot_idx = int(snapshot_seq_raw)
+                    snapshot_version = f"k{snapshot_idx:06d}"
+                    self._stats_snapshot_version_to_idx.setdefault(snapshot_version, snapshot_idx)
+                    self._idx_to_stats_snapshot_version[snapshot_idx] = snapshot_version
+                    payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+                else:
+                    # Backward compatibility for contracts that still expose text metadata.
+                    stats_snapshot_version = contract.get("stats_snapshot_version")
+                    if stats_snapshot_version is not None:
+                        snapshot_version = str(stats_snapshot_version).strip()
+                        if snapshot_version:
+                            snapshot_idx = self._stats_snapshot_version_to_idx.setdefault(
+                                snapshot_version,
+                                len(self._stats_snapshot_version_to_idx),
+                            )
+                            self._idx_to_stats_snapshot_version[snapshot_idx] = snapshot_version
+                            payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+
+                snapshot_as_of_epoch = None
+                snapshot_as_of_epoch_raw = contract.get("stats_snapshot_as_of_epoch")
+                if isinstance(snapshot_as_of_epoch_raw, (int, float)) and not isinstance(snapshot_as_of_epoch_raw, bool):
+                    snapshot_as_of_epoch = float(snapshot_as_of_epoch_raw)
+                if snapshot_as_of_epoch is None:
+                    snapshot_as_of_epoch = self._safe_iso_to_epoch(contract.get("stats_snapshot_as_of_ts"))
+                if snapshot_as_of_epoch is not None:
+                    payload["stats_snapshot_as_of_epoch"] = torch.tensor([snapshot_as_of_epoch], dtype=torch.float64)
                 graphs.append(Data(**payload))
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
 
@@ -656,6 +701,13 @@ class ModelTrainer:
                     if idx not in self._idx_to_version:
                         self._idx_to_version[idx] = f"v{idx}"
                     self._version_to_idx.setdefault(self._idx_to_version[idx], idx)
+            if hasattr(graph, "stats_snapshot_version_idx"):
+                snapshot_version_tensor = graph.stats_snapshot_version_idx
+                if isinstance(snapshot_version_tensor, torch.Tensor) and snapshot_version_tensor.numel() > 0:
+                    idx = int(snapshot_version_tensor.view(-1)[0].item())
+                    if idx not in self._idx_to_stats_snapshot_version:
+                        self._idx_to_stats_snapshot_version[idx] = f"k{idx:06d}"
+                    self._stats_snapshot_version_to_idx.setdefault(self._idx_to_stats_snapshot_version[idx], idx)
 
         return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
 
@@ -671,11 +723,13 @@ class ModelTrainer:
         all_true: List[int] = []
         all_pred: List[int] = []
         batches = 0
+        forward_stats = self._new_forward_stats_accumulator()
 
         iterator = tqdm(loader, desc=("Train epoch" if training else "Validation epoch"), leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
         for data in iterator:
             data = data.to(self.device)
             contract = self._data_to_contract(data)
+            self._accumulate_forward_stats(forward_stats, contract)
             if training and optimizer is not None:
                 optimizer.zero_grad()
 
@@ -700,9 +754,10 @@ class ModelTrainer:
         macro_f1 = float(f1_score(all_true, all_pred, average="macro", zero_division=0))
         weighted_f1 = float(f1_score(all_true, all_pred, average="weighted", zero_division=0))
         avg_loss = total_loss / batches
+        self._log_forward_stats_summary("train" if training else "validation", forward_stats)
         return avg_loss, macro_f1, weighted_f1, duration
 
-    def _evaluate_test(self, loader: Iterable[Data]) -> Dict[str, Any]:
+    def _evaluate_test(self, loader: Iterable[Data], stage_label: str = "inference") -> Dict[str, Any]:
         """Compute final test metrics after training is complete."""
         self.model.eval()
         self._logged_mask_debug = False
@@ -716,12 +771,14 @@ class ModelTrainer:
         inference_graphs = 0
         inference_started = perf_counter()
         first_batch_debug_logged = False
+        forward_stats = self._new_forward_stats_accumulator()
 
         with torch.no_grad():
             iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
             for data in iterator:
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
+                self._accumulate_forward_stats(forward_stats, contract)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 logits = self.model(contract)
@@ -800,6 +857,7 @@ class ModelTrainer:
 
         total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
         inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
+        self._log_forward_stats_summary(stage_label, forward_stats)
 
         if not all_true:
             return {
@@ -869,7 +927,7 @@ class ModelTrainer:
         total_windows = len(windows)
         for window_idx, (start, window_traces) in enumerate(iterator):
             window_loader = self._build_loader(window_traces, shuffle=False)
-            metrics = self._evaluate_test(window_loader)
+            metrics = self._evaluate_test(window_loader, stage_label="eval_drift")
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
             ece = float(metrics.get("test_ece", 0.0))
 
@@ -1017,6 +1075,244 @@ class ModelTrainer:
             ece += abs(bin_acc - bin_conf) * (count / total)
         return float(ece)
 
+    @staticmethod
+    def _safe_iso_to_epoch(value: Any) -> float | None:
+        """Parse ISO timestamp into epoch seconds for tensor payload compatibility."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        normalized = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return float(parsed.timestamp())
+
+    @staticmethod
+    def _epoch_to_iso(epoch: float) -> str | None:
+        """Render epoch seconds to UTC ISO string with timezone for logging output."""
+        try:
+            return datetime.fromtimestamp(float(epoch), tz=timezone.utc).isoformat()
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+
+    @staticmethod
+    def _new_forward_stats_accumulator() -> Dict[str, Any]:
+        return {
+            "batches": 0,
+            "graphs": 0,
+            "batches_with_struct_x": 0,
+            "batches_with_struct_edges": 0,
+            "batches_with_snapshot_meta": 0,
+            "stats_allowed_true": 0,
+            "stats_allowed_false": 0,
+            "struct_feature_dims": set(),
+            "struct_node_rows": set(),
+            "struct_edge_counts": [],
+            "snapshot_versions": set(),
+            "snapshot_as_of_ts": set(),
+        }
+
+    def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
+        bucket["batches"] = int(bucket.get("batches", 0)) + 1
+
+        graph_count = 0
+        batch_tensor = contract.get("batch")
+        if isinstance(batch_tensor, torch.Tensor) and batch_tensor.numel() > 0:
+            graph_count = int(batch_tensor.max().item()) + 1
+        elif isinstance(contract.get("y"), torch.Tensor):
+            graph_count = int(contract["y"].view(-1).shape[0])
+        bucket["graphs"] = int(bucket.get("graphs", 0)) + max(graph_count, 0)
+
+        struct_x = contract.get("struct_x")
+        if isinstance(struct_x, torch.Tensor) and struct_x.numel() > 0:
+            bucket["batches_with_struct_x"] = int(bucket.get("batches_with_struct_x", 0)) + 1
+            dims = struct_x.dim()
+            rows = int(struct_x.size(0)) if dims >= 1 else 0
+            features = int(struct_x.size(1)) if dims >= 2 else 1
+            bucket.setdefault("struct_feature_dims", set()).add(features)
+            bucket.setdefault("struct_node_rows", set()).add(rows)
+
+        structural_edge_index = contract.get("structural_edge_index")
+        if isinstance(structural_edge_index, torch.Tensor):
+            edge_count = int(structural_edge_index.size(1)) if structural_edge_index.dim() >= 2 else 0
+            bucket.setdefault("struct_edge_counts", []).append(edge_count)
+            if structural_edge_index.numel() > 0:
+                bucket["batches_with_struct_edges"] = int(bucket.get("batches_with_struct_edges", 0)) + 1
+
+        versions = contract.get("stats_snapshot_versions")
+        if isinstance(versions, list):
+            if versions:
+                bucket["batches_with_snapshot_meta"] = int(bucket.get("batches_with_snapshot_meta", 0)) + 1
+            for value in versions:
+                text = str(value).strip()
+                if text:
+                    bucket.setdefault("snapshot_versions", set()).add(text)
+        else:
+            single_version = contract.get("stats_snapshot_version")
+            if single_version is not None:
+                text = str(single_version).strip()
+                if text:
+                    bucket.setdefault("snapshot_versions", set()).add(text)
+
+        as_of_values = contract.get("stats_snapshot_as_of_ts_batch")
+        if isinstance(as_of_values, list):
+            for value in as_of_values:
+                text = str(value).strip()
+                if text:
+                    bucket.setdefault("snapshot_as_of_ts", set()).add(text)
+        else:
+            single_as_of = contract.get("stats_snapshot_as_of_ts")
+            if single_as_of is not None:
+                text = str(single_as_of).strip()
+                if text:
+                    bucket.setdefault("snapshot_as_of_ts", set()).add(text)
+
+        stats_allowed_batch = contract.get("stats_allowed_batch")
+        if isinstance(stats_allowed_batch, list):
+            for raw in stats_allowed_batch:
+                if bool(raw):
+                    bucket["stats_allowed_true"] = int(bucket.get("stats_allowed_true", 0)) + 1
+                else:
+                    bucket["stats_allowed_false"] = int(bucket.get("stats_allowed_false", 0)) + 1
+        else:
+            single_stats_allowed = contract.get("stats_allowed")
+            if single_stats_allowed is not None:
+                if bool(single_stats_allowed):
+                    bucket["stats_allowed_true"] = int(bucket.get("stats_allowed_true", 0)) + 1
+                else:
+                    bucket["stats_allowed_false"] = int(bucket.get("stats_allowed_false", 0)) + 1
+
+    @staticmethod
+    def _format_unique_values(values: set[Any], limit: int = 3) -> str:
+        if not values:
+            return "none"
+        ordered = [str(item) for item in sorted(values, key=lambda item: str(item))]
+        if len(ordered) <= limit:
+            return ",".join(ordered)
+        head = ",".join(ordered[:limit])
+        return f"{head},...(+{len(ordered) - limit})"
+
+    def _log_forward_stats_summary(self, stage_label: str, bucket: Dict[str, Any]) -> None:
+        batches = int(bucket.get("batches", 0))
+        if batches <= 0:
+            logger.info("Forward stats [%s]: no batches.", stage_label)
+            return
+
+        struct_edge_counts = [int(item) for item in bucket.get("struct_edge_counts", [])]
+        if struct_edge_counts:
+            edge_min = min(struct_edge_counts)
+            edge_max = max(struct_edge_counts)
+            edge_avg = float(sum(struct_edge_counts) / len(struct_edge_counts))
+        else:
+            edge_min = 0
+            edge_max = 0
+            edge_avg = 0.0
+
+        versions = bucket.get("snapshot_versions", set())
+        as_of_values = bucket.get("snapshot_as_of_ts", set())
+        feature_dims = bucket.get("struct_feature_dims", set())
+        struct_rows = bucket.get("struct_node_rows", set())
+        stats_allowed_true = int(bucket.get("stats_allowed_true", 0))
+        stats_allowed_false = int(bucket.get("stats_allowed_false", 0))
+        snapshot_meta_batches = int(bucket.get("batches_with_snapshot_meta", 0))
+
+        logger.info(
+            "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
+            "snapshot_meta_batches=%d stats_allowed[true/false]=%d/%d "
+            "struct_feature_dims=%s struct_rows=%s edge_count[min/avg/max]=%d/%.2f/%d "
+            "snapshot_versions=%s snapshot_as_of_ts=%s",
+            stage_label,
+            batches,
+            int(bucket.get("graphs", 0)),
+            int(bucket.get("batches_with_struct_x", 0)),
+            int(bucket.get("batches_with_struct_edges", 0)),
+            snapshot_meta_batches,
+            stats_allowed_true,
+            stats_allowed_false,
+            self._format_unique_values(set(feature_dims)),
+            self._format_unique_values(set(struct_rows)),
+            edge_min,
+            edge_avg,
+            edge_max,
+            self._format_unique_values(set(versions)),
+            self._format_unique_values(set(as_of_values)),
+        )
+
+    def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
+        snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)
+        if not isinstance(snapshot_version_idx, torch.Tensor):
+            return
+        raw = snapshot_version_idx.view(-1).long().cpu().tolist()
+        if not raw:
+            return
+        unique_idx = tuple(sorted({int(item) for item in raw}))
+        if len(unique_idx) <= 1:
+            return
+        if unique_idx in self._warned_mixed_snapshot_batches:
+            return
+        self._warned_mixed_snapshot_batches.add(unique_idx)
+        labels = [self._idx_to_stats_snapshot_version.get(item, f"k{item:06d}") for item in unique_idx]
+        warnings.warn(
+            "Mixed stats snapshots in one batch detected: "
+            f"{','.join(labels)}. Using first graph snapshot for structural tensors.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    def _select_structural_payload_for_forward(
+        self,
+        data: Data,
+        batch_tensor: torch.Tensor,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+        """Select structural payload for forward; use first graph payload on batched input."""
+        self._warn_if_mixed_snapshot_versions(data)
+
+        to_data_list = getattr(data, "to_data_list", None)
+        if callable(to_data_list):
+            try:
+                data_list = list(to_data_list())
+            except Exception:
+                data_list = []
+            if data_list:
+                first = data_list[0]
+                struct_x = first.struct_x if hasattr(first, "struct_x") and isinstance(first.struct_x, torch.Tensor) else None
+                structural_edge_index = (
+                    first.structural_edge_index
+                    if hasattr(first, "structural_edge_index") and isinstance(first.structural_edge_index, torch.Tensor)
+                    else None
+                )
+                structural_edge_weight = (
+                    first.structural_edge_weight
+                    if hasattr(first, "structural_edge_weight") and isinstance(first.structural_edge_weight, torch.Tensor)
+                    else None
+                )
+                return struct_x, structural_edge_index, structural_edge_weight
+
+        struct_x = data.struct_x if hasattr(data, "struct_x") and isinstance(data.struct_x, torch.Tensor) else None
+        structural_edge_index = (
+            data.structural_edge_index
+            if hasattr(data, "structural_edge_index") and isinstance(data.structural_edge_index, torch.Tensor)
+            else None
+        )
+        structural_edge_weight = (
+            data.structural_edge_weight
+            if hasattr(data, "structural_edge_weight") and isinstance(data.structural_edge_weight, torch.Tensor)
+            else None
+        )
+
+        if isinstance(struct_x, torch.Tensor):
+            graph_count = int(batch_tensor.max().item()) + 1 if batch_tensor.numel() > 0 else int(data.y.view(-1).shape[0])
+            if graph_count > 1 and struct_x.dim() == 2 and int(struct_x.size(0)) % graph_count == 0:
+                cls_rows = int(struct_x.size(0)) // graph_count
+                struct_x = struct_x.view(graph_count, cls_rows, int(struct_x.size(1)))[0]
+
+        return struct_x, structural_edge_index, structural_edge_weight
+
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
         edge_type = data.edge_type if hasattr(data, "edge_type") else torch.zeros(data.edge_index.shape[1], dtype=torch.long)
@@ -1037,14 +1333,40 @@ class ModelTrainer:
             mask = data.allowed_target_mask
             if isinstance(mask, torch.Tensor):
                 contract["allowed_target_mask"] = mask.bool()
-        if hasattr(data, "struct_x"):
-            struct_x = data.struct_x
-            if isinstance(struct_x, torch.Tensor):
-                contract["struct_x"] = struct_x.float()
-        if hasattr(data, "structural_edge_index") and data.structural_edge_index is not None:
-            contract["structural_edge_index"] = data.structural_edge_index
-        if hasattr(data, "structural_edge_weight") and data.structural_edge_weight is not None:
-            contract["structural_edge_weight"] = data.structural_edge_weight
+        struct_x, structural_edge_index, structural_edge_weight = self._select_structural_payload_for_forward(
+            data,
+            batch_tensor,
+        )
+        if isinstance(struct_x, torch.Tensor):
+            contract["struct_x"] = struct_x.float()
+        if isinstance(structural_edge_index, torch.Tensor):
+            contract["structural_edge_index"] = structural_edge_index
+        if isinstance(structural_edge_weight, torch.Tensor):
+            contract["structural_edge_weight"] = structural_edge_weight
+        if hasattr(data, "stats_snapshot_version_idx"):
+            snapshot_version_idx = data.stats_snapshot_version_idx
+            if isinstance(snapshot_version_idx, torch.Tensor):
+                version_labels: List[str] = []
+                for idx in snapshot_version_idx.view(-1).long().cpu().tolist():
+                    version_labels.append(self._idx_to_stats_snapshot_version.get(int(idx), f"k{int(idx):06d}"))
+                if version_labels:
+                    contract["stats_snapshot_versions"] = version_labels
+        if hasattr(data, "stats_snapshot_as_of_epoch"):
+            snapshot_as_of_epoch = data.stats_snapshot_as_of_epoch
+            if isinstance(snapshot_as_of_epoch, torch.Tensor):
+                as_of_values: List[str] = []
+                for epoch in snapshot_as_of_epoch.view(-1).double().cpu().tolist():
+                    iso_value = self._epoch_to_iso(epoch)
+                    if iso_value is not None:
+                        as_of_values.append(iso_value)
+                if as_of_values:
+                    contract["stats_snapshot_as_of_ts_batch"] = as_of_values
+        if hasattr(data, "stats_allowed"):
+            stats_allowed = data.stats_allowed
+            if isinstance(stats_allowed, torch.Tensor):
+                flags = [bool(item) for item in stats_allowed.view(-1).long().cpu().tolist()]
+                if flags:
+                    contract["stats_allowed_batch"] = flags
         return contract
 
     def _log_model_and_system_context(self) -> None:
@@ -1145,16 +1467,52 @@ class ModelTrainer:
 
     def _log_run_context(self) -> None:
         """Log extended run context: tags, flattened params, and feature metadata."""
-        if self.tracker is None:
-            return
-
         experiment_cfg = self.config.get("experiment_config", {})
         tracking_cfg = self.config.get("tracking_config", {})
         data_cfg = self.config.get("data_config", {})
         model_cfg = self.config.get("model_config", {})
+        run_profile_raw = self.config.get("run_profile", {})
+        run_profile = dict(run_profile_raw) if isinstance(run_profile_raw, dict) else {}
 
         dataset_label = str(self.config.get("dataset_label", data_cfg.get("dataset_label", experiment_cfg.get("dataset", "unknown_data")))).strip()
         model_label = str(self.config.get("model_label", model_cfg.get("model_label", model_cfg.get("type", "unknown_model")))).strip()
+        model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
+        model_family = str(run_profile.get("model_family", "eopkg" if model_type.lower().startswith("eopkg") else "baseline"))
+        adapter_kind = str(run_profile.get("adapter_kind", self.config.get("mapping_config", {}).get("adapter", "xes"))).strip() or "xes"
+        graph_features_enabled = bool(run_profile.get("graph_features_enabled", False))
+        node_feature_count = int(run_profile.get("node_feature_count", 0))
+        edge_weight_enabled = bool(run_profile.get("edge_weight_enabled", False))
+        global_process_forward_enabled = bool(run_profile.get("global_process_stats_forward_enabled", False))
+        stats_quality_gate_enabled = bool(run_profile.get("stats_quality_gate_enabled", False))
+        stats_time_policy = str(run_profile.get("stats_time_policy", "latest"))
+        xes_use_classifier = run_profile.get("xes_use_classifier")
+
+        logger.info("========== TRAINER PROFILE ==========")
+        logger.info(
+            "TRAINER_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s preloaded_data=%s",
+            self.mode,
+            model_type,
+            model_family,
+            adapter_kind,
+            dataset_label or "unknown_data",
+            bool(self.prepared_data is not None),
+        )
+        logger.info(
+            "TRAINER_PROFILE forward struct_nodes=%s(node_features=%d) struct_edges=%s global_process=%s stats_quality_gate=%s stats_time_policy=%s",
+            "on" if graph_features_enabled and node_feature_count > 0 else "off",
+            node_feature_count,
+            "on" if graph_features_enabled and edge_weight_enabled else "off",
+            "on" if global_process_forward_enabled else "off",
+            "on" if stats_quality_gate_enabled else "off",
+            stats_time_policy,
+        )
+        if adapter_kind == "xes":
+            logger.info("TRAINER_PROFILE xes use_classifier=%s", xes_use_classifier if xes_use_classifier is not None else "unknown")
+        logger.info("TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on")
+        logger.info("=====================================")
+
+        if self.tracker is None:
+            return
         if dataset_label:
             self.tracker.log_tag("experiment.dataset_label", dataset_label)
         if model_label:

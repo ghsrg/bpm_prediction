@@ -27,3 +27,8 @@ class GraphTensorContract(TypedDict):
     structural_edge_weight: NotRequired[torch.FloatTensor | None]
     version_emb_idx: NotRequired[torch.LongTensor | None]
     allowed_target_mask: NotRequired[torch.BoolTensor | None]
+    stats_snapshot_version_seq: NotRequired[int | None]
+    stats_snapshot_as_of_epoch: NotRequired[float | None]
+    stats_allowed: NotRequired[bool | None]
+    stats_snapshot_versions: NotRequired[list[str] | None]
+    stats_snapshot_as_of_ts_batch: NotRequired[list[str] | None]

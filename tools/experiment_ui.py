@@ -1,4 +1,4 @@
-"""Desktop UI wrapper for configuring and running BPM experiments.
+﻿"""Desktop UI wrapper for configuring and running BPM experiments.
 
 Goals:
 1. Use base config as source of truth.
@@ -57,6 +57,7 @@ FIELD_HINTS: Dict[str, str] = {
     "mapping.xes_adapter.activity_key": "Ключ активності в XES.",
     "mapping.xes_adapter.version_key": "Ключ версії процесу в XES.",
     "mapping.xes_adapter.use_classifier": "Читати classifier XES перед activity_key fallback.",
+    "experiment.cache_policy": "Політика кешування побудови графів: off/dto/full.",
 }
 
 DETAILED_HINTS_UA: Dict[str, str] = {
@@ -78,6 +79,7 @@ DETAILED_HINTS_UA: Dict[str, str] = {
     "experiment.fraction": "Яку частину доступних трас взяти в поточний запуск (0..1). Зручно для швидких прогонів.",
     "experiment.stats_time_policy": "Політика вибору snapshot статистики: `latest` (останній) або `strict_asof` (на момент події, без витоку майбутнього).",
     "experiment.on_missing_asof_snapshot": "Що робити, якщо для `strict_asof` немає snapshot на потрібний час: `disable_stats`, `use_base` або `raise`.",
+    "experiment.cache_policy": "Керує кешуванням під час build_graph: `off` без кешу, `dto` кешує DTO-читання, `full` кешує DTO і скомпільовані структурні тензори (рекомендовано для великих прогонів).",
     "mapping.adapter": "Джерело подій: `camunda` (runtime/BPMN) або `xes` (лог-файл XES).",
     "mapping.knowledge_graph.backend": "Де зберігається структура/статистика EOPKG: `neo4j`, `file` або `in_memory`.",
     "mapping.knowledge_graph.strict_load": "Якщо `true`, запуск завершується помилкою, коли структура відсутня/неконсистентна.",
@@ -430,6 +432,7 @@ class ExperimentUI:
             "experiment.split_ratio": "Співвідношення train/val/test",
             "experiment.stats_time_policy": "Політика часу статистики",
             "experiment.on_missing_asof_snapshot": "Що робити без as-of snapshot",
+            "experiment.cache_policy": "Політика кешування графів",
             "training.retrain": "Перенавчати з нуля",
             "seed": "Фіксоване зерно (seed)",
             "mapping.adapter": "Адаптер даних",
@@ -728,6 +731,7 @@ class ExperimentUI:
             "experiment.load_checkpoint": "Шлях до checkpoint для eval або продовження навчання.",
             "experiment.stats_time_policy": "Часова політика snapshot статистик: latest або strict_asof.",
             "experiment.on_missing_asof_snapshot": "Що робити, якщо strict_asof snapshot відсутній: disable_stats/use_base/raise.",
+            "experiment.cache_policy": "Політика кешу побудови графів: off (без кешу), dto (кеш DTO), full (DTO + готові структурні тензори).",
             "experiment.drift_window_size": "Розмір drift-вікна у трасах для eval_drift.",
             "experiment.drift_window_sliding": "Крок зсуву drift-вікна у трасах. 0 = без перекриття.",
             "data.dataset_name": "Канонічний ідентифікатор процесу/датасету, який використовують структура і run-profile.",
@@ -753,6 +757,12 @@ class ExperimentUI:
             "training.class_weight_cap": "Верхня межа класових ваг у loss для стабільності.",
             "training.loss_function": "Назва loss-функції для next-activity prediction.",
             "training.ece_bins": "Кількість бінів для розрахунку ECE калібрування.",
+            "training.dataloader_num_workers": "Кількість процесів DataLoader для підготовки batch. 0 = без мультипроцесності.",
+            "training.dataloader_pin_memory": "Фіксує batch у pinned RAM для швидшого копіювання на GPU (актуально для CUDA).",
+            "training.dataloader_persistent_workers": "Не перезапускати DataLoader-воркери між епохами (працює, коли workers > 0).",
+            "training.dataloader_prefetch_factor": "Скільки batch наперед готує кожен DataLoader-воркер (коли workers > 0).",
+            "training.torch_num_threads": "Обмеження intra-op потоків PyTorch на CPU. Порожньо = системний дефолт.",
+            "training.torch_num_interop_threads": "Обмеження inter-op потоків PyTorch на CPU. Порожньо = системний дефолт.",
             "training.show_progress": "Показувати прогрес-бар у тренуванні.",
             "training.tqdm_disable": "Примусово вимкнути tqdm прогрес-бар.",
             "training.tqdm_leave": "Залишати tqdm-бар у консолі після завершення.",
@@ -930,6 +940,7 @@ class ExperimentUI:
         self.vars["seed"] = tk.StringVar(value="42")
         self.vars["stats_time_policy"] = tk.StringVar(value="strict_asof")
         self.vars["on_missing_asof_snapshot"] = tk.StringVar(value="disable_stats")
+        self.vars["cache_policy"] = tk.StringVar(value="full")
         self.vars["adapter"] = tk.StringVar(value="camunda")
         self.vars["sync_as_of"] = tk.StringVar(value="")
         self.vars["backfill_step"] = tk.StringVar(value="weekly")
@@ -1065,6 +1076,16 @@ class ExperimentUI:
             width=18,
         ); w.grid(row=13, column=1, sticky="w"); self._general_field_widgets["on_missing_asof_snapshot"] = w
 
+        ttk.Label(core, text="experiment.cache_policy").grid(row=14, column=0, sticky="w")
+        self._add_help_mark(core, 14, self._hint_for("experiment.cache_policy"))
+        w = ttk.Combobox(
+            core,
+            textvariable=self.vars["cache_policy"],
+            values=["off", "dto", "full"],
+            state="readonly",
+            width=18,
+        ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
+
         ttk.Label(core, text="extra_args").grid(row=15, column=0, sticky="w")
         self._add_help_mark(core, 15, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
         ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=15, column=1, sticky="ew")
@@ -1191,10 +1212,12 @@ class ExperimentUI:
         yaml_tab.rowconfigure(1, weight=1)
         ttk.Label(yaml_tab, text="features (YAML)").grid(row=0, column=0, sticky="w")
         ttk.Label(yaml_tab, text="policies (YAML)").grid(row=0, column=1, sticky="w")
-        self.features_text = ScrolledText(yaml_tab, height=14, wrap="word")
-        self.policies_text = ScrolledText(yaml_tab, height=14, wrap="word")
+        self.features_text = ScrolledText(yaml_tab, height=14, wrap="word", undo=True, autoseparators=True, maxundo=500)
+        self.policies_text = ScrolledText(yaml_tab, height=14, wrap="word", undo=True, autoseparators=True, maxundo=500)
         self.features_text.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
         self.policies_text.grid(row=1, column=1, sticky="nsew")
+        self._bind_text_shortcuts(self.features_text)
+        self._bind_text_shortcuts(self.policies_text)
 
     def _build_eopkg_tab(self) -> None:
         frame = self.tab_eopkg
@@ -1252,8 +1275,9 @@ class ExperimentUI:
         mapping_tab.columnconfigure(0, weight=1)
         mapping_tab.rowconfigure(1, weight=1)
         ttk.Label(mapping_tab, text="mapping.graph_feature_mapping (YAML)").grid(row=0, column=0, sticky="w")
-        self.graph_mapping_text = ScrolledText(mapping_tab, height=16, wrap="word")
+        self.graph_mapping_text = ScrolledText(mapping_tab, height=16, wrap="word", undo=True, autoseparators=True, maxundo=500)
         self.graph_mapping_text.grid(row=1, column=0, sticky="nsew")
+        self._bind_text_shortcuts(self.graph_mapping_text)
 
     def _build_model_tab(self) -> None:
         frame = self.tab_model
@@ -1354,6 +1378,34 @@ class ExperimentUI:
     def _get_text_block(widget: ScrolledText) -> Any:
         return _parse_text(widget.get("1.0", tk.END))
 
+    @staticmethod
+    def _bind_text_shortcuts(widget: tk.Text) -> None:
+        def _event(name: str) -> str:
+            try:
+                widget.event_generate(name)
+            except tk.TclError:
+                return "break"
+            return "break"
+
+        def _select_all() -> str:
+            widget.tag_add(tk.SEL, "1.0", tk.END)
+            widget.mark_set(tk.INSERT, "1.0")
+            widget.see(tk.INSERT)
+            return "break"
+
+        widget.bind("<Control-a>", lambda _e: _select_all())
+        widget.bind("<Control-A>", lambda _e: _select_all())
+        widget.bind("<Control-c>", lambda _e: _event("<<Copy>>"))
+        widget.bind("<Control-C>", lambda _e: _event("<<Copy>>"))
+        widget.bind("<Control-v>", lambda _e: _event("<<Paste>>"))
+        widget.bind("<Control-V>", lambda _e: _event("<<Paste>>"))
+        widget.bind("<Control-x>", lambda _e: _event("<<Cut>>"))
+        widget.bind("<Control-X>", lambda _e: _event("<<Cut>>"))
+        widget.bind("<Control-z>", lambda _e: _event("<<Undo>>"))
+        widget.bind("<Control-Z>", lambda _e: _event("<<Undo>>"))
+        widget.bind("<Control-y>", lambda _e: _event("<<Redo>>"))
+        widget.bind("<Control-Y>", lambda _e: _event("<<Redo>>"))
+
     def _load_base_config_into_form(self) -> None:
         try:
             self._base_config = self._load_base_config()
@@ -1373,6 +1425,7 @@ class ExperimentUI:
         self.vars["split_ratio"].set(_to_text(exp.get("split_ratio", [0.7, 0.2, 0.1])))
         self.vars["stats_time_policy"].set(str(exp.get("stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(exp.get("on_missing_asof_snapshot", "disable_stats")))
+        self.vars["cache_policy"].set(str(exp.get("cache_policy", "full")))
         self.vars["retrain"].set(bool(train.get("retrain", False)))
         self.vars["seed"].set(str(self._base_config.get("seed", 42)))
         self.vars["adapter"].set(str(mapping.get("adapter", "camunda")))
@@ -1453,7 +1506,9 @@ class ExperimentUI:
         extra_experiment: Dict[str, Any] = {}
         extra_training: Dict[str, Any] = {}
         extra_tracking: Dict[str, Any] = {}
-        for path, meta in self._pool_meta.items():
+        # Build advanced General fields from catalog (not only from scanned pool),
+        # so newly added parameters appear in UI even before they exist in base configs.
+        for path, meta in self._catalog.items():
             if meta.section not in {"experiment", "training", "seed", "tracking"}:
                 continue
             if path in {
@@ -1466,11 +1521,12 @@ class ExperimentUI:
                 "experiment.split_ratio",
                 "experiment.stats_time_policy",
                 "experiment.on_missing_asof_snapshot",
+                "experiment.cache_policy",
                 "training.retrain",
                 "seed",
             }:
                 continue
-            value = _deep_get(self._base_config, path, "")
+            value = _deep_get(self._base_config, path, self._catalog_default(path, ""))
             if path.startswith("experiment."):
                 extra_experiment[path] = value
             elif path.startswith("training."):
@@ -1669,6 +1725,7 @@ class ExperimentUI:
         self.vars["split_ratio"].set(_to_text(self._catalog_default("experiment.split_ratio", [0.7, 0.2, 0.1])))
         self.vars["stats_time_policy"].set(str(self._catalog_default("experiment.stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(self._catalog_default("experiment.on_missing_asof_snapshot", "disable_stats")))
+        self.vars["cache_policy"].set(str(self._catalog_default("experiment.cache_policy", "full")))
         self.vars["retrain"].set(self._to_bool(self._catalog_default("training.retrain", True), fallback=True))
         self.vars["seed"].set(str(self._catalog_default("seed", "42")))
         self.vars["adapter"].set(str(self._catalog_default("mapping.adapter", "camunda")))
@@ -1715,6 +1772,7 @@ class ExperimentUI:
         _deep_set(cfg, "experiment.split_ratio", _parse_text(str(self.vars["split_ratio"].get())))
         _deep_set(cfg, "experiment.stats_time_policy", str(self.vars["stats_time_policy"].get()).strip())
         _deep_set(cfg, "experiment.on_missing_asof_snapshot", str(self.vars["on_missing_asof_snapshot"].get()).strip())
+        _deep_set(cfg, "experiment.cache_policy", str(self.vars["cache_policy"].get()).strip())
         _deep_set(cfg, "training.retrain", bool(self.vars["retrain"].get()))
         _deep_set(cfg, "seed", int(float(str(self.vars["seed"].get()).strip() or "42")))
         _deep_set(cfg, "mapping.adapter", str(self.vars["adapter"].get()).strip())

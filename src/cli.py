@@ -131,6 +131,32 @@ def set_seed(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
 
 
+def _configure_cpu_threading(training_cfg: Dict[str, Any], logger: logging.Logger) -> None:
+    """Apply optional torch CPU threading overrides from training config."""
+    raw_num_threads = training_cfg.get("torch_num_threads")
+    if raw_num_threads is not None and str(raw_num_threads).strip() != "":
+        num_threads = max(1, int(raw_num_threads))
+        torch.set_num_threads(num_threads)
+
+    raw_num_interop_threads = training_cfg.get("torch_num_interop_threads")
+    if raw_num_interop_threads is not None and str(raw_num_interop_threads).strip() != "":
+        num_interop_threads = max(1, int(raw_num_interop_threads))
+        try:
+            torch.set_num_interop_threads(num_interop_threads)
+        except RuntimeError as exc:
+            logger.warning(
+                "Could not apply training.torch_num_interop_threads=%s: %s",
+                raw_num_interop_threads,
+                exc,
+            )
+
+    logger.info(
+        "CPU_THREADING torch_num_threads=%d torch_num_interop_threads=%d",
+        int(torch.get_num_threads()),
+        int(torch.get_num_interop_threads()),
+    )
+
+
 def _extract_base_vocabularies(feature_encoder: FeatureEncoder) -> Tuple[Dict[str, int], Dict[str, int], str]:
     """Extract activity/resource vocabularies from feature encoder artifacts."""
     activity_feature = feature_encoder.activity_feature_name
@@ -549,6 +575,11 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     ).strip().lower() or "disable_stats"
     if on_missing_asof_snapshot not in {"disable_stats", "use_base", "raise"}:
         on_missing_asof_snapshot = "disable_stats"
+    cache_policy = str(experiment_cfg.get("cache_policy", "full")).strip().lower() or "full"
+    if cache_policy in {"none", "disabled", "false"}:
+        cache_policy = "off"
+    if cache_policy not in {"off", "dto", "full"}:
+        cache_policy = "full"
     model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
     model_family = _resolve_model_family(model_type)
     xes_cfg = mapping_cfg.get("xes_adapter", {})
@@ -575,16 +606,19 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "global_process_stats_forward_enabled": False,
         "stats_time_policy": stats_time_policy,
         "on_missing_asof_snapshot": on_missing_asof_snapshot,
+        "cache_policy": cache_policy,
         "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
         "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
         "knowledge_versions_count": int(len(available_versions)),
         "xes_use_classifier": xes_use_classifier,
         "xes_activity_key": xes_activity_key or None,
         "xes_version_key": xes_version_key or None,
+        "dataloader_num_workers": max(0, int(training_cfg.get("dataloader_num_workers", 0))),
+        "dataloader_pin_memory": bool(training_cfg.get("dataloader_pin_memory", False)),
     }
     logger.info("========== RUN PROFILE ==========")
     logger.info(
-        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s",
+        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s cache_policy=%s",
         mode,
         model_type,
         model_family,
@@ -592,6 +626,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         dataset_name,
         stats_time_policy,
         on_missing_asof_snapshot,
+        cache_policy,
     )
     logger.info(
         "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
@@ -613,10 +648,16 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
             xes_version_key or "concept:version",
         )
     logger.info(
-        "RUN_PROFILE checks alignment_guard=%s quality_guard=%s forward_stats_summary=%s",
+        "RUN_PROFILE checks alignment_guard=%s quality_guard=%s forward_stats_summary=%s cache_policy=%s",
         "manual",
         "on" if run_profile["stats_quality_gate_enabled"] else "off",
         "on",
+        cache_policy,
+    )
+    logger.info(
+        "RUN_PROFILE runtime dataloader_workers=%d pin_memory=%s",
+        run_profile["dataloader_num_workers"],
+        run_profile["dataloader_pin_memory"],
     )
     logger.info("=================================")
     graph_builder = DynamicGraphBuilder(
@@ -626,6 +667,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         graph_feature_mapping=graph_feature_mapping,
         stats_time_policy=stats_time_policy,
         on_missing_asof_snapshot=on_missing_asof_snapshot,
+        cache_policy=cache_policy,
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
@@ -764,6 +806,7 @@ def main() -> None:
 
     model_cfg = config.get("model", {})
     training_cfg = config.get("training", {})
+    _configure_cpu_threading(training_cfg, logger)
     experiment_cfg = config.get("experiment", {})
     tracking_cfg = config.get("tracking", {})
     mode = str(experiment_cfg.get("mode", "train")).strip().lower()

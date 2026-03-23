@@ -142,3 +142,12 @@ Read in this strict order:
 2. Strict key: `tenant_id + process_name + version_key + proc_def_id + knowledge_version`.
 3. JSON-only stats payload (no `NodeStat`/`EdgeStat` normalization).
 4. No TTL.
+
+## Config Catalog Rule (Mandatory)
+
+For every new configurable parameter (any new key in `experiment`, `data`, `mapping`, `model`, `training`, `tracking`, `sync_stats`):
+
+1. Add it to `configs/ui/config_catalog.yaml` in the same change.
+2. Fill metadata at once: `description`, `affects`, `default`, `enum` (if applicable), `required_in_modes`/`required_when`, and `ui` placement.
+3. Expose it in `tools/experiment_ui.py` (load, edit, save, hints, and mode-dependent enable/disable where relevant).
+4. Keep CLI and UI behavior consistent; no hidden config-only parameters for interactive runs.

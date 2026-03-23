@@ -75,6 +75,24 @@ fields:
       group: source
       priority: 1
       order: 4
+  experiment.cache_policy:
+    path: experiment.cache_policy
+    section: experiment
+    label: Політика кешування графів
+    description: Caching policy for graph build path (off/dto/full).
+    affects: Build-graph performance and repeated repository lookups.
+    default: full
+    enum:
+    - false
+    - dto
+    - full
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 14
   experiment.drift_window_size:
     path: experiment.drift_window_size
     section: experiment
@@ -194,6 +212,21 @@ fields:
       group: core
       priority: 1
       order: 3
+  experiment.on_missing_asof_snapshot:
+    path: experiment.on_missing_asof_snapshot
+    section: experiment
+    label: experiment.on_missing_asof_snapshot
+    description: Керує сценарієм запуску експерименту та розбиттям даних. (experiment.on_missing_asof_snapshot)
+    affects: ''
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
   experiment.project:
     path: experiment.project
     section: experiment
@@ -1480,6 +1513,74 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  training.dataloader_num_workers:
+    path: training.dataloader_num_workers
+    section: training
+    label: 'Тренування: DataLoader workers'
+    description: Кількість паралельних воркерів для підготовки batch під час train/val/test.
+      0 = без мультипроцесності.
+    affects: Використання CPU та швидкість ітерації по batches.
+    default: 0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1000
+  training.dataloader_persistent_workers:
+    path: training.dataloader_persistent_workers
+    section: training
+    label: 'Тренування: DataLoader persistent workers'
+    description: Якщо true, воркери не перезапускаються між епохами (працює лише коли
+      workers > 0).
+    affects: Зменшує накладні витрати старту епох при довгих тренуваннях.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.dataloader_pin_memory:
+    path: training.dataloader_pin_memory
+    section: training
+    label: 'Тренування: DataLoader pin memory'
+    description: Якщо true, батчі фіксуються в pinned RAM для швидшої передачі на
+      GPU.
+    affects: Швидкість input pipeline при CUDA; на CPU режим майже не впливає.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.dataloader_prefetch_factor:
+    path: training.dataloader_prefetch_factor
+    section: training
+    label: 'Тренування: DataLoader prefetch factor'
+    description: Скільки майбутніх батчів наперед готує кожен воркер (працює лише
+      коли workers > 0).
+    affects: Баланс між пропускною здатністю pipeline та споживанням RAM.
+    default: 2
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
   training.delta:
     path: training.delta
     section: training
@@ -1608,6 +1709,38 @@ fields:
     label: 'Тренування: Show progress'
     description: Training loop hyperparameter.
     affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.torch_num_interop_threads:
+    path: training.torch_num_interop_threads
+    section: training
+    label: 'Тренування: Torch interop threads'
+    description: Кількість inter-op потоків PyTorch для паралелізації між операціями.
+      Порожнє значення = системний дефолт.
+    affects: Поведінка CPU scheduler при складних графах обчислень.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.torch_num_threads:
+    path: training.torch_num_threads
+    section: training
+    label: 'Тренування: Torch CPU threads'
+    description: Обмеження для кількості внутрішніх CPU потоків PyTorch (intra-op).
+      Порожнє значення = системний дефолт.
+    affects: Завантаження CPU під час обчислень PyTorch.
     default: ''
     enum: []
     required_in_modes: []

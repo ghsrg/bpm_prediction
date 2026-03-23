@@ -83,6 +83,12 @@ class ModelTrainer:
         self.show_progress = bool(config.get("show_progress", True))
         self.tqdm_disable = bool(config.get("tqdm_disable", False))
         self.tqdm_leave = bool(config.get("tqdm_leave", False))
+        self.dataloader_num_workers = max(0, int(config.get("dataloader_num_workers", 0)))
+        self.dataloader_pin_memory = bool(config.get("dataloader_pin_memory", False))
+        self.dataloader_persistent_workers = bool(
+            config.get("dataloader_persistent_workers", self.dataloader_num_workers > 0)
+        )
+        self.dataloader_prefetch_factor = max(2, int(config.get("dataloader_prefetch_factor", 2)))
         self.loss_function = str(config.get("loss_function", "cross_entropy")).strip().lower()
         self.patience = int(config.get("patience", 6))
         self.delta = float(config.get("delta", 1e-4))
@@ -674,7 +680,7 @@ class ModelTrainer:
                 if snapshot_as_of_epoch is not None:
                     payload["stats_snapshot_as_of_epoch"] = torch.tensor([snapshot_as_of_epoch], dtype=torch.float64)
                 graphs.append(Data(**payload))
-        return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
+        return self._create_data_loader(graphs, shuffle=shuffle)
 
     def _build_loader_from_dataset(self, dataset: Optional[Sequence[Data]], shuffle: bool) -> DataLoader:
         """Wrap prebuilt graph dataset into DataLoader and collect topology diagnostics."""
@@ -709,7 +715,20 @@ class ModelTrainer:
                         self._idx_to_stats_snapshot_version[idx] = f"k{idx:06d}"
                     self._stats_snapshot_version_to_idx.setdefault(self._idx_to_stats_snapshot_version[idx], idx)
 
-        return DataLoader(graphs, batch_size=self.batch_size, shuffle=shuffle)
+        return self._create_data_loader(graphs, shuffle=shuffle)
+
+    def _create_data_loader(self, graphs: Sequence[Data], *, shuffle: bool) -> DataLoader:
+        """Create DataLoader with optional worker parallelism for batch collation."""
+        kwargs: Dict[str, Any] = {
+            "batch_size": self.batch_size,
+            "shuffle": shuffle,
+            "num_workers": self.dataloader_num_workers,
+            "pin_memory": self.dataloader_pin_memory,
+        }
+        if self.dataloader_num_workers > 0:
+            kwargs["persistent_workers"] = self.dataloader_persistent_workers
+            kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
+        return DataLoader(list(graphs), **kwargs)
 
     def _run_epoch(self, loader: Iterable[Data], optimizer: Optional[Adam], training: bool) -> Tuple[float, float, float, float]:
         """Run one epoch (train or eval) and return loss/macro_f1/weighted_f1/duration."""
@@ -1587,6 +1606,10 @@ class ModelTrainer:
         self.tracker.log_param("delta", self.delta)
         self.tracker.log_param("loss_function", self.loss_function)
         self.tracker.log_param("seed", self.seed)
+        self.tracker.log_param("dataloader_num_workers", self.dataloader_num_workers)
+        self.tracker.log_param("dataloader_pin_memory", self.dataloader_pin_memory)
+        self.tracker.log_param("dataloader_persistent_workers", self.dataloader_persistent_workers)
+        self.tracker.log_param("dataloader_prefetch_factor", self.dataloader_prefetch_factor)
 
     def _log_run_context(self) -> None:
         """Log extended run context: tags, flattened params, and feature metadata."""
@@ -1635,6 +1658,13 @@ class ModelTrainer:
         logger.info(
             "TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on missing_asof_policy=%s",
             on_missing_asof_snapshot,
+        )
+        logger.info(
+            "TRAINER_RUNTIME dataloader_workers=%d pin_memory=%s persistent_workers=%s prefetch_factor=%d",
+            self.dataloader_num_workers,
+            self.dataloader_pin_memory,
+            self.dataloader_persistent_workers if self.dataloader_num_workers > 0 else False,
+            self.dataloader_prefetch_factor if self.dataloader_num_workers > 0 else 0,
         )
         logger.info("=====================================")
 

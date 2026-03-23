@@ -32,6 +32,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         stats_time_policy: str = "latest",
         stats_quality_gate: Optional[Dict[str, Any]] = None,
         on_missing_asof_snapshot: str = "disable_stats",
+        cache_policy: str = "full",
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -44,6 +45,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self.stats_quality_gate = self._resolve_quality_gate_config(stats_quality_gate)
         self._quality_warned_keys: set[tuple[str, str, str]] = set()
         self._missing_asof_warned_keys: set[tuple[str, str, str]] = set()
+        self.cache_policy = self._resolve_cache_policy(cache_policy)
+        self._dto_cache: dict[tuple[str, tuple[str, ...], str | None], ProcessStructureDTO | None] = {}
+        self._topology_cache: dict[tuple[Any, ...], Dict[str, Any]] = {}
+        self._dto_cache_max_entries = 32768
+        self._topology_cache_max_entries = 512
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
@@ -82,18 +88,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         contract["stats_missing_asof_snapshot"] = bool(missing_asof_snapshot)
         target_feature = self.feature_encoder.activity_feature_name
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
-        num_classes = len(activity_vocab)
-        allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
-        structural_src: list[int] = []
-        structural_dst: list[int] = []
-        structural_weight: list[float] = []
-        edge_stats = dto.edge_statistics or {}
-        edge_weight_spec = self._edge_weight_spec() if stats_allowed else None
-        edge_weight_index = self._edge_stats_index(dto) if stats_allowed else {}
         if quality_reason not in {"ok", "quality_gate_disabled", "quality_metadata_not_required"}:
             self._emit_quality_warning(version_key=raw_version, reason=quality_reason, stats_allowed=stats_allowed)
-        if not stats_allowed:
-            edge_stats = {}
+        compiled = self._resolve_compiled_topology(
+            dto=dto,
+            activity_vocab=activity_vocab,
+            stats_allowed=stats_allowed,
+        )
 
         last_activity = str(
             self.feature_encoder.resolve_event_feature(
@@ -102,43 +103,21 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 default=prefix.prefix_events[-1].activity_id,
             )
         )
-        for src, dst in dto.allowed_edges:
-            src_token = str(src).strip()
-            dst_token = str(dst).strip()
-            src_idx = activity_vocab.get(src_token)
-            dst_idx = activity_vocab.get(dst_token)
-            if src_idx is not None and dst_idx is not None:
-                structural_src.append(int(src_idx))
-                structural_dst.append(int(dst_idx))
-                if edge_weight_spec is not None:
-                    edge_key = f"{src_token}|||{dst_token}"
-                    structural_weight.append(float(edge_weight_index.get(edge_key, edge_weight_spec.get("default", 1.0))))
-                else:
-                    stats = edge_stats.get((src, dst), {})
-                    structural_weight.append(float(stats.get("count", 1.0)))
+        num_classes = len(activity_vocab)
+        allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
+        last_activity_idx = activity_vocab.get(last_activity)
+        if last_activity_idx is None:
+            last_activity_idx = activity_vocab.get(last_activity.strip())
+        if last_activity_idx is not None:
+            cached_mask = compiled["allowed_masks_by_src"].get(int(last_activity_idx))
+            if isinstance(cached_mask, torch.Tensor):
+                allowed_mask = cached_mask.clone()
 
-            if str(src) != last_activity:
-                continue
-            dst_token = str(dst)
-            dst_idx = activity_vocab.get(dst_token)
-            if dst_idx is None:
-                dst_idx = activity_vocab.get(dst_token.strip())
-            if dst_idx is not None:
-                allowed_mask[dst_idx] = True
-
-        if structural_src:
-            contract["structural_edge_index"] = torch.tensor([structural_src, structural_dst], dtype=torch.long)
-            weight_tensor = torch.tensor(structural_weight, dtype=torch.float32)
-            if edge_weight_spec is not None:
-                weight_tensor = self._apply_numeric_encodings(weight_tensor, list(edge_weight_spec.get("encoding", ["identity"])))
-            contract["structural_edge_weight"] = weight_tensor
-        else:
-            contract["structural_edge_index"] = torch.zeros((2, 0), dtype=torch.long)
-            contract["structural_edge_weight"] = torch.zeros((0,), dtype=torch.float32)
-
-        struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
-        if struct_x is not None:
-            contract["struct_x"] = struct_x
+        contract["structural_edge_index"] = compiled["structural_edge_index"].clone()
+        contract["structural_edge_weight"] = compiled["structural_edge_weight"].clone()
+        struct_x = compiled.get("struct_x")
+        if isinstance(struct_x, torch.Tensor):
+            contract["struct_x"] = struct_x.clone()
         contract["allowed_target_mask"] = allowed_mask
         return contract
 
@@ -231,6 +210,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         value = str(raw).strip().lower() or "disable_stats"
         if value not in {"disable_stats", "use_base", "raise"}:
             return "disable_stats"
+        return value
+
+    @staticmethod
+    def _resolve_cache_policy(raw: Any) -> str:
+        value = str(raw).strip().lower() or "full"
+        if value in {"none", "disabled", "false"}:
+            return "off"
+        if value not in {"off", "dto", "full"}:
+            return "full"
         return value
 
     def _should_use_stats(self, *, dto: ProcessStructureDTO, version_key: str) -> tuple[bool, str]:
@@ -329,6 +317,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         as_of_ts: datetime | None,
         candidate_versions: list[str],
     ) -> ProcessStructureDTO | None:
+        cache_key: tuple[str, tuple[str, ...], str | None] | None = None
+        if self.cache_policy in {"dto", "full"}:
+            cache_key = (
+                self.process_name or "__auto__",
+                tuple(str(item).strip() for item in candidate_versions),
+                as_of_ts.isoformat() if isinstance(as_of_ts, datetime) else None,
+            )
+            if cache_key in self._dto_cache:
+                return self._dto_cache[cache_key]
+
         for candidate in candidate_versions:
             if hasattr(self.knowledge_port, "get_process_structure_as_of") and as_of_ts is not None:
                 getter = getattr(self.knowledge_port, "get_process_structure_as_of")
@@ -343,6 +341,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     process_name=self.process_name,
                 )
             if dto is not None:
+                if cache_key is not None:
+                    self._cache_put(
+                        cache=self._dto_cache,
+                        key=cache_key,
+                        value=dto,
+                        max_entries=self._dto_cache_max_entries,
+                    )
                 return dto
             if self.process_name is not None:
                 if hasattr(self.knowledge_port, "get_process_structure_as_of") and as_of_ts is not None:
@@ -352,8 +357,127 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     # Legacy compatibility for repositories where version-only lookup is still used.
                     dto = self.knowledge_port.get_process_structure(candidate)
                 if dto is not None:
+                    if cache_key is not None:
+                        self._cache_put(
+                            cache=self._dto_cache,
+                            key=cache_key,
+                            value=dto,
+                            max_entries=self._dto_cache_max_entries,
+                        )
                     return dto
+        if cache_key is not None:
+            self._cache_put(
+                cache=self._dto_cache,
+                key=cache_key,
+                value=None,
+                max_entries=self._dto_cache_max_entries,
+            )
         return None
+
+    @staticmethod
+    def _cache_put(cache: Dict[Any, Any], key: Any, value: Any, *, max_entries: int) -> None:
+        cache[key] = value
+        while len(cache) > max_entries:
+            cache.pop(next(iter(cache)))
+
+    def _topology_cache_key(
+        self,
+        *,
+        dto: ProcessStructureDTO,
+        activity_vocab: Dict[str, int],
+        stats_allowed: bool,
+    ) -> tuple[Any, ...]:
+        snapshot = self._stats_snapshot_metadata(dto)
+        normalized_edges = tuple((str(src).strip(), str(dst).strip()) for src, dst in dto.allowed_edges)
+        return (
+            self.process_name or "__auto__",
+            str(dto.version),
+            self._clean_optional_text(snapshot.get("knowledge_version")),
+            self._clean_optional_text(snapshot.get("as_of_ts")),
+            bool(stats_allowed),
+            int(len(activity_vocab)),
+            normalized_edges,
+        )
+
+    def _resolve_compiled_topology(
+        self,
+        *,
+        dto: ProcessStructureDTO,
+        activity_vocab: Dict[str, int],
+        stats_allowed: bool,
+    ) -> Dict[str, Any]:
+        cache_key: tuple[Any, ...] | None = None
+        if self.cache_policy == "full":
+            cache_key = self._topology_cache_key(
+                dto=dto,
+                activity_vocab=activity_vocab,
+                stats_allowed=stats_allowed,
+            )
+            cached = self._topology_cache.get(cache_key)
+            if isinstance(cached, dict):
+                return cached
+
+        num_classes = len(activity_vocab)
+        allowed_masks_by_src: Dict[int, torch.Tensor] = {}
+        structural_src: list[int] = []
+        structural_dst: list[int] = []
+        structural_weight: list[float] = []
+        edge_stats = dto.edge_statistics or {}
+        edge_weight_spec = self._edge_weight_spec() if stats_allowed else None
+        edge_weight_index = self._edge_stats_index(dto) if stats_allowed else {}
+        if not stats_allowed:
+            edge_stats = {}
+
+        for src, dst in dto.allowed_edges:
+            src_token = str(src).strip()
+            dst_token = str(dst).strip()
+            src_idx = activity_vocab.get(src_token)
+            dst_idx = activity_vocab.get(dst_token)
+            if src_idx is None or dst_idx is None:
+                continue
+            src_idx_int = int(src_idx)
+            dst_idx_int = int(dst_idx)
+            structural_src.append(src_idx_int)
+            structural_dst.append(dst_idx_int)
+            if edge_weight_spec is not None:
+                edge_key = f"{src_token}|||{dst_token}"
+                structural_weight.append(float(edge_weight_index.get(edge_key, edge_weight_spec.get("default", 1.0))))
+            else:
+                stats = edge_stats.get((src, dst), {})
+                structural_weight.append(float(stats.get("count", 1.0)))
+            row_mask = allowed_masks_by_src.get(src_idx_int)
+            if row_mask is None:
+                row_mask = torch.zeros(num_classes, dtype=torch.bool)
+                allowed_masks_by_src[src_idx_int] = row_mask
+            row_mask[dst_idx_int] = True
+
+        if structural_src:
+            structural_edge_index = torch.tensor([structural_src, structural_dst], dtype=torch.long)
+            structural_edge_weight = torch.tensor(structural_weight, dtype=torch.float32)
+            if edge_weight_spec is not None:
+                structural_edge_weight = self._apply_numeric_encodings(
+                    structural_edge_weight,
+                    list(edge_weight_spec.get("encoding", ["identity"])),
+                )
+        else:
+            structural_edge_index = torch.zeros((2, 0), dtype=torch.long)
+            structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
+
+        struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
+        compiled = {
+            "allowed_masks_by_src": allowed_masks_by_src,
+            "structural_edge_index": structural_edge_index,
+            "structural_edge_weight": structural_edge_weight,
+            "struct_x": struct_x,
+        }
+        if cache_key is not None:
+            self._cache_put(
+                cache=self._topology_cache,
+                key=cache_key,
+                value=compiled,
+                max_entries=self._topology_cache_max_entries,
+            )
+        return compiled
 
     def _is_missing_asof_snapshot(self, *, dto: ProcessStructureDTO, as_of_ts: datetime | None) -> bool:
         if self.stats_time_policy != "strict_asof" or as_of_ts is None:

@@ -1,0 +1,1649 @@
+version: 1
+fields:
+  data.dataset_label:
+    path: data.dataset_label
+    section: data
+    label: Мітка датасету
+    description: Human-readable dataset label for logs and tracking.
+    affects: Input loading and process identity.
+    default: ''
+    enum:
+    - bpi2012
+    - bpi2012_stage3_4_xes
+    - bpi2012_stage4_2_xes_stat
+    - bpi2020Permit1
+    - camunda_b2bcontracts
+    - camunda_b2bcontracts_stage4_2_stat
+    - camunda_procurement
+    - camunda_procurement_sql
+    - camunda_procurement_stage3_4_sql
+    - camunda_sync_files_file
+    - camunda_sync_files_neo4j
+    - camunda_sync_sql_file
+    - camunda_sync_sql_neo4j
+    - synthetic_drift_4tu
+    - xes_sync_dir_file
+    - xes_sync_dir_neo4j
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: source
+      priority: 1
+      order: 2
+  data.dataset_name:
+    path: data.dataset_name
+    section: data
+    label: Канонічна назва датасету
+    description: Canonical process/dataset identifier used for structure lookup and
+      run profile.
+    affects: Input loading and process identity.
+    default: ''
+    enum:
+    - B2BContracts_ApproveProject
+    - BPI_Challenge_2012
+    - bpi2012
+    - camunda_sync
+    - procurement
+    - xes_sync
+    required_in_modes:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    - sync-topology
+    - sync-stats
+    - sync-stats-backfill
+    required_when: {}
+    ui:
+      tab: input
+      group: source
+      priority: 1
+      order: 1
+  data.log_path:
+    path: data.log_path
+    section: data
+    label: Шлях до XES логу
+    description: Path to XES file (or XES directory in sync scenarios).
+    affects: Input loading and process identity.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when:
+      mapping.adapter: xes
+    ui:
+      tab: input
+      group: source
+      priority: 1
+      order: 4
+  experiment.drift_window_size:
+    path: experiment.drift_window_size
+    section: experiment
+    label: 'Експеримент: Drift window size'
+    description: Window size (in traces) for drift evaluation.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - '1000'
+    - '500'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.drift_window_sliding:
+    path: experiment.drift_window_sliding
+    section: experiment
+    label: 'Експеримент: Drift window sliding'
+    description: Window sliding step for drift evaluation.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - '100'
+    - '200'
+    - '50'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.fraction:
+    path: experiment.fraction
+    section: experiment
+    label: Частка даних (fraction)
+    description: Trace fraction after cascade filtering (0..1].
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - '0.1'
+    - '1'
+    - '1.0'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.load_checkpoint:
+    path: experiment.load_checkpoint
+    section: experiment
+    label: 'Експеримент: Завантаження checkpoint'
+    description: Checkpoint path for evaluation or resume.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - checkpoints/MVP1_Baseline_train_05_bpi2012_GATv2_best.pth
+    - checkpoints/MVP1_Baseline_train_bpi2012_GATv2_best.pth
+    - checkpoints/MVP1_train_DataDrift_1_synthetic_drift_4tu_GATv2_best.pth
+    - checkpoints/MVP2_5_Stage3_1_Baseline_Files_camunda_procurement_GATv2_best.pth
+    - checkpoints/MVP2_5_Stage3_1_EOPKG_Files_camunda_procurement_GATv2_best.pth
+    - checkpoints/MVP2_EOPKG_Attention_train_05_bpi2012_GATv2_best.pth
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.mode:
+    path: experiment.mode
+    section: experiment
+    label: Режим запуску
+    description: Pipeline run mode (train/eval/sync commands).
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    - sync-topology
+    - sync-stats
+    - sync-stats-backfill
+    required_in_modes:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    - sync-topology
+    - sync-stats
+    - sync-stats-backfill
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 1
+  experiment.name:
+    path: experiment.name
+    section: experiment
+    label: Назва запуску
+    description: Concrete run name.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum: []
+    required_in_modes:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 3
+  experiment.project:
+    path: experiment.project
+    section: experiment
+    label: Проєкт експерименту
+    description: Tracking project/experiment name.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - bpm_prediction_mvp1
+    - bpm_prediction_mvp2
+    - bpm_prediction_mvp2_5
+    required_in_modes:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 2
+  experiment.split_ratio:
+    path: experiment.split_ratio
+    section: experiment
+    label: Співвідношення train/val/test
+    description: Final [train,val,test] split ratio.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.split_strategy:
+    path: experiment.split_strategy
+    section: experiment
+    label: Стратегія розбиття
+    description: 'Split strategy: temporal or none.'
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.stats_time_policy:
+    path: experiment.stats_time_policy
+    section: experiment
+    label: Політика часу статистики
+    description: 'Stats snapshot policy: latest or strict_asof.'
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  experiment.train_ratio:
+    path: experiment.train_ratio
+    section: experiment
+    label: Частка train
+    description: Train-cut ratio in cascade preparation.
+    affects: Execution route, data split, and evaluation mode behavior.
+    default: ''
+    enum:
+    - '0'
+    - '0.01'
+    - '0.4'
+    - '0.5'
+    - '0.7'
+    - '1.0'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.adapter:
+    path: mapping.adapter
+    section: mapping
+    label: Адаптер даних
+    description: Data/structure mapping parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - xes
+    - camunda
+    required_in_modes:
+    - train
+    - eval_drift
+    - eval_cross_dataset
+    - sync-topology
+    - sync-stats
+    - sync-stats-backfill
+    required_when: {}
+    ui:
+      tab: input
+      group: source
+      priority: 1
+      order: 3
+  mapping.camunda_adapter.lookback_hours:
+    path: mapping.camunda_adapter.lookback_hours
+    section: mapping
+    label: 'Мапінг: Lookback hours'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.process_filters:
+    path: mapping.camunda_adapter.process_filters
+    section: mapping
+    label: 'Мапінг: Процес фільтри'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.process_name:
+    path: mapping.camunda_adapter.process_name
+    section: mapping
+    label: 'Мапінг: Процес назва'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - B2BContracts_ApproveProject
+    - procurement
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.connection_profile:
+    path: mapping.camunda_adapter.runtime.connection_profile
+    section: mapping
+    label: 'Мапінг: Підключення профіль'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.connections_file:
+    path: mapping.camunda_adapter.runtime.connections_file
+    section: mapping
+    label: 'Мапінг: Підключення файл'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.export_dir:
+    path: mapping.camunda_adapter.runtime.export_dir
+    section: mapping
+    label: 'Мапінг: Export dir'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.history_cleanup_aware:
+    path: mapping.camunda_adapter.runtime.history_cleanup_aware
+    section: mapping
+    label: 'Мапінг: History cleanup aware'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.legacy_removal_time_policy:
+    path: mapping.camunda_adapter.runtime.legacy_removal_time_policy
+    section: mapping
+    label: 'Мапінг: Legacy removal time політика'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.mssql.connection_profile:
+    path: mapping.camunda_adapter.runtime.mssql.connection_profile
+    section: mapping
+    label: 'Мапінг: Підключення профіль'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.on_missing_removal_time:
+    path: mapping.camunda_adapter.runtime.on_missing_removal_time
+    section: mapping
+    label: 'Мапінг: On missing removal time'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.runtime.runtime_source:
+    path: mapping.camunda_adapter.runtime.runtime_source
+    section: mapping
+    label: 'Мапінг: Runtime джерело'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - files
+    - mssql
+    required_in_modes: []
+    required_when:
+      mapping.adapter: camunda
+    ui:
+      tab: input
+      group: source
+      priority: 2
+      order: 10
+  mapping.camunda_adapter.runtime.sql_dir:
+    path: mapping.camunda_adapter.runtime.sql_dir
+    section: mapping
+    label: 'Мапінг: Sql dir'
+    description: Camunda runtime source/connection/filter parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.since:
+    path: mapping.camunda_adapter.since
+    section: mapping
+    label: 'Мапінг: Since'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.structure.bpmn_source:
+    path: mapping.camunda_adapter.structure.bpmn_source
+    section: mapping
+    label: 'Мапінг: Bpmn джерело'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - files
+    - mssql
+    required_in_modes: []
+    required_when:
+      mapping.adapter: camunda
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 2
+  mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy:
+    path: mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy
+    section: mapping
+    label: 'Мапінг: Inference fallback стратегія'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 50
+  mapping.camunda_adapter.structure.connection_profile:
+    path: mapping.camunda_adapter.structure.connection_profile
+    section: mapping
+    label: 'Мапінг: Підключення профіль'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 6
+  mapping.camunda_adapter.structure.connections_file:
+    path: mapping.camunda_adapter.structure.connections_file
+    section: mapping
+    label: 'Мапінг: Підключення файл'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 7
+  mapping.camunda_adapter.structure.files.bpmn_dir:
+    path: mapping.camunda_adapter.structure.files.bpmn_dir
+    section: mapping
+    label: 'Мапінг: Bpmn dir'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 5
+  mapping.camunda_adapter.structure.files.catalog_file:
+    path: mapping.camunda_adapter.structure.files.catalog_file
+    section: mapping
+    label: 'Мапінг: Catalog файл'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 4
+  mapping.camunda_adapter.structure.files.export_dir:
+    path: mapping.camunda_adapter.structure.files.export_dir
+    section: mapping
+    label: 'Мапінг: Export dir'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 3
+  mapping.camunda_adapter.structure.mssql.connection_profile:
+    path: mapping.camunda_adapter.structure.mssql.connection_profile
+    section: mapping
+    label: 'Мапінг: Підключення профіль'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 50
+  mapping.camunda_adapter.structure.parser_mode:
+    path: mapping.camunda_adapter.structure.parser_mode
+    section: mapping
+    label: 'Мапінг: Parser режим'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 9
+  mapping.camunda_adapter.structure.source:
+    path: mapping.camunda_adapter.structure.source
+    section: mapping
+    label: 'Мапінг: Джерело'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - bpmn
+    - logs
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 1
+  mapping.camunda_adapter.structure.sql_dir:
+    path: mapping.camunda_adapter.structure.sql_dir
+    section: mapping
+    label: 'Мапінг: Sql dir'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 8
+  mapping.camunda_adapter.structure.structure_from_logs:
+    path: mapping.camunda_adapter.structure.structure_from_logs
+    section: mapping
+    label: 'Мапінг: Структура from logs'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 50
+  mapping.camunda_adapter.structure.subprocess_mode:
+    path: mapping.camunda_adapter.structure.subprocess_mode
+    section: mapping
+    label: 'Мапінг: Subprocess режим'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 10
+  mapping.camunda_adapter.structure.version_key_format:
+    path: mapping.camunda_adapter.structure.version_key_format
+    section: mapping
+    label: 'Мапінг: Версія ключ format'
+    description: Camunda BPMN structure ingestion parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 50
+  mapping.camunda_adapter.subprocess_graph_mode:
+    path: mapping.camunda_adapter.subprocess_graph_mode
+    section: mapping
+    label: 'Мапінг: Subprocess graph режим'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: structure
+      priority: 2
+      order: 11
+  mapping.camunda_adapter.tenant_filters:
+    path: mapping.camunda_adapter.tenant_filters
+    section: mapping
+    label: 'Мапінг: Тенант фільтри'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.tenant_id:
+    path: mapping.camunda_adapter.tenant_id
+    section: mapping
+    label: 'Мапінг: Тенант id'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.until:
+    path: mapping.camunda_adapter.until
+    section: mapping
+    label: 'Мапінг: Until'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.camunda_adapter.version_key:
+    path: mapping.camunda_adapter.version_key
+    section: mapping
+    label: 'Мапінг: Версія ключ'
+    description: Camunda process/tenant/time filtering parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - ''
+    - v5
+    - v6
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.knowledge_graph.backend:
+    path: mapping.knowledge_graph.backend
+    section: mapping
+    label: Бекенд репозиторію знань
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - in_memory
+    - file
+    - neo4j
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 1
+  mapping.knowledge_graph.ingest_split:
+    path: mapping.knowledge_graph.ingest_split
+    section: mapping
+    label: 'Мапінг: Ingest розбиття'
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - full
+    - train
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 7
+  mapping.knowledge_graph.neo4j.connection_profile:
+    path: mapping.knowledge_graph.neo4j.connection_profile
+    section: mapping
+    label: 'Мапінг: Підключення профіль'
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 3
+  mapping.knowledge_graph.neo4j.connections_file:
+    path: mapping.knowledge_graph.neo4j.connections_file
+    section: mapping
+    label: 'Мапінг: Підключення файл'
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 4
+  mapping.knowledge_graph.neo4j.verify_connectivity:
+    path: mapping.knowledge_graph.neo4j.verify_connectivity
+    section: mapping
+    label: 'Мапінг: Перевірка connectivity'
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 5
+  mapping.knowledge_graph.path:
+    path: mapping.knowledge_graph.path
+    section: mapping
+    label: 'Мапінг: Шлях'
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 6
+  mapping.knowledge_graph.strict_load:
+    path: mapping.knowledge_graph.strict_load
+    section: mapping
+    label: Суворе завантаження структури
+    description: Knowledge graph backend/storage/connectivity parameter.
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: backend
+      priority: 1
+      order: 2
+  mapping.xes_adapter.activity_key:
+    path: mapping.xes_adapter.activity_key
+    section: mapping
+    label: 'Мапінг: Activity ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.case_id_key:
+    path: mapping.xes_adapter.case_id_key
+    section: mapping
+    label: 'Мапінг: Case id ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.complete_transitions:
+    path: mapping.xes_adapter.complete_transitions
+    section: mapping
+    label: 'Мапінг: Complete transitions'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.lifecycle_key:
+    path: mapping.xes_adapter.lifecycle_key
+    section: mapping
+    label: 'Мапінг: Lifecycle ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.pairing_strategy:
+    path: mapping.xes_adapter.pairing_strategy
+    section: mapping
+    label: 'Мапінг: Pairing стратегія'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.resource_key:
+    path: mapping.xes_adapter.resource_key
+    section: mapping
+    label: 'Мапінг: Resource ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.timestamp_key:
+    path: mapping.xes_adapter.timestamp_key
+    section: mapping
+    label: 'Мапінг: Timestamp ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.use_classifier:
+    path: mapping.xes_adapter.use_classifier
+    section: mapping
+    label: 'Мапінг: Use classifier'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  mapping.xes_adapter.version_key:
+    path: mapping.xes_adapter.version_key
+    section: mapping
+    label: 'Мапінг: Версія ключ'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  model.cross_attention_heads:
+    path: model.cross_attention_heads
+    section: model
+    label: 'Модель: Cross attention голови'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.dropout:
+    path: model.dropout
+    section: model
+    label: 'Модель: Dropout'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.graph_strategy:
+    path: model.graph_strategy
+    section: model
+    label: 'Модель: Graph стратегія'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.hidden_dim:
+    path: model.hidden_dim
+    section: model
+    label: 'Модель: Прихований розмірність'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.model_label:
+    path: model.model_label
+    section: model
+    label: 'Модель: Модель мітка'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum:
+    - GATv2
+    - GCN
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.pooling_strategy:
+    path: model.pooling_strategy
+    section: model
+    label: 'Модель: Пулінг стратегія'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.struct_encoder_type:
+    path: model.struct_encoder_type
+    section: model
+    label: 'Модель: Struct encoder type'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.struct_hidden_dim:
+    path: model.struct_hidden_dim
+    section: model
+    label: 'Модель: Struct прихований розмірність'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  model.type:
+    path: model.type
+    section: model
+    label: 'Модель: Type'
+    description: Model architecture/hyperparameter.
+    affects: Capacity, compute footprint, and generalization behavior.
+    default: ''
+    enum:
+    - BaselineGATv2
+    - BaselineGCN
+    - EOPKGGATv2
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
+  seed:
+    path: seed
+    section: seed
+    label: Фіксоване зерно (seed)
+    description: Global random seed for reproducible runs.
+    affects: Reproducibility of stochastic components.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.confidence_weights.coverage:
+    path: sync_stats.confidence_weights.coverage
+    section: sync_stats
+    label: 'Синхронізація статистики: Coverage'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.confidence_weights.freshness:
+    path: sync_stats.confidence_weights.freshness
+    section: sync_stats
+    label: 'Синхронізація статистики: Freshness'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.confidence_weights.sample_size:
+    path: sync_stats.confidence_weights.sample_size
+    section: sync_stats
+    label: 'Синхронізація статистики: Sample size'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.enabled:
+    path: sync_stats.enabled
+    section: sync_stats
+    label: 'Синхронізація статистики: Увімкнено'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.freshness_half_life_days:
+    path: sync_stats.freshness_half_life_days
+    section: sync_stats
+    label: 'Синхронізація статистики: Freshness half life days'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.process_filters:
+    path: sync_stats.process_filters
+    section: sync_stats
+    label: 'Синхронізація статистики: Процес фільтри'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.process_scope_policy:
+    path: sync_stats.process_scope_policy
+    section: sync_stats
+    label: 'Синхронізація статистики: Процес scope політика'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.show_progress:
+    path: sync_stats.show_progress
+    section: sync_stats
+    label: 'Синхронізація статистики: Show progress'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.stats_time_policy:
+    path: sync_stats.stats_time_policy
+    section: sync_stats
+    label: 'Синхронізація статистики: Статистика time політика'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.tenant_filters:
+    path: sync_stats.tenant_filters
+    section: sync_stats
+    label: 'Синхронізація статистики: Тенант фільтри'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  sync_stats.windows_days:
+    path: sync_stats.windows_days
+    section: sync_stats
+    label: 'Синхронізація статистики: Windows days'
+    description: sync-stats snapshot generation parameter.
+    affects: Quality and temporal relevance of stats snapshots.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
+  tracking.backend:
+    path: tracking.backend
+    section: tracking
+    label: 'Трекінг: Бекенд'
+    description: Experiment tracking parameter.
+    affects: Run observability and experiment comparison.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  tracking.enabled:
+    path: tracking.enabled
+    section: tracking
+    label: 'Трекінг: Увімкнено'
+    description: Experiment tracking parameter.
+    affects: Run observability and experiment comparison.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  tracking.tags.model_family:
+    path: tracking.tags.model_family
+    section: tracking
+    label: 'Трекінг: Модель family'
+    description: Experiment tracking parameter.
+    affects: Run observability and experiment comparison.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  tracking.tags.stage:
+    path: tracking.tags.stage
+    section: tracking
+    label: 'Трекінг: Stage'
+    description: Experiment tracking parameter.
+    affects: Run observability and experiment comparison.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  tracking.uri:
+    path: tracking.uri
+    section: tracking
+    label: 'Трекінг: Uri'
+    description: Experiment tracking parameter.
+    affects: Run observability and experiment comparison.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.batch_size:
+    path: training.batch_size
+    section: training
+    label: 'Тренування: Batch size'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.class_weight_cap:
+    path: training.class_weight_cap
+    section: training
+    label: 'Тренування: Class weight cap'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.delta:
+    path: training.delta
+    section: training
+    label: 'Тренування: Delta'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.device:
+    path: training.device
+    section: training
+    label: 'Тренування: Device'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.ece_bins:
+    path: training.ece_bins
+    section: training
+    label: 'Тренування: Ece bins'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.epochs:
+    path: training.epochs
+    section: training
+    label: 'Тренування: Epochs'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.learning_rate:
+    path: training.learning_rate
+    section: training
+    label: 'Тренування: Learning rate'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.loss_function:
+    path: training.loss_function
+    section: training
+    label: 'Тренування: Loss function'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.patience:
+    path: training.patience
+    section: training
+    label: 'Тренування: Patience'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.retrain:
+    path: training.retrain
+    section: training
+    label: Перенавчати з нуля
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.show_progress:
+    path: training.show_progress
+    section: training
+    label: 'Тренування: Show progress'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.tqdm_disable:
+    path: training.tqdm_disable
+    section: training
+    label: 'Тренування: Tqdm disable'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.tqdm_leave:
+    path: training.tqdm_leave
+    section: training
+    label: 'Тренування: Tqdm leave'
+    description: Training loop hyperparameter.
+    affects: Training stability, speed, and final quality metrics.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000

@@ -1197,6 +1197,9 @@ class ModelTrainer:
             "batches_with_snapshot_meta": 0,
             "stats_allowed_true": 0,
             "stats_allowed_false": 0,
+            "stats_missing_asof_true": 0,
+            "stats_missing_asof_false": 0,
+            "batches_with_missing_asof": 0,
             "struct_feature_dims": set(),
             "struct_node_rows": set(),
             "struct_edge_counts": [],
@@ -1274,6 +1277,26 @@ class ModelTrainer:
                 else:
                     bucket["stats_allowed_false"] = int(bucket.get("stats_allowed_false", 0)) + 1
 
+        stats_missing_batch = contract.get("stats_missing_asof_snapshot_batch")
+        if isinstance(stats_missing_batch, list):
+            had_missing = False
+            for raw in stats_missing_batch:
+                if bool(raw):
+                    bucket["stats_missing_asof_true"] = int(bucket.get("stats_missing_asof_true", 0)) + 1
+                    had_missing = True
+                else:
+                    bucket["stats_missing_asof_false"] = int(bucket.get("stats_missing_asof_false", 0)) + 1
+            if had_missing:
+                bucket["batches_with_missing_asof"] = int(bucket.get("batches_with_missing_asof", 0)) + 1
+        else:
+            single_stats_missing = contract.get("stats_missing_asof_snapshot")
+            if single_stats_missing is not None:
+                if bool(single_stats_missing):
+                    bucket["stats_missing_asof_true"] = int(bucket.get("stats_missing_asof_true", 0)) + 1
+                    bucket["batches_with_missing_asof"] = int(bucket.get("batches_with_missing_asof", 0)) + 1
+                else:
+                    bucket["stats_missing_asof_false"] = int(bucket.get("stats_missing_asof_false", 0)) + 1
+
     @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
@@ -1306,11 +1329,15 @@ class ModelTrainer:
         struct_rows = bucket.get("struct_node_rows", set())
         stats_allowed_true = int(bucket.get("stats_allowed_true", 0))
         stats_allowed_false = int(bucket.get("stats_allowed_false", 0))
+        stats_missing_asof_true = int(bucket.get("stats_missing_asof_true", 0))
+        stats_missing_asof_false = int(bucket.get("stats_missing_asof_false", 0))
+        batches_with_missing_asof = int(bucket.get("batches_with_missing_asof", 0))
         snapshot_meta_batches = int(bucket.get("batches_with_snapshot_meta", 0))
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
             "snapshot_meta_batches=%d stats_allowed[true/false]=%d/%d "
+            "missing_asof_snapshot_batches=%d missing_asof_snapshot[true/false]=%d/%d "
             "struct_feature_dims=%s struct_rows=%s edge_count[min/avg/max]=%d/%.2f/%d "
             "snapshot_versions=%s snapshot_as_of_ts=%s",
             stage_label,
@@ -1321,6 +1348,9 @@ class ModelTrainer:
             snapshot_meta_batches,
             stats_allowed_true,
             stats_allowed_false,
+            batches_with_missing_asof,
+            stats_missing_asof_true,
+            stats_missing_asof_false,
             self._format_unique_values(set(feature_dims)),
             self._format_unique_values(set(struct_rows)),
             edge_min,
@@ -1454,6 +1484,12 @@ class ModelTrainer:
                 flags = [bool(item) for item in stats_allowed.view(-1).long().cpu().tolist()]
                 if flags:
                     contract["stats_allowed_batch"] = flags
+        if hasattr(data, "stats_missing_asof_snapshot"):
+            stats_missing = data.stats_missing_asof_snapshot
+            if isinstance(stats_missing, torch.Tensor):
+                flags = [bool(item) for item in stats_missing.view(-1).long().cpu().tolist()]
+                if flags:
+                    contract["stats_missing_asof_snapshot_batch"] = flags
         return contract
 
     def _log_model_and_system_context(self) -> None:
@@ -1572,6 +1608,7 @@ class ModelTrainer:
         global_process_forward_enabled = bool(run_profile.get("global_process_stats_forward_enabled", False))
         stats_quality_gate_enabled = bool(run_profile.get("stats_quality_gate_enabled", False))
         stats_time_policy = str(run_profile.get("stats_time_policy", "latest"))
+        on_missing_asof_snapshot = str(run_profile.get("on_missing_asof_snapshot", "disable_stats"))
         xes_use_classifier = run_profile.get("xes_use_classifier")
 
         logger.info("========== TRAINER PROFILE ==========")
@@ -1595,7 +1632,10 @@ class ModelTrainer:
         )
         if adapter_kind == "xes":
             logger.info("TRAINER_PROFILE xes use_classifier=%s", xes_use_classifier if xes_use_classifier is not None else "unknown")
-        logger.info("TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on")
+        logger.info(
+            "TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on missing_asof_policy=%s",
+            on_missing_asof_snapshot,
+        )
         logger.info("=====================================")
 
         if self.tracker is None:

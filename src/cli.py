@@ -357,6 +357,12 @@ def _build_graph_dataset(
             stats_allowed = contract.get("stats_allowed")
             if isinstance(stats_allowed, bool):
                 payload["stats_allowed"] = torch.tensor([1 if stats_allowed else 0], dtype=torch.long)
+            stats_missing_asof_snapshot = contract.get("stats_missing_asof_snapshot")
+            if isinstance(stats_missing_asof_snapshot, bool):
+                payload["stats_missing_asof_snapshot"] = torch.tensor(
+                    [1 if stats_missing_asof_snapshot else 0],
+                    dtype=torch.long,
+                )
             snapshot_seq_raw = contract.get("stats_snapshot_version_seq")
             if isinstance(snapshot_seq_raw, (int, float)) and not isinstance(snapshot_seq_raw, bool):
                 snapshot_idx = int(snapshot_seq_raw)
@@ -538,6 +544,11 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     )
     feature_summary = _summarize_graph_feature_mapping(graph_feature_mapping)
     stats_time_policy = str(experiment_cfg.get("stats_time_policy", "latest")).strip().lower() or "latest"
+    on_missing_asof_snapshot = str(
+        experiment_cfg.get("on_missing_asof_snapshot", "disable_stats")
+    ).strip().lower() or "disable_stats"
+    if on_missing_asof_snapshot not in {"disable_stats", "use_base", "raise"}:
+        on_missing_asof_snapshot = "disable_stats"
     model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
     model_family = _resolve_model_family(model_type)
     xes_cfg = mapping_cfg.get("xes_adapter", {})
@@ -563,6 +574,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "stats_quality_gate_on_fail": str(feature_summary.get("stats_quality_gate_on_fail", "ignore_with_warning")),
         "global_process_stats_forward_enabled": False,
         "stats_time_policy": stats_time_policy,
+        "on_missing_asof_snapshot": on_missing_asof_snapshot,
         "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
         "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
         "knowledge_versions_count": int(len(available_versions)),
@@ -572,13 +584,14 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     }
     logger.info("========== RUN PROFILE ==========")
     logger.info(
-        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s",
+        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s",
         mode,
         model_type,
         model_family,
         adapter_kind,
         dataset_name,
         stats_time_policy,
+        on_missing_asof_snapshot,
     )
     logger.info(
         "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
@@ -612,6 +625,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         process_name=dataset_name,
         graph_feature_mapping=graph_feature_mapping,
         stats_time_policy=stats_time_policy,
+        on_missing_asof_snapshot=on_missing_asof_snapshot,
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

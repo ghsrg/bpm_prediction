@@ -65,6 +65,10 @@ Builder expects:
 ### 4.3 Time policy behavior
 1. `latest`: use regular structure lookup.
 2. `strict_asof`: use prefix last-event timestamp for as-of lookup.
+3. If strict snapshot is missing, apply `experiment.on_missing_asof_snapshot`:
+   - `disable_stats`: keep structural graph, suppress stats tensors for prefix.
+   - `use_base`: allow fallback to base payload stats.
+   - `raise`: fail-fast with explicit error.
 
 ## 5. Sync-Stats Runtime Calculation
 
@@ -126,4 +130,4 @@ sequenceDiagram
 ## 8. Known Limitation (Stage 4.2)
 1. Structural stats are currently forwarded with Option-A batch policy (first-graph structural payload when PyG batch mixes copies).
 2. Mixed snapshot batches are allowed but warned; full snapshot-homogeneous batching policy is deferred.
-3. If no eligible snapshot exists for prefix timestamp, strict_asof can still consume base payload; temporal no-leak enforcement remains open technical debt.
+3. Batch policy remains Option-A for structural payload selection (first graph in batch).

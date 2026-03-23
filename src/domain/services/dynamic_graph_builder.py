@@ -31,6 +31,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         graph_feature_mapping: Optional[Dict[str, Any]] = None,
         stats_time_policy: str = "latest",
         stats_quality_gate: Optional[Dict[str, Any]] = None,
+        on_missing_asof_snapshot: str = "disable_stats",
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -39,12 +40,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self.stats_time_policy = str(stats_time_policy).strip().lower() or "latest"
         if self.stats_time_policy not in {"latest", "strict_asof"}:
             self.stats_time_policy = "latest"
+        self.on_missing_asof_snapshot = self._resolve_missing_asof_policy(on_missing_asof_snapshot)
         self.stats_quality_gate = self._resolve_quality_gate_config(stats_quality_gate)
         self._quality_warned_keys: set[tuple[str, str, str]] = set()
+        self._missing_asof_warned_keys: set[tuple[str, str, str]] = set()
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
         contract = super().build_graph(prefix)
+        as_of_ts = self._resolve_as_of_timestamp(prefix) if self.stats_time_policy == "strict_asof" else None
 
         raw_version = str(prefix.process_version).strip() or "default"
         candidate_versions = [raw_version]
@@ -53,16 +57,29 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         elif raw_version.lower().startswith("v") and raw_version[1:].isdigit():
             candidate_versions.append(str(int(raw_version[1:])))
 
-        dto = self._resolve_dto(prefix=prefix, candidate_versions=candidate_versions)
+        dto = self._resolve_dto(as_of_ts=as_of_ts, candidate_versions=candidate_versions)
         if dto is None or not prefix.prefix_events:
             contract["allowed_target_mask"] = None
             return contract
 
+        missing_asof_snapshot = self._is_missing_asof_snapshot(dto=dto, as_of_ts=as_of_ts)
         stats_allowed, quality_reason = self._should_use_stats(dto=dto, version_key=raw_version)
+        if missing_asof_snapshot:
+            self._emit_missing_asof_warning(version_key=raw_version, as_of_ts=as_of_ts)
+            if self.on_missing_asof_snapshot == "raise":
+                as_of_text = as_of_ts.isoformat() if isinstance(as_of_ts, datetime) else "none"
+                raise ValueError(
+                    f"Strict as-of snapshot is missing for process='{self.process_name or '__auto__'}' "
+                    f"version='{raw_version}' as_of='{as_of_text}'."
+                )
+            if self.on_missing_asof_snapshot == "disable_stats":
+                stats_allowed = False
+                quality_reason = "missing_asof_snapshot"
         snapshot_meta = self._stats_snapshot_metadata(dto)
         contract["stats_snapshot_version_seq"] = self._snapshot_version_seq(snapshot_meta.get("knowledge_version"))
         contract["stats_snapshot_as_of_epoch"] = self._snapshot_as_of_epoch(snapshot_meta.get("as_of_ts"))
         contract["stats_allowed"] = bool(stats_allowed)
+        contract["stats_missing_asof_snapshot"] = bool(missing_asof_snapshot)
         target_feature = self.feature_encoder.activity_feature_name
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
         num_classes = len(activity_vocab)
@@ -209,6 +226,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "on_fail": on_fail,
         }
 
+    @staticmethod
+    def _resolve_missing_asof_policy(raw: Any) -> str:
+        value = str(raw).strip().lower() or "disable_stats"
+        if value not in {"disable_stats", "use_base", "raise"}:
+            return "disable_stats"
+        return value
+
     def _should_use_stats(self, *, dto: ProcessStructureDTO, version_key: str) -> tuple[bool, str]:
         gate = self.stats_quality_gate
         if not bool(gate.get("enabled", True)):
@@ -278,16 +302,33 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             bool(stats_allowed),
         )
 
+    def _emit_missing_asof_warning(self, *, version_key: str, as_of_ts: datetime | None) -> None:
+        process = self.process_name or "__auto__"
+        as_of_text = as_of_ts.isoformat() if isinstance(as_of_ts, datetime) else "none"
+        key = (process, str(version_key), as_of_text)
+        if key in self._missing_asof_warned_keys:
+            return
+        self._missing_asof_warned_keys.add(key)
+        logger.warning(
+            "Strict as-of snapshot missing: process=%s version=%s as_of=%s policy=%s.",
+            process,
+            version_key,
+            as_of_text,
+            self.on_missing_asof_snapshot,
+        )
+
+    @staticmethod
+    def _resolve_as_of_timestamp(prefix: PrefixSlice) -> datetime | None:
+        if not prefix.prefix_events:
+            return None
+        return datetime.fromtimestamp(float(prefix.prefix_events[-1].timestamp), tz=timezone.utc)
+
     def _resolve_dto(
         self,
         *,
-        prefix: PrefixSlice,
+        as_of_ts: datetime | None,
         candidate_versions: list[str],
     ) -> ProcessStructureDTO | None:
-        as_of_ts: datetime | None = None
-        if self.stats_time_policy == "strict_asof" and prefix.prefix_events:
-            as_of_ts = datetime.fromtimestamp(float(prefix.prefix_events[-1].timestamp), tz=timezone.utc)
-
         for candidate in candidate_versions:
             if hasattr(self.knowledge_port, "get_process_structure_as_of") and as_of_ts is not None:
                 getter = getattr(self.knowledge_port, "get_process_structure_as_of")
@@ -313,6 +354,27 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 if dto is not None:
                     return dto
         return None
+
+    def _is_missing_asof_snapshot(self, *, dto: ProcessStructureDTO, as_of_ts: datetime | None) -> bool:
+        if self.stats_time_policy != "strict_asof" or as_of_ts is None:
+            return False
+        metadata = dto.metadata if isinstance(dto.metadata, dict) else {}
+        if isinstance(metadata, dict):
+            marker = metadata.get("asof_snapshot_found")
+            if marker is False:
+                return True
+            resolution = str(metadata.get("asof_resolution", "")).strip().lower()
+            if resolution in {"missing_snapshot_fallback_base", "fallback_base_no_snapshot"}:
+                return True
+        snapshot_meta = self._stats_snapshot_metadata(dto)
+        knowledge_version = self._clean_optional_text(snapshot_meta.get("knowledge_version"))
+        as_of_raw = self._clean_optional_text(snapshot_meta.get("as_of_ts"))
+        if not knowledge_version or not as_of_raw:
+            return True
+        snapshot_epoch = self._snapshot_as_of_epoch(as_of_raw)
+        if snapshot_epoch is None:
+            return True
+        return bool(snapshot_epoch > float(as_of_ts.timestamp()) + 1e-6)
 
     def _node_specs(self) -> list[Dict[str, Any]]:
         block = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}

@@ -8,19 +8,24 @@ Purpose: operational context for current MVP2.5 state after Stage 4.2 updates.
 Implemented and active:
 1. Offline structure ingestion (`ingest-topology`, `sync-topology`).
 2. Offline stats enrichment (`sync-stats`) with immutable snapshots.
-3. Repository-backed runtime consumption (`IKnowledgeGraphPort`) in train/eval.
-4. Stage 3.2 BPMN structure ingestion and Stage 3.1 runtime adapters.
-5. Stage 3.4 strict snapshot policy:
+3. Historical stats bootstrap wrapper (`sync-stats-backfill`) for periodic as-of timelines.
+4. Repository-backed runtime consumption (`IKnowledgeGraphPort`) in train/eval.
+5. Stage 3.2 BPMN structure ingestion and Stage 3.1 runtime adapters.
+6. Stage 3.4 strict snapshot policy:
    - immutable
    - strict composite key
    - JSON-only stats payload
    - as-of lookup
    - no TTL.
-6. Stage 4.2 stats contract/runtime integration:
+7. Stage 4.2 stats contract/runtime integration:
    - universal stats contract v1 (`stats_contract_version=1.0`)
    - producer quality gate in `sync-stats`
+   - producer alignment gate in `sync-stats`
    - consumer quality gate in `DynamicGraphBuilder`
    - config-driven stats mapping with `encoding` support (`identity|log1p|z-score`).
+8. Runtime numeric guards in trainer:
+   - sanitize non-finite tensors before loss/probability metrics
+   - explicit counters in epoch/inference logs.
 
 ## 2. MVP1 Baseline Contract (must stay green)
 
@@ -38,7 +43,10 @@ Mandatory checks:
 2. Without `--as-of`, effective timestamp is derived from available process events (auto `max(event_ts)` after train-cut).
 3. `stats_time_policy = strict_asof` uses prefix last-event timestamp for lookup.
 4. `stats_time_policy = latest` uses latest snapshot/structure.
-5. Stats quality gate may disable stats tensors without failing the whole run (policy-driven fallback).
+5. `sync-stats-backfill` repeatedly runs `sync-stats --as-of` between first and last event timestamps.
+6. Stats quality gate may disable stats tensors without failing the whole run (policy-driven fallback).
+7. If strict_asof has no eligible snapshot (`as_of <= prefix_ts`), behavior is policy-driven via `experiment.on_missing_asof_snapshot` (`disable_stats|use_base|raise`).
+8. Forward stats now include explicit counters: `missing_asof_snapshot_batches` and `missing_asof_snapshot[true/false]`.
 
 ## 4. Config Ownership
 
@@ -50,7 +58,7 @@ Mandatory checks:
 ## 5. Current Priority
 
 Immediate next step:
-1. synchronize canonical docs with Stage 4.2 implementation details.
+1. calibrate and tune policy defaults/thresholds for target datasets after enabling explicit missing-asof policy.
 2. finalize MVP2.5 closure checklist (`Finish_MVP2_5_Plan.MD`) against completed Stage 4.2 worklogs.
 3. run dissertation-goal alignment review and technical-debt audit.
 

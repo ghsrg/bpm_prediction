@@ -30,5 +30,7 @@ class GraphTensorContract(TypedDict):
     stats_snapshot_version_seq: NotRequired[int | None]
     stats_snapshot_as_of_epoch: NotRequired[float | None]
     stats_allowed: NotRequired[bool | None]
+    stats_missing_asof_snapshot: NotRequired[bool | None]
     stats_snapshot_versions: NotRequired[list[str] | None]
     stats_snapshot_as_of_ts_batch: NotRequired[list[str] | None]
+    stats_missing_asof_snapshot_batch: NotRequired[list[bool] | None]

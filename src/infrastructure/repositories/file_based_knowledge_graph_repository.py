@@ -172,16 +172,19 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
             dto = self._load_snapshot_as_of(process_name=process_key, version=version_key, target_ts=target_ts)
             if dto is not None:
                 return dto
-            return self.get_process_structure(version=version_key, process_name=process_key)
+            base = self.get_process_structure(version=version_key, process_name=process_key)
+            return self._mark_missing_asof_snapshot(base, target_ts)
 
         candidates = self._find_snapshot_candidates(version=version_key)
         if len(candidates) != 1:
-            return self.get_process_structure(version=version_key, process_name=process_name)
+            base = self.get_process_structure(version=version_key, process_name=process_name)
+            return self._mark_missing_asof_snapshot(base, target_ts)
         process_key = candidates[0]
         dto = self._load_snapshot_as_of(process_name=process_key, version=version_key, target_ts=target_ts)
         if dto is not None:
             return dto
-        return self.get_process_structure(version=version_key, process_name=process_key)
+        base = self.get_process_structure(version=version_key, process_name=process_key)
+        return self._mark_missing_asof_snapshot(base, target_ts)
 
     def get_graph_for_visualization(
         self,
@@ -460,6 +463,18 @@ class FileBasedKnowledgeGraphRepository(IKnowledgeGraphPort):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _mark_missing_asof_snapshot(dto: Optional[ProcessStructureDTO], target: datetime | None) -> Optional[ProcessStructureDTO]:
+        if dto is None or target is None:
+            return dto
+        dto_copy = dto.model_copy(deep=True)
+        metadata = dict(dto_copy.metadata or {})
+        metadata["asof_snapshot_found"] = False
+        metadata["asof_resolution"] = "missing_snapshot_fallback_base"
+        metadata["asof_lookup_ts"] = target.isoformat()
+        dto_copy.metadata = metadata
+        return dto_copy
 
     @staticmethod
     def _next_knowledge_version(snapshot_dir: Path) -> str:

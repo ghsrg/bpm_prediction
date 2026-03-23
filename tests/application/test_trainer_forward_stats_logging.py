@@ -74,6 +74,13 @@ def _sample(y_value: int, *, snapshot_idx: int, snapshot_epoch: float) -> Data:
     )
 
 
+def _sample_with_missing_asof(y_value: int, *, snapshot_idx: int, snapshot_epoch: float, missing_asof: bool) -> Data:
+    payload = _sample(y_value=y_value, snapshot_idx=snapshot_idx, snapshot_epoch=snapshot_epoch)
+    payload.stats_missing_asof_snapshot = torch.tensor([1 if missing_asof else 0], dtype=torch.long)
+    payload.stats_allowed = torch.tensor([0 if missing_asof else 1], dtype=torch.long)
+    return payload
+
+
 def test_trainer_logs_forward_stats_for_train_inference_and_drift(caplog):
     snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
     loader = DataLoader(
@@ -117,6 +124,7 @@ def test_trainer_logs_forward_stats_for_train_inference_and_drift(caplog):
     assert "Forward stats [eval_drift]:" in caplog.text
     assert "snapshot_versions=k000777" in caplog.text
     assert "snapshot_as_of_ts=2026-03-20T12:00:00+00:00" in caplog.text
+    assert "missing_asof_snapshot_batches=0 missing_asof_snapshot[true/false]=0/0" in caplog.text
 
 
 def test_trainer_logs_run_profile_banner(caplog):
@@ -142,6 +150,7 @@ def test_trainer_logs_run_profile_banner(caplog):
                 "global_process_stats_forward_enabled": False,
                 "stats_quality_gate_enabled": True,
                 "stats_time_policy": "strict_asof",
+                "on_missing_asof_snapshot": "disable_stats",
                 "xes_use_classifier": False,
             },
             "data_config": {"dataset_label": "demo_ds"},
@@ -154,7 +163,33 @@ def test_trainer_logs_run_profile_banner(caplog):
     assert "TRAINER_PROFILE mode=train model=EOPKGGATv2 model_family=eopkg adapter=xes dataset=demo_ds" in caplog.text
     assert "TRAINER_PROFILE forward struct_nodes=on(node_features=4) struct_edges=on" in caplog.text
     assert "TRAINER_PROFILE xes use_classifier=False" in caplog.text
-    assert "TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on" in caplog.text
+    assert "TRAINER_CHECKS forward_stats_summary=on mixed_snapshot_guard=on missing_asof_policy=disable_stats" in caplog.text
+
+
+def test_trainer_forward_stats_logs_missing_asof_counters(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample_with_missing_asof(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch, missing_asof=True),
+            _sample_with_missing_asof(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch, missing_asof=False),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+    assert "missing_asof_snapshot_batches=1 missing_asof_snapshot[true/false]=1/1" in caplog.text
 
 
 def test_data_to_contract_uses_first_graph_structural_payload_from_batch():

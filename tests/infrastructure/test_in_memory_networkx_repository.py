@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from src.domain.entities.process_structure import ProcessStructureDTO
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
@@ -78,3 +80,18 @@ def test_repository_get_graph_for_visualization_rejects_negative_frequency():
         assert False, "Expected ValueError for negative min_edge_frequency."
     except ValueError as exc:
         assert "must be >= 0" in str(exc)
+
+
+def test_repository_marks_missing_asof_snapshot_on_strict_lookup_fallback():
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure("v1", _dto("v1", [("A", "B")]), process_name="p1")
+
+    loaded = repository.get_process_structure_as_of(
+        "v1",
+        process_name="p1",
+        as_of_ts=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+    )
+    assert loaded is not None
+    assert loaded.metadata is not None
+    assert loaded.metadata.get("asof_snapshot_found") is False
+    assert loaded.metadata.get("asof_resolution") == "missing_snapshot_fallback_base"

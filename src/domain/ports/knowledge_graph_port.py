@@ -57,7 +57,10 @@ class IKnowledgeGraphPort(Protocol):
         *,
         as_of_ts: datetime | None = None,
     ) -> Optional[ProcessStructureDTO]:
-        """Return latest snapshot up to as_of_ts; fallback to current structure when unavailable."""
+        """Return latest snapshot up to as_of_ts; fallback to current structure when unavailable.
+
+        Implementations may annotate `dto.metadata` with fallback diagnostics when strict snapshot is missing.
+        """
         ...
 
     def get_graph_for_visualization(

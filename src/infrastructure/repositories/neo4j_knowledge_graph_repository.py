@@ -581,7 +581,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                     },
                 )
         if not rows:
-            return base
+            return self._mark_missing_asof_snapshot(base, as_of_utc)
 
         row = rows[0]
         base.node_stats = self._safe_json_object(row.get("node_stats_json")) or None
@@ -598,6 +598,9 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         as_of_text = self._optional_text(row.get("as_of_ts"))
         if as_of_text is not None:
             merged_meta["as_of_ts"] = as_of_text
+        if as_of_utc is not None:
+            merged_meta["asof_snapshot_found"] = True
+            merged_meta["asof_lookup_ts"] = as_of_utc.isoformat()
         base.metadata = merged_meta or None
         return base
 
@@ -912,6 +915,18 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
     def _normalize_process_name(process_name: str | None, fallback: str) -> str:
         raw = (process_name or fallback or "default").strip()
         return raw or "default"
+
+    @staticmethod
+    def _mark_missing_asof_snapshot(dto: Optional[ProcessStructureDTO], target: datetime | None) -> Optional[ProcessStructureDTO]:
+        if dto is None or target is None:
+            return dto
+        dto_copy = dto.model_copy(deep=True)
+        metadata = dict(dto_copy.metadata or {})
+        metadata["asof_snapshot_found"] = False
+        metadata["asof_resolution"] = "missing_snapshot_fallback_base"
+        metadata["asof_lookup_ts"] = target.isoformat()
+        dto_copy.metadata = metadata
+        return dto_copy
 
     @staticmethod
     def _normalize_version(version: str) -> str:

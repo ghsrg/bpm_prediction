@@ -316,3 +316,91 @@ def test_builder_treats_string_none_snapshot_version_as_missing(mock_feature_con
     )
     contract = builder.build_graph(_prefix())
     assert contract.get("stats_snapshot_version_seq") is None
+
+
+class _MissingAsOfProbePort:
+    def __init__(self, dto: ProcessStructureDTO) -> None:
+        self.dto = dto
+        self.called_as_of_ts: datetime | None = None
+
+    def get_process_structure_as_of(self, version: str, process_name: str | None = None, as_of_ts: datetime | None = None):
+        _ = version
+        _ = process_name
+        self.called_as_of_ts = as_of_ts
+        return self.dto
+
+    def get_process_structure(self, version: str, process_name: str | None = None):
+        _ = version
+        _ = process_name
+        return self.dto
+
+
+def test_strict_asof_missing_snapshot_disables_stats_by_default(mock_feature_configs):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("Start", "Approve"), ("Approve", "End")],
+        metadata={
+            "asof_snapshot_found": False,
+            "asof_resolution": "missing_snapshot_fallback_base",
+            "stats_index": {
+                "node": {
+                    "all_time.version.exec_count": {"Start": 1.0, "Approve": 2.0, "End": 3.0},
+                },
+                "edge": {},
+                "global": {},
+            },
+        },
+    )
+    probe_repo = _MissingAsOfProbePort(dto=dto)
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=probe_repo,
+        process_name="dataset_a",
+        stats_time_policy="strict_asof",
+        graph_feature_mapping={
+            "enabled": True,
+            "node_numeric": [
+                {
+                    "name": "node_exec_count_v",
+                    "metric": "exec_count",
+                    "window": "all_time",
+                    "scope": "version",
+                    "default": 0.0,
+                    "encoding": ["identity"],
+                }
+            ],
+        },
+    )
+
+    contract = builder.build_graph(_prefix())
+    assert probe_repo.called_as_of_ts is not None
+    assert contract.get("stats_missing_asof_snapshot") is True
+    assert contract.get("stats_allowed") is False
+    assert contract.get("struct_x") is None
+
+
+def test_strict_asof_missing_snapshot_raise_policy_raises(mock_feature_configs):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("Start", "Approve"), ("Approve", "End")],
+        metadata={
+            "asof_snapshot_found": False,
+            "asof_resolution": "missing_snapshot_fallback_base",
+            "stats_index": {"node": {}, "edge": {}, "global": {}},
+        },
+    )
+    probe_repo = _MissingAsOfProbePort(dto=dto)
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=probe_repo,
+        process_name="dataset_a",
+        stats_time_policy="strict_asof",
+        on_missing_asof_snapshot="raise",
+    )
+
+    with pytest.raises(ValueError, match="Strict as-of snapshot is missing"):
+        builder.build_graph(_prefix())

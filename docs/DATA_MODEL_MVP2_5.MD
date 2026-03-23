@@ -132,6 +132,8 @@ Optional fields used by EOPKG path:
 7. `stats_allowed: bool | None`
 8. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
 9. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
+10. `stats_missing_asof_snapshot: bool | None` (strict_asof fallback marker)
+11. `stats_missing_asof_snapshot_batch: list[bool] | None` (batch logging/diagnostics)
 
 Current Stage 4.2 semantics:
 1. `struct_x` is built from `metadata.stats_index` mapping.
@@ -140,6 +142,7 @@ Current Stage 4.2 semantics:
 4. Missing values use configured defaults.
 5. Consumer quality gate may suppress stats tensors while preserving baseline-compatible forward path.
 6. Forward diagnostics may report `stats_snapshot_versions=none` when no eligible as-of snapshot is resolved for the prefix timestamp.
+7. Forward diagnostics include `missing_asof_snapshot_batches` and `missing_asof_snapshot[true/false]` counters.
 
 ## 6. Quarantine Contract (BPMN parser)
 

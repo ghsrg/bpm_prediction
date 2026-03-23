@@ -113,11 +113,12 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
             process_key = self._normalize_process_name(process_name, version_key)
             storage_key = (process_key, version_key)
 
+        target = self._to_utc(as_of_ts)
         snapshots = self._snapshots.get(storage_key, [])
         if not snapshots:
-            return self._structures.get(storage_key)
+            base = self._structures.get(storage_key)
+            return self._mark_missing_asof_snapshot(base, target)
 
-        target = self._to_utc(as_of_ts)
         if target is None:
             return snapshots[-1][2]
 
@@ -129,7 +130,8 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
                 break
         if selected is not None:
             return selected
-        return self._structures.get(storage_key)
+        base = self._structures.get(storage_key)
+        return self._mark_missing_asof_snapshot(base, target)
 
     def get_graph_for_visualization(
         self,
@@ -175,6 +177,19 @@ class InMemoryNetworkXRepository(IKnowledgeGraphPort):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _mark_missing_asof_snapshot(dto: Optional[ProcessStructureDTO], target: datetime | None) -> Optional[ProcessStructureDTO]:
+        if dto is None:
+            return None
+        dto_copy = dto.model_copy(deep=True)
+        metadata = dict(dto_copy.metadata or {})
+        metadata["asof_snapshot_found"] = False
+        metadata["asof_resolution"] = "missing_snapshot_fallback_base"
+        if isinstance(target, datetime):
+            metadata["asof_lookup_ts"] = target.isoformat()
+        dto_copy.metadata = metadata
+        return dto_copy
 
     @staticmethod
     def _dto_to_graph(dto: ProcessStructureDTO) -> nx.DiGraph:

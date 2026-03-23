@@ -469,6 +469,13 @@ python main.py visualize-topology --config <experiment.yaml> --from-raw --versio
 python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
 ```
 
+11. `experiment-ui` (desktop wrapper over CLI configs)
+```bash
+python tools/experiment_ui.py --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+# or
+python main.py experiment-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+```
+
 ### 2. Key Config Attributes
 
 #### 2.1 `experiment` block
@@ -476,6 +483,7 @@ python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_I
 2. `split_strategy`: `temporal | none`
 3. `train_ratio`, `fraction`, `split_ratio`
 4. `stats_time_policy`: `latest | strict_asof`
+5. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default: `disable_stats`)
 
 #### 2.2 `mapping.knowledge_graph` block
 1. `backend`: `in_memory | file | neo4j`
@@ -508,8 +516,10 @@ python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_I
 2. If `stats_time_policy = latest`:
    - latest available snapshot/structure is used.
 3. If strict lookup has no eligible `as_of <= prefix_ts` snapshot:
-   - repository returns base structure payload (can contain latest embedded stats),
-   - this is why timeline backfill is required for strict historical studies.
+   - behavior is controlled by `experiment.on_missing_asof_snapshot`:
+     - `disable_stats`: keep structure/mask, disable stats tensors for this prefix,
+     - `use_base`: allow base payload stats fallback,
+     - `raise`: fail-fast.
 
 #### 3.3 Window semantics in snapshot payload
 Each snapshot stores windows relative to its own `as_of`:
@@ -539,4 +549,5 @@ flowchart LR
 2. Prefer `sync-stats-backfill --step weekly|monthly` for initial historical bootstrap.
 3. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
 4. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
-5. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.
+5. Set `on_missing_asof_snapshot=disable_stats` for no-leak temporal experiments.
+6. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.

@@ -133,3 +133,19 @@ def test_file_repo_snapshot_roundtrip_and_asof_lookup(tmp_path: Path):
     assert loaded_latest is not None
     assert loaded_latest.metadata is not None
     assert loaded_latest.metadata["marker"] == "second"
+
+
+def test_file_repo_marks_missing_asof_snapshot_on_fallback(tmp_path: Path):
+    repo = FileBasedKnowledgeGraphRepository(base_dir=tmp_path / "kg")
+    dto = ProcessStructureDTO(version="v1", allowed_edges=[("A", "B")], metadata={"base": "yes"})
+    repo.save_process_structure("v1", dto, process_name="proc_a")
+
+    loaded = repo.get_process_structure_as_of(
+        "v1",
+        process_name="proc_a",
+        as_of_ts=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+    )
+    assert loaded is not None
+    assert loaded.metadata is not None
+    assert loaded.metadata.get("asof_snapshot_found") is False
+    assert loaded.metadata.get("asof_resolution") == "missing_snapshot_fallback_base"

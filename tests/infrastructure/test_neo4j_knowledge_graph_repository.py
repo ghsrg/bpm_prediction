@@ -355,3 +355,33 @@ def test_get_process_structure_asof_falls_back_without_proc_def_filter_when_prim
     assert loaded.metadata is not None
     assert loaded.metadata["knowledge_version"] == "k000042"
     assert loaded.metadata["snapshot_meta"] == "fallback"
+
+
+def test_get_process_structure_asof_marks_missing_snapshot_when_no_rows():
+    repo = _build_repo()
+    base_dto = ProcessStructureDTO(
+        version="v22",
+        proc_def_id="PROC_DEF_22",
+        allowed_edges=[("A", "B")],
+        metadata={"base": "yes"},
+    )
+    repo.get_process_structure = MethodType(
+        lambda self, version, process_name=None: base_dto.model_copy(deep=True),
+        repo,
+    )
+
+    def _fake_read(self, *, operation, query, params):
+        del operation, query, params
+        return []
+
+    repo._run_read = MethodType(_fake_read, repo)
+
+    loaded = repo.get_process_structure_as_of(
+        version="v22",
+        process_name="procurement@tenant_a",
+        as_of_ts=datetime(2026, 3, 19, 12, 0, tzinfo=timezone.utc),
+    )
+    assert loaded is not None
+    assert loaded.metadata is not None
+    assert loaded.metadata.get("asof_snapshot_found") is False
+    assert loaded.metadata.get("asof_resolution") == "missing_snapshot_fallback_base"

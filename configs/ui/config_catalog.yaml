@@ -93,6 +93,21 @@ fields:
       group: core
       priority: 1
       order: 14
+  experiment.cache_dir:
+    path: experiment.cache_dir
+    section: experiment
+    label: experiment.cache_dir
+    description: Disk path for persistent structure cache when experiment.cache_policy=full.
+    affects: Reuse of compiled structural tensors between runs.
+    default: .cache/dynamic_graph_builder
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 20
+      order: 220
   experiment.drift_window_size:
     path: experiment.drift_window_size
     section: experiment

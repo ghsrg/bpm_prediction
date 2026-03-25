@@ -1,0 +1,93 @@
+{
+  "status": "ok",
+  "mode": "sync-stats",
+  "adapter": "xes",
+  "tier": "A",
+  "stats_contract_version": "1.0",
+  "stats_time_policy": "strict_asof",
+  "process_scope_policy": "up_to_target_version",
+  "as_of_ts": "2011-12-09T22:38:44.546000+00:00",
+  "quality_gate": {
+    "enabled": true,
+    "zero_dominant_threshold": 0.95,
+    "min_non_zero_ratio_overall": 0.0,
+    "min_history_coverage_percent": 0.0,
+    "on_fail": "write_with_flag",
+    "warn_on_fail": true
+  },
+  "alignment_gate": {
+    "enabled": true,
+    "min_event_match_ratio": 0.6,
+    "min_unique_activity_coverage": 0.6,
+    "min_node_coverage": 0.0,
+    "on_fail": "write_with_flag",
+    "warn_on_fail": true
+  },
+  "split_strategy": "temporal",
+  "train_ratio": 0.5,
+  "fraction": 0.1,
+  "knowledge_backend": "neo4j",
+  "processed_versions": 1,
+  "skipped_versions": 2,
+  "processes_total": 2,
+  "processes_selected": 2,
+  "details": [
+    {
+      "stats_contract_version": "1.0",
+      "process_namespace": "BPI_Challenge_2012",
+      "version": "BPI_Challenge_2012",
+      "history_coverage_percent": 100.0,
+      "num_node_metrics": 1288,
+      "num_edge_metrics": 3312,
+      "non_zero_ratio_node": 0.5124223602484472,
+      "non_zero_ratio_edge": 0.4788647342995169,
+      "non_zero_ratio_global": 1.0,
+      "non_zero_ratio_overall": 0.49091695501730104,
+      "is_usable_for_training": true,
+      "quality_reason": "ok",
+      "quality_failures": [],
+      "alignment_is_ok": true,
+      "alignment_reason": "ok",
+      "alignment_failures": [],
+      "alignment_event_match_ratio": 1.0,
+      "alignment_unique_activity_coverage": 1.0,
+      "alignment_node_coverage": 1.0,
+      "alignment_scope_used": "version",
+      "knowledge_version": "k000028",
+      "tenant_id": null,
+      "effective_as_of_ts": "2011-12-09T22:38:44.546000+00:00",
+      "scope_events_version": 9114,
+      "scope_events_process": 9114,
+      "total_traces": 13087,
+      "selected_traces": 654,
+      "total_events": 9123,
+      "selected_events": 9123
+    }
+  ],
+  "skipped_details": [
+    {
+      "process_name": "B2BContracts_ApproveProject",
+      "version": "v5",
+      "reason": "no_scope_events_up_to_as_of",
+      "effective_as_of_ts": "2011-12-09T22:38:44.546000+00:00",
+      "scope_events_version": 0,
+      "scope_events_process": 0,
+      "total_traces": 0,
+      "selected_traces": 0,
+      "total_events": 0,
+      "selected_events": 0
+    },
+    {
+      "process_name": "B2BContracts_ApproveProject",
+      "version": "v6",
+      "reason": "no_scope_events_up_to_as_of",
+      "effective_as_of_ts": "2011-12-09T22:38:44.546000+00:00",
+      "scope_events_version": 0,
+      "scope_events_process": 0,
+      "total_traces": 0,
+      "selected_traces": 0,
+      "total_events": 0,
+      "selected_events": 0
+    }
+  ]
+}

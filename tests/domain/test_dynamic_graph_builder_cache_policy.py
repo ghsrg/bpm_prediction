@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.process_structure import ProcessStructureDTO
@@ -223,3 +225,60 @@ def test_cache_policy_dto_does_not_cache_compiled_topology(mock_feature_configs)
     assert repo.calls_latest == 1
     assert builder.struct_x_calls == 3
     assert builder.edge_stats_calls == 3
+
+
+def test_cache_policy_full_persists_compiled_topology_between_instances(mock_feature_configs, tmp_path: Path):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_feature_mapping = {
+        "enabled": True,
+        "node_numeric": [
+            {
+                "name": "node_exec_count_v",
+                "metric": "exec_count",
+                "window": "all_time",
+                "scope": "version",
+                "default": 0.0,
+                "encoding": ["identity"],
+            }
+        ],
+        "edge_weight": {
+            "metric": "transition_probability",
+            "window": "all_time",
+            "scope": "version",
+            "default": 1.0,
+            "encoding": ["identity"],
+        },
+    }
+    cache_dir = tmp_path / "builder_cache"
+    prefix = _prefix()
+
+    repo_first = _CountingRepo(_dto())
+    builder_first = _CountingBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repo_first,
+        process_name="dataset_a",
+        graph_feature_mapping=graph_feature_mapping,
+        cache_policy="full",
+        cache_dir=str(cache_dir),
+    )
+    first_contract = builder_first.build_graph(prefix)
+    assert first_contract.get("struct_x") is not None
+    assert builder_first.struct_x_calls == 1
+    assert builder_first.edge_stats_calls == 1
+    assert repo_first.calls_latest == 1
+
+    repo_second = _CountingRepo(_dto())
+    builder_second = _CountingBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repo_second,
+        process_name="dataset_a",
+        graph_feature_mapping=graph_feature_mapping,
+        cache_policy="full",
+        cache_dir=str(cache_dir),
+    )
+    second_contract = builder_second.build_graph(prefix)
+    assert second_contract.get("struct_x") is not None
+    assert builder_second.struct_x_calls == 0
+    assert builder_second.edge_stats_calls == 0
+    assert repo_second.calls_latest == 1

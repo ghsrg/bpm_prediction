@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import math
 from typing import Any, Dict, Optional
 import logging
+from pathlib import Path
 
 import torch
 
@@ -33,6 +35,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         stats_quality_gate: Optional[Dict[str, Any]] = None,
         on_missing_asof_snapshot: str = "disable_stats",
         cache_policy: str = "full",
+        cache_dir: str | None = None,
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -50,6 +53,8 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._topology_cache: dict[tuple[Any, ...], Dict[str, Any]] = {}
         self._dto_cache_max_entries = 32768
         self._topology_cache_max_entries = 512
+        self._topology_disk_cache_schema = 1
+        self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
@@ -113,11 +118,12 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             if isinstance(cached_mask, torch.Tensor):
                 allowed_mask = cached_mask.clone()
 
-        contract["structural_edge_index"] = compiled["structural_edge_index"].clone()
-        contract["structural_edge_weight"] = compiled["structural_edge_weight"].clone()
+        # Reuse cached structural tensors across prefixes to avoid per-prefix RAM duplication.
+        contract["structural_edge_index"] = compiled["structural_edge_index"]
+        contract["structural_edge_weight"] = compiled["structural_edge_weight"]
         struct_x = compiled.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
-            contract["struct_x"] = struct_x.clone()
+            contract["struct_x"] = struct_x
         contract["allowed_target_mask"] = allowed_mask
         return contract
 
@@ -416,6 +422,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             cached = self._topology_cache.get(cache_key)
             if isinstance(cached, dict):
                 return cached
+            cached_disk = self._load_compiled_topology_from_disk(cache_key)
+            if isinstance(cached_disk, dict):
+                self._cache_put(
+                    cache=self._topology_cache,
+                    key=cache_key,
+                    value=cached_disk,
+                    max_entries=self._topology_cache_max_entries,
+                )
+                return cached_disk
 
         num_classes = len(activity_vocab)
         allowed_masks_by_src: Dict[int, torch.Tensor] = {}
@@ -477,7 +492,90 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 value=compiled,
                 max_entries=self._topology_cache_max_entries,
             )
+            self._save_compiled_topology_to_disk(cache_key=cache_key, compiled=compiled)
         return compiled
+
+    def _resolve_topology_disk_cache_dir(self, raw_dir: str | None) -> Path | None:
+        if self.cache_policy != "full":
+            return None
+        raw = str(raw_dir).strip() if raw_dir is not None else ""
+        if not raw:
+            raw = ".cache/dynamic_graph_builder"
+        process_token = (self.process_name or "__auto__").strip()
+        safe_token = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in process_token) or "__auto__"
+        target = Path(raw).resolve() / safe_token
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning("Could not initialize topology disk cache dir '%s': %s", target, exc)
+            return None
+        return target
+
+    @staticmethod
+    def _topology_cache_key_digest(cache_key: tuple[Any, ...]) -> str:
+        text = repr(cache_key).encode("utf-8", errors="ignore")
+        return hashlib.sha1(text).hexdigest()
+
+    def _topology_cache_file_path(self, cache_key: tuple[Any, ...]) -> Path | None:
+        if self._topology_disk_cache_dir is None:
+            return None
+        digest = self._topology_cache_key_digest(cache_key)
+        return self._topology_disk_cache_dir / f"{digest}.pt"
+
+    def _load_compiled_topology_from_disk(self, cache_key: tuple[Any, ...]) -> Dict[str, Any] | None:
+        path = self._topology_cache_file_path(cache_key)
+        if path is None or (not path.exists()):
+            return None
+        try:
+            payload = torch.load(path, map_location="cpu")
+        except Exception as exc:
+            logger.warning("Failed to load topology disk cache '%s': %s", path, exc)
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if int(payload.get("schema", -1)) != int(self._topology_disk_cache_schema):
+            return None
+        compiled = payload.get("compiled")
+        if not isinstance(compiled, dict):
+            return None
+        allowed_masks_by_src = compiled.get("allowed_masks_by_src")
+        structural_edge_index = compiled.get("structural_edge_index")
+        structural_edge_weight = compiled.get("structural_edge_weight")
+        struct_x = compiled.get("struct_x")
+        if not isinstance(allowed_masks_by_src, dict):
+            return None
+        if not isinstance(structural_edge_index, torch.Tensor):
+            return None
+        if not isinstance(structural_edge_weight, torch.Tensor):
+            return None
+        if struct_x is not None and (not isinstance(struct_x, torch.Tensor)):
+            return None
+        return {
+            "allowed_masks_by_src": allowed_masks_by_src,
+            "structural_edge_index": structural_edge_index,
+            "structural_edge_weight": structural_edge_weight,
+            "struct_x": struct_x,
+        }
+
+    def _save_compiled_topology_to_disk(self, *, cache_key: tuple[Any, ...], compiled: Dict[str, Any]) -> None:
+        path = self._topology_cache_file_path(cache_key)
+        if path is None:
+            return
+        payload = {
+            "schema": int(self._topology_disk_cache_schema),
+            "compiled": compiled,
+        }
+        tmp_path = path.with_suffix(".tmp")
+        try:
+            torch.save(payload, tmp_path)
+            tmp_path.replace(path)
+        except Exception as exc:
+            logger.warning("Failed to persist topology disk cache '%s': %s", path, exc)
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
 
     def _is_missing_asof_snapshot(self, *, dto: ProcessStructureDTO, as_of_ts: datetime | None) -> bool:
         if self.stats_time_policy != "strict_asof" or as_of_ts is None:

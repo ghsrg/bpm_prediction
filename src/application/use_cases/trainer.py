@@ -35,6 +35,7 @@ from src.application.ports.xes_adapter_port import IXESAdapter
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
+from src.infrastructure.runtime.progress_events import emit_progress_event
 
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ class ModelTrainer:
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
+        emit_progress_event(stage="run.pipeline", status="start", message=f"Pipeline mode={self.mode}")
         self.model.to(self.device)
         if self.class_weights is not None:
             self.class_weights = self.class_weights.to(self.device)
@@ -196,22 +198,26 @@ class ModelTrainer:
         checkpoint, start_epoch, best_val_loss, best_epoch = self._prepare_checkpoint_state(is_eval_mode=is_eval_mode)
 
         if is_eval_cross:
-            return self._run_eval_cross_dataset(
+            result = self._run_eval_cross_dataset(
                 split_data=split_data,
                 best_epoch=best_epoch,
                 best_val_loss=best_val_loss,
                 prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
             )
+            emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+            return result
 
         if is_eval_drift:
-            return self._run_eval_drift(
+            result = self._run_eval_drift(
                 split_data=split_data,
                 drift_traces=prepared_traces,
                 best_epoch=best_epoch,
                 best_val_loss=best_val_loss,
             )
+            emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+            return result
 
-        return self._run_train_pipeline(
+        result = self._run_train_pipeline(
             split_data=split_data,
             checkpoint=checkpoint,
             start_epoch=start_epoch,
@@ -219,6 +225,8 @@ class ModelTrainer:
             best_epoch=best_epoch,
             prebuilt_datasets=prebuilt_datasets,
         )
+        emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+        return result
 
     def _read_raw_traces_with_progress(self) -> List[RawTrace]:
         """Read raw traces from adapter with heartbeat logging for long operations."""
@@ -347,6 +355,16 @@ class ModelTrainer:
             len(val_loader),
             len(test_loader),
         )
+        emit_progress_event(
+            stage="trainer.dataloaders",
+            status="done",
+            message="DataLoaders ready",
+            payload={
+                "train_batches": int(len(train_loader)),
+                "validation_batches": int(len(val_loader)),
+                "test_batches": int(len(test_loader)),
+            },
+        )
 
         self._perform_dry_run(train_loader, context_label="train")
         self._log_model_and_system_context()
@@ -368,10 +386,30 @@ class ModelTrainer:
 
         if start_epoch >= self.epochs:
             logger.info("Model already trained for %d epochs. Skipping training loop.", self.epochs)
+            emit_progress_event(
+                stage="train.epochs",
+                status="done",
+                message="Training skipped: checkpoint already at target epoch",
+                current=int(self.epochs),
+                total=int(self.epochs),
+            )
         else:
+            emit_progress_event(stage="train.epochs", status="start", message="Training epochs started", current=start_epoch, total=int(self.epochs))
             for epoch in range(start_epoch + 1, self.epochs + 1):
-                train_loss, train_macro_f1, _, epoch_duration = self._run_epoch(train_loader, optimizer=optimizer, training=True)
-                val_loss, val_macro_f1, val_weighted_f1, _ = self._run_epoch(val_loader, optimizer=None, training=False)
+                train_loss, train_macro_f1, _, epoch_duration = self._run_epoch(
+                    train_loader,
+                    optimizer=optimizer,
+                    training=True,
+                    epoch_index=epoch,
+                    total_epochs=self.epochs,
+                )
+                val_loss, val_macro_f1, val_weighted_f1, _ = self._run_epoch(
+                    val_loader,
+                    optimizer=None,
+                    training=False,
+                    epoch_index=epoch,
+                    total_epochs=self.epochs,
+                )
 
                 epoch_metrics = {
                     "train_loss": train_loss,
@@ -392,6 +430,19 @@ class ModelTrainer:
                     train_macro_f1,
                     val_macro_f1,
                 )
+                emit_progress_event(
+                    stage="train.epochs",
+                    status="update",
+                    message=f"Epoch {epoch}/{self.epochs}",
+                    current=int(epoch),
+                    total=int(self.epochs),
+                    payload={
+                        "train_loss": float(train_loss),
+                        "val_loss": float(val_loss),
+                        "train_f1": float(train_macro_f1),
+                        "val_f1": float(val_macro_f1),
+                    },
+                )
 
                 if self.device.type == "cuda" and torch.cuda.is_available() and not self._logged_peak_vram:
                     peak_vram_mb = float(torch.cuda.max_memory_allocated() / 1048576.0)
@@ -410,11 +461,28 @@ class ModelTrainer:
 
                 if epochs_without_improvement >= self.patience:
                     logger.info("Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).", epoch, best_epoch, best_val_loss)
+                    emit_progress_event(
+                        stage="train.epochs",
+                        status="done",
+                        level="warning",
+                        message=f"Early stopping at epoch {epoch}",
+                        current=int(epoch),
+                        total=int(self.epochs),
+                        payload={"best_epoch": int(best_epoch), "best_val_loss": float(best_val_loss)},
+                    )
                     if self.tracker is not None:
                         self.tracker.log_metric("early_stopping_epoch", float(epoch), step=epoch)
                         self.tracker.log_metric("best_epoch", float(best_epoch), step=epoch)
                         self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
                     break
+            else:
+                emit_progress_event(
+                    stage="train.epochs",
+                    status="done",
+                    message="Training epochs completed",
+                    current=int(self.epochs),
+                    total=int(self.epochs),
+                )
 
         if not self.checkpoint_path.exists():
             raise FileNotFoundError(f"Best checkpoint not found: {self.checkpoint_path}")
@@ -425,8 +493,20 @@ class ModelTrainer:
         best_epoch = int(best_checkpoint["epoch"])
         best_val_loss = float(best_checkpoint["val_loss"])
 
+        emit_progress_event(stage="test.eval", status="start", message="Test evaluation started")
         test_metrics = self._evaluate_test(test_loader, stage_label="inference")
         logger.info("Final test metrics: %s", test_metrics)
+        emit_progress_event(
+            stage="test.eval",
+            status="done",
+            message="Test evaluation completed",
+            current=1,
+            total=1,
+            payload={
+                "test_macro_f1": float(test_metrics.get("test_macro_f1", 0.0)),
+                "test_accuracy": float(test_metrics.get("test_accuracy", 0.0)),
+            },
+        )
         self._log_test_metrics(test_metrics)
 
         if self.tracker is not None:
@@ -446,6 +526,7 @@ class ModelTrainer:
     def _perform_dry_run(self, loader: Iterable[Data], context_label: str) -> None:
         """Initialize lazy modules by one forward pass before optimizer/model-size logging."""
         logger.info("Performing dry run to initialize Lazy modules (%s)...", context_label)
+        emit_progress_event(stage="trainer.dry_run", status="start", message=f"Dry run started ({context_label})")
         was_training = self.model.training
         self.model.train()
         try:
@@ -453,14 +534,17 @@ class ModelTrainer:
             dummy_batch = next(iterator, None)
             if dummy_batch is None:
                 logger.warning("Dry run skipped (%s): loader is empty.", context_label)
+                emit_progress_event(stage="trainer.dry_run", status="done", level="warning", message=f"Dry run skipped ({context_label})")
                 return
             dummy_batch = dummy_batch.to(self.device)
             contract = self._data_to_contract(dummy_batch)
             with torch.no_grad():
                 _ = self.model(contract)
             logger.info("Dry run successful (%s). Model initialized.", context_label)
+            emit_progress_event(stage="trainer.dry_run", status="done", message=f"Dry run completed ({context_label})", current=1, total=1)
         except Exception as exc:
             logger.error("Dry run failed (%s): %s", context_label, exc)
+            emit_progress_event(stage="trainer.dry_run", status="error", level="error", message=f"Dry run failed: {exc}")
             raise
         finally:
             self.model.train(was_training)
@@ -730,7 +814,14 @@ class ModelTrainer:
             kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
         return DataLoader(list(graphs), **kwargs)
 
-    def _run_epoch(self, loader: Iterable[Data], optimizer: Optional[Adam], training: bool) -> Tuple[float, float, float, float]:
+    def _run_epoch(
+        self,
+        loader: Iterable[Data],
+        optimizer: Optional[Adam],
+        training: bool,
+        epoch_index: int,
+        total_epochs: int,
+    ) -> Tuple[float, float, float, float]:
         """Run one epoch (train or eval) and return loss/macro_f1/weighted_f1/duration."""
         if training:
             self.model.train()
@@ -746,9 +837,24 @@ class ModelTrainer:
         contract_sanitized_batches = 0
         logits_sanitized_batches = 0
         non_finite_loss_batches = 0
+        phase_name = "train" if training else "validation"
+        stage_name = "train.batches" if training else "validation.batches"
+        try:
+            total_batches = int(len(loader))  # type: ignore[arg-type]
+        except Exception:
+            total_batches = 0
+        emit_progress_event(
+            stage=stage_name,
+            status="start",
+            message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
+            current=0,
+            total=total_batches if total_batches > 0 else None,
+            payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
+        )
+        last_progress_emit = perf_counter()
 
         iterator = tqdm(loader, desc=("Train epoch" if training else "Validation epoch"), leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
-        for data in iterator:
+        for batch_idx, data in enumerate(iterator, start=1):
             data = data.to(self.device)
             contract = self._data_to_contract(data)
             if self._sanitize_contract_numeric_tensors(contract):
@@ -789,9 +895,28 @@ class ModelTrainer:
             batches += 1
             all_pred.extend(torch.argmax(logits.detach(), dim=1).cpu().numpy().tolist())
             all_true.extend(targets.detach().cpu().numpy().tolist())
+            now = perf_counter()
+            if batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches) or (now - last_progress_emit) >= 0.8:
+                emit_progress_event(
+                    stage=stage_name,
+                    status="update",
+                    message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
+                    current=int(batch_idx),
+                    total=total_batches if total_batches > 0 else None,
+                    payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
+                )
+                last_progress_emit = now
 
         duration = perf_counter() - started
         if batches == 0:
+            emit_progress_event(
+                stage=stage_name,
+                status="done",
+                message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed (empty)",
+                current=0,
+                total=total_batches if total_batches > 0 else None,
+                payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
+            )
             return 0.0, 0.0, 0.0, duration
 
         macro_f1 = float(f1_score(all_true, all_pred, average="macro", zero_division=0))
@@ -806,6 +931,19 @@ class ModelTrainer:
                 non_finite_loss_batches,
             )
         self._log_forward_stats_summary("train" if training else "validation", forward_stats)
+        emit_progress_event(
+            stage=stage_name,
+            status="done",
+            message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed",
+            current=int(batches),
+            total=total_batches if total_batches > 0 else None,
+            payload={
+                "epoch": int(epoch_index),
+                "total_epochs": int(total_epochs),
+                "loss": float(avg_loss),
+                "macro_f1": float(macro_f1),
+            },
+        )
         return avg_loss, macro_f1, weighted_f1, duration
 
     def _evaluate_test(self, loader: Iterable[Data], stage_label: str = "inference") -> Dict[str, Any]:
@@ -826,10 +964,22 @@ class ModelTrainer:
         contract_sanitized_batches = 0
         logits_sanitized_batches = 0
         probs_sanitized_batches = 0
+        try:
+            total_batches = int(len(loader))  # type: ignore[arg-type]
+        except Exception:
+            total_batches = 0
+        emit_progress_event(
+            stage="test.batches",
+            status="start",
+            message=f"Test evaluation ({stage_label})",
+            current=0,
+            total=total_batches if total_batches > 0 else None,
+        )
+        last_progress_emit = perf_counter()
 
         with torch.no_grad():
             iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
-            for data in iterator:
+            for batch_idx, data in enumerate(iterator, start=1):
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
                 if self._sanitize_contract_numeric_tensors(contract):
@@ -924,6 +1074,16 @@ class ModelTrainer:
                 all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
                 inference_graphs += int(targets.shape[0])
+                now = perf_counter()
+                if batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches) or (now - last_progress_emit) >= 0.8:
+                    emit_progress_event(
+                        stage="test.batches",
+                        status="update",
+                        message=f"Test evaluation ({stage_label})",
+                        current=int(batch_idx),
+                        total=total_batches if total_batches > 0 else None,
+                    )
+                    last_progress_emit = now
 
         total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
         inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
@@ -936,6 +1096,13 @@ class ModelTrainer:
                 probs_sanitized_batches,
             )
         self._log_forward_stats_summary(stage_label, forward_stats)
+        emit_progress_event(
+            stage="test.batches",
+            status="done",
+            message=f"Test evaluation ({stage_label}) completed",
+            current=total_batches if total_batches > 0 else None,
+            total=total_batches if total_batches > 0 else None,
+        )
 
         if not all_true:
             return {
@@ -1031,6 +1198,7 @@ class ModelTrainer:
             disable=(not self.show_progress) or self.tqdm_disable,
         )
         total_windows = len(windows)
+        emit_progress_event(stage="eval_drift.windows", status="start", message="Evaluating drift windows", current=0, total=total_windows)
         for window_idx, (start, window_traces) in enumerate(iterator):
             window_loader = self._build_loader(window_traces, shuffle=False)
             metrics = self._evaluate_test(window_loader, stage_label="eval_drift")
@@ -1062,6 +1230,17 @@ class ModelTrainer:
             if self.tracker is not None:
                 self.tracker.log_metric("drift_window_start_ts", start_ts, step=window_idx)
                 self.tracker.log_metric("drift_window_end_ts", end_ts, step=window_idx)
+
+            emit_progress_event(
+                stage="eval_drift.windows",
+                status="update",
+                message=f"Window {window_idx + 1}/{total_windows}",
+                current=int(window_idx + 1),
+                total=total_windows,
+                payload={"macro_f1": float(macro_f1), "ece": float(ece)},
+            )
+
+        emit_progress_event(stage="eval_drift.windows", status="done", message="Drift evaluation completed", current=total_windows, total=total_windows)
 
         return drift_results
 

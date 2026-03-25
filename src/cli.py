@@ -14,6 +14,7 @@ import math
 from pathlib import Path
 import logging
 import random
+from time import monotonic
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
@@ -38,6 +39,7 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
     get_knowledge_graph_settings,
 )
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
+from src.infrastructure.runtime.progress_events import emit_progress_event
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -340,9 +342,14 @@ def _build_graph_dataset(
     show_progress: bool,
     tqdm_disable: bool,
     desc: str,
+    progress_stage: str | None = None,
 ) -> List[Data]:
     """Convert traces into a list of PyG Data graphs via prefix slicing + graph builder."""
     dataset: List[Data] = []
+    total_traces = int(len(traces))
+    stage = str(progress_stage or "").strip()
+    if stage:
+        emit_progress_event(stage=stage, status="start", message=desc, current=0, total=total_traces)
     iterator = tqdm(
         traces,
         desc=desc,
@@ -350,6 +357,7 @@ def _build_graph_dataset(
         leave=False,
         disable=(not show_progress) or tqdm_disable,
     )
+    last_progress_emit = 0.0
     for idx, trace in enumerate(iterator, start=1):
         for prefix_slice in prefix_policy.generate_slices(trace):
             contract = graph_builder.build_graph(prefix_slice)
@@ -416,8 +424,29 @@ def _build_graph_dataset(
             dataset.append(
                 Data(**payload)
             )
+        if stage:
+            now = monotonic()
+            if idx == 1 or idx == total_traces or (now - last_progress_emit) >= 0.8:
+                emit_progress_event(
+                    stage=stage,
+                    status="update",
+                    message=desc,
+                    current=idx,
+                    total=total_traces,
+                    payload={"graphs": int(len(dataset))},
+                )
+                last_progress_emit = now
         if idx % 1000 == 0:
             iterator.set_postfix({"graphs": len(dataset)})
+    if stage:
+        emit_progress_event(
+            stage=stage,
+            status="done",
+            message=f"{desc} completed",
+            current=total_traces,
+            total=total_traces,
+            payload={"graphs": int(len(dataset))},
+        )
     return dataset
 
 
@@ -479,6 +508,7 @@ def _summarize_graph_feature_mapping(graph_feature_mapping: Dict[str, Any]) -> D
 def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = None) -> Dict[str, Any]:
     """Prepare shared data artifacts for CLI and inspector without logic duplication."""
     logger = logging.getLogger(__name__)
+    emit_progress_event(stage="prepare_data", status="start", message="Preparing data artifacts")
     data_cfg = config.get("data", {})
     experiment_cfg = config.get("experiment", {})
     model_cfg = config.get("model", {})
@@ -508,9 +538,17 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     prefix_policy = PrefixPolicy()
 
     logger.info("Preparing data artifacts for mode=%s...", mode)
+    emit_progress_event(stage="prepare.read_events", status="start", message=f"Reading events via {adapter.__class__.__name__}")
     logger.info("Reading events for preparation via adapter=%s...", adapter.__class__.__name__)
     traces = list(adapter.read(log_path, mapping_cfg))
     logger.info("Event read finished: traces=%d", len(traces))
+    emit_progress_event(
+        stage="prepare.read_events",
+        status="done",
+        message="Event read finished",
+        current=int(len(traces)),
+        total=int(len(traces)),
+    )
     traces = _apply_cascade_prepare(
         traces,
         mode=mode,
@@ -525,6 +563,11 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     feature_configs = parse_feature_configs(config)
     schema_resolver = SchemaResolver()
     policy_cfg = config.get("policies", {})
+    emit_progress_event(
+        stage="prepare.feature_encoder",
+        status="start",
+        message=f"Fitting feature encoder from {len(traces)} traces",
+    )
     logger.info("Fitting feature encoder from %d traces...", len(traces))
     feature_encoder = FeatureEncoder(
         feature_configs=feature_configs,
@@ -534,6 +577,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         policy_config=policy_cfg,
     )
     logger.info("Feature encoder ready.")
+    emit_progress_event(stage="prepare.feature_encoder", status="done", message="Feature encoder ready")
     feature_layout = feature_encoder.feature_layout
 
     activity_vocab, resource_vocab, activity_feature = _extract_base_vocabularies(feature_encoder)
@@ -580,6 +624,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         cache_policy = "off"
     if cache_policy not in {"off", "dto", "full"}:
         cache_policy = "full"
+    cache_dir = str(experiment_cfg.get("cache_dir", "")).strip()
     model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
     model_family = _resolve_model_family(model_type)
     xes_cfg = mapping_cfg.get("xes_adapter", {})
@@ -607,6 +652,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "stats_time_policy": stats_time_policy,
         "on_missing_asof_snapshot": on_missing_asof_snapshot,
         "cache_policy": cache_policy,
+        "cache_dir": cache_dir or ".cache/dynamic_graph_builder",
         "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
         "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
         "knowledge_versions_count": int(len(available_versions)),
@@ -618,7 +664,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     }
     logger.info("========== RUN PROFILE ==========")
     logger.info(
-        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s cache_policy=%s",
+        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s cache_policy=%s cache_dir=%s",
         mode,
         model_type,
         model_family,
@@ -627,6 +673,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         stats_time_policy,
         on_missing_asof_snapshot,
         cache_policy,
+        run_profile["cache_dir"],
     )
     logger.info(
         "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
@@ -668,6 +715,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         stats_time_policy=stats_time_policy,
         on_missing_asof_snapshot=on_missing_asof_snapshot,
         cache_policy=cache_policy,
+        cache_dir=cache_dir,
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))
@@ -689,6 +737,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build train graphs",
+        progress_stage="build_graph.train",
     )
     val_dataset = _build_graph_dataset(
         val_traces,
@@ -699,6 +748,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build val graphs",
+        progress_stage="build_graph.validation",
     )
     test_dataset = _build_graph_dataset(
         test_traces,
@@ -709,6 +759,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         show_progress=show_progress,
         tqdm_disable=tqdm_disable,
         desc="Build test graphs",
+        progress_stage="build_graph.test",
     )
     idx_to_version = {idx: version for version, idx in version_to_idx.items()}
     idx_to_stats_snapshot_version = {
@@ -719,6 +770,16 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         len(train_dataset),
         len(val_dataset),
         len(test_dataset),
+    )
+    emit_progress_event(
+        stage="prepare_data",
+        status="done",
+        message="Data preparation completed",
+        payload={
+            "train_graphs": int(len(train_dataset)),
+            "validation_graphs": int(len(val_dataset)),
+            "test_graphs": int(len(test_dataset)),
+        },
     )
 
     return {

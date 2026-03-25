@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
@@ -39,6 +40,23 @@ OUTPUT_DIR = ROOT_DIR / "outputs" / "ui"
 STATE_PATH = OUTPUT_DIR / "experiment_ui_state.json"
 PRESETS_PATH = OUTPUT_DIR / "experiment_ui_presets.json"
 CATALOG_PATH = ROOT_DIR / "configs" / "ui" / "config_catalog.yaml"
+PROGRESS_EVENT_PREFIX = "__BPM_PROGRESS__"
+
+RUN_STAGE_WEIGHTS: Dict[str, float] = {
+    "prepare_data": 0.10,
+    "prepare.read_events": 0.08,
+    "prepare.feature_encoder": 0.07,
+    "build_graph.train": 0.22,
+    "build_graph.validation": 0.10,
+    "build_graph.test": 0.08,
+    "trainer.dataloaders": 0.03,
+    "trainer.dry_run": 0.05,
+    "train.epochs": 0.15,
+    "train.batches": 0.04,
+    "validation.batches": 0.03,
+    "test.eval": 0.03,
+    "test.batches": 0.02,
+}
 
 FIELD_HINTS: Dict[str, str] = {
     "data.dataset_name": "Стабільна назва процесу/датасету для репозиторію знань і run-profile.",
@@ -346,6 +364,12 @@ class ExperimentUI:
         self._temp_config_path: Path | None = None
         self._base_config: Dict[str, Any] = {}
         self._base_config_path: Path | None = None
+        self._progress_started_ts: float | None = None
+        self._stage_progress: Dict[str, float] = {}
+        self._current_stage: str = ""
+        self._last_status_text: str = ""
+        self._last_exit_code: int | None = None
+        self._progress_event_seen: bool = False
 
         self._state = _read_json(STATE_PATH, {})
         self._presets = _read_json(PRESETS_PATH, {})
@@ -357,6 +381,7 @@ class ExperimentUI:
         self.vars: Dict[str, tk.Variable] = {}
         self._build_vars(default_config)
         self._build_ui()
+        self._reset_progress_ui()
         self._load_state()
         self._load_base_config_into_form()
         self._apply_payload_to_forms(self._state)
@@ -1296,7 +1321,7 @@ class ExperimentUI:
     def _build_run_tab(self) -> None:
         frame = self.tab_run
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(4, weight=1)
+        frame.rowconfigure(6, weight=1)
 
         sync_frame = ttk.Frame(frame)
         sync_frame.grid(row=0, column=0, sticky="ew")
@@ -1338,9 +1363,23 @@ class ExperimentUI:
         self.run_btn.grid(row=0, column=3, padx=(0, 6))
         self.stop_btn.grid(row=0, column=4)
 
-        ttk.Label(frame, text="Execution log").grid(row=4, column=0, sticky="w")
+        status = ttk.LabelFrame(frame, text="Run Status", padding=8)
+        status.grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        status.columnconfigure(1, weight=1)
+        self.run_stage_var = tk.StringVar(value="Stage: idle")
+        self.run_percent_var = tk.StringVar(value="Overall: 0.0%")
+        self.run_eta_var = tk.StringVar(value="ETA: --:--")
+        ttk.Label(status, textvariable=self.run_stage_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(status, textvariable=self.run_percent_var).grid(row=0, column=1, sticky="e")
+        self.stage_progress_bar = ttk.Progressbar(status, orient="horizontal", mode="determinate", maximum=100.0)
+        self.stage_progress_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 4))
+        self.overall_progress_bar = ttk.Progressbar(status, orient="horizontal", mode="determinate", maximum=100.0)
+        self.overall_progress_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        ttk.Label(status, textvariable=self.run_eta_var).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        ttk.Label(frame, text="Execution log").grid(row=5, column=0, sticky="w")
         self.log_text = ScrolledText(frame, height=18, wrap="word")
-        self.log_text.grid(row=5, column=0, sticky="nsew")
+        self.log_text.grid(row=6, column=0, sticky="nsew")
         self.log_text.bind("<Control-c>", lambda _e: self._copy_log_selection())
         self.log_text.bind("<Control-a>", self._select_all_log)
 
@@ -2143,11 +2182,18 @@ class ExperimentUI:
         cmd = self._build_run_command(self._temp_config_path)
         self._append_log(f"$ {' '.join(cmd)}\n")
         self._save_state()
+        self._reset_progress_ui()
+        self._progress_started_ts = time.time()
+        if hasattr(self, "run_stage_var"):
+            self.run_stage_var.set("Stage: launching run")
         self.run_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
 
         def _worker() -> None:
             try:
+                child_env = os.environ.copy()
+                child_env["BPM_PROGRESS_EVENTS"] = "1"
+                child_env["PYTHONUNBUFFERED"] = "1"
                 self._process = subprocess.Popen(
                     cmd,
                     cwd=str(ROOT_DIR),
@@ -2155,6 +2201,7 @@ class ExperimentUI:
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    env=child_env,
                 )
                 assert self._process.stdout is not None
                 for line in self._process.stdout:
@@ -2207,6 +2254,141 @@ class ExperimentUI:
         self.log_text.insert(tk.END, text)
         self.log_text.see(tk.END)
 
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float(default)
+
+    @staticmethod
+    def _format_eta(seconds: float | None) -> str:
+        if seconds is None or seconds <= 0:
+            return "--:--"
+        total = int(seconds)
+        mins, sec = divmod(total, 60)
+        hrs, mins = divmod(mins, 60)
+        if hrs > 0:
+            return f"{hrs:02d}:{mins:02d}:{sec:02d}"
+        return f"{mins:02d}:{sec:02d}"
+
+    @staticmethod
+    def _stage_title(stage: str) -> str:
+        raw = str(stage).strip()
+        if not raw:
+            return "idle"
+        return raw.replace("_", " ")
+
+    def _reset_progress_ui(self) -> None:
+        self._progress_started_ts = None
+        self._stage_progress = {}
+        self._current_stage = ""
+        self._last_status_text = ""
+        self._last_exit_code = None
+        self._progress_event_seen = False
+        if hasattr(self, "run_stage_var"):
+            self.run_stage_var.set("Stage: idle")
+        if hasattr(self, "run_percent_var"):
+            self.run_percent_var.set("Overall: 0.0%")
+        if hasattr(self, "run_eta_var"):
+            self.run_eta_var.set("ETA: --:--")
+        if hasattr(self, "stage_progress_bar"):
+            self.stage_progress_bar.configure(value=0.0)
+        if hasattr(self, "overall_progress_bar"):
+            self.overall_progress_bar.configure(value=0.0)
+
+    def _compute_overall_percent(self) -> float:
+        weighted = 0.0
+        total_weight = 0.0
+        for stage, progress in self._stage_progress.items():
+            weight = float(RUN_STAGE_WEIGHTS.get(stage, 0.01))
+            total_weight += weight
+            weighted += weight * max(0.0, min(1.0, float(progress)))
+        if total_weight <= 1e-9:
+            return 0.0
+        return max(0.0, min(100.0, (weighted / total_weight) * 100.0))
+
+    def _apply_progress_event(self, event: Dict[str, Any]) -> None:
+        self._progress_event_seen = True
+        stage = str(event.get("stage", "unknown")).strip() or "unknown"
+        status = str(event.get("status", "update")).strip().lower() or "update"
+        message = str(event.get("message", "")).strip()
+        level = str(event.get("level", "info")).strip().lower() or "info"
+        current = self._safe_float(event.get("current", 0.0), default=0.0)
+        total = self._safe_float(event.get("total", 0.0), default=0.0)
+        event_percent = self._safe_float(event.get("percent", -1.0), default=-1.0)
+        if event_percent < 0.0:
+            event_percent = (current / total * 100.0) if total > 0.0 else 0.0
+        event_percent = max(0.0, min(100.0, event_percent))
+
+        self._current_stage = stage
+        if self._progress_started_ts is None:
+            self._progress_started_ts = time.time()
+
+        if status in {"start"}:
+            self._stage_progress[stage] = 0.0
+        elif status in {"done"}:
+            self._stage_progress[stage] = 1.0
+        elif status in {"error"}:
+            self._stage_progress[stage] = max(self._stage_progress.get(stage, 0.0), event_percent / 100.0)
+        else:
+            self._stage_progress[stage] = max(0.0, min(1.0, event_percent / 100.0))
+
+        stage_title = self._stage_title(stage)
+        if hasattr(self, "run_stage_var"):
+            if message:
+                self.run_stage_var.set(f"Stage: {stage_title} ({event_percent:.1f}%) | {message}")
+            else:
+                self.run_stage_var.set(f"Stage: {stage_title} ({event_percent:.1f}%)")
+        if hasattr(self, "stage_progress_bar"):
+            self.stage_progress_bar.configure(value=event_percent)
+
+        overall_percent = self._compute_overall_percent()
+        if hasattr(self, "overall_progress_bar"):
+            self.overall_progress_bar.configure(value=overall_percent)
+        if hasattr(self, "run_percent_var"):
+            self.run_percent_var.set(f"Overall: {overall_percent:.1f}%")
+
+        eta_text = "--:--"
+        if self._progress_started_ts is not None and overall_percent > 0.0:
+            elapsed = max(0.0, time.time() - self._progress_started_ts)
+            ratio = overall_percent / 100.0
+            remaining = (elapsed / ratio) - elapsed if ratio > 1e-9 else None
+            eta_text = self._format_eta(remaining)
+        if hasattr(self, "run_eta_var"):
+            self.run_eta_var.set(f"ETA: {eta_text}")
+
+        # Keep execution log concise in UI mode: show status and warnings/errors only.
+        if message:
+            text = f"[{level}] {stage}: {message}\n"
+            if text != self._last_status_text:
+                self._append_log(text)
+                self._last_status_text = text
+
+    def _should_append_log_line(self, line: str) -> bool:
+        text = str(line).strip()
+        if text == "":
+            return False
+        if text.startswith(PROGRESS_EVENT_PREFIX):
+            return False
+        if not self._progress_event_seen:
+            # Fallback mode for commands that do not emit structured progress yet.
+            if "it/s" in text and "%" in text:
+                return False
+            return True
+        upper = text.upper()
+        if "ERROR" in upper or "WARNING" in upper:
+            return True
+        if text.startswith("Traceback") or text.startswith("[exit code:") or text.startswith("[run failed]"):
+            return True
+        if text.startswith("=== Final Test Metrics ===") or text.startswith("test_"):
+            return True
+        # Suppress noisy tqdm redraw lines in UI.
+        if "it/s" in text and "%" in text:
+            return False
+        # Keep only concise info statuses in UI log; detailed INFO stays in CLI terminal.
+        return False
+
     def _poll_queue(self) -> None:
         while True:
             try:
@@ -2216,6 +2398,10 @@ class ExperimentUI:
             if item == "__FINISHED__":
                 self.run_btn.configure(state="normal")
                 self.stop_btn.configure(state="disabled")
+                if (self._last_exit_code is None or self._last_exit_code == 0) and self._compute_overall_percent() < 100.0 and self._current_stage:
+                    self.overall_progress_bar.configure(value=100.0)
+                    self.run_percent_var.set("Overall: 100.0%")
+                    self.run_eta_var.set("ETA: 00:00")
                 if self._temp_config_path is not None:
                     try:
                         self._temp_config_path.unlink(missing_ok=True)
@@ -2223,7 +2409,23 @@ class ExperimentUI:
                         pass
                     self._temp_config_path = None
                 continue
-            self._append_log(item)
+            text_item = str(item)
+            if text_item.startswith(PROGRESS_EVENT_PREFIX):
+                try:
+                    payload = json.loads(text_item[len(PROGRESS_EVENT_PREFIX):].strip())
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    self._apply_progress_event(payload)
+                continue
+            stripped = text_item.strip()
+            if stripped.startswith("[exit code:") and stripped.endswith("]"):
+                try:
+                    self._last_exit_code = int(stripped[len("[exit code:") : -1].strip())
+                except ValueError:
+                    self._last_exit_code = None
+            if self._should_append_log_line(text_item):
+                self._append_log(text_item)
         self.root.after(150, self._poll_queue)
 
     def _on_close(self) -> None:

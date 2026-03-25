@@ -9,15 +9,19 @@
 from __future__ import annotations
 
 import argparse
+import gc
 from datetime import datetime, timezone
+import hashlib
+import json
 import math
 from pathlib import Path
 import logging
 import random
 from time import monotonic
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Sequence, Tuple
 
 import numpy as np
+import psutil
 import torch
 from torch_geometric.data import Data
 from tqdm import tqdm
@@ -40,6 +44,10 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
 )
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import emit_progress_event
+
+GRAPH_DATASET_CACHE_SCHEMA = 2
+GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
+GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -330,6 +338,620 @@ def _safe_iso_to_epoch(value: Any) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return float(parsed.timestamp())
+
+
+def _safe_cache_token(raw: str) -> str:
+    text = str(raw).strip()
+    if not text:
+        return "__auto__"
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in text)
+    return cleaned or "__auto__"
+
+
+def _normalize_for_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _normalize_for_json(val) for key, val in sorted(value.items(), key=lambda item: str(item[0]))}
+    if isinstance(value, (list, tuple, set)):
+        return [_normalize_for_json(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _resolve_graph_dataset_cache_policy(experiment_cfg: Dict[str, Any]) -> str:
+    raw = experiment_cfg.get("graph_dataset_cache_policy", experiment_cfg.get("graph_cache_policy", "off"))
+    text = str(raw).strip().lower() or "off"
+    if text in {"none", "false", "disabled"}:
+        text = "off"
+    if text in {"on", "true"}:
+        text = "full"
+    if text not in {"off", "read", "write", "full"}:
+        return "off"
+    return text
+
+
+def _resolve_graph_dataset_cache_dir(experiment_cfg: Dict[str, Any]) -> str:
+    raw = experiment_cfg.get("graph_dataset_cache_dir", experiment_cfg.get("graph_cache_dir", ".cache/graph_datasets"))
+    text = str(raw).strip()
+    return text or ".cache/graph_datasets"
+
+
+def _trace_split_signature(traces: Sequence[RawTrace]) -> Dict[str, Any]:
+    digest = hashlib.sha1()
+    events_total = 0
+    for trace in traces:
+        case_id = str(getattr(trace, "case_id", "")).strip()
+        version = str(getattr(trace, "process_version", "")).strip()
+        events = list(getattr(trace, "events", []) or [])
+        event_count = int(len(events))
+        events_total += event_count
+        first_ts = float(getattr(events[0], "timestamp", 0.0)) if event_count > 0 else 0.0
+        last_ts = float(getattr(events[-1], "timestamp", 0.0)) if event_count > 0 else 0.0
+        digest.update(f"{case_id}|{version}|{event_count}|{first_ts:.6f}|{last_ts:.6f};".encode("utf-8", errors="ignore"))
+    return {
+        "traces": int(len(traces)),
+        "events": int(events_total),
+        "digest": digest.hexdigest(),
+    }
+
+
+def _resolve_log_path_identity(log_path: str) -> str:
+    text = str(log_path).strip()
+    if not text or text == "__adapter_source__":
+        return text or "__adapter_source__"
+    path = Path(text).expanduser()
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _graph_dataset_cache_fingerprint(
+    *,
+    config: Dict[str, Any],
+    dataset_name: str,
+    adapter_kind: str,
+    mode: str,
+    split_strategy: str,
+    split_ratio: Tuple[float, float, float],
+    train_ratio: float,
+    fraction: float,
+    stats_time_policy: str,
+    on_missing_asof_snapshot: str,
+    log_path: str,
+    traces_all: Sequence[RawTrace],
+    train_traces: Sequence[RawTrace],
+    val_traces: Sequence[RawTrace],
+    test_traces: Sequence[RawTrace],
+    activity_vocab: Dict[str, int],
+    resource_vocab: Dict[str, int],
+    graph_feature_mapping: Dict[str, Any],
+) -> str:
+    mapping_cfg = config.get("mapping", {})
+    features_cfg = config.get("features", None)
+    if features_cfg is None:
+        if isinstance(mapping_cfg, dict):
+            features_cfg = mapping_cfg.get("features", [])
+        else:
+            features_cfg = []
+    payload = {
+        "schema": int(GRAPH_DATASET_CACHE_SCHEMA),
+        "dataset_name": str(dataset_name),
+        "adapter": str(adapter_kind),
+        "mode": str(mode),
+        "split_strategy": str(split_strategy),
+        "split_ratio": [float(item) for item in split_ratio],
+        "train_ratio": float(train_ratio),
+        "fraction": float(fraction),
+        "stats_time_policy": str(stats_time_policy),
+        "on_missing_asof_snapshot": str(on_missing_asof_snapshot),
+        "log_path": _resolve_log_path_identity(log_path),
+        "traces_signature": {
+            "all": _trace_split_signature(traces_all),
+            "train": _trace_split_signature(train_traces),
+            "validation": _trace_split_signature(val_traces),
+            "test": _trace_split_signature(test_traces),
+        },
+        "activity_vocab": sorted((str(key), int(value)) for key, value in activity_vocab.items()),
+        "resource_vocab": sorted((str(key), int(value)) for key, value in resource_vocab.items()),
+        "graph_feature_mapping": graph_feature_mapping,
+        "mapping": mapping_cfg if isinstance(mapping_cfg, dict) else {},
+        "policies": config.get("policies", {}),
+        "features": features_cfg,
+        "model": config.get("model", {}),
+    }
+    encoded = json.dumps(_normalize_for_json(payload), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(encoded.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _graph_dataset_cache_entry_dir(cache_dir: str, dataset_name: str, fingerprint: str) -> Path:
+    root = Path(cache_dir).expanduser().resolve()
+    return root / _safe_cache_token(dataset_name) / str(fingerprint)
+
+
+def _write_json_file(path: Path, payload: Dict[str, Any]) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _read_json_file(path: Path) -> Dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _resolve_graph_dataset_shard_size(experiment_cfg: Dict[str, Any]) -> int:
+    raw = experiment_cfg.get("graph_dataset_shard_size", 2000)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 2000
+    return max(128, value)
+
+
+def _resolve_graph_dataset_disk_spill_enabled(experiment_cfg: Dict[str, Any]) -> bool:
+    raw = experiment_cfg.get("graph_dataset_disk_spill_enabled", False)
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    return text in {"1", "true", "yes", "on"}
+
+
+def _resolve_max_ram_bytes(experiment_cfg: Dict[str, Any]) -> int | None:
+    raw = experiment_cfg.get("max_ram_gb", 0.0)
+    try:
+        max_ram_gb = float(raw)
+    except (TypeError, ValueError):
+        max_ram_gb = 0.0
+    if max_ram_gb <= 0.0:
+        return None
+    return int(max_ram_gb * 1024.0 * 1024.0 * 1024.0)
+
+
+def _process_rss_bytes() -> int:
+    try:
+        return int(psutil.Process().memory_info().rss)
+    except Exception:
+        return 0
+
+
+def _dataset_payload_graph_count(payload: Any) -> int:
+    if isinstance(payload, dict) and payload.get("kind") == "sharded_cache_split":
+        return int(payload.get("graphs", 0))
+    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes, dict)):
+        return int(len(payload))
+    return 0
+
+
+def _iter_graphs_from_dataset_payload(payload: Any) -> Iterator[Data]:
+    if isinstance(payload, dict) and payload.get("kind") == "sharded_cache_split":
+        entry_dir_text = str(payload.get("entry_dir", "")).strip()
+        if not entry_dir_text:
+            return
+        entry_dir = Path(entry_dir_text)
+        shards = payload.get("shards", [])
+        if not isinstance(shards, list):
+            return
+        for shard in shards:
+            if not isinstance(shard, dict):
+                continue
+            rel_path = str(shard.get("path", "")).strip()
+            if not rel_path:
+                continue
+            shard_path = entry_dir / rel_path
+            if not shard_path.exists():
+                continue
+            try:
+                loaded = torch.load(shard_path, map_location="cpu")
+            except Exception:
+                continue
+            if not isinstance(loaded, list):
+                continue
+            for item in loaded:
+                if isinstance(item, Data):
+                    yield item
+        return
+
+    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes, dict)):
+        for item in payload:
+            if isinstance(item, Data):
+                yield item
+
+
+def _load_graph_dataset_cache(
+    *,
+    cache_dir: str,
+    dataset_name: str,
+    fingerprint: str,
+) -> Dict[str, Any] | None:
+    entry_dir = _graph_dataset_cache_entry_dir(cache_dir, dataset_name, fingerprint)
+    meta_path = entry_dir / "meta.json"
+    meta = _read_json_file(meta_path)
+    if meta is None:
+        return None
+    if int(meta.get("schema", -1)) != int(GRAPH_DATASET_CACHE_SCHEMA):
+        return None
+    if str(meta.get("fingerprint", "")).strip() != str(fingerprint):
+        return None
+    cache_format = str(meta.get("format", GRAPH_DATASET_CACHE_FORMAT_LEGACY)).strip() or GRAPH_DATASET_CACHE_FORMAT_LEGACY
+
+    if cache_format == GRAPH_DATASET_CACHE_FORMAT_SHARDED:
+        splits = meta.get("splits", {})
+        if not isinstance(splits, dict):
+            return None
+        split_payloads: Dict[str, Dict[str, Any]] = {}
+        for split_key in ("train", "validation", "test"):
+            split_meta = splits.get(split_key, {})
+            if not isinstance(split_meta, dict):
+                return None
+            shard_rows = split_meta.get("shards", [])
+            if not isinstance(shard_rows, list):
+                return None
+            normalized_shards: List[Dict[str, Any]] = []
+            graph_count = 0
+            for shard in shard_rows:
+                if not isinstance(shard, dict):
+                    continue
+                rel_path = str(shard.get("path", "")).strip()
+                count = int(shard.get("count", 0))
+                if not rel_path:
+                    continue
+                shard_path = entry_dir / rel_path
+                if not shard_path.exists():
+                    return None
+                normalized_shards.append({"path": rel_path, "count": count})
+                graph_count += max(0, count)
+            split_payloads[split_key] = {
+                "kind": "sharded_cache_split",
+                "entry_dir": str(entry_dir),
+                "split": split_key,
+                "graphs": int(graph_count),
+                "shards": normalized_shards,
+            }
+        version_to_idx_raw = meta.get("version_to_idx", {})
+        snapshot_to_idx_raw = meta.get("stats_snapshot_version_to_idx", {})
+        version_to_idx = {
+            str(key): int(value)
+            for key, value in version_to_idx_raw.items()
+        } if isinstance(version_to_idx_raw, dict) else {}
+        stats_snapshot_version_to_idx = {
+            str(key): int(value)
+            for key, value in snapshot_to_idx_raw.items()
+        } if isinstance(snapshot_to_idx_raw, dict) else {}
+        meta["last_access_utc"] = datetime.now(timezone.utc).isoformat()
+        try:
+            _write_json_file(meta_path, meta)
+        except OSError:
+            pass
+        return {
+            "meta": meta,
+            "entry_dir": entry_dir,
+            "train_dataset": split_payloads["train"],
+            "val_dataset": split_payloads["validation"],
+            "test_dataset": split_payloads["test"],
+            "version_to_idx": version_to_idx,
+            "stats_snapshot_version_to_idx": stats_snapshot_version_to_idx,
+        }
+
+    train_path = entry_dir / "train.pt"
+    val_path = entry_dir / "validation.pt"
+    test_path = entry_dir / "test.pt"
+    if (not train_path.exists()) or (not val_path.exists()) or (not test_path.exists()):
+        return None
+    try:
+        train_dataset = torch.load(train_path, map_location="cpu")
+        val_dataset = torch.load(val_path, map_location="cpu")
+        test_dataset = torch.load(test_path, map_location="cpu")
+    except Exception:
+        return None
+    if not isinstance(train_dataset, list) or not isinstance(val_dataset, list) or not isinstance(test_dataset, list):
+        return None
+    version_to_idx_raw = meta.get("version_to_idx", {})
+    snapshot_to_idx_raw = meta.get("stats_snapshot_version_to_idx", {})
+    version_to_idx = {
+        str(key): int(value)
+        for key, value in version_to_idx_raw.items()
+    } if isinstance(version_to_idx_raw, dict) else {}
+    stats_snapshot_version_to_idx = {
+        str(key): int(value)
+        for key, value in snapshot_to_idx_raw.items()
+    } if isinstance(snapshot_to_idx_raw, dict) else {}
+
+    meta["last_access_utc"] = datetime.now(timezone.utc).isoformat()
+    try:
+        _write_json_file(meta_path, meta)
+    except OSError:
+        pass
+    return {
+        "meta": meta,
+        "entry_dir": entry_dir,
+        "train_dataset": train_dataset,
+        "val_dataset": val_dataset,
+        "test_dataset": test_dataset,
+        "version_to_idx": version_to_idx,
+        "stats_snapshot_version_to_idx": stats_snapshot_version_to_idx,
+    }
+
+
+def _save_graph_dataset_cache(
+    *,
+    cache_dir: str,
+    dataset_name: str,
+    fingerprint: str,
+    train_dataset: Sequence[Data],
+    val_dataset: Sequence[Data],
+    test_dataset: Sequence[Data],
+    version_to_idx: Dict[str, int],
+    stats_snapshot_version_to_idx: Dict[str, int],
+    payload_meta: Dict[str, Any] | None = None,
+) -> Path:
+    entry_dir = _graph_dataset_cache_entry_dir(cache_dir, dataset_name, fingerprint)
+    entry_dir.mkdir(parents=True, exist_ok=True)
+
+    def _save_tensor_list(path: Path, dataset: Sequence[Data]) -> None:
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        torch.save(list(dataset), tmp_path)
+        tmp_path.replace(path)
+
+    _save_tensor_list(entry_dir / "train.pt", train_dataset)
+    _save_tensor_list(entry_dir / "validation.pt", val_dataset)
+    _save_tensor_list(entry_dir / "test.pt", test_dataset)
+
+    meta_payload = {
+        "schema": int(GRAPH_DATASET_CACHE_SCHEMA),
+        "format": GRAPH_DATASET_CACHE_FORMAT_LEGACY,
+        "fingerprint": str(fingerprint),
+        "dataset_name": str(dataset_name),
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "last_access_utc": datetime.now(timezone.utc).isoformat(),
+        "counts": {
+            "train_graphs": int(len(train_dataset)),
+            "validation_graphs": int(len(val_dataset)),
+            "test_graphs": int(len(test_dataset)),
+        },
+        "version_to_idx": {str(key): int(value) for key, value in version_to_idx.items()},
+        "stats_snapshot_version_to_idx": {
+            str(key): int(value)
+            for key, value in stats_snapshot_version_to_idx.items()
+        },
+        "payload_meta": payload_meta or {},
+    }
+    _write_json_file(entry_dir / "meta.json", meta_payload)
+    return entry_dir
+
+
+def _save_graph_dataset_cache_sharded(
+    *,
+    cache_dir: str,
+    dataset_name: str,
+    fingerprint: str,
+    train_split: Dict[str, Any],
+    val_split: Dict[str, Any],
+    test_split: Dict[str, Any],
+    version_to_idx: Dict[str, int],
+    stats_snapshot_version_to_idx: Dict[str, int],
+    payload_meta: Dict[str, Any] | None = None,
+) -> Path:
+    entry_dir = _graph_dataset_cache_entry_dir(cache_dir, dataset_name, fingerprint)
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    meta_payload = {
+        "schema": int(GRAPH_DATASET_CACHE_SCHEMA),
+        "format": GRAPH_DATASET_CACHE_FORMAT_SHARDED,
+        "fingerprint": str(fingerprint),
+        "dataset_name": str(dataset_name),
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "last_access_utc": datetime.now(timezone.utc).isoformat(),
+        "counts": {
+            "train_graphs": int(train_split.get("graphs", 0)),
+            "validation_graphs": int(val_split.get("graphs", 0)),
+            "test_graphs": int(test_split.get("graphs", 0)),
+        },
+        "splits": {
+            "train": {
+                "graphs": int(train_split.get("graphs", 0)),
+                "shards": list(train_split.get("shards", [])),
+            },
+            "validation": {
+                "graphs": int(val_split.get("graphs", 0)),
+                "shards": list(val_split.get("shards", [])),
+            },
+            "test": {
+                "graphs": int(test_split.get("graphs", 0)),
+                "shards": list(test_split.get("shards", [])),
+            },
+        },
+        "version_to_idx": {str(key): int(value) for key, value in version_to_idx.items()},
+        "stats_snapshot_version_to_idx": {
+            str(key): int(value)
+            for key, value in stats_snapshot_version_to_idx.items()
+        },
+        "payload_meta": payload_meta or {},
+    }
+    _write_json_file(entry_dir / "meta.json", meta_payload)
+    return entry_dir
+
+
+def _build_graph_dataset_sharded(
+    traces: Sequence[RawTrace],
+    prefix_policy: PrefixPolicy,
+    graph_builder: DynamicGraphBuilder,
+    version_to_idx: Dict[str, int],
+    stats_snapshot_version_to_idx: Dict[str, int],
+    *,
+    show_progress: bool,
+    tqdm_disable: bool,
+    desc: str,
+    progress_stage: str,
+    entry_dir: Path,
+    split_key: str,
+    shard_size: int,
+    max_ram_bytes: int | None,
+) -> Dict[str, Any]:
+    """Build graph dataset and spill buffered Data objects into on-disk shards."""
+    split_dir = entry_dir / f"{split_key}_shards"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    dataset_payload = {
+        "kind": "sharded_cache_split",
+        "entry_dir": str(entry_dir),
+        "split": split_key,
+        "graphs": 0,
+        "shards": [],
+    }
+
+    total_traces = int(len(traces))
+    emit_progress_event(stage=progress_stage, status="start", message=desc, current=0, total=total_traces)
+    iterator = tqdm(
+        traces,
+        desc=desc,
+        unit="trace",
+        leave=False,
+        disable=(not show_progress) or tqdm_disable,
+    )
+
+    buffer: List[Data] = []
+    shard_rows: List[Dict[str, Any]] = []
+    shard_idx = 0
+    total_graphs = 0
+    last_progress_emit = 0.0
+    last_ram_check = 0
+
+    def _flush_buffer(force: bool = False) -> None:
+        nonlocal shard_idx
+        if not buffer:
+            return
+        if not force and len(buffer) < shard_size:
+            return
+        shard_idx += 1
+        shard_name = f"{split_key}_{shard_idx:05d}.pt"
+        shard_path = split_dir / shard_name
+        tmp_path = shard_path.with_suffix(".pt.tmp")
+        torch.save(buffer, tmp_path)
+        tmp_path.replace(shard_path)
+        shard_rows.append(
+            {
+                "path": str(shard_path.relative_to(entry_dir).as_posix()),
+                "count": int(len(buffer)),
+            }
+        )
+        buffer.clear()
+        gc.collect()
+
+    for idx, trace in enumerate(iterator, start=1):
+        for prefix_slice in prefix_policy.generate_slices(trace):
+            contract = graph_builder.build_graph(prefix_slice)
+            version_label = str(prefix_slice.process_version)
+            version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
+            prefix_len = int(len(prefix_slice.prefix_events))
+            payload: Dict[str, Any] = {
+                "x_cat": contract["x_cat"],
+                "x_num": contract["x_num"],
+                "edge_index": contract["edge_index"],
+                "edge_type": contract["edge_type"],
+                "y": contract["y"],
+                "num_nodes": int(contract["num_nodes"]),
+                "prefix_len": torch.tensor([prefix_len], dtype=torch.long),
+                "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
+            }
+            allowed_mask = contract.get("allowed_target_mask")
+            if isinstance(allowed_mask, torch.Tensor):
+                payload["allowed_target_mask"] = (
+                    allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
+                )
+            struct_x = contract.get("struct_x")
+            if isinstance(struct_x, torch.Tensor):
+                payload["struct_x"] = struct_x
+            structural_edge_index = contract.get("structural_edge_index")
+            if isinstance(structural_edge_index, torch.Tensor):
+                payload["structural_edge_index"] = structural_edge_index
+            structural_edge_weight = contract.get("structural_edge_weight")
+            if isinstance(structural_edge_weight, torch.Tensor):
+                payload["structural_edge_weight"] = structural_edge_weight
+            stats_allowed = contract.get("stats_allowed")
+            if isinstance(stats_allowed, bool):
+                payload["stats_allowed"] = torch.tensor([1 if stats_allowed else 0], dtype=torch.long)
+            stats_missing_asof_snapshot = contract.get("stats_missing_asof_snapshot")
+            if isinstance(stats_missing_asof_snapshot, bool):
+                payload["stats_missing_asof_snapshot"] = torch.tensor(
+                    [1 if stats_missing_asof_snapshot else 0],
+                    dtype=torch.long,
+                )
+            snapshot_seq_raw = contract.get("stats_snapshot_version_seq")
+            if isinstance(snapshot_seq_raw, (int, float)) and not isinstance(snapshot_seq_raw, bool):
+                snapshot_idx = int(snapshot_seq_raw)
+                snapshot_version = f"k{snapshot_idx:06d}"
+                stats_snapshot_version_to_idx.setdefault(snapshot_version, snapshot_idx)
+                payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+            else:
+                stats_snapshot_version = contract.get("stats_snapshot_version")
+                if stats_snapshot_version is not None:
+                    snapshot_version = str(stats_snapshot_version).strip()
+                    if snapshot_version:
+                        snapshot_idx = stats_snapshot_version_to_idx.setdefault(
+                            snapshot_version,
+                            len(stats_snapshot_version_to_idx),
+                        )
+                        payload["stats_snapshot_version_idx"] = torch.tensor([snapshot_idx], dtype=torch.long)
+
+            snapshot_as_of_epoch = None
+            snapshot_as_of_epoch_raw = contract.get("stats_snapshot_as_of_epoch")
+            if isinstance(snapshot_as_of_epoch_raw, (int, float)) and not isinstance(snapshot_as_of_epoch_raw, bool):
+                snapshot_as_of_epoch = float(snapshot_as_of_epoch_raw)
+            if snapshot_as_of_epoch is None:
+                snapshot_as_of_ts = contract.get("stats_snapshot_as_of_ts")
+                snapshot_as_of_epoch = _safe_iso_to_epoch(snapshot_as_of_ts)
+            if snapshot_as_of_epoch is not None:
+                payload["stats_snapshot_as_of_epoch"] = torch.tensor([snapshot_as_of_epoch], dtype=torch.float64)
+
+            buffer.append(Data(**payload))
+            total_graphs += 1
+            if len(buffer) >= shard_size:
+                _flush_buffer(force=True)
+            else:
+                last_ram_check += 1
+                if max_ram_bytes is not None and last_ram_check >= 128:
+                    last_ram_check = 0
+                    rss_bytes = _process_rss_bytes()
+                    if rss_bytes >= max_ram_bytes:
+                        _flush_buffer(force=True)
+
+        now = monotonic()
+        if idx == 1 or idx == total_traces or (now - last_progress_emit) >= 0.8:
+            emit_progress_event(
+                stage=progress_stage,
+                status="update",
+                message=desc,
+                current=idx,
+                total=total_traces,
+                payload={"graphs": int(total_graphs), "shards": int(len(shard_rows))},
+            )
+            last_progress_emit = now
+        if idx % 1000 == 0:
+            iterator.set_postfix({"graphs": total_graphs, "shards": len(shard_rows)})
+
+    _flush_buffer(force=True)
+    dataset_payload["graphs"] = int(total_graphs)
+    dataset_payload["shards"] = shard_rows
+    emit_progress_event(
+        stage=progress_stage,
+        status="done",
+        message=f"{desc} completed",
+        current=total_traces,
+        total=total_traces,
+        payload={"graphs": int(total_graphs), "shards": int(len(shard_rows))},
+    )
+    return dataset_payload
 
 
 def _build_graph_dataset(
@@ -625,6 +1247,18 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     if cache_policy not in {"off", "dto", "full"}:
         cache_policy = "full"
     cache_dir = str(experiment_cfg.get("cache_dir", "")).strip()
+    graph_dataset_cache_policy = _resolve_graph_dataset_cache_policy(experiment_cfg)
+    graph_dataset_cache_dir = _resolve_graph_dataset_cache_dir(experiment_cfg)
+    graph_dataset_disk_spill_enabled = _resolve_graph_dataset_disk_spill_enabled(experiment_cfg)
+    graph_dataset_shard_size = _resolve_graph_dataset_shard_size(experiment_cfg)
+    max_ram_bytes = _resolve_max_ram_bytes(experiment_cfg)
+    graph_dataset_cache_read = graph_dataset_cache_policy in {"read", "full"}
+    graph_dataset_cache_write = graph_dataset_cache_policy in {"write", "full"}
+    if graph_dataset_disk_spill_enabled and not graph_dataset_cache_write:
+        logger.warning(
+            "graph_dataset_disk_spill_enabled=true requires cache write mode. Forcing graph_dataset_cache_policy=write for this run."
+        )
+        graph_dataset_cache_write = True
     model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
     model_family = _resolve_model_family(model_type)
     xes_cfg = mapping_cfg.get("xes_adapter", {})
@@ -653,6 +1287,11 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "on_missing_asof_snapshot": on_missing_asof_snapshot,
         "cache_policy": cache_policy,
         "cache_dir": cache_dir or ".cache/dynamic_graph_builder",
+        "graph_dataset_cache_policy": graph_dataset_cache_policy,
+        "graph_dataset_cache_dir": graph_dataset_cache_dir,
+        "graph_dataset_disk_spill_enabled": bool(graph_dataset_disk_spill_enabled),
+        "graph_dataset_shard_size": int(graph_dataset_shard_size),
+        "max_ram_gb": float(experiment_cfg.get("max_ram_gb", 0.0) or 0.0),
         "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
         "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
         "knowledge_versions_count": int(len(available_versions)),
@@ -664,7 +1303,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     }
     logger.info("========== RUN PROFILE ==========")
     logger.info(
-        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s cache_policy=%s cache_dir=%s",
+        "RUN_PROFILE mode=%s model=%s model_family=%s adapter=%s dataset=%s stats_time_policy=%s on_missing_asof_snapshot=%s cache_policy=%s cache_dir=%s graph_cache_policy=%s graph_cache_dir=%s spill=%s shard_size=%d max_ram_gb=%.2f",
         mode,
         model_type,
         model_family,
@@ -674,6 +1313,11 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         on_missing_asof_snapshot,
         cache_policy,
         run_profile["cache_dir"],
+        graph_dataset_cache_policy,
+        graph_dataset_cache_dir,
+        bool(graph_dataset_disk_spill_enabled),
+        int(graph_dataset_shard_size),
+        float(run_profile["max_ram_gb"]),
     )
     logger.info(
         "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
@@ -726,59 +1370,254 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         len(val_traces),
         len(test_traces),
     )
+    cache_fingerprint = _graph_dataset_cache_fingerprint(
+        config=config,
+        dataset_name=dataset_name,
+        adapter_kind=adapter_kind,
+        mode=mode,
+        split_strategy=split_strategy,
+        split_ratio=split_ratio,
+        train_ratio=train_ratio,
+        fraction=fraction,
+        stats_time_policy=stats_time_policy,
+        on_missing_asof_snapshot=on_missing_asof_snapshot,
+        log_path=log_path,
+        traces_all=traces,
+        train_traces=train_traces,
+        val_traces=val_traces,
+        test_traces=test_traces,
+        activity_vocab=activity_vocab,
+        resource_vocab=resource_vocab,
+        graph_feature_mapping=graph_feature_mapping,
+    )
+    cache_hit = False
     version_to_idx: Dict[str, int] = {}
     stats_snapshot_version_to_idx: Dict[str, int] = {}
-    train_dataset = _build_graph_dataset(
-        train_traces,
-        prefix_policy,
-        graph_builder,
-        version_to_idx,
-        stats_snapshot_version_to_idx,
-        show_progress=show_progress,
-        tqdm_disable=tqdm_disable,
-        desc="Build train graphs",
-        progress_stage="build_graph.train",
-    )
-    val_dataset = _build_graph_dataset(
-        val_traces,
-        prefix_policy,
-        graph_builder,
-        version_to_idx,
-        stats_snapshot_version_to_idx,
-        show_progress=show_progress,
-        tqdm_disable=tqdm_disable,
-        desc="Build val graphs",
-        progress_stage="build_graph.validation",
-    )
-    test_dataset = _build_graph_dataset(
-        test_traces,
-        prefix_policy,
-        graph_builder,
-        version_to_idx,
-        stats_snapshot_version_to_idx,
-        show_progress=show_progress,
-        tqdm_disable=tqdm_disable,
-        desc="Build test graphs",
-        progress_stage="build_graph.test",
-    )
+    train_dataset: Any
+    val_dataset: Any
+    test_dataset: Any
+    cache_bundle = None
+    if graph_dataset_cache_read:
+        cache_bundle = _load_graph_dataset_cache(
+            cache_dir=graph_dataset_cache_dir,
+            dataset_name=dataset_name,
+            fingerprint=cache_fingerprint,
+        )
+    if cache_bundle is not None:
+        cache_hit = True
+        train_dataset = cache_bundle["train_dataset"]
+        val_dataset = cache_bundle["val_dataset"]
+        test_dataset = cache_bundle["test_dataset"]
+        version_to_idx = dict(cache_bundle["version_to_idx"])
+        stats_snapshot_version_to_idx = dict(cache_bundle["stats_snapshot_version_to_idx"])
+        logger.info(
+            "Graph dataset cache hit: policy=%s dir=%s key=%s train=%d val=%d test=%d",
+            graph_dataset_cache_policy,
+            graph_dataset_cache_dir,
+            cache_fingerprint[:12],
+            _dataset_payload_graph_count(train_dataset),
+            _dataset_payload_graph_count(val_dataset),
+            _dataset_payload_graph_count(test_dataset),
+        )
+        emit_progress_event(
+            stage="build_graph.train",
+            status="done",
+            message="Train graphs loaded from disk cache",
+            current=int(len(train_traces)),
+            total=int(len(train_traces)),
+            payload={"graphs": int(_dataset_payload_graph_count(train_dataset)), "from_cache": True},
+        )
+        emit_progress_event(
+            stage="build_graph.validation",
+            status="done",
+            message="Validation graphs loaded from disk cache",
+            current=int(len(val_traces)),
+            total=int(len(val_traces)),
+            payload={"graphs": int(_dataset_payload_graph_count(val_dataset)), "from_cache": True},
+        )
+        emit_progress_event(
+            stage="build_graph.test",
+            status="done",
+            message="Test graphs loaded from disk cache",
+            current=int(len(test_traces)),
+            total=int(len(test_traces)),
+            payload={"graphs": int(_dataset_payload_graph_count(test_dataset)), "from_cache": True},
+        )
+    else:
+        version_to_idx = {}
+        stats_snapshot_version_to_idx = {}
+        if graph_dataset_disk_spill_enabled:
+            entry_dir = _graph_dataset_cache_entry_dir(
+                graph_dataset_cache_dir,
+                dataset_name,
+                cache_fingerprint,
+            )
+            train_dataset = _build_graph_dataset_sharded(
+                train_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build train graphs",
+                progress_stage="build_graph.train",
+                entry_dir=entry_dir,
+                split_key="train",
+                shard_size=graph_dataset_shard_size,
+                max_ram_bytes=max_ram_bytes,
+            )
+            val_dataset = _build_graph_dataset_sharded(
+                val_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build val graphs",
+                progress_stage="build_graph.validation",
+                entry_dir=entry_dir,
+                split_key="validation",
+                shard_size=graph_dataset_shard_size,
+                max_ram_bytes=max_ram_bytes,
+            )
+            test_dataset = _build_graph_dataset_sharded(
+                test_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build test graphs",
+                progress_stage="build_graph.test",
+                entry_dir=entry_dir,
+                split_key="test",
+                shard_size=graph_dataset_shard_size,
+                max_ram_bytes=max_ram_bytes,
+            )
+            if graph_dataset_cache_write:
+                try:
+                    saved_dir = _save_graph_dataset_cache_sharded(
+                        cache_dir=graph_dataset_cache_dir,
+                        dataset_name=dataset_name,
+                        fingerprint=cache_fingerprint,
+                        train_split=train_dataset,
+                        val_split=val_dataset,
+                        test_split=test_dataset,
+                        version_to_idx=version_to_idx,
+                        stats_snapshot_version_to_idx=stats_snapshot_version_to_idx,
+                        payload_meta={
+                            "mode": mode,
+                            "adapter": adapter_kind,
+                            "split_strategy": split_strategy,
+                            "fraction": float(fraction),
+                            "train_ratio": float(train_ratio),
+                            "split_ratio": [float(item) for item in split_ratio],
+                            "disk_spill_enabled": True,
+                            "shard_size": int(graph_dataset_shard_size),
+                            "max_ram_bytes": int(max_ram_bytes or 0),
+                        },
+                    )
+                    logger.info(
+                        "Graph dataset cache saved (sharded): dir=%s key=%s",
+                        saved_dir,
+                        cache_fingerprint[:12],
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Graph dataset cache save failed (sharded, dir=%s key=%s): %s",
+                        graph_dataset_cache_dir,
+                        cache_fingerprint[:12],
+                        exc,
+                    )
+        else:
+            train_dataset = _build_graph_dataset(
+                train_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build train graphs",
+                progress_stage="build_graph.train",
+            )
+            val_dataset = _build_graph_dataset(
+                val_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build val graphs",
+                progress_stage="build_graph.validation",
+            )
+            test_dataset = _build_graph_dataset(
+                test_traces,
+                prefix_policy,
+                graph_builder,
+                version_to_idx,
+                stats_snapshot_version_to_idx,
+                show_progress=show_progress,
+                tqdm_disable=tqdm_disable,
+                desc="Build test graphs",
+                progress_stage="build_graph.test",
+            )
+            if graph_dataset_cache_write:
+                try:
+                    saved_dir = _save_graph_dataset_cache(
+                        cache_dir=graph_dataset_cache_dir,
+                        dataset_name=dataset_name,
+                        fingerprint=cache_fingerprint,
+                        train_dataset=train_dataset,
+                        val_dataset=val_dataset,
+                        test_dataset=test_dataset,
+                        version_to_idx=version_to_idx,
+                        stats_snapshot_version_to_idx=stats_snapshot_version_to_idx,
+                        payload_meta={
+                            "mode": mode,
+                            "adapter": adapter_kind,
+                            "split_strategy": split_strategy,
+                            "fraction": float(fraction),
+                            "train_ratio": float(train_ratio),
+                            "split_ratio": [float(item) for item in split_ratio],
+                        },
+                    )
+                    logger.info(
+                        "Graph dataset cache saved: dir=%s key=%s",
+                        saved_dir,
+                        cache_fingerprint[:12],
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Graph dataset cache save failed (dir=%s key=%s): %s",
+                        graph_dataset_cache_dir,
+                        cache_fingerprint[:12],
+                        exc,
+                    )
     idx_to_version = {idx: version for version, idx in version_to_idx.items()}
     idx_to_stats_snapshot_version = {
         idx: snapshot_version for snapshot_version, idx in stats_snapshot_version_to_idx.items()
     }
+    run_profile["graph_dataset_cache_hit"] = bool(cache_hit)
+    run_profile["graph_dataset_cache_key"] = cache_fingerprint[:12]
     logger.info(
         "Graph datasets ready: train_graphs=%d, val_graphs=%d, test_graphs=%d",
-        len(train_dataset),
-        len(val_dataset),
-        len(test_dataset),
+        _dataset_payload_graph_count(train_dataset),
+        _dataset_payload_graph_count(val_dataset),
+        _dataset_payload_graph_count(test_dataset),
     )
     emit_progress_event(
         stage="prepare_data",
         status="done",
         message="Data preparation completed",
         payload={
-            "train_graphs": int(len(train_dataset)),
-            "validation_graphs": int(len(val_dataset)),
-            "test_graphs": int(len(test_dataset)),
+            "train_graphs": int(_dataset_payload_graph_count(train_dataset)),
+            "validation_graphs": int(_dataset_payload_graph_count(val_dataset)),
+            "test_graphs": int(_dataset_payload_graph_count(test_dataset)),
         },
     )
 
@@ -827,13 +1666,15 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "idx_to_stats_snapshot_version": idx_to_stats_snapshot_version,
         "stats_snapshot_version_to_idx": stats_snapshot_version_to_idx,
         "run_profile": run_profile,
+        "graph_dataset_cache_hit": bool(cache_hit),
+        "graph_dataset_cache_fingerprint": cache_fingerprint,
     }
 
 
-def _compute_class_weights(train_dataset: Sequence[Data], num_classes: int, device: torch.device) -> torch.Tensor:
+def _compute_class_weights(train_dataset: Any, num_classes: int, device: torch.device) -> torch.Tensor:
     """Compute inverse-frequency class weights with 0.0 for absent classes."""
     counts = np.zeros(num_classes, dtype=np.float64)
-    for sample in train_dataset:
+    for sample in _iter_graphs_from_dataset_payload(train_dataset):
         y_idx = int(sample.y.view(-1)[0].item())
         if 0 <= y_idx < num_classes:
             counts[y_idx] += 1.0

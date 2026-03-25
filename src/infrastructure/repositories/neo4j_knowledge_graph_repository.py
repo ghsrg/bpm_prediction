@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 import json
 import re
+import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar
 
 import networkx as nx
 
@@ -18,6 +20,9 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
 
     _RESERVED_REL_TYPES = {"HAS_VERSION", "CONTAINS_NODE"}
     _LABEL_PATTERN = re.compile(r"[^A-Za-z0-9_]")
+    _CONNECT_RETRY_WAIT_SECONDS = 10.0
+    # 0 means infinite retry loop until Neo4j becomes available.
+    _CONNECT_RETRY_ATTEMPTS = 0
 
     def __init__(
         self,
@@ -28,7 +33,11 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         database: str = "neo4j",
         verify_connectivity: bool = True,
         driver: Any | None = None,
+        connect_retry_attempts: int = _CONNECT_RETRY_ATTEMPTS,
+        connect_retry_wait_seconds: float = _CONNECT_RETRY_WAIT_SECONDS,
     ) -> None:
+        self._connect_retry_attempts = max(1, int(connect_retry_attempts))
+        self._connect_retry_wait_seconds = max(0.0, float(connect_retry_wait_seconds))
         if driver is not None:
             self._driver = driver
         else:
@@ -41,8 +50,10 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                 ) from exc
             self._driver = GraphDatabase.driver(uri, auth=(user, password))
             if verify_connectivity:
-                self._driver.verify_connectivity()
+                self._run_with_connect_retry(self._driver.verify_connectivity, operation="verify_connectivity")
         self._database = str(database).strip() or "neo4j"
+        self._base_structure_cache: dict[tuple[str, str], ProcessStructureDTO] = {}
+        self._snapshot_timeline_cache: dict[tuple[str, str, str, str, bool], list[dict[str, Any]]] = {}
 
     def close(self) -> None:
         if hasattr(self._driver, "close"):
@@ -98,6 +109,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                     {},
                 ),
             )
+        self._invalidate_runtime_caches(process_name=process_key, version_key=version_key)
 
     def get_process_structure(
         self,
@@ -111,6 +123,9 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         )
         if resolved_process_name is None:
             return None
+        cached = self._base_structure_cache.get((resolved_process_name, version_key))
+        if isinstance(cached, ProcessStructureDTO):
+            return cached.model_copy(deep=True)
 
         meta_rows = self._run_read(
             operation="load_process_version",
@@ -260,7 +275,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         gnn_features = metadata_obj.get("gnn_features") if isinstance(metadata_obj, dict) else None
         stats_diagnostics = metadata_obj.get("stats_diagnostics") if isinstance(metadata_obj, dict) else None
 
-        return ProcessStructureDTO(
+        dto = ProcessStructureDTO(
             version=version_key,
             allowed_edges=allowed_edges,
             edge_statistics=edge_statistics or None,
@@ -278,6 +293,8 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             stats_diagnostics=stats_diagnostics if isinstance(stats_diagnostics, dict) else None,
             metadata=metadata_obj,
         )
+        self._base_structure_cache[(resolved_process_name, version_key)] = dto.model_copy(deep=True)
+        return dto
 
     def list_versions(self, process_name: str | None = None) -> list[str]:
         if process_name is not None:
@@ -438,6 +455,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                 enriched_meta["stats_contract"] = stats_contract
         enriched.metadata = enriched_meta
         self.save_process_structure(version=version_key, dto=enriched, process_name=process_key)
+        self._invalidate_runtime_caches(process_name=process_key, version_key=version_key)
         return knowledge_version
 
     def get_process_structure_as_of(
@@ -465,8 +483,18 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
             dto=base,
         )
         as_of_utc = self._to_utc(as_of_ts)
+        rows: list[dict[str, Any]] = []
+        timeline_row = self._lookup_stats_snapshot_row(
+            process_name=resolved_process_name,
+            tenant_id=tenant_id,
+            version_key=version_key,
+            proc_def_id=proc_def_id,
+            as_of_utc=as_of_utc,
+        )
+        if timeline_row is not None:
+            rows = [timeline_row]
 
-        if as_of_utc is not None:
+        if not rows and as_of_utc is not None:
             rows = self._run_read(
                 operation="load_stats_snapshot_as_of",
                 query="""
@@ -526,7 +554,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                         "as_of_iso": as_of_utc.isoformat(),
                     },
                 )
-        else:
+        elif not rows:
             rows = self._run_read(
                 operation="load_latest_stats_snapshot",
                 query="""
@@ -852,15 +880,71 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         return "__unknown_proc_def__"
 
     def _run_write(self, *, operation: str, query: str, params: Dict[str, Any]) -> None:
-        del operation
-        with self._driver.session(database=self._database) as session:
-            session.run(query, params)
+        def _exec() -> None:
+            with self._driver.session(database=self._database) as session:
+                session.run(query, params)
+
+        self._run_with_connect_retry(_exec, operation=operation)
 
     def _run_read(self, *, operation: str, query: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        del operation
-        with self._driver.session(database=self._database) as session:
-            result = session.run(query, params)
-            return [dict(row) for row in result]
+        def _exec() -> List[Dict[str, Any]]:
+            with self._driver.session(database=self._database) as session:
+                result = session.run(query, params)
+                return [dict(row) for row in result]
+
+        return self._run_with_connect_retry(_exec, operation=operation)
+
+    def _is_connectivity_error(self, exc: BaseException) -> bool:
+        if isinstance(exc, (ConnectionError, ConnectionRefusedError, TimeoutError, OSError)):
+            return True
+        text = str(exc).lower()
+        connectivity_markers = (
+            "connection refused",
+            "failed to establish connection",
+            "serviceunavailable",
+            "service unavailable",
+            "connection reset",
+            "connection aborted",
+            "could not connect",
+            "defunct connection",
+            "failed to obtain connection",
+            "connection acquisition timed out",
+        )
+        return any(marker in text for marker in connectivity_markers)
+
+    _TResult = TypeVar("_TResult")
+
+    def _run_with_connect_retry(self, action: Callable[[], _TResult], *, operation: str) -> _TResult:
+        attempts = int(self._connect_retry_attempts)
+        infinite = attempts <= 0
+        if not infinite:
+            attempts = max(1, attempts)
+        attempt = 0
+        last_exc: BaseException | None = None
+        while infinite or attempt < attempts:
+            attempt += 1
+            try:
+                return action()
+            except Exception as exc:
+                last_exc = exc
+                if not self._is_connectivity_error(exc):
+                    raise
+                if not infinite and attempt >= attempts:
+                    raise
+                wait_seconds = float(self._connect_retry_wait_seconds)
+                suffix = (
+                    f"attempt {attempt} (infinite mode)"
+                    if infinite
+                    else f"attempt {attempt}/{attempts - 1}"
+                )
+                print(
+                    f"[neo4j-retry] {operation} failed ({exc}). "
+                    f"Retrying in {wait_seconds:.0f}s ({suffix})..."
+                )
+                if wait_seconds > 0:
+                    time.sleep(wait_seconds)
+        assert last_exc is not None
+        raise last_exc
 
     @classmethod
     def _resolve_node_labels(cls, node: Dict[str, Any]) -> List[str]:
@@ -927,6 +1011,145 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         metadata["asof_lookup_ts"] = target.isoformat()
         dto_copy.metadata = metadata
         return dto_copy
+
+    def _invalidate_runtime_caches(self, *, process_name: str, version_key: str) -> None:
+        self._base_structure_cache.pop((process_name, version_key), None)
+        stale_keys = [
+            key
+            for key in self._snapshot_timeline_cache.keys()
+            if key[0] == process_name and key[2] == version_key
+        ]
+        for key in stale_keys:
+            self._snapshot_timeline_cache.pop(key, None)
+
+    @staticmethod
+    def _row_as_of_epoch(row: Dict[str, Any]) -> float | None:
+        as_of_text = Neo4jKnowledgeGraphRepository._optional_text(row.get("as_of_ts"))
+        if as_of_text is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(as_of_text).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return float(parsed.timestamp())
+
+    def _load_snapshot_timeline(
+        self,
+        *,
+        process_name: str,
+        tenant_id: str,
+        version_key: str,
+        proc_def_id: str,
+        with_proc_def: bool,
+    ) -> list[dict[str, Any]]:
+        cache_key = (process_name, tenant_id, version_key, proc_def_id, bool(with_proc_def))
+        cached = self._snapshot_timeline_cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+
+        if with_proc_def:
+            rows = self._run_read(
+                operation="load_stats_timeline_with_proc_def",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  proc_def_id: $proc_def_id
+                })
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                ORDER BY ss.as_of_ts ASC, ss.kv_seq ASC
+                """,
+                params={
+                    "process_name": process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "proc_def_id": proc_def_id,
+                },
+            )
+        else:
+            rows = self._run_read(
+                operation="load_stats_timeline_no_proc_def",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key
+                })
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                ORDER BY ss.as_of_ts ASC, ss.kv_seq ASC
+                """,
+                params={
+                    "process_name": process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                },
+            )
+
+        timeline: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            epoch = self._row_as_of_epoch(row)
+            if epoch is None:
+                continue
+            payload = dict(row)
+            payload["_as_of_epoch"] = float(epoch)
+            timeline.append(payload)
+        self._snapshot_timeline_cache[cache_key] = list(timeline)
+        return list(timeline)
+
+    def _lookup_stats_snapshot_row(
+        self,
+        *,
+        process_name: str,
+        tenant_id: str,
+        version_key: str,
+        proc_def_id: str,
+        as_of_utc: datetime | None,
+    ) -> dict[str, Any] | None:
+        timeline = self._load_snapshot_timeline(
+            process_name=process_name,
+            tenant_id=tenant_id,
+            version_key=version_key,
+            proc_def_id=proc_def_id,
+            with_proc_def=True,
+        )
+        if not timeline:
+            timeline = self._load_snapshot_timeline(
+                process_name=process_name,
+                tenant_id=tenant_id,
+                version_key=version_key,
+                proc_def_id=proc_def_id,
+                with_proc_def=False,
+            )
+        if not timeline:
+            return None
+        if as_of_utc is None:
+            return dict(timeline[-1])
+
+        target_epoch = float(as_of_utc.timestamp())
+        epochs = [float(item.get("_as_of_epoch", 0.0)) for item in timeline]
+        idx = bisect_right(epochs, target_epoch) - 1
+        if idx < 0:
+            return None
+        return dict(timeline[idx])
 
     @staticmethod
     def _normalize_version(version: str) -> str:

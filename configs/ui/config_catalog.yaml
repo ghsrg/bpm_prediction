@@ -108,6 +108,88 @@ fields:
       group: advanced
       priority: 20
       order: 220
+  experiment.graph_dataset_cache_policy:
+    path: experiment.graph_dataset_cache_policy
+    section: experiment
+    label: experiment.graph_dataset_cache_policy
+    description: Policy for disk cache of built graph datasets (off/read/write/full).
+    affects: Reuse of prepared train/validation/test graphs between runs.
+    default: 'off'
+    enum:
+    - 'off'
+    - read
+    - write
+    - full
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 15
+  experiment.graph_dataset_cache_dir:
+    path: experiment.graph_dataset_cache_dir
+    section: experiment
+    label: experiment.graph_dataset_cache_dir
+    description: Disk path for persistent cache of prepared graph datasets.
+    affects: Location of reusable train/validation/test graph artifacts.
+    default: .cache/graph_datasets
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 16
+  experiment.graph_dataset_disk_spill_enabled:
+    path: experiment.graph_dataset_disk_spill_enabled
+    section: experiment
+    label: experiment.graph_dataset_disk_spill_enabled
+    description: Enable sharded disk spill for build_graph to keep RAM bounded.
+    affects: Memory usage during graph dataset build and cache write path.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 17
+  experiment.graph_dataset_shard_size:
+    path: experiment.graph_dataset_shard_size
+    section: experiment
+    label: experiment.graph_dataset_shard_size
+    description: Target number of graphs per on-disk shard when spill mode is enabled.
+    affects: Balance between disk IO overhead and peak RAM during build_graph.
+    default: 2000
+    enum: []
+    required_in_modes: []
+    required_when:
+      experiment.graph_dataset_disk_spill_enabled: true
+    ui:
+      tab: general
+      group: advanced
+      priority: 25
+      order: 225
+  experiment.max_ram_gb:
+    path: experiment.max_ram_gb
+    section: experiment
+    label: experiment.max_ram_gb
+    description: Soft RSS limit for build_graph spill flushes; 0 disables RAM guard.
+    affects: Upper bound of process memory during graph dataset preparation.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 25
+      order: 226
   experiment.drift_window_size:
     path: experiment.drift_window_size
     section: experiment

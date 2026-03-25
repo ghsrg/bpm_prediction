@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterator
 
+import torch
 from torch_geometric.data import Data
 
 from src.application.use_cases.trainer import ModelTrainer, SplitData
@@ -103,3 +105,81 @@ def test_trainer_run_uses_preloaded_data_without_second_read(mock_feature_config
     assert result["mode"] == "train"
     assert captured["prebuilt_datasets"] is not None
     assert "train" in captured["prebuilt_datasets"]
+
+
+def test_trainer_accepts_sharded_preloaded_dataset(mock_feature_configs, mock_raw_trace, tmp_path: Path):
+    traces = [mock_raw_trace, mock_raw_trace]
+    prefix_policy = PrefixPolicy()
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_builder = BaselineGraphBuilder(feature_encoder=encoder)
+
+    contracts = []
+    for trace in traces:
+        for prefix in prefix_policy.generate_slices(trace):
+            contracts.append(graph_builder.build_graph(prefix))
+    graph_dataset = [_contract_to_data(contract) for contract in contracts]
+    assert graph_dataset
+
+    shard_dir = tmp_path / "cache_entry" / "train_shards"
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    shard_path = shard_dir / "train_00001.pt"
+    torch.save(graph_dataset, shard_path)
+
+    model = BaselineGCN(
+        feature_layout=encoder.feature_layout,
+        hidden_dim=8,
+        output_dim=len(encoder.categorical_vocabs[encoder.activity_feature_name]),
+        dropout=0.0,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_FailOnReadAdapter(),
+        prefix_policy=prefix_policy,
+        graph_builder=graph_builder,
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "epochs": 1,
+            "batch_size": 2,
+            "learning_rate": 0.001,
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "checkpoint_dir": str(tmp_path),
+            "experiment_config": {
+                "name": "pytest_preloaded_sharded",
+                "mode": "train",
+                "fraction": 1.0,
+                "split_strategy": "temporal",
+                "train_ratio": 1.0,
+                "split_ratio": [0.7, 0.2, 0.1],
+            },
+        },
+        prepared_data={
+            "prepared_traces": traces,
+            "train_traces": traces,
+            "val_traces": traces[:1],
+            "test_traces": traces[:1],
+            "train_dataset": {
+                "kind": "sharded_cache_split",
+                "entry_dir": str(tmp_path / "cache_entry"),
+                "split": "train",
+                "graphs": len(graph_dataset),
+                "shards": [{"path": "train_shards/train_00001.pt", "count": len(graph_dataset)}],
+            },
+            "val_dataset": graph_dataset[:1],
+            "test_dataset": graph_dataset[:1],
+            "idx_to_version": {0: "v1"},
+        },
+    )
+
+    captured = {}
+
+    def _fake_run_train_pipeline(**kwargs):
+        captured["prebuilt_datasets"] = kwargs.get("prebuilt_datasets")
+        return {"history": [], "test_metrics": {}, "mode": "train"}
+
+    trainer._run_train_pipeline = _fake_run_train_pipeline  # type: ignore[method-assign]
+    trainer._prepare_checkpoint_state = lambda is_eval_mode: (None, 0, float("inf"), 0)  # type: ignore[assignment]
+    result = trainer.run()
+    assert result["mode"] == "train"
+    assert isinstance(captured["prebuilt_datasets"]["train"], dict)

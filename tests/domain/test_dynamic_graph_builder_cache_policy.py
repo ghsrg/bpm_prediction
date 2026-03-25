@@ -143,7 +143,7 @@ def test_cache_policy_off_disables_dto_cache_for_strict_asof(mock_feature_config
     assert repo.calls_asof == 5
 
 
-def test_cache_policy_full_caches_compiled_topology(mock_feature_configs):
+def test_cache_policy_full_caches_compiled_topology(mock_feature_configs, tmp_path: Path):
     traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
     encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
     repo = _CountingRepo(_dto())
@@ -173,6 +173,7 @@ def test_cache_policy_full_caches_compiled_topology(mock_feature_configs):
         process_name="dataset_a",
         graph_feature_mapping=graph_feature_mapping,
         cache_policy="full",
+        cache_dir=str(tmp_path / "builder_cache"),
     )
     prefix = _prefix()
 
@@ -282,3 +283,79 @@ def test_cache_policy_full_persists_compiled_topology_between_instances(mock_fea
     assert builder_second.struct_x_calls == 0
     assert builder_second.edge_stats_calls == 0
     assert repo_second.calls_latest == 1
+
+
+def test_cache_policy_full_invalidates_disk_cache_when_graph_mapping_changes(mock_feature_configs, tmp_path: Path):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    cache_dir = tmp_path / "builder_cache"
+    prefix = _prefix()
+
+    base_mapping = {
+        "enabled": True,
+        "node_numeric": [
+            {
+                "name": "node_exec_count_v",
+                "metric": "exec_count",
+                "window": "all_time",
+                "scope": "version",
+                "default": 0.0,
+                "encoding": ["identity"],
+            }
+        ],
+        "edge_weight": {
+            "metric": "transition_probability",
+            "window": "all_time",
+            "scope": "version",
+            "default": 1.0,
+            "encoding": ["identity"],
+        },
+    }
+    changed_mapping = {
+        "enabled": True,
+        "node_numeric": [
+            {
+                "name": "node_exec_count_v",
+                "metric": "exec_count",
+                "window": "all_time",
+                "scope": "version",
+                "default": 0.0,
+                "encoding": ["zscore"],
+            }
+        ],
+        "edge_weight": {
+            "metric": "transition_probability",
+            "window": "all_time",
+            "scope": "version",
+            "default": 1.0,
+            "encoding": ["identity"],
+        },
+    }
+
+    repo_first = _CountingRepo(_dto())
+    builder_first = _CountingBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repo_first,
+        process_name="dataset_a",
+        graph_feature_mapping=base_mapping,
+        cache_policy="full",
+        cache_dir=str(cache_dir),
+    )
+    first_contract = builder_first.build_graph(prefix)
+    assert first_contract.get("struct_x") is not None
+    assert builder_first.struct_x_calls == 1
+
+    repo_second = _CountingRepo(_dto())
+    builder_second = _CountingBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repo_second,
+        process_name="dataset_a",
+        graph_feature_mapping=changed_mapping,
+        cache_policy="full",
+        cache_dir=str(cache_dir),
+    )
+    second_contract = builder_second.build_graph(prefix)
+    assert second_contract.get("struct_x") is not None
+    # Different mapping must bypass old compiled cache and recompute tensors.
+    assert builder_second.struct_x_calls == 1
+    assert builder_second.edge_stats_calls == 1

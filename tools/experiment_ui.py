@@ -29,6 +29,7 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 import yaml
+import psutil
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -43,6 +44,7 @@ CATALOG_PATH = ROOT_DIR / "configs" / "ui" / "config_catalog.yaml"
 PROGRESS_EVENT_PREFIX = "__BPM_PROGRESS__"
 
 RUN_STAGE_WEIGHTS: Dict[str, float] = {
+    "run.pipeline": 0.02,
     "prepare_data": 0.10,
     "prepare.read_events": 0.08,
     "prepare.feature_encoder": 0.07,
@@ -56,6 +58,43 @@ RUN_STAGE_WEIGHTS: Dict[str, float] = {
     "validation.batches": 0.03,
     "test.eval": 0.03,
     "test.batches": 0.02,
+    "eval_drift.windows": 0.04,
+}
+
+RUN_STAGE_ORDER: List[str] = [
+    "run.pipeline",
+    "prepare_data",
+    "prepare.read_events",
+    "prepare.feature_encoder",
+    "build_graph.train",
+    "build_graph.validation",
+    "build_graph.test",
+    "trainer.dataloaders",
+    "trainer.dry_run",
+    "train.epochs",
+    "train.batches",
+    "validation.batches",
+    "test.eval",
+    "test.batches",
+    "eval_drift.windows",
+]
+
+STAGE_TITLE_UA: Dict[str, str] = {
+    "run.pipeline": "Пайплайн",
+    "prepare_data": "Підготовка даних",
+    "prepare.read_events": "Читання подій",
+    "prepare.feature_encoder": "Побудова енкодера ознак",
+    "build_graph.train": "Побудова train-графів",
+    "build_graph.validation": "Побудова validation-графів",
+    "build_graph.test": "Побудова test-графів",
+    "trainer.dataloaders": "Підготовка DataLoader",
+    "trainer.dry_run": "Dry run моделі",
+    "train.epochs": "Епохи тренування",
+    "train.batches": "Train batch-и",
+    "validation.batches": "Validation batch-и",
+    "test.eval": "Підсумкове тестування",
+    "test.batches": "Test batch-и",
+    "eval_drift.windows": "Оцінка drift-вікон",
 }
 
 FIELD_HINTS: Dict[str, str] = {
@@ -76,6 +115,11 @@ FIELD_HINTS: Dict[str, str] = {
     "mapping.xes_adapter.version_key": "Ключ версії процесу в XES.",
     "mapping.xes_adapter.use_classifier": "Читати classifier XES перед activity_key fallback.",
     "experiment.cache_policy": "Політика кешування побудови графів: off/dto/full.",
+    "experiment.graph_dataset_cache_policy": "Кеш готових train/val/test граф-датасетів: off/read/write/full.",
+    "experiment.graph_dataset_cache_dir": "Директорія disk-cache для готових граф-датасетів.",
+    "experiment.graph_dataset_disk_spill_enabled": "Вмикає побудову графів з поетапним скиданням шард на диск (менше RAM).",
+    "experiment.graph_dataset_shard_size": "Кількість графів у одному disk-shard (баланс IO vs RAM).",
+    "experiment.max_ram_gb": "Soft-ліміт RAM для build_graph; при перевищенні буфер графів примусово flush-иться на диск.",
 }
 
 DETAILED_HINTS_UA: Dict[str, str] = {
@@ -98,6 +142,11 @@ DETAILED_HINTS_UA: Dict[str, str] = {
     "experiment.stats_time_policy": "Політика вибору snapshot статистики: `latest` (останній) або `strict_asof` (на момент події, без витоку майбутнього).",
     "experiment.on_missing_asof_snapshot": "Що робити, якщо для `strict_asof` немає snapshot на потрібний час: `disable_stats`, `use_base` або `raise`.",
     "experiment.cache_policy": "Керує кешуванням під час build_graph: `off` без кешу, `dto` кешує DTO-читання, `full` кешує DTO і скомпільовані структурні тензори (рекомендовано для великих прогонів).",
+    "experiment.graph_dataset_cache_policy": "Керує disk-cache для вже побудованих train/validation/test графів: `off` - вимкнено, `read` - лише читати, `write` - лише записувати новий кеш, `full` - і читати, і записувати.",
+    "experiment.graph_dataset_cache_dir": "Шлях до директорії cache готових граф-датасетів. Використовуйте швидкий SSD і періодично очищайте старі записи командою `python main.py cache-clean`.",
+    "experiment.graph_dataset_disk_spill_enabled": "Якщо `true`, build_graph пише дані в shard-файли на диск під час побудови, щоб не накопичувати весь train/val/test в RAM.",
+    "experiment.graph_dataset_shard_size": "Розмір shard (у кількості графів). Менше значення знижує RAM-пік, але збільшує кількість файлів і disk I/O.",
+    "experiment.max_ram_gb": "Soft-ліміт RSS (ГБ) для build_graph. Коли процес підходить до ліміту, поточний буфер графів форсовано зберігається на диск.",
     "mapping.adapter": "Джерело подій: `camunda` (runtime/BPMN) або `xes` (лог-файл XES).",
     "mapping.knowledge_graph.backend": "Де зберігається структура/статистика EOPKG: `neo4j`, `file` або `in_memory`.",
     "mapping.knowledge_graph.strict_load": "Якщо `true`, запуск завершується помилкою, коли структура відсутня/неконсистентна.",
@@ -366,10 +415,14 @@ class ExperimentUI:
         self._base_config_path: Path | None = None
         self._progress_started_ts: float | None = None
         self._stage_progress: Dict[str, float] = {}
+        self._stage_runtime: Dict[str, Dict[str, Any]] = {}
+        self._stage_widgets: Dict[str, Dict[str, Any]] = {}
         self._current_stage: str = ""
         self._last_status_text: str = ""
         self._last_exit_code: int | None = None
         self._progress_event_seen: bool = False
+        self._telemetry_last_update_ts: float = 0.0
+        self._telemetry_last_disk_update_ts: float = 0.0
 
         self._state = _read_json(STATE_PATH, {})
         self._presets = _read_json(PRESETS_PATH, {})
@@ -458,6 +511,8 @@ class ExperimentUI:
             "experiment.stats_time_policy": "Політика часу статистики",
             "experiment.on_missing_asof_snapshot": "Що робити без as-of snapshot",
             "experiment.cache_policy": "Політика кешування графів",
+            "experiment.graph_dataset_cache_policy": "Політика кешу граф-датасетів",
+            "experiment.graph_dataset_cache_dir": "Каталог кешу граф-датасетів",
             "training.retrain": "Перенавчати з нуля",
             "seed": "Фіксоване зерно (seed)",
             "mapping.adapter": "Адаптер даних",
@@ -757,6 +812,8 @@ class ExperimentUI:
             "experiment.stats_time_policy": "Часова політика snapshot статистик: latest або strict_asof.",
             "experiment.on_missing_asof_snapshot": "Що робити, якщо strict_asof snapshot відсутній: disable_stats/use_base/raise.",
             "experiment.cache_policy": "Політика кешу побудови графів: off (без кешу), dto (кеш DTO), full (DTO + готові структурні тензори).",
+            "experiment.graph_dataset_cache_policy": "Кеш уже побудованих graph datasets: off/read/write/full.",
+            "experiment.graph_dataset_cache_dir": "Каталог disk-cache для train/validation/test графів.",
             "experiment.drift_window_size": "Розмір drift-вікна у трасах для eval_drift.",
             "experiment.drift_window_sliding": "Крок зсуву drift-вікна у трасах. 0 = без перекриття.",
             "data.dataset_name": "Канонічний ідентифікатор процесу/датасету, який використовують структура і run-profile.",
@@ -966,6 +1023,8 @@ class ExperimentUI:
         self.vars["stats_time_policy"] = tk.StringVar(value="strict_asof")
         self.vars["on_missing_asof_snapshot"] = tk.StringVar(value="disable_stats")
         self.vars["cache_policy"] = tk.StringVar(value="full")
+        self.vars["graph_dataset_cache_policy"] = tk.StringVar(value="off")
+        self.vars["graph_dataset_cache_dir"] = tk.StringVar(value=".cache/graph_datasets")
         self.vars["adapter"] = tk.StringVar(value="camunda")
         self.vars["sync_as_of"] = tk.StringVar(value="")
         self.vars["backfill_step"] = tk.StringVar(value="weekly")
@@ -973,6 +1032,19 @@ class ExperimentUI:
         self.vars["backfill_from"] = tk.StringVar(value="")
         self.vars["backfill_to"] = tk.StringVar(value="")
         self.vars["extra_args"] = tk.StringVar(value="")
+
+    @staticmethod
+    def _normalize_graph_dataset_cache_policy(raw: Any) -> str:
+        text = str(raw).strip().lower()
+        if text in {"", "none", "disabled"}:
+            return "off"
+        if text in {"true", "on", "yes"}:
+            return "full"
+        if text in {"false", "off", "no"}:
+            return "off"
+        if text in {"read", "write", "full"}:
+            return text
+        return "off"
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -1111,9 +1183,50 @@ class ExperimentUI:
             width=18,
         ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
 
-        ttk.Label(core, text="extra_args").grid(row=15, column=0, sticky="w")
-        self._add_help_mark(core, 15, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
-        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=15, column=1, sticky="ew")
+        ttk.Label(core, text="experiment.graph_dataset_cache_policy").grid(row=15, column=0, sticky="w")
+        self._add_help_mark(core, 15, self._hint_for("experiment.graph_dataset_cache_policy"))
+        w = ttk.Combobox(
+            core,
+            textvariable=self.vars["graph_dataset_cache_policy"],
+            values=["off", "read", "write", "full"],
+            state="readonly",
+            width=18,
+        ); w.grid(row=15, column=1, sticky="w"); self._general_field_widgets["graph_dataset_cache_policy"] = w
+
+        ttk.Label(core, text="experiment.graph_dataset_cache_dir").grid(row=16, column=0, sticky="w")
+        self._add_help_mark(core, 16, self._hint_for("experiment.graph_dataset_cache_dir"))
+        w = ttk.Entry(core, textvariable=self.vars["graph_dataset_cache_dir"]); w.grid(row=16, column=1, sticky="ew"); self._general_field_widgets["graph_dataset_cache_dir"] = w
+
+        ttk.Label(core, text="sync --as-of").grid(row=17, column=0, sticky="w")
+        self.sync_asof_entry = ttk.Entry(core, textvariable=self.vars["sync_as_of"])
+        self.sync_asof_entry.grid(row=17, column=1, sticky="ew")
+        self._add_help_mark(core, 17, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
+
+        ttk.Label(core, text="backfill step").grid(row=18, column=0, sticky="w")
+        self.backfill_step_box = ttk.Combobox(
+            core, textvariable=self.vars["backfill_step"], values=["daily", "weekly", "monthly"], state="readonly", width=18
+        )
+        self.backfill_step_box.grid(row=18, column=1, sticky="w")
+        self._add_help_mark(core, 18, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
+
+        ttk.Label(core, text="backfill step-days").grid(row=19, column=0, sticky="w")
+        self.backfill_step_days_entry = ttk.Entry(core, textvariable=self.vars["backfill_step_days"])
+        self.backfill_step_days_entry.grid(row=19, column=1, sticky="ew")
+        self._add_help_mark(core, 19, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
+
+        ttk.Label(core, text="backfill from").grid(row=20, column=0, sticky="w")
+        self.backfill_from_entry = ttk.Entry(core, textvariable=self.vars["backfill_from"])
+        self.backfill_from_entry.grid(row=20, column=1, sticky="ew")
+        self._add_help_mark(core, 20, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
+
+        ttk.Label(core, text="backfill to").grid(row=21, column=0, sticky="w")
+        self.backfill_to_entry = ttk.Entry(core, textvariable=self.vars["backfill_to"])
+        self.backfill_to_entry.grid(row=21, column=1, sticky="ew")
+        self._add_help_mark(core, 21, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
+
+        ttk.Label(core, text="extra_args").grid(row=22, column=0, sticky="w")
+        self._add_help_mark(core, 22, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
+        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=22, column=1, sticky="ew")
 
         adv_sections = ttk.Notebook(advanced)
         adv_sections.grid(row=0, column=0, sticky="nsew")
@@ -1321,40 +1434,14 @@ class ExperimentUI:
     def _build_run_tab(self) -> None:
         frame = self.tab_run
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(6, weight=1)
+        frame.rowconfigure(5, weight=1)
 
-        sync_frame = ttk.Frame(frame)
-        sync_frame.grid(row=0, column=0, sticky="ew")
-        sync_frame.columnconfigure(1, weight=1)
-        ttk.Label(sync_frame, text="sync --as-of").grid(row=0, column=0, sticky="w")
-        self.sync_asof_entry = ttk.Entry(sync_frame, textvariable=self.vars["sync_as_of"])
-        self.sync_asof_entry.grid(row=0, column=1, sticky="ew")
-        self._add_help_mark(sync_frame, 0, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
-        ttk.Label(sync_frame, text="backfill step").grid(row=1, column=0, sticky="w")
-        self.backfill_step_box = ttk.Combobox(
-            sync_frame, textvariable=self.vars["backfill_step"], values=["daily", "weekly", "monthly"], state="readonly", width=18
-        )
-        self.backfill_step_box.grid(row=1, column=1, sticky="w")
-        self._add_help_mark(sync_frame, 1, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
-        ttk.Label(sync_frame, text="backfill step-days").grid(row=2, column=0, sticky="w")
-        self.backfill_step_days_entry = ttk.Entry(sync_frame, textvariable=self.vars["backfill_step_days"])
-        self.backfill_step_days_entry.grid(row=2, column=1, sticky="ew")
-        self._add_help_mark(sync_frame, 2, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
-        ttk.Label(sync_frame, text="backfill from").grid(row=3, column=0, sticky="w")
-        self.backfill_from_entry = ttk.Entry(sync_frame, textvariable=self.vars["backfill_from"])
-        self.backfill_from_entry.grid(row=3, column=1, sticky="ew")
-        self._add_help_mark(sync_frame, 3, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
-        ttk.Label(sync_frame, text="backfill to").grid(row=4, column=0, sticky="w")
-        self.backfill_to_entry = ttk.Entry(sync_frame, textvariable=self.vars["backfill_to"])
-        self.backfill_to_entry.grid(row=4, column=1, sticky="ew")
-        self._add_help_mark(sync_frame, 4, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
-
-        ttk.Label(frame, text="Command preview").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text="Command preview").grid(row=0, column=0, sticky="w", pady=(2, 0))
         self.preview = tk.Text(frame, height=3, wrap="word")
-        self.preview.grid(row=2, column=0, sticky="ew")
+        self.preview.grid(row=1, column=0, sticky="ew")
 
         controls = ttk.Frame(frame)
-        controls.grid(row=3, column=0, sticky="w", pady=(8, 6))
+        controls.grid(row=2, column=0, sticky="w", pady=(8, 6))
         self.run_btn = ttk.Button(controls, text="Run", command=self._run_clicked)
         self.stop_btn = ttk.Button(controls, text="Stop", command=self._stop_clicked, state="disabled")
         ttk.Button(controls, text="Clear Log", command=self._clear_log).grid(row=0, column=0, padx=(0, 6))
@@ -1364,22 +1451,70 @@ class ExperimentUI:
         self.stop_btn.grid(row=0, column=4)
 
         status = ttk.LabelFrame(frame, text="Run Status", padding=8)
-        status.grid(row=4, column=0, sticky="ew", pady=(0, 6))
-        status.columnconfigure(1, weight=1)
+        status.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        status.columnconfigure(0, weight=1)
+        status.rowconfigure(0, weight=1)
+        status_canvas = tk.Canvas(status, height=240, highlightthickness=0)
+        status_scroll = ttk.Scrollbar(status, orient="vertical", command=status_canvas.yview)
+        status_inner = ttk.Frame(status_canvas)
+        status_window_id = status_canvas.create_window((0, 0), window=status_inner, anchor="nw")
+        status_canvas.configure(yscrollcommand=status_scroll.set)
+        status_canvas.grid(row=0, column=0, sticky="ew")
+        status_scroll.grid(row=0, column=1, sticky="ns")
+        status_inner.columnconfigure(1, weight=1)
+
+        def _sync_status_scrollregion(_event: tk.Event) -> None:
+            status_canvas.configure(scrollregion=status_canvas.bbox("all"))
+
+        def _resize_status_inner(event: tk.Event) -> None:
+            status_canvas.itemconfigure(status_window_id, width=event.width)
+
+        def _on_status_mousewheel(event: tk.Event) -> str:
+            delta = 0
+            if hasattr(event, "delta") and event.delta:
+                delta = -1 * int(event.delta / 120)
+            elif getattr(event, "num", None) == 4:
+                delta = -1
+            elif getattr(event, "num", None) == 5:
+                delta = 1
+            if delta != 0:
+                status_canvas.yview_scroll(delta, "units")
+            return "break"
+
+        status_inner.bind("<Configure>", _sync_status_scrollregion)
+        status_canvas.bind("<Configure>", _resize_status_inner)
+        for widget in (status_canvas, status_inner):
+            widget.bind("<MouseWheel>", _on_status_mousewheel)
+            widget.bind("<Button-4>", _on_status_mousewheel)
+            widget.bind("<Button-5>", _on_status_mousewheel)
+
         self.run_stage_var = tk.StringVar(value="Stage: idle")
         self.run_percent_var = tk.StringVar(value="Overall: 0.0%")
         self.run_eta_var = tk.StringVar(value="ETA: --:--")
-        ttk.Label(status, textvariable=self.run_stage_var).grid(row=0, column=0, sticky="w")
-        ttk.Label(status, textvariable=self.run_percent_var).grid(row=0, column=1, sticky="e")
-        self.stage_progress_bar = ttk.Progressbar(status, orient="horizontal", mode="determinate", maximum=100.0)
+        ttk.Label(status_inner, textvariable=self.run_stage_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(status_inner, textvariable=self.run_percent_var).grid(row=0, column=1, sticky="e")
+        self.stage_progress_bar = ttk.Progressbar(status_inner, orient="horizontal", mode="determinate", maximum=100.0)
         self.stage_progress_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 4))
-        self.overall_progress_bar = ttk.Progressbar(status, orient="horizontal", mode="determinate", maximum=100.0)
+        self.overall_progress_bar = ttk.Progressbar(status_inner, orient="horizontal", mode="determinate", maximum=100.0)
         self.overall_progress_bar.grid(row=2, column=0, columnspan=2, sticky="ew")
-        ttk.Label(status, textvariable=self.run_eta_var).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(status_inner, textvariable=self.run_eta_var).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.run_child_mem_var = tk.StringVar(value="Run RAM: --")
+        self.run_system_mem_var = tk.StringVar(value="System RAM: --")
+        self.run_disk_cache_var = tk.StringVar(value="Disk cache: --")
+        ttk.Label(status_inner, textvariable=self.run_child_mem_var).grid(row=4, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(status_inner, textvariable=self.run_system_mem_var).grid(row=4, column=1, sticky="e", pady=(4, 0))
+        ttk.Label(status_inner, textvariable=self.run_disk_cache_var).grid(row=5, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        ttk.Label(frame, text="Execution log").grid(row=5, column=0, sticky="w")
-        self.log_text = ScrolledText(frame, height=18, wrap="word")
-        self.log_text.grid(row=6, column=0, sticky="nsew")
+        self.stage_table = ttk.LabelFrame(status_inner, text="Stages", padding=6)
+        self.stage_table.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.stage_table.columnconfigure(1, weight=1)
+        self._stage_row_next = 0
+        for stage in RUN_STAGE_ORDER:
+            self._ensure_stage_row(stage)
+
+        ttk.Label(frame, text="Execution log").grid(row=4, column=0, sticky="w")
+        self.log_text = ScrolledText(frame, height=14, wrap="word")
+        self.log_text.grid(row=5, column=0, sticky="nsew")
         self.log_text.bind("<Control-c>", lambda _e: self._copy_log_selection())
         self.log_text.bind("<Control-a>", self._select_all_log)
 
@@ -1465,6 +1600,12 @@ class ExperimentUI:
         self.vars["stats_time_policy"].set(str(exp.get("stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(exp.get("on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(exp.get("cache_policy", "full")))
+        self.vars["graph_dataset_cache_policy"].set(
+            self._normalize_graph_dataset_cache_policy(
+                exp.get("graph_dataset_cache_policy", exp.get("graph_cache_policy", "off"))
+            )
+        )
+        self.vars["graph_dataset_cache_dir"].set(str(exp.get("graph_dataset_cache_dir", exp.get("graph_cache_dir", ".cache/graph_datasets"))))
         self.vars["retrain"].set(bool(train.get("retrain", False)))
         self.vars["seed"].set(str(self._base_config.get("seed", 42)))
         self.vars["adapter"].set(str(mapping.get("adapter", "camunda")))
@@ -1561,6 +1702,8 @@ class ExperimentUI:
                 "experiment.stats_time_policy",
                 "experiment.on_missing_asof_snapshot",
                 "experiment.cache_policy",
+                "experiment.graph_dataset_cache_policy",
+                "experiment.graph_dataset_cache_dir",
                 "training.retrain",
                 "seed",
             }:
@@ -1765,6 +1908,8 @@ class ExperimentUI:
         self.vars["stats_time_policy"].set(str(self._catalog_default("experiment.stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(self._catalog_default("experiment.on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(self._catalog_default("experiment.cache_policy", "full")))
+        self.vars["graph_dataset_cache_policy"].set(str(self._catalog_default("experiment.graph_dataset_cache_policy", "off")))
+        self.vars["graph_dataset_cache_dir"].set(str(self._catalog_default("experiment.graph_dataset_cache_dir", ".cache/graph_datasets")))
         self.vars["retrain"].set(self._to_bool(self._catalog_default("training.retrain", True), fallback=True))
         self.vars["seed"].set(str(self._catalog_default("seed", "42")))
         self.vars["adapter"].set(str(self._catalog_default("mapping.adapter", "camunda")))
@@ -1812,6 +1957,12 @@ class ExperimentUI:
         _deep_set(cfg, "experiment.stats_time_policy", str(self.vars["stats_time_policy"].get()).strip())
         _deep_set(cfg, "experiment.on_missing_asof_snapshot", str(self.vars["on_missing_asof_snapshot"].get()).strip())
         _deep_set(cfg, "experiment.cache_policy", str(self.vars["cache_policy"].get()).strip())
+        _deep_set(
+            cfg,
+            "experiment.graph_dataset_cache_policy",
+            self._normalize_graph_dataset_cache_policy(self.vars["graph_dataset_cache_policy"].get()),
+        )
+        _deep_set(cfg, "experiment.graph_dataset_cache_dir", str(self.vars["graph_dataset_cache_dir"].get()).strip())
         _deep_set(cfg, "training.retrain", bool(self.vars["retrain"].get()))
         _deep_set(cfg, "seed", int(float(str(self.vars["seed"].get()).strip() or "42")))
         _deep_set(cfg, "mapping.adapter", str(self.vars["adapter"].get()).strip())
@@ -1883,6 +2034,11 @@ class ExperimentUI:
     def _apply_payload_to_forms(self, payload: Any) -> None:
         if not isinstance(payload, dict):
             return
+        vars_payload = payload.get("vars", {})
+        if isinstance(vars_payload, dict):
+            for key, value in vars_payload.items():
+                if key in self.vars:
+                    self.vars[key].set(value)
         for payload_key, form in (
             ("input_data_form", self.input_data_form),
             ("input_xes_form", self.input_xes_form),
@@ -1986,9 +2142,9 @@ class ExperimentUI:
             return
         vars_payload = payload.get("vars", {})
         if isinstance(vars_payload, dict):
-            for key, value in vars_payload.items():
-                if key in self.vars:
-                    self.vars[key].set(value)
+            cfg_path = vars_payload.get("config_path")
+            if cfg_path is not None and "config_path" in self.vars:
+                self.vars["config_path"].set(cfg_path)
 
         self._load_base_config_into_form()
         self._apply_payload_to_forms(payload)
@@ -2255,6 +2411,67 @@ class ExperimentUI:
         self.log_text.see(tk.END)
 
     @staticmethod
+    def _format_bytes(num_bytes: int) -> str:
+        value = float(max(0, int(num_bytes)))
+        units = ["B", "KB", "MB", "GB", "TB"]
+        idx = 0
+        while value >= 1024.0 and idx < len(units) - 1:
+            value /= 1024.0
+            idx += 1
+        return f"{value:.1f} {units[idx]}"
+
+    @staticmethod
+    def _dir_size_bytes(path: Path) -> int:
+        total = 0
+        if not path.exists():
+            return 0
+        for item in path.rglob("*"):
+            if item.is_file():
+                try:
+                    total += int(item.stat().st_size)
+                except OSError:
+                    continue
+        return total
+
+    def _update_resource_telemetry(self) -> None:
+        now = time.time()
+        if (now - self._telemetry_last_update_ts) < 1.0:
+            return
+        self._telemetry_last_update_ts = now
+
+        child_rss = 0
+        if self._process is not None:
+            try:
+                child_proc = psutil.Process(self._process.pid)
+                child_rss = int(child_proc.memory_info().rss)
+            except Exception:
+                child_rss = 0
+        if hasattr(self, "run_child_mem_var"):
+            self.run_child_mem_var.set(f"Run RAM: {self._format_bytes(child_rss)}")
+
+        try:
+            vm = psutil.virtual_memory()
+            system_used = int(vm.used)
+            system_total = int(vm.total)
+            percent = float(vm.percent)
+            system_text = f"System RAM: {self._format_bytes(system_used)} / {self._format_bytes(system_total)} ({percent:.1f}%)"
+        except Exception:
+            system_text = "System RAM: --"
+        if hasattr(self, "run_system_mem_var"):
+            self.run_system_mem_var.set(system_text)
+
+        if (now - self._telemetry_last_disk_update_ts) >= 4.0:
+            self._telemetry_last_disk_update_ts = now
+            cache_var = self.vars.get("graph_dataset_cache_dir")
+            cache_raw = cache_var.get().strip() if isinstance(cache_var, tk.Variable) else ".cache/graph_datasets"
+            cache_dir = Path(str(cache_raw) or ".cache/graph_datasets")
+            if not cache_dir.is_absolute():
+                cache_dir = (ROOT_DIR / cache_dir).resolve()
+            disk_text = f"Disk cache: {self._format_bytes(self._dir_size_bytes(cache_dir))} ({cache_dir})"
+            if hasattr(self, "run_disk_cache_var"):
+                self.run_disk_cache_var.set(disk_text)
+
+    @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
             return float(value)
@@ -2273,29 +2490,103 @@ class ExperimentUI:
         return f"{mins:02d}:{sec:02d}"
 
     @staticmethod
+    def _format_elapsed(seconds: float | None) -> str:
+        if seconds is None or seconds <= 0:
+            return "00:00"
+        total = int(seconds)
+        mins, sec = divmod(total, 60)
+        hrs, mins = divmod(mins, 60)
+        if hrs > 0:
+            return f"{hrs:02d}:{mins:02d}:{sec:02d}"
+        return f"{mins:02d}:{sec:02d}"
+
+    @staticmethod
     def _stage_title(stage: str) -> str:
         raw = str(stage).strip()
         if not raw:
             return "idle"
-        return raw.replace("_", " ")
+        return STAGE_TITLE_UA.get(raw, raw.replace("_", " "))
+
+    def _ensure_stage_row(self, stage: str) -> None:
+        stage_key = str(stage).strip()
+        if not stage_key:
+            return
+        if stage_key in self._stage_widgets:
+            return
+        if not hasattr(self, "stage_table"):
+            return
+        row = int(getattr(self, "_stage_row_next", 0))
+        title_var = tk.StringVar(value=self._stage_title(stage_key))
+        meta_var = tk.StringVar(value="0.0% | elapsed 00:00 | ETA --:--")
+        ttk.Label(self.stage_table, textvariable=title_var, width=30).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
+        bar = ttk.Progressbar(self.stage_table, orient="horizontal", mode="determinate", maximum=100.0)
+        bar.grid(row=row, column=1, sticky="ew", pady=2)
+        ttk.Label(self.stage_table, textvariable=meta_var, width=32).grid(row=row, column=2, sticky="e", padx=(8, 0), pady=2)
+        self._stage_widgets[stage_key] = {
+            "title_var": title_var,
+            "meta_var": meta_var,
+            "bar": bar,
+        }
+        self._stage_row_next = row + 1
+
+    def _update_stage_row(self, stage: str, *, percent: float, elapsed: float | None, eta: float | None) -> None:
+        stage_key = str(stage).strip()
+        if not stage_key:
+            return
+        self._ensure_stage_row(stage_key)
+        widgets = self._stage_widgets.get(stage_key)
+        if not isinstance(widgets, dict):
+            return
+        bar = widgets.get("bar")
+        meta_var = widgets.get("meta_var")
+        title_var = widgets.get("title_var")
+        if isinstance(bar, ttk.Progressbar):
+            bar.configure(value=max(0.0, min(100.0, float(percent))))
+        if isinstance(title_var, tk.StringVar):
+            title_var.set(self._stage_title(stage_key))
+        if isinstance(meta_var, tk.StringVar):
+            meta_var.set(
+                f"{max(0.0, min(100.0, float(percent))):.1f}% | elapsed {self._format_elapsed(elapsed)} | ETA {self._format_eta(eta)}"
+            )
 
     def _reset_progress_ui(self) -> None:
         self._progress_started_ts = None
         self._stage_progress = {}
+        self._stage_runtime = {}
         self._current_stage = ""
         self._last_status_text = ""
         self._last_exit_code = None
         self._progress_event_seen = False
+        self._telemetry_last_update_ts = 0.0
+        self._telemetry_last_disk_update_ts = 0.0
         if hasattr(self, "run_stage_var"):
             self.run_stage_var.set("Stage: idle")
         if hasattr(self, "run_percent_var"):
             self.run_percent_var.set("Overall: 0.0%")
         if hasattr(self, "run_eta_var"):
             self.run_eta_var.set("ETA: --:--")
+        if hasattr(self, "run_child_mem_var"):
+            self.run_child_mem_var.set("Run RAM: --")
+        if hasattr(self, "run_system_mem_var"):
+            self.run_system_mem_var.set("System RAM: --")
+        if hasattr(self, "run_disk_cache_var"):
+            self.run_disk_cache_var.set("Disk cache: --")
         if hasattr(self, "stage_progress_bar"):
             self.stage_progress_bar.configure(value=0.0)
         if hasattr(self, "overall_progress_bar"):
             self.overall_progress_bar.configure(value=0.0)
+        for stage in RUN_STAGE_ORDER:
+            self._ensure_stage_row(stage)
+        for stage, widgets in self._stage_widgets.items():
+            bar = widgets.get("bar")
+            meta_var = widgets.get("meta_var")
+            title_var = widgets.get("title_var")
+            if isinstance(bar, ttk.Progressbar):
+                bar.configure(value=0.0)
+            if isinstance(meta_var, tk.StringVar):
+                meta_var.set("0.0% | elapsed 00:00 | ETA --:--")
+            if isinstance(title_var, tk.StringVar):
+                title_var.set(self._stage_title(stage))
 
     def _compute_overall_percent(self) -> float:
         weighted = 0.0
@@ -2319,11 +2610,39 @@ class ExperimentUI:
         event_percent = self._safe_float(event.get("percent", -1.0), default=-1.0)
         if event_percent < 0.0:
             event_percent = (current / total * 100.0) if total > 0.0 else 0.0
+        if status == "done":
+            event_percent = 100.0
         event_percent = max(0.0, min(100.0, event_percent))
 
         self._current_stage = stage
+        now_ts = time.time()
         if self._progress_started_ts is None:
-            self._progress_started_ts = time.time()
+            self._progress_started_ts = now_ts
+
+        runtime = self._stage_runtime.get(stage)
+        if not isinstance(runtime, dict):
+            runtime = {
+                "start_ts": now_ts,
+                "percent": 0.0,
+                "elapsed": 0.0,
+                "eta": None,
+                "status": "idle",
+            }
+            self._stage_runtime[stage] = runtime
+        if status == "start":
+            runtime["start_ts"] = now_ts
+        start_ts = float(runtime.get("start_ts", now_ts))
+        elapsed = max(0.0, now_ts - start_ts)
+        eta_seconds: float | None = None
+        if event_percent > 0.0 and event_percent < 100.0:
+            ratio = event_percent / 100.0
+            eta_seconds = (elapsed / ratio) - elapsed if ratio > 1e-9 else None
+        elif status == "done":
+            eta_seconds = 0.0
+        runtime["percent"] = event_percent
+        runtime["elapsed"] = elapsed
+        runtime["eta"] = eta_seconds
+        runtime["status"] = status
 
         if status in {"start"}:
             self._stage_progress[stage] = 0.0
@@ -2342,6 +2661,7 @@ class ExperimentUI:
                 self.run_stage_var.set(f"Stage: {stage_title} ({event_percent:.1f}%)")
         if hasattr(self, "stage_progress_bar"):
             self.stage_progress_bar.configure(value=event_percent)
+        self._update_stage_row(stage, percent=event_percent, elapsed=elapsed, eta=eta_seconds)
 
         overall_percent = self._compute_overall_percent()
         if hasattr(self, "overall_progress_bar"):
@@ -2399,6 +2719,12 @@ class ExperimentUI:
                 self.run_btn.configure(state="normal")
                 self.stop_btn.configure(state="disabled")
                 if (self._last_exit_code is None or self._last_exit_code == 0) and self._compute_overall_percent() < 100.0 and self._current_stage:
+                    runtime = self._stage_runtime.get(self._current_stage, {})
+                    elapsed = None
+                    if isinstance(runtime, dict):
+                        elapsed = self._safe_float(runtime.get("elapsed", 0.0), default=0.0)
+                    self._stage_progress[self._current_stage] = 1.0
+                    self._update_stage_row(self._current_stage, percent=100.0, elapsed=elapsed, eta=0.0)
                     self.overall_progress_bar.configure(value=100.0)
                     self.run_percent_var.set("Overall: 100.0%")
                     self.run_eta_var.set("ETA: 00:00")
@@ -2426,6 +2752,7 @@ class ExperimentUI:
                     self._last_exit_code = None
             if self._should_append_log_line(text_item):
                 self._append_log(text_item)
+        self._update_resource_telemetry()
         self.root.after(150, self._poll_queue)
 
     def _on_close(self) -> None:

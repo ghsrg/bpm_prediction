@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from bisect import bisect_right
 from datetime import datetime, timezone
 import logging
 import math
@@ -26,6 +27,7 @@ from torch.nn.parameter import UninitializedParameter
 from torch.optim import Adam
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from src.application.ports.graph_builder_port import IGraphBuilder
@@ -48,6 +50,60 @@ class SplitData:
     train: List[RawTrace]
     val: List[RawTrace]
     test: List[RawTrace]
+
+
+class ShardedGraphDataset(Dataset[Data]):
+    """Lazy on-disk dataset backed by shard files produced by CLI graph cache."""
+
+    def __init__(self, *, entry_dir: str, shards: Sequence[Dict[str, Any]]) -> None:
+        self.entry_dir = Path(str(entry_dir))
+        self._shards: List[Dict[str, Any]] = []
+        self._offsets: List[int] = []
+        total = 0
+        for row in shards:
+            if not isinstance(row, dict):
+                continue
+            rel_path = str(row.get("path", "")).strip()
+            count = int(row.get("count", 0))
+            if not rel_path or count <= 0:
+                continue
+            self._shards.append({"path": rel_path, "count": int(count)})
+            total += int(count)
+            self._offsets.append(total)
+        self._size = int(total)
+        self._cached_shard_idx: int | None = None
+        self._cached_shard_data: List[Data] | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> "ShardedGraphDataset":
+        return cls(
+            entry_dir=str(payload.get("entry_dir", "")),
+            shards=payload.get("shards", []),
+        )
+
+    def __len__(self) -> int:
+        return self._size
+
+    def __getitem__(self, index: int) -> Data:
+        if index < 0 or index >= self._size:
+            raise IndexError(index)
+        shard_idx = int(bisect_right(self._offsets, index))
+        prev_total = self._offsets[shard_idx - 1] if shard_idx > 0 else 0
+        local_idx = index - prev_total
+        shard = self._load_shard(shard_idx)
+        return shard[local_idx]
+
+    def _load_shard(self, shard_idx: int) -> List[Data]:
+        if self._cached_shard_idx == shard_idx and isinstance(self._cached_shard_data, list):
+            return self._cached_shard_data
+        row = self._shards[shard_idx]
+        shard_path = self.entry_dir / str(row["path"])
+        loaded = torch.load(shard_path, map_location="cpu")
+        if not isinstance(loaded, list):
+            raise ValueError(f"Invalid shard payload type for {shard_path}.")
+        self._cached_shard_idx = shard_idx
+        self._cached_shard_data = loaded
+        return loaded
 
 
 class ModelTrainer:
@@ -185,10 +241,13 @@ class ModelTrainer:
             val_dataset = self.prepared_data.get("val_dataset")
             test_dataset = self.prepared_data.get("test_dataset")
             if all(item is not None for item in (train_dataset, val_dataset, test_dataset)):
+                train_payload = train_dataset if isinstance(train_dataset, dict) else list(train_dataset)
+                val_payload = val_dataset if isinstance(val_dataset, dict) else list(val_dataset)
+                test_payload = test_dataset if isinstance(test_dataset, dict) else list(test_dataset)
                 prebuilt_datasets = {
-                    "train": list(train_dataset),
-                    "val": list(val_dataset),
-                    "test": list(test_dataset),
+                    "train": train_payload,
+                    "val": val_payload,
+                    "test": test_payload,
                 }
         else:
             raw_traces = self._read_raw_traces_with_progress()
@@ -286,7 +345,7 @@ class ModelTrainer:
         split_data: SplitData,
         best_epoch: int,
         best_val_loss: float,
-        prebuilt_test_dataset: Optional[Sequence[Data]] = None,
+        prebuilt_test_dataset: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Run eval_cross_dataset scenario with preloaded checkpoint state."""
         test_loader = (
@@ -332,7 +391,7 @@ class ModelTrainer:
         start_epoch: int,
         best_val_loss: float,
         best_epoch: int,
-        prebuilt_datasets: Optional[Dict[str, Sequence[Data]]] = None,
+        prebuilt_datasets: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Run train/validation/test scenario with optional resume checkpoint."""
         has_prebuilt = bool(
@@ -766,10 +825,20 @@ class ModelTrainer:
                 graphs.append(Data(**payload))
         return self._create_data_loader(graphs, shuffle=shuffle)
 
-    def _build_loader_from_dataset(self, dataset: Optional[Sequence[Data]], shuffle: bool) -> DataLoader:
+    def _build_loader_from_dataset(self, dataset: Optional[Any], shuffle: bool) -> DataLoader:
         """Wrap prebuilt graph dataset into DataLoader and collect topology diagnostics."""
-        graphs = list(dataset or [])
-        for graph in graphs:
+        if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
+            lazy_dataset = ShardedGraphDataset.from_payload(dataset)
+            logger.info(
+                "Using sharded on-disk dataset: split=%s graphs=%d shards=%d",
+                str(dataset.get("split", "unknown")),
+                int(dataset.get("graphs", len(lazy_dataset))),
+                int(len(dataset.get("shards", []))) if isinstance(dataset.get("shards", []), list) else 0,
+            )
+            return self._create_data_loader_from_source(lazy_dataset, shuffle=shuffle)
+
+        graphs_source = dataset or []
+        for graph in graphs_source:
             num_nodes_attr = getattr(graph, "num_nodes", None)
             if num_nodes_attr is None:
                 num_nodes = int(graph.x_cat.size(0))
@@ -799,10 +868,14 @@ class ModelTrainer:
                         self._idx_to_stats_snapshot_version[idx] = f"k{idx:06d}"
                     self._stats_snapshot_version_to_idx.setdefault(self._idx_to_stats_snapshot_version[idx], idx)
 
-        return self._create_data_loader(graphs, shuffle=shuffle)
+        return self._create_data_loader_from_source(graphs_source, shuffle=shuffle)
 
     def _create_data_loader(self, graphs: Sequence[Data], *, shuffle: bool) -> DataLoader:
         """Create DataLoader with optional worker parallelism for batch collation."""
+        return self._create_data_loader_from_source(graphs, shuffle=shuffle)
+
+    def _create_data_loader_from_source(self, source: Any, *, shuffle: bool) -> DataLoader:
+        """Create DataLoader from in-memory sequence or lazy on-disk dataset source."""
         kwargs: Dict[str, Any] = {
             "batch_size": self.batch_size,
             "shuffle": shuffle,
@@ -812,15 +885,15 @@ class ModelTrainer:
         if self.dataloader_num_workers > 0:
             kwargs["persistent_workers"] = self.dataloader_persistent_workers
             kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
-        return DataLoader(list(graphs), **kwargs)
+        return DataLoader(source, **kwargs)
 
     def _run_epoch(
         self,
         loader: Iterable[Data],
         optimizer: Optional[Adam],
         training: bool,
-        epoch_index: int,
-        total_epochs: int,
+        epoch_index: int = 1,
+        total_epochs: int = 1,
     ) -> Tuple[float, float, float, float]:
         """Run one epoch (train or eval) and return loss/macro_f1/weighted_f1/duration."""
         if training:

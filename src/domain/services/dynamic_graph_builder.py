@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 import math
 from typing import Any, Dict, Optional
 import logging
@@ -395,15 +396,37 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
     ) -> tuple[Any, ...]:
         snapshot = self._stats_snapshot_metadata(dto)
         normalized_edges = tuple((str(src).strip(), str(dst).strip()) for src, dst in dto.allowed_edges)
+        graph_mapping_fingerprint = self._graph_mapping_fingerprint()
+        vocab_fingerprint = self._activity_vocab_fingerprint(activity_vocab)
         return (
             self.process_name or "__auto__",
             str(dto.version),
             self._clean_optional_text(snapshot.get("knowledge_version")),
             self._clean_optional_text(snapshot.get("as_of_ts")),
             bool(stats_allowed),
-            int(len(activity_vocab)),
+            vocab_fingerprint,
+            graph_mapping_fingerprint,
             normalized_edges,
         )
+
+    @staticmethod
+    def _activity_vocab_fingerprint(activity_vocab: Dict[str, int]) -> str:
+        pairs = sorted((str(key), int(value)) for key, value in activity_vocab.items())
+        payload = json.dumps(pairs, ensure_ascii=True, separators=(",", ":"))
+        return hashlib.sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+    def _graph_mapping_fingerprint(self) -> str:
+        block = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
+        payload = {
+            "enabled": bool(block.get("enabled", False)),
+            "node_specs": self._node_specs(),
+            "edge_weight": self._edge_weight_spec(),
+            "quality_gate": self.stats_quality_gate,
+            "time_policy": self.stats_time_policy,
+            "missing_asof_policy": self.on_missing_asof_snapshot,
+        }
+        text = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()
 
     def _resolve_compiled_topology(
         self,

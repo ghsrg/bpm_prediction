@@ -1,5 +1,6 @@
 .env
 .env.local
+.cache
 logs/
 data/*
 !data/camunda_exports/

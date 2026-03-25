@@ -25,13 +25,13 @@
     "mapping.camunda_adapter.structure.version_key_format": "",
     "mapping.camunda_adapter.subprocess_graph_mode": ""
   },
-  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
   "general_experiment_form": {
     "experiment.cache_dir": ".cache/dynamic_graph_builder",
     "experiment.drift_window_size": "500",
     "experiment.drift_window_sliding": "100",
     "experiment.graph_dataset_disk_spill_enabled": "true",
-    "experiment.graph_dataset_shard_size": "2000",
+    "experiment.graph_dataset_shard_size": "20000",
     "experiment.load_checkpoint": "",
     "experiment.max_ram_gb": "10"
   },
@@ -43,7 +43,7 @@
     "tracking.uri": "file:./mlruns"
   },
   "general_training_form": {
-    "training.batch_size": "8",
+    "training.batch_size": "128",
     "training.class_weight_cap": "50.0",
     "training.dataloader_num_workers": "0",
     "training.dataloader_persistent_workers": "True",
@@ -62,7 +62,7 @@
     "training.tqdm_disable": "False",
     "training.tqdm_leave": "False"
   },
-  "graph_mapping_text": "enabled: true\nnode_numeric:\n  - name: \"node_exec_count_v_all\"\n    metric: \"exec_count\"\n    window: \"all_time\"\n    scope: \"version\"\n    default: 0.0\n    encoding: [\"z-score\"]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "graph_mapping_text": "enabled: false\nnode_numeric:\n  - name: \"node_exec_count_v_all\"\n    metric: \"exec_count\"\n    window: \"all_time\"\n    scope: \"version\"\n    default: 0.0\n    encoding: [\"z-score\"]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
   "input_camunda_mapping_form": {
     "mapping.camunda_adapter.lookback_hours": "",
     "mapping.camunda_adapter.process_filters": "",
@@ -111,7 +111,7 @@
     "model.struct_hidden_dim": "64",
     "model.type": "EOPKGGATv2"
   },
-  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
   "sync_stats_form": {
     "sync_stats.confidence_weights.coverage": "",
     "sync_stats.confidence_weights.freshness": "",
@@ -133,9 +133,9 @@
     "backfill_to": "",
     "cache_policy": "full",
     "config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml",
-    "experiment_name": "MVP2_5_Stage4_2_EOPKG_XES_Stat",
+    "experiment_name": "MVP2_5_Stage4_2_EOPKG_XES",
     "extra_args": "",
-    "fraction": "0.1",
+    "fraction": "1",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
     "mode": "train",

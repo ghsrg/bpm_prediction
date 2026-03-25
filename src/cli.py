@@ -17,7 +17,6 @@ import math
 from pathlib import Path
 import logging
 import random
-from time import monotonic
 from typing import Any, Dict, Iterable, Iterator, List, Sequence, Tuple
 
 import numpy as np
@@ -43,7 +42,7 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
     get_knowledge_graph_settings,
 )
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
-from src.infrastructure.runtime.progress_events import emit_progress_event
+from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
 GRAPH_DATASET_CACHE_SCHEMA = 2
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
@@ -811,20 +810,21 @@ def _build_graph_dataset_sharded(
     }
 
     total_traces = int(len(traces))
-    emit_progress_event(stage=progress_stage, status="start", message=desc, current=0, total=total_traces)
+    structured_progress = bool(progress_events_enabled())
+    reporter = ProgressReporter(stage=progress_stage, total=total_traces, min_interval_sec=0.8)
+    reporter.start(message=desc, current=0, total=total_traces)
     iterator = tqdm(
         traces,
         desc=desc,
         unit="trace",
         leave=False,
-        disable=(not show_progress) or tqdm_disable,
+        disable=(not show_progress) or tqdm_disable or structured_progress,
     )
 
     buffer: List[Data] = []
     shard_rows: List[Dict[str, Any]] = []
     shard_idx = 0
     total_graphs = 0
-    last_progress_emit = 0.0
     last_ram_check = 0
 
     def _flush_buffer(force: bool = False) -> None:
@@ -849,7 +849,18 @@ def _build_graph_dataset_sharded(
         gc.collect()
 
     for idx, trace in enumerate(iterator, start=1):
-        for prefix_slice in prefix_policy.generate_slices(trace):
+        prefix_slices = prefix_policy.generate_slices(trace)
+        trace_slice_total = int(len(prefix_slices))
+        if trace_slice_total <= 0:
+            reporter.update(
+                message=desc,
+                current=float(idx),
+                total=total_traces,
+                payload={"graphs": int(total_graphs), "shards": int(len(shard_rows))},
+                force=(idx == 1 or idx == total_traces),
+            )
+            continue
+        for slice_idx, prefix_slice in enumerate(prefix_slices, start=1):
             contract = graph_builder.build_graph(prefix_slice)
             version_label = str(prefix_slice.process_version)
             version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
@@ -926,26 +937,29 @@ def _build_graph_dataset_sharded(
                     if rss_bytes >= max_ram_bytes:
                         _flush_buffer(force=True)
 
-        now = monotonic()
-        if idx == 1 or idx == total_traces or (now - last_progress_emit) >= 0.8:
-            emit_progress_event(
-                stage=progress_stage,
-                status="update",
+            current_progress = float(idx - 1) + (float(slice_idx) / float(trace_slice_total))
+            reporter.update(
                 message=desc,
-                current=idx,
+                current=current_progress,
                 total=total_traces,
                 payload={"graphs": int(total_graphs), "shards": int(len(shard_rows))},
+                force=(idx == 1 and slice_idx == 1),
             )
-            last_progress_emit = now
+
+        reporter.update(
+            message=desc,
+            current=float(idx),
+            total=total_traces,
+            payload={"graphs": int(total_graphs), "shards": int(len(shard_rows))},
+            force=(idx == total_traces),
+        )
         if idx % 1000 == 0:
             iterator.set_postfix({"graphs": total_graphs, "shards": len(shard_rows)})
 
     _flush_buffer(force=True)
     dataset_payload["graphs"] = int(total_graphs)
     dataset_payload["shards"] = shard_rows
-    emit_progress_event(
-        stage=progress_stage,
-        status="done",
+    reporter.done(
         message=f"{desc} completed",
         current=total_traces,
         total=total_traces,
@@ -969,19 +983,33 @@ def _build_graph_dataset(
     """Convert traces into a list of PyG Data graphs via prefix slicing + graph builder."""
     dataset: List[Data] = []
     total_traces = int(len(traces))
+    structured_progress = bool(progress_events_enabled())
     stage = str(progress_stage or "").strip()
+    reporter: ProgressReporter | None = None
     if stage:
-        emit_progress_event(stage=stage, status="start", message=desc, current=0, total=total_traces)
+        reporter = ProgressReporter(stage=stage, total=total_traces, min_interval_sec=0.8)
+        reporter.start(message=desc, current=0, total=total_traces)
     iterator = tqdm(
         traces,
         desc=desc,
         unit="trace",
         leave=False,
-        disable=(not show_progress) or tqdm_disable,
+        disable=(not show_progress) or tqdm_disable or structured_progress,
     )
-    last_progress_emit = 0.0
     for idx, trace in enumerate(iterator, start=1):
-        for prefix_slice in prefix_policy.generate_slices(trace):
+        prefix_slices = prefix_policy.generate_slices(trace)
+        trace_slice_total = int(len(prefix_slices))
+        if trace_slice_total <= 0:
+            if reporter is not None:
+                reporter.update(
+                    message=desc,
+                    current=float(idx),
+                    total=total_traces,
+                    payload={"graphs": int(len(dataset))},
+                    force=(idx == 1 or idx == total_traces),
+                )
+            continue
+        for slice_idx, prefix_slice in enumerate(prefix_slices, start=1):
             contract = graph_builder.build_graph(prefix_slice)
             version_label = str(prefix_slice.process_version)
             version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
@@ -1046,24 +1074,27 @@ def _build_graph_dataset(
             dataset.append(
                 Data(**payload)
             )
-        if stage:
-            now = monotonic()
-            if idx == 1 or idx == total_traces or (now - last_progress_emit) >= 0.8:
-                emit_progress_event(
-                    stage=stage,
-                    status="update",
+            if reporter is not None:
+                current_progress = float(idx - 1) + (float(slice_idx) / float(trace_slice_total))
+                reporter.update(
                     message=desc,
-                    current=idx,
+                    current=current_progress,
                     total=total_traces,
                     payload={"graphs": int(len(dataset))},
+                    force=(idx == 1 and slice_idx == 1),
                 )
-                last_progress_emit = now
+        if reporter is not None:
+            reporter.update(
+                message=desc,
+                current=float(idx),
+                total=total_traces,
+                payload={"graphs": int(len(dataset))},
+                force=(idx == total_traces),
+            )
         if idx % 1000 == 0:
             iterator.set_postfix({"graphs": len(dataset)})
-    if stage:
-        emit_progress_event(
-            stage=stage,
-            status="done",
+    if reporter is not None:
+        reporter.done(
             message=f"{desc} completed",
             current=total_traces,
             total=total_traces,
@@ -1160,16 +1191,27 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     prefix_policy = PrefixPolicy()
 
     logger.info("Preparing data artifacts for mode=%s...", mode)
-    emit_progress_event(stage="prepare.read_events", status="start", message=f"Reading events via {adapter.__class__.__name__}")
+    read_reporter = ProgressReporter(stage="prepare.read_events", min_interval_sec=0.8)
+    read_reporter.start(message=f"Reading events via {adapter.__class__.__name__}")
     logger.info("Reading events for preparation via adapter=%s...", adapter.__class__.__name__)
-    traces = list(adapter.read(log_path, mapping_cfg))
+    traces: List[RawTrace] = []
+    event_count = 0
+    for trace_idx, trace in enumerate(adapter.read(log_path, mapping_cfg), start=1):
+        traces.append(trace)
+        event_count += int(len(trace.events))
+        read_reporter.update(
+            message=f"Reading events via {adapter.__class__.__name__}",
+            current=int(trace_idx),
+            total=None,
+            payload={"events": int(event_count)},
+            force=(trace_idx == 1),
+        )
     logger.info("Event read finished: traces=%d", len(traces))
-    emit_progress_event(
-        stage="prepare.read_events",
-        status="done",
+    read_reporter.done(
         message="Event read finished",
         current=int(len(traces)),
         total=int(len(traces)),
+        payload={"events": int(event_count)},
     )
     traces = _apply_cascade_prepare(
         traces,

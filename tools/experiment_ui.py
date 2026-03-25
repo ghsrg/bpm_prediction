@@ -403,6 +403,19 @@ class _DynamicForm(ttk.Frame):
 
 
 class ExperimentUI:
+    _STRICT_ENUM_PATHS: set[str] = {
+        "experiment.mode",
+        "experiment.cache_policy",
+        "experiment.graph_dataset_cache_policy",
+        "experiment.stats_time_policy",
+        "experiment.on_missing_asof_snapshot",
+        "mapping.adapter",
+        "mapping.knowledge_graph.backend",
+        "mapping.camunda_adapter.runtime.runtime_source",
+        "mapping.camunda_adapter.structure.bpmn_source",
+        "training.retrain",
+    }
+
     def __init__(self, default_config: str | None = None) -> None:
         self.root = tk.Tk()
         self.root.title("BPM Experiment UI")
@@ -2300,13 +2313,34 @@ class ExperimentUI:
                 if not self._is_blank(current):
                     if self._is_path_like_field(path):
                         continue
+                    if path not in self._STRICT_ENUM_PATHS:
+                        # For most fields enum is only a UI suggestion pool,
+                        # not a strict constraint (e.g. experiment.fraction).
+                        continue
                     current_text = str(current).strip()
                     if isinstance(current, bool):
                         current_text = "true" if current else "false"
                     elif current_text.lower() in {"true", "false"}:
                         current_text = current_text.lower()
+
                     allowed = [str(v).strip() for v in meta.enum]
-                    if current_text not in allowed:
+
+                    if path == "experiment.cache_policy":
+                        def _normalize_cache_policy_token(token: Any) -> str:
+                            text = str(token).strip().lower()
+                            if text in {"off", "false", "none", "disabled"}:
+                                return "off"
+                            return text
+
+                        current_norm = _normalize_cache_policy_token(current_text)
+                        allowed_norm = [_normalize_cache_policy_token(token) for token in allowed]
+                        if current_norm not in allowed_norm:
+                            errors.append(f"Invalid enum value for {path}: {current} (allowed: {', '.join(meta.enum)})")
+                        continue
+
+                    allowed_norm = [item.lower() if item.lower() in {"true", "false"} else item for item in allowed]
+                    current_norm = current_text.lower() if current_text.lower() in {"true", "false"} else current_text
+                    if current_norm not in allowed_norm:
                         errors.append(f"Invalid enum value for {path}: {current} (allowed: {', '.join(meta.enum)})")
         return errors
 
@@ -2444,10 +2478,15 @@ class ExperimentUI:
             try:
                 child_proc = psutil.Process(self._process.pid)
                 child_rss = int(child_proc.memory_info().rss)
+                for sub_proc in child_proc.children(recursive=True):
+                    try:
+                        child_rss += int(sub_proc.memory_info().rss)
+                    except Exception:
+                        continue
             except Exception:
                 child_rss = 0
         if hasattr(self, "run_child_mem_var"):
-            self.run_child_mem_var.set(f"Run RAM: {self._format_bytes(child_rss)}")
+            self.run_child_mem_var.set(f"Run RAM (tree): {self._format_bytes(child_rss)}")
 
         try:
             vm = psutil.virtual_memory()
@@ -2607,6 +2646,7 @@ class ExperimentUI:
         level = str(event.get("level", "info")).strip().lower() or "info"
         current = self._safe_float(event.get("current", 0.0), default=0.0)
         total = self._safe_float(event.get("total", 0.0), default=0.0)
+        event_ts = self._safe_float(event.get("ts", time.time()), default=time.time())
         event_percent = self._safe_float(event.get("percent", -1.0), default=-1.0)
         if event_percent < 0.0:
             event_percent = (current / total * 100.0) if total > 0.0 else 0.0
@@ -2680,7 +2720,21 @@ class ExperimentUI:
 
         # Keep execution log concise in UI mode: show status and warnings/errors only.
         if message:
-            text = f"[{level}] {stage}: {message}\n"
+            ts_text = time.strftime("%H:%M:%S", time.localtime(event_ts))
+            progress_part = ""
+            if total > 0:
+                if abs(current - round(current)) < 1e-9:
+                    current_text = str(int(round(current)))
+                else:
+                    current_text = f"{current:.2f}"
+                if abs(total - round(total)) < 1e-9:
+                    total_text = str(int(round(total)))
+                else:
+                    total_text = f"{total:.2f}"
+                progress_part = f" | {current_text}/{total_text} ({event_percent:.1f}%)"
+            elif event_percent > 0.0:
+                progress_part = f" | {event_percent:.1f}%"
+            text = f"[{ts_text}] [{level}] {stage}: {message}{progress_part}\n"
             if text != self._last_status_text:
                 self._append_log(text)
                 self._last_status_text = text

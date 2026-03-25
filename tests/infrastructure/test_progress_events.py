@@ -4,6 +4,7 @@ import json
 
 from src.infrastructure.runtime.progress_events import (
     PROGRESS_EVENT_PREFIX,
+    ProgressReporter,
     emit_progress_event,
     progress_events_enabled,
 )
@@ -38,3 +39,35 @@ def test_progress_events_done_status(monkeypatch, capsys) -> None:
     assert payload["status"] == "done"
     assert payload["percent"] == 100.0
 
+
+def test_progress_reporter_start_update_done(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
+    reporter = ProgressReporter(stage="build_graph.train", total=10, min_interval_sec=0.0)
+    reporter.start(message="start", current=0)
+    reporter.update(message="mid", current=5)
+    reporter.done(message="done", current=10)
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 3
+    events = [json.loads(line[len(PROGRESS_EVENT_PREFIX) :]) for line in lines]
+    assert events[0]["status"] == "start"
+    assert events[1]["status"] == "update"
+    assert events[1]["percent"] == 50.0
+    assert events[2]["status"] == "done"
+    assert events[2]["percent"] == 100.0
+
+
+def test_progress_reporter_throttle(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
+    reporter = ProgressReporter(stage="train.batches", total=100, min_interval_sec=3600.0)
+    reporter.start(message="start", current=0)
+    emitted = reporter.update(message="skip", current=1)
+    assert emitted is False
+    emitted = reporter.update(message="force", current=1, force=True)
+    assert emitted is True
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 2
+    events = [json.loads(line[len(PROGRESS_EVENT_PREFIX) :]) for line in lines]
+    assert events[0]["status"] == "start"
+    assert events[1]["status"] == "update"

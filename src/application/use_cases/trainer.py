@@ -12,10 +12,11 @@ from bisect import bisect_right
 from datetime import datetime, timezone
 import logging
 import math
+import random
 from pathlib import Path
 import tempfile
 from time import perf_counter
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 import warnings
 
 import numpy as np
@@ -27,7 +28,7 @@ from torch.nn.parameter import UninitializedParameter
 from torch.optim import Adam
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
 from src.application.ports.graph_builder_port import IGraphBuilder
@@ -37,7 +38,7 @@ from src.application.ports.xes_adapter_port import IXESAdapter
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
-from src.infrastructure.runtime.progress_events import emit_progress_event
+from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class SplitData:
 class ShardedGraphDataset(Dataset[Data]):
     """Lazy on-disk dataset backed by shard files produced by CLI graph cache."""
 
-    def __init__(self, *, entry_dir: str, shards: Sequence[Dict[str, Any]]) -> None:
+    def __init__(self, *, entry_dir: str, shards: Sequence[Dict[str, Any]], max_cached_shards: int = 2) -> None:
         self.entry_dir = Path(str(entry_dir))
         self._shards: List[Dict[str, Any]] = []
         self._offsets: List[int] = []
@@ -71,14 +72,16 @@ class ShardedGraphDataset(Dataset[Data]):
             total += int(count)
             self._offsets.append(total)
         self._size = int(total)
-        self._cached_shard_idx: int | None = None
-        self._cached_shard_data: List[Data] | None = None
+        self._max_cached_shards = max(1, int(max_cached_shards))
+        self._cached_shards: Dict[int, List[Data]] = {}
+        self._cache_lru_order: List[int] = []
 
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> "ShardedGraphDataset":
+    def from_payload(cls, payload: Dict[str, Any], *, max_cached_shards: int = 2) -> "ShardedGraphDataset":
         return cls(
             entry_dir=str(payload.get("entry_dir", "")),
             shards=payload.get("shards", []),
+            max_cached_shards=max_cached_shards,
         )
 
     def __len__(self) -> int:
@@ -94,16 +97,58 @@ class ShardedGraphDataset(Dataset[Data]):
         return shard[local_idx]
 
     def _load_shard(self, shard_idx: int) -> List[Data]:
-        if self._cached_shard_idx == shard_idx and isinstance(self._cached_shard_data, list):
-            return self._cached_shard_data
+        cached = self._cached_shards.get(shard_idx)
+        if isinstance(cached, list):
+            try:
+                self._cache_lru_order.remove(shard_idx)
+            except ValueError:
+                pass
+            self._cache_lru_order.append(shard_idx)
+            return cached
         row = self._shards[shard_idx]
         shard_path = self.entry_dir / str(row["path"])
         loaded = torch.load(shard_path, map_location="cpu")
         if not isinstance(loaded, list):
             raise ValueError(f"Invalid shard payload type for {shard_path}.")
-        self._cached_shard_idx = shard_idx
-        self._cached_shard_data = loaded
+        self._cached_shards[shard_idx] = loaded
+        self._cache_lru_order.append(shard_idx)
+        while len(self._cache_lru_order) > self._max_cached_shards:
+            evict_idx = self._cache_lru_order.pop(0)
+            self._cached_shards.pop(evict_idx, None)
         return loaded
+
+    def shard_index_ranges(self) -> List[Tuple[int, int]]:
+        ranges: List[Tuple[int, int]] = []
+        start = 0
+        for end in self._offsets:
+            ranges.append((start, int(end)))
+            start = int(end)
+        return ranges
+
+
+class _ShardAwareRandomSampler(Sampler[int]):
+    """Shuffle by shard then by index within shard to avoid random disk seeks."""
+
+    def __init__(self, dataset: ShardedGraphDataset, *, seed: int = 42) -> None:
+        self._dataset = dataset
+        self._base_seed = int(seed)
+        self._iteration = 0
+
+    def __iter__(self) -> Iterable[int]:
+        rng = random.Random(self._base_seed + self._iteration)
+        self._iteration += 1
+        shard_ranges = self._dataset.shard_index_ranges()
+        shard_ids = list(range(len(shard_ranges)))
+        rng.shuffle(shard_ids)
+        for shard_idx in shard_ids:
+            start, end = shard_ranges[shard_idx]
+            indices = list(range(int(start), int(end)))
+            rng.shuffle(indices)
+            for idx in indices:
+                yield idx
+
+    def __len__(self) -> int:
+        return len(self._dataset)
 
 
 class ModelTrainer:
@@ -140,12 +185,14 @@ class ModelTrainer:
         self.show_progress = bool(config.get("show_progress", True))
         self.tqdm_disable = bool(config.get("tqdm_disable", False))
         self.tqdm_leave = bool(config.get("tqdm_leave", False))
+        self._structured_progress_enabled = bool(progress_events_enabled())
         self.dataloader_num_workers = max(0, int(config.get("dataloader_num_workers", 0)))
         self.dataloader_pin_memory = bool(config.get("dataloader_pin_memory", False))
         self.dataloader_persistent_workers = bool(
             config.get("dataloader_persistent_workers", self.dataloader_num_workers > 0)
         )
         self.dataloader_prefetch_factor = max(2, int(config.get("dataloader_prefetch_factor", 2)))
+        self.sharded_dataset_cached_shards = max(1, int(config.get("sharded_dataset_cached_shards", 2)))
         self.loss_function = str(config.get("loss_function", "cross_entropy")).strip().lower()
         self.patience = int(config.get("patience", 6))
         self.delta = float(config.get("delta", 1e-4))
@@ -200,9 +247,13 @@ class ModelTrainer:
                     {label: idx for idx, label in self._idx_to_stats_snapshot_version.items()}
                 )
 
+    def _is_tqdm_disabled(self) -> bool:
+        return (not self.show_progress) or self.tqdm_disable or self._structured_progress_enabled
+
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
-        emit_progress_event(stage="run.pipeline", status="start", message=f"Pipeline mode={self.mode}")
+        pipeline_reporter = ProgressReporter(stage="run.pipeline", total=1, min_interval_sec=0.5)
+        pipeline_reporter.start(message=f"Pipeline mode={self.mode}", current=0, total=1)
         self.model.to(self.device)
         if self.class_weights is not None:
             self.class_weights = self.class_weights.to(self.device)
@@ -263,7 +314,7 @@ class ModelTrainer:
                 best_val_loss=best_val_loss,
                 prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
             )
-            emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+            pipeline_reporter.done(message=f"Pipeline completed mode={self.mode}", current=1, total=1)
             return result
 
         if is_eval_drift:
@@ -273,7 +324,7 @@ class ModelTrainer:
                 best_epoch=best_epoch,
                 best_val_loss=best_val_loss,
             )
-            emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+            pipeline_reporter.done(message=f"Pipeline completed mode={self.mode}", current=1, total=1)
             return result
 
         result = self._run_train_pipeline(
@@ -284,7 +335,7 @@ class ModelTrainer:
             best_epoch=best_epoch,
             prebuilt_datasets=prebuilt_datasets,
         )
-        emit_progress_event(stage="run.pipeline", status="done", message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+        pipeline_reporter.done(message=f"Pipeline completed mode={self.mode}", current=1, total=1)
         return result
 
     def _read_raw_traces_with_progress(self) -> List[RawTrace]:
@@ -293,19 +344,28 @@ class ModelTrainer:
         started = perf_counter()
         traces: List[RawTrace] = []
         event_count = 0
+        read_reporter = ProgressReporter(stage="prepare.read_events", min_interval_sec=0.8)
+        read_reporter.start(message=f"Reading events via {self.xes_adapter.__class__.__name__}")
 
         iterator = self.xes_adapter.read(self.log_path, self.config.get("mapping_config", {}))
         progress = tqdm(
             desc="Read traces",
             unit="trace",
             leave=self.tqdm_leave,
-            disable=(not self.show_progress) or self.tqdm_disable,
+            disable=self._is_tqdm_disabled(),
         )
         try:
             for idx, trace in enumerate(iterator, start=1):
                 traces.append(trace)
                 event_count += len(trace.events)
                 progress.update(1)
+                read_reporter.update(
+                    message=f"Reading events via {self.xes_adapter.__class__.__name__}",
+                    current=int(idx),
+                    total=None,
+                    payload={"events": int(event_count)},
+                    force=(idx == 1),
+                )
                 if idx % 1000 == 0:
                     progress.set_postfix({"events": event_count})
                     logger.info("Read %d traces (%d events) so far...", idx, event_count)
@@ -314,6 +374,12 @@ class ModelTrainer:
 
         duration = perf_counter() - started
         logger.info("Finished reading XES: traces=%d, events=%d, duration=%.2fs", len(traces), event_count, duration)
+        read_reporter.done(
+            message="Event read finished",
+            current=int(len(traces)),
+            total=int(len(traces)),
+            payload={"events": int(event_count), "duration_sec": float(duration)},
+        )
         return traces
 
     def _prepare_checkpoint_state(self, is_eval_mode: bool) -> Tuple[Optional[Dict[str, Any]], int, float, int]:
@@ -440,27 +506,42 @@ class ModelTrainer:
 
         history: List[Dict[str, float]] = []
         epochs_without_improvement = 0
+        epochs_reporter = ProgressReporter(stage="train.epochs", total=int(self.epochs), min_interval_sec=0.5)
         if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
 
         if start_epoch >= self.epochs:
             logger.info("Model already trained for %d epochs. Skipping training loop.", self.epochs)
-            emit_progress_event(
-                stage="train.epochs",
-                status="done",
+            epochs_reporter.start(message="Training epochs started", current=int(self.epochs), total=int(self.epochs))
+            epochs_reporter.done(
                 message="Training skipped: checkpoint already at target epoch",
                 current=int(self.epochs),
                 total=int(self.epochs),
             )
         else:
-            emit_progress_event(stage="train.epochs", status="start", message="Training epochs started", current=start_epoch, total=int(self.epochs))
+            epochs_reporter.start(message="Training epochs started", current=start_epoch, total=int(self.epochs))
             for epoch in range(start_epoch + 1, self.epochs + 1):
+                def _update_epoch_progress(batch_idx: int, total_batches: int, phase_name: str) -> None:
+                    if total_batches <= 0:
+                        return
+                    phase_ratio = float(batch_idx) / float(total_batches)
+                    phase_offset = 0.0 if phase_name == "train" else 0.5
+                    phase_span = 0.5
+                    epoch_current = float(epoch - 1) + phase_offset + (phase_span * phase_ratio)
+                    epochs_reporter.update(
+                        message=f"Epoch {epoch}/{self.epochs} | {phase_name} {batch_idx}/{total_batches}",
+                        current=epoch_current,
+                        total=int(self.epochs),
+                        force=(batch_idx == 1 or batch_idx == total_batches),
+                    )
+
                 train_loss, train_macro_f1, _, epoch_duration = self._run_epoch(
                     train_loader,
                     optimizer=optimizer,
                     training=True,
                     epoch_index=epoch,
                     total_epochs=self.epochs,
+                    epoch_progress_callback=_update_epoch_progress,
                 )
                 val_loss, val_macro_f1, val_weighted_f1, _ = self._run_epoch(
                     val_loader,
@@ -468,6 +549,7 @@ class ModelTrainer:
                     training=False,
                     epoch_index=epoch,
                     total_epochs=self.epochs,
+                    epoch_progress_callback=_update_epoch_progress,
                 )
 
                 epoch_metrics = {
@@ -489,9 +571,7 @@ class ModelTrainer:
                     train_macro_f1,
                     val_macro_f1,
                 )
-                emit_progress_event(
-                    stage="train.epochs",
-                    status="update",
+                epochs_reporter.update(
                     message=f"Epoch {epoch}/{self.epochs}",
                     current=int(epoch),
                     total=int(self.epochs),
@@ -520,9 +600,7 @@ class ModelTrainer:
 
                 if epochs_without_improvement >= self.patience:
                     logger.info("Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).", epoch, best_epoch, best_val_loss)
-                    emit_progress_event(
-                        stage="train.epochs",
-                        status="done",
+                    epochs_reporter.done(
                         level="warning",
                         message=f"Early stopping at epoch {epoch}",
                         current=int(epoch),
@@ -535,9 +613,7 @@ class ModelTrainer:
                         self.tracker.log_metric("best_val_loss", float(best_val_loss), step=epoch)
                     break
             else:
-                emit_progress_event(
-                    stage="train.epochs",
-                    status="done",
+                epochs_reporter.done(
                     message="Training epochs completed",
                     current=int(self.epochs),
                     total=int(self.epochs),
@@ -552,12 +628,11 @@ class ModelTrainer:
         best_epoch = int(best_checkpoint["epoch"])
         best_val_loss = float(best_checkpoint["val_loss"])
 
-        emit_progress_event(stage="test.eval", status="start", message="Test evaluation started")
+        test_eval_reporter = ProgressReporter(stage="test.eval", total=1, min_interval_sec=0.2)
+        test_eval_reporter.start(message="Test evaluation started", current=0, total=1)
         test_metrics = self._evaluate_test(test_loader, stage_label="inference")
         logger.info("Final test metrics: %s", test_metrics)
-        emit_progress_event(
-            stage="test.eval",
-            status="done",
+        test_eval_reporter.done(
             message="Test evaluation completed",
             current=1,
             total=1,
@@ -828,12 +903,16 @@ class ModelTrainer:
     def _build_loader_from_dataset(self, dataset: Optional[Any], shuffle: bool) -> DataLoader:
         """Wrap prebuilt graph dataset into DataLoader and collect topology diagnostics."""
         if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
-            lazy_dataset = ShardedGraphDataset.from_payload(dataset)
+            lazy_dataset = ShardedGraphDataset.from_payload(
+                dataset,
+                max_cached_shards=self.sharded_dataset_cached_shards,
+            )
             logger.info(
-                "Using sharded on-disk dataset: split=%s graphs=%d shards=%d",
+                "Using sharded on-disk dataset: split=%s graphs=%d shards=%d cached_shards=%d",
                 str(dataset.get("split", "unknown")),
                 int(dataset.get("graphs", len(lazy_dataset))),
                 int(len(dataset.get("shards", []))) if isinstance(dataset.get("shards", []), list) else 0,
+                int(self.sharded_dataset_cached_shards),
             )
             return self._create_data_loader_from_source(lazy_dataset, shuffle=shuffle)
 
@@ -876,13 +955,28 @@ class ModelTrainer:
 
     def _create_data_loader_from_source(self, source: Any, *, shuffle: bool) -> DataLoader:
         """Create DataLoader from in-memory sequence or lazy on-disk dataset source."""
+        sampler: Sampler[int] | None = None
+        effective_shuffle = bool(shuffle)
+        effective_num_workers = int(self.dataloader_num_workers)
+        if isinstance(source, ShardedGraphDataset) and shuffle:
+            sampler = _ShardAwareRandomSampler(source, seed=self.seed)
+            effective_shuffle = False
+        if isinstance(source, ShardedGraphDataset) and effective_num_workers > 0:
+            logger.info(
+                "Sharded dataset detected: forcing dataloader_num_workers=0 "
+                "to avoid multiprocess shard cache duplication/IPC overhead."
+            )
+            effective_num_workers = 0
+
         kwargs: Dict[str, Any] = {
             "batch_size": self.batch_size,
-            "shuffle": shuffle,
-            "num_workers": self.dataloader_num_workers,
+            "shuffle": effective_shuffle,
+            "num_workers": effective_num_workers,
             "pin_memory": self.dataloader_pin_memory,
         }
-        if self.dataloader_num_workers > 0:
+        if sampler is not None:
+            kwargs["sampler"] = sampler
+        if effective_num_workers > 0:
             kwargs["persistent_workers"] = self.dataloader_persistent_workers
             kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
         return DataLoader(source, **kwargs)
@@ -894,6 +988,7 @@ class ModelTrainer:
         training: bool,
         epoch_index: int = 1,
         total_epochs: int = 1,
+        epoch_progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> Tuple[float, float, float, float]:
         """Run one epoch (train or eval) and return loss/macro_f1/weighted_f1/duration."""
         if training:
@@ -912,21 +1007,19 @@ class ModelTrainer:
         non_finite_loss_batches = 0
         phase_name = "train" if training else "validation"
         stage_name = "train.batches" if training else "validation.batches"
+        batch_reporter = ProgressReporter(stage=stage_name, min_interval_sec=0.8)
         try:
             total_batches = int(len(loader))  # type: ignore[arg-type]
         except Exception:
             total_batches = 0
-        emit_progress_event(
-            stage=stage_name,
-            status="start",
+        batch_reporter.start(
             message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
             current=0,
             total=total_batches if total_batches > 0 else None,
             payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
         )
-        last_progress_emit = perf_counter()
 
-        iterator = tqdm(loader, desc=("Train epoch" if training else "Validation epoch"), leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
+        iterator = tqdm(loader, desc=("Train epoch" if training else "Validation epoch"), leave=self.tqdm_leave, disable=self._is_tqdm_disabled())
         for batch_idx, data in enumerate(iterator, start=1):
             data = data.to(self.device)
             contract = self._data_to_contract(data)
@@ -968,23 +1061,19 @@ class ModelTrainer:
             batches += 1
             all_pred.extend(torch.argmax(logits.detach(), dim=1).cpu().numpy().tolist())
             all_true.extend(targets.detach().cpu().numpy().tolist())
-            now = perf_counter()
-            if batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches) or (now - last_progress_emit) >= 0.8:
-                emit_progress_event(
-                    stage=stage_name,
-                    status="update",
-                    message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
-                    current=int(batch_idx),
-                    total=total_batches if total_batches > 0 else None,
-                    payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
-                )
-                last_progress_emit = now
+            batch_reporter.update(
+                message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
+                current=int(batch_idx),
+                total=total_batches if total_batches > 0 else None,
+                payload={"epoch": int(epoch_index), "total_epochs": int(total_epochs)},
+                force=(batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches)),
+            )
+            if epoch_progress_callback is not None and total_batches > 0:
+                epoch_progress_callback(int(batch_idx), int(total_batches), phase_name)
 
         duration = perf_counter() - started
         if batches == 0:
-            emit_progress_event(
-                stage=stage_name,
-                status="done",
+            batch_reporter.done(
                 message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed (empty)",
                 current=0,
                 total=total_batches if total_batches > 0 else None,
@@ -1004,9 +1093,7 @@ class ModelTrainer:
                 non_finite_loss_batches,
             )
         self._log_forward_stats_summary("train" if training else "validation", forward_stats)
-        emit_progress_event(
-            stage=stage_name,
-            status="done",
+        batch_reporter.done(
             message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed",
             current=int(batches),
             total=total_batches if total_batches > 0 else None,
@@ -1037,21 +1124,19 @@ class ModelTrainer:
         contract_sanitized_batches = 0
         logits_sanitized_batches = 0
         probs_sanitized_batches = 0
+        test_batches_reporter = ProgressReporter(stage="test.batches", min_interval_sec=0.8)
         try:
             total_batches = int(len(loader))  # type: ignore[arg-type]
         except Exception:
             total_batches = 0
-        emit_progress_event(
-            stage="test.batches",
-            status="start",
+        test_batches_reporter.start(
             message=f"Test evaluation ({stage_label})",
             current=0,
             total=total_batches if total_batches > 0 else None,
         )
-        last_progress_emit = perf_counter()
 
         with torch.no_grad():
-            iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=(not self.show_progress) or self.tqdm_disable)
+            iterator = tqdm(loader, desc="Test evaluation", leave=self.tqdm_leave, disable=self._is_tqdm_disabled())
             for batch_idx, data in enumerate(iterator, start=1):
                 data = data.to(self.device)
                 contract = self._data_to_contract(data)
@@ -1147,16 +1232,12 @@ class ModelTrainer:
                 all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
                 inference_graphs += int(targets.shape[0])
-                now = perf_counter()
-                if batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches) or (now - last_progress_emit) >= 0.8:
-                    emit_progress_event(
-                        stage="test.batches",
-                        status="update",
-                        message=f"Test evaluation ({stage_label})",
-                        current=int(batch_idx),
-                        total=total_batches if total_batches > 0 else None,
-                    )
-                    last_progress_emit = now
+                test_batches_reporter.update(
+                    message=f"Test evaluation ({stage_label})",
+                    current=int(batch_idx),
+                    total=total_batches if total_batches > 0 else None,
+                    force=(batch_idx == 1 or (total_batches > 0 and batch_idx == total_batches)),
+                )
 
         total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
         inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
@@ -1169,9 +1250,7 @@ class ModelTrainer:
                 probs_sanitized_batches,
             )
         self._log_forward_stats_summary(stage_label, forward_stats)
-        emit_progress_event(
-            stage="test.batches",
-            status="done",
+        test_batches_reporter.done(
             message=f"Test evaluation ({stage_label}) completed",
             current=total_batches if total_batches > 0 else None,
             total=total_batches if total_batches > 0 else None,
@@ -1268,7 +1347,7 @@ class ModelTrainer:
             windows,
             desc="Eval drift",
             leave=self.tqdm_leave,
-            disable=(not self.show_progress) or self.tqdm_disable,
+            disable=self._is_tqdm_disabled(),
         )
         total_windows = len(windows)
         emit_progress_event(stage="eval_drift.windows", status="start", message="Evaluating drift windows", current=0, total=total_windows)

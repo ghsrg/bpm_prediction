@@ -1,6 +1,6 @@
 ﻿# DATA_FLOWS_MVP2_5.MD
 
-Updated: 2026-03-19
+Updated: 2026-03-26
 Status: ACTIVE
 
 ## 1. Scope
@@ -58,7 +58,7 @@ flowchart TD
 
 ### 6.1 Snapshot creation timestamp
 1. `sync-stats --as-of <ISO>`: snapshot uses provided timestamp.
-2. `sync-stats` without `--as-of`: snapshot uses current UTC timestamp.
+2. `sync-stats` without `--as-of`: snapshot uses derived `effective_as_of=max(event_ts)` from selected train-cut events per process scope.
 
 ### 6.2 Snapshot retrieval timestamp
 1. `strict_asof`: builder uses prefix last-event timestamp as lookup time.

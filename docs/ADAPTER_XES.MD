@@ -207,7 +207,7 @@ This artifact stores `ProcessStructureDTO` and schema metadata (`schema_version`
 ### Why this matters
 - stronger leakage control (no synchronous topology extraction during train),
 - reproducible structure snapshots,
-- backend portability (`in_memory` now, `file` now, `neo4j` next).
+- backend portability (`in_memory`, `file`, `neo4j`).
 
 ## MVP2.5 Stage 3.4 note (XES path)
 

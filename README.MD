@@ -147,7 +147,7 @@
 ## Quick Start
 
 ```bash
-python main.py --config experiments/02_train_bpi2012.yaml
+python main.py --config configs/experiments/02_train_bpi2012.yaml
 ```
 
 ## MVP1 Non-Regression Gate
@@ -307,7 +307,7 @@ python main.py sync-stats-backfill --config configs/experiments/mvp2_5_stage4_2_
 
 sync-stats CLI keys:
 ```text
---config PATH            experiment config (must include mapping.adapter=camunda)
+--config PATH            experiment config (supports mapping.adapter=camunda|xes)
 --out PATH               summary JSON output path
 --as-of ISO_TS           optional historical cutoff for strict_asof policy
 ```
@@ -469,12 +469,29 @@ python main.py visualize-topology --config <experiment.yaml> --from-raw --versio
 python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
 ```
 
-11. `experiment-ui` (desktop wrapper over CLI configs)
+10.1 `cache-clean` (remove stale graph dataset cache entries)
+```bash
+python main.py cache-clean --cache-dir .cache/graph_datasets
+```
+
+11. `web-ui` (Streamlit prototype UI)
+```bash
+python main.py web-ui
+# optional prefill config
+python main.py web-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+```
+
+12. `experiment-ui` (desktop convenience wrapper over CLI configs)
 ```bash
 python tools/experiment_ui.py --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
 # or
 python main.py experiment-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
 ```
+
+Operational stance:
+1. CLI remains the primary execution interface.
+2. `experiment-ui` is a convenience wrapper.
+3. `web-ui` is currently a prototype.
 
 ### 2. Key Config Attributes
 

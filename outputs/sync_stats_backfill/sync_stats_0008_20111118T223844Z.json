@@ -24,46 +24,14 @@
     "warn_on_fail": true
   },
   "split_strategy": "temporal",
-  "train_ratio": 0.5,
-  "fraction": 0.1,
+  "train_ratio": 0.7,
+  "fraction": 1.0,
   "knowledge_backend": "neo4j",
-  "processed_versions": 1,
-  "skipped_versions": 2,
+  "processed_versions": 0,
+  "skipped_versions": 3,
   "processes_total": 2,
   "processes_selected": 2,
-  "details": [
-    {
-      "stats_contract_version": "1.0",
-      "process_namespace": "BPI_Challenge_2012",
-      "version": "BPI_Challenge_2012",
-      "history_coverage_percent": 100.0,
-      "num_node_metrics": 1288,
-      "num_edge_metrics": 3312,
-      "non_zero_ratio_node": 0.5590062111801242,
-      "non_zero_ratio_edge": 0.5621980676328503,
-      "non_zero_ratio_global": 1.0,
-      "non_zero_ratio_overall": 0.5635813148788927,
-      "is_usable_for_training": true,
-      "quality_reason": "ok",
-      "quality_failures": [],
-      "alignment_is_ok": true,
-      "alignment_reason": "ok",
-      "alignment_failures": [],
-      "alignment_event_match_ratio": 1.0,
-      "alignment_unique_activity_coverage": 1.0,
-      "alignment_node_coverage": 1.0,
-      "alignment_scope_used": "version",
-      "knowledge_version": "k000025",
-      "tenant_id": null,
-      "effective_as_of_ts": "2011-11-18T22:38:44.546000+00:00",
-      "scope_events_version": 9019,
-      "scope_events_process": 9019,
-      "total_traces": 13087,
-      "selected_traces": 654,
-      "total_events": 9123,
-      "selected_events": 9123
-    }
-  ],
+  "details": [],
   "skipped_details": [
     {
       "process_name": "B2BContracts_ApproveProject",
@@ -88,6 +56,18 @@
       "selected_traces": 0,
       "total_events": 0,
       "selected_events": 0
+    },
+    {
+      "process_name": "BPI_Challenge_2012",
+      "version": "BPI_Challenge_2012",
+      "reason": "no_scope_events_up_to_as_of",
+      "effective_as_of_ts": "2011-11-18T22:38:44.546000+00:00",
+      "scope_events_version": 0,
+      "scope_events_process": 0,
+      "total_traces": 13087,
+      "selected_traces": 9160,
+      "total_events": 116731,
+      "selected_events": 116731
     }
   ]
 }

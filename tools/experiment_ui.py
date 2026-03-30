@@ -447,6 +447,7 @@ class ExperimentUI:
         self.vars: Dict[str, tk.Variable] = {}
         self._build_vars(default_config)
         self._build_ui()
+        self._bind_input_shortcuts()
         self._reset_progress_ui()
         self._load_state()
         self._load_base_config_into_form()
@@ -1023,6 +1024,7 @@ class ExperimentUI:
     def _build_vars(self, default_config: str | None) -> None:
         default = default_config or str(ROOT_DIR / "configs" / "experiments" / "mvp2_5_stage4_2_eopkg_files_stat.yaml")
         self.vars["config_path"] = tk.StringVar(value=default)
+        self.vars["data_config_path"] = tk.StringVar(value="")
         self.vars["preset_name"] = tk.StringVar(value="")
         self.vars["mode"] = tk.StringVar(value="train")
         self.vars["project"] = tk.StringVar(value="")
@@ -1031,6 +1033,9 @@ class ExperimentUI:
         self.vars["split_strategy"] = tk.StringVar(value="temporal")
         self.vars["train_ratio"] = tk.StringVar(value="0.7")
         self.vars["split_ratio"] = tk.StringVar(value="[0.7, 0.2, 0.1]")
+        self.vars["split_ratio_train"] = tk.StringVar(value="0.7")
+        self.vars["split_ratio_val"] = tk.StringVar(value="0.2")
+        self.vars["split_ratio_test"] = tk.StringVar(value="0.1")
         self.vars["retrain"] = tk.BooleanVar(value=True)
         self.vars["seed"] = tk.StringVar(value="42")
         self.vars["stats_time_policy"] = tk.StringVar(value="strict_asof")
@@ -1058,6 +1063,37 @@ class ExperimentUI:
         if text in {"read", "write", "full"}:
             return text
         return "off"
+
+    def _set_split_ratio_vars(self, raw: Any) -> None:
+        default_values = [0.7, 0.2, 0.1]
+        parsed = raw
+        if isinstance(raw, str):
+            parsed = _parse_text(raw)
+        values = list(default_values)
+        if isinstance(parsed, (list, tuple)) and len(parsed) == 3:
+            try:
+                values = [float(parsed[0]), float(parsed[1]), float(parsed[2])]
+            except (TypeError, ValueError):
+                values = list(default_values)
+        self.vars["split_ratio"].set(_to_text(values))
+        self.vars["split_ratio_train"].set(str(values[0]))
+        self.vars["split_ratio_val"].set(str(values[1]))
+        self.vars["split_ratio_test"].set(str(values[2]))
+
+    def _resolve_split_ratio(self) -> Any:
+        train_raw = str(self.vars.get("split_ratio_train").get()).strip()
+        val_raw = str(self.vars.get("split_ratio_val").get()).strip()
+        test_raw = str(self.vars.get("split_ratio_test").get()).strip()
+        if train_raw or val_raw or test_raw:
+            if not train_raw or not val_raw or not test_raw:
+                raise ValueError("experiment.split_ratio: fill all three values (train/val/test).")
+            try:
+                values = [float(train_raw), float(val_raw), float(test_raw)]
+            except ValueError as exc:
+                raise ValueError("experiment.split_ratio values must be numeric.") from exc
+            self.vars["split_ratio"].set(_to_text(values))
+            return values
+        return _parse_text(str(self.vars["split_ratio"].get()))
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -1098,6 +1134,38 @@ class ExperimentUI:
         for key, var in self.vars.items():
             if isinstance(var, (tk.StringVar, tk.BooleanVar, tk.IntVar, tk.DoubleVar)):
                 var.trace_add("write", lambda *_args: self._refresh_preview())
+
+    def _bind_input_shortcuts(self) -> None:
+        def _event(name: str):
+            def _handler(event: tk.Event) -> str:
+                try:
+                    event.widget.event_generate(name)
+                except tk.TclError:
+                    return "break"
+                return "break"
+
+            return _handler
+
+        def _select_all(event: tk.Event) -> str:
+            widget = event.widget
+            try:
+                if hasattr(widget, "selection_range"):
+                    widget.selection_range(0, tk.END)
+                if hasattr(widget, "icursor"):
+                    widget.icursor(tk.END)
+            except tk.TclError:
+                return "break"
+            return "break"
+
+        for class_name in ("TEntry", "Entry", "TCombobox", "Combobox"):
+            self.root.bind_class(class_name, "<Control-c>", _event("<<Copy>>"), add="+")
+            self.root.bind_class(class_name, "<Control-C>", _event("<<Copy>>"), add="+")
+            self.root.bind_class(class_name, "<Control-v>", _event("<<Paste>>"), add="+")
+            self.root.bind_class(class_name, "<Control-V>", _event("<<Paste>>"), add="+")
+            self.root.bind_class(class_name, "<Control-x>", _event("<<Cut>>"), add="+")
+            self.root.bind_class(class_name, "<Control-X>", _event("<<Cut>>"), add="+")
+            self.root.bind_class(class_name, "<Control-a>", _select_all, add="+")
+            self.root.bind_class(class_name, "<Control-A>", _select_all, add="+")
 
     def _add_help_mark(self, parent: tk.Widget, row: int, text: str, col: int = 2) -> None:
         mark = ttk.Label(parent, text="?", foreground="#1a73e8")
@@ -1163,7 +1231,19 @@ class ExperimentUI:
 
         ttk.Label(core, text="experiment.split_ratio").grid(row=9, column=0, sticky="w")
         self._add_help_mark(core, 9, self._hint_for("experiment.split_ratio"))
-        w = ttk.Entry(core, textvariable=self.vars["split_ratio"]); w.grid(row=9, column=1, sticky="ew"); self._general_field_widgets["split_ratio"] = w
+        ratio_frame = ttk.Frame(core)
+        ratio_frame.grid(row=9, column=1, sticky="ew")
+        ttk.Label(ratio_frame, text="train").grid(row=0, column=0, sticky="w")
+        split_train = ttk.Entry(ratio_frame, textvariable=self.vars["split_ratio_train"], width=8)
+        split_train.grid(row=0, column=1, sticky="w", padx=(4, 8))
+        ttk.Label(ratio_frame, text="val").grid(row=0, column=2, sticky="w")
+        split_val = ttk.Entry(ratio_frame, textvariable=self.vars["split_ratio_val"], width=8)
+        split_val.grid(row=0, column=3, sticky="w", padx=(4, 8))
+        ttk.Label(ratio_frame, text="test").grid(row=0, column=4, sticky="w")
+        split_test = ttk.Entry(ratio_frame, textvariable=self.vars["split_ratio_test"], width=8)
+        split_test.grid(row=0, column=5, sticky="w", padx=(4, 0))
+        self._split_ratio_widgets = [split_train, split_val, split_test]
+        self._general_field_widgets["split_ratio"] = split_train
 
         w = ttk.Checkbutton(core, text="training.retrain", variable=self.vars["retrain"]); w.grid(row=10, column=1, sticky="w"); self._general_field_widgets["retrain"] = w
         self._add_help_mark(core, 10, self._hint_for("training.retrain"))
@@ -1298,10 +1378,15 @@ class ExperimentUI:
         top = ttk.Frame(source_mapping)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        ttk.Label(top, text="mapping.adapter").grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text="Data config").grid(row=0, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.vars["data_config_path"]).grid(row=0, column=1, sticky="ew")
+        ttk.Button(top, text="Browse", command=self._browse_data_config).grid(row=0, column=2, padx=(8, 0))
+        ttk.Button(top, text="Apply Data Config", command=self._apply_data_config_clicked).grid(row=0, column=3, padx=(8, 0))
+        _Hint(top, "Apply Data Config оновлює лише поля, присутні у data-config (без скидання інших).", row=1, col_span=4)
+        ttk.Label(top, text="mapping.adapter").grid(row=2, column=0, sticky="w")
         self.adapter_box = ttk.Combobox(top, textvariable=self.vars["adapter"], values=["xes", "camunda"], state="readonly", width=18)
-        self.adapter_box.grid(row=0, column=1, sticky="w")
-        _Hint(top, "camunda: runtime-події через camunda_adapter.runtime.*; xes: data.log_path + xes_adapter.*", row=1)
+        self.adapter_box.grid(row=2, column=1, sticky="w")
+        _Hint(top, "camunda: runtime-події через camunda_adapter.runtime.*; xes: data.log_path + xes_adapter.*", row=3, col_span=4)
 
         src_sections = ttk.Notebook(source_mapping)
         src_sections.grid(row=2, column=0, sticky="nsew")
@@ -1541,6 +1626,72 @@ class ExperimentUI:
             self.vars["config_path"].set(path)
             self._load_base_config_into_form()
 
+    def _browse_data_config(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select data config",
+            initialdir=str((ROOT_DIR / "configs" / "data").resolve()),
+            filetypes=[("YAML", "*.yaml *.yml"), ("All files", "*.*")],
+        )
+        if path:
+            self.vars["data_config_path"].set(path)
+
+    def _apply_data_config_clicked(self) -> None:
+        raw = str(self.vars.get("data_config_path").get()).strip()
+        if not raw:
+            messagebox.showwarning("Data config", "Select data config path first.")
+            return
+        path = Path(raw)
+        if not path.is_absolute():
+            path = (ROOT_DIR / path).resolve()
+        if not path.exists():
+            messagebox.showerror("Data config", f"Config not found: {path}")
+            return
+        try:
+            loaded = load_yaml_with_includes(path)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Data config", str(exc))
+            return
+        if not isinstance(loaded, dict):
+            messagebox.showerror("Data config", "Loaded data config must be a mapping.")
+            return
+        self._apply_data_config_values(loaded)
+        self._refresh_state_controls()
+        self._refresh_preview()
+        messagebox.showinfo("Data config", f"Applied values from: {path}")
+
+    def _apply_data_config_values(self, loaded: Dict[str, Any]) -> None:
+        data_flat = _flatten(_deep_get(loaded, "data", {}), "data")
+        mapping_flat = _flatten(_deep_get(loaded, "mapping", {}), "mapping")
+
+        for key, value in data_flat.items():
+            target = self.input_data_form.entries.get(key)
+            if target is not None:
+                target.set(_to_text(value))
+
+        if "mapping.adapter" in mapping_flat:
+            self.vars["adapter"].set(str(mapping_flat["mapping.adapter"]))
+
+        for key, value in mapping_flat.items():
+            if key.startswith("mapping.xes_adapter."):
+                target = self.input_xes_form.entries.get(key)
+                if target is not None:
+                    target.set(_to_text(value))
+                continue
+            if key.startswith("mapping.camunda_adapter.runtime."):
+                target = self.input_camunda_runtime_form.entries.get(key)
+                if target is not None:
+                    target.set(_to_text(value))
+                continue
+            if key.startswith("mapping.camunda_adapter.") and not key.startswith("mapping.camunda_adapter.structure."):
+                target = self.input_camunda_mapping_form.entries.get(key)
+                if target is not None:
+                    target.set(_to_text(value))
+
+        if _deep_has(loaded, "mapping.features"):
+            self._set_text_block(self.features_text, _deep_get(loaded, "mapping.features", []))
+        if _deep_has(loaded, "policies"):
+            self._set_text_block(self.policies_text, _deep_get(loaded, "policies", {}))
+
     def _load_base_config(self) -> Dict[str, Any]:
         raw = str(self.vars["config_path"].get()).strip()
         if not raw:
@@ -1609,7 +1760,7 @@ class ExperimentUI:
         self.vars["fraction"].set(str(exp.get("fraction", 1.0)))
         self.vars["split_strategy"].set(str(exp.get("split_strategy", "temporal")))
         self.vars["train_ratio"].set(str(exp.get("train_ratio", 0.7)))
-        self.vars["split_ratio"].set(_to_text(exp.get("split_ratio", [0.7, 0.2, 0.1])))
+        self._set_split_ratio_vars(exp.get("split_ratio", [0.7, 0.2, 0.1]))
         self.vars["stats_time_policy"].set(str(exp.get("stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(exp.get("on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(exp.get("cache_policy", "full")))
@@ -1764,6 +1915,8 @@ class ExperimentUI:
                 widget.configure(state="disabled" if is_sync_mode else "readonly")
             else:
                 widget.configure(state="disabled" if is_sync_mode else "normal")
+        for widget in getattr(self, "_split_ratio_widgets", []):
+            widget.configure(state="disabled" if is_sync_mode else "normal")
         self.model_form.set_enabled_by_prefix(enabled_prefixes=("model.",) if not is_sync_mode else tuple(), disabled_prefixes=tuple())
         for form in self._iter_general_advanced_forms():
             form.set_enabled_by_prefix(
@@ -1917,7 +2070,7 @@ class ExperimentUI:
         self.vars["fraction"].set(str(self._catalog_default("experiment.fraction", "1.0")))
         self.vars["split_strategy"].set(str(self._catalog_default("experiment.split_strategy", "temporal")))
         self.vars["train_ratio"].set(str(self._catalog_default("experiment.train_ratio", "0.7")))
-        self.vars["split_ratio"].set(_to_text(self._catalog_default("experiment.split_ratio", [0.7, 0.2, 0.1])))
+        self._set_split_ratio_vars(self._catalog_default("experiment.split_ratio", [0.7, 0.2, 0.1]))
         self.vars["stats_time_policy"].set(str(self._catalog_default("experiment.stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(self._catalog_default("experiment.on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(self._catalog_default("experiment.cache_policy", "full")))
@@ -1966,7 +2119,7 @@ class ExperimentUI:
         _deep_set(cfg, "experiment.fraction", float(str(self.vars["fraction"].get()).strip() or "1.0"))
         _deep_set(cfg, "experiment.split_strategy", str(self.vars["split_strategy"].get()).strip())
         _deep_set(cfg, "experiment.train_ratio", float(str(self.vars["train_ratio"].get()).strip() or "0.7"))
-        _deep_set(cfg, "experiment.split_ratio", _parse_text(str(self.vars["split_ratio"].get())))
+        _deep_set(cfg, "experiment.split_ratio", self._resolve_split_ratio())
         _deep_set(cfg, "experiment.stats_time_policy", str(self.vars["stats_time_policy"].get()).strip())
         _deep_set(cfg, "experiment.on_missing_asof_snapshot", str(self.vars["on_missing_asof_snapshot"].get()).strip())
         _deep_set(cfg, "experiment.cache_policy", str(self.vars["cache_policy"].get()).strip())
@@ -2043,6 +2196,10 @@ class ExperimentUI:
             for key, value in vars_payload.items():
                 if key in self.vars:
                     self.vars[key].set(value)
+            if "split_ratio" in vars_payload and not all(
+                key in vars_payload for key in ("split_ratio_train", "split_ratio_val", "split_ratio_test")
+            ):
+                self._set_split_ratio_vars(vars_payload.get("split_ratio"))
 
     def _apply_payload_to_forms(self, payload: Any) -> None:
         if not isinstance(payload, dict):
@@ -2052,6 +2209,10 @@ class ExperimentUI:
             for key, value in vars_payload.items():
                 if key in self.vars:
                     self.vars[key].set(value)
+            if "split_ratio" in vars_payload and not all(
+                key in vars_payload for key in ("split_ratio_train", "split_ratio_val", "split_ratio_test")
+            ):
+                self._set_split_ratio_vars(vars_payload.get("split_ratio"))
         for payload_key, form in (
             ("input_data_form", self.input_data_form),
             ("input_xes_form", self.input_xes_form),
@@ -2156,11 +2317,23 @@ class ExperimentUI:
         vars_payload = payload.get("vars", {})
         if isinstance(vars_payload, dict):
             cfg_path = vars_payload.get("config_path")
-            if cfg_path is not None and "config_path" in self.vars:
+            current_cfg_path = str(self.vars.get("config_path").get()).strip() if "config_path" in self.vars else ""
+            if cfg_path is not None and "config_path" in self.vars and not current_cfg_path:
                 self.vars["config_path"].set(cfg_path)
 
         self._load_base_config_into_form()
         self._apply_payload_to_forms(payload)
+        if isinstance(vars_payload, dict):
+            for key, value in vars_payload.items():
+                if key == "config_path":
+                    continue
+                target_var = self.vars.get(str(key))
+                if target_var is None:
+                    continue
+                try:
+                    target_var.set(value)
+                except Exception:  # noqa: BLE001
+                    continue
         self._refresh_state_controls()
         self._refresh_preview()
 

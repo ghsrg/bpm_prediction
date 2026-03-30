@@ -1,5 +1,5 @@
 data:
-  dataset_label: "bpi2012"
+  dataset_label: "bpi2017"
   log_path: "../Data/BPI Challenge 2017_1_all/BPI Challenge 2017.xes"
 
 mapping:

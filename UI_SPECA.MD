@@ -1,10 +1,12 @@
 ﻿# UI_SPECA.MD
 
-Updated: 2026-03-21
-Status: Implemented (catalog-driven UI)
+Updated: 2026-03-26
+Status: Implemented (catalog-driven desktop UI) + web prototype available
 
 ## 1. Objective
-Desktop UI is the primary way to configure experiments. CLI remains for automation/CI only.
+CLI is the primary execution interface.
+`experiment-ui` is the convenience interactive wrapper.
+`web-ui` is currently a prototype and not primary.
 
 ## 2. Single Source of Config Metadata
 Metadata catalog file:

@@ -1,10 +1,10 @@
-﻿"""Streaming XES adapter implementation."""
+"""Streaming XES adapter implementation."""
 
-# Р’С–РґРїРѕРІС–РґРЅРѕ РґРѕ:
-# - AGENT_GUIDE.MD -> СЂРѕР·РґС–Р» 2 (No DOM parsing), СЂРѕР·РґС–Р» 4 (DTO contract), СЂРѕР·РґС–Р» 6 (doc links)
-# - ADAPTER_XES.MD -> СЂРѕР·РґС–Р» 4 (РїР°СЂСЃРёРЅРі/РґРµР»СЊС‚Рё/lifecycle/pairing), СЂРѕР·РґС–Р» 7 (streaming Iterator[RawTrace])
-# - DATA_FLOWS_MVP1.MD -> СЂРѕР·РґС–Р» 2.1 (IXESAdapter ingestion contract)
-# - DATA_MODEL_MVP1.MD -> СЂРѕР·РґС–Р» 3 (External Boundary Objects)
+# Reference docs:
+# - AGENT_GUIDE.MD: no DOM parsing, DTO contract, docs links.
+# - ADAPTER_XES.MD: parsing/deltas/lifecycle/pairing, streaming Iterator[RawTrace].
+# - DATA_FLOWS_MVP1.MD: IXESAdapter ingestion contract.
+# - DATA_MODEL_MVP1.MD: external boundary objects.
 
 from __future__ import annotations
 

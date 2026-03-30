@@ -210,6 +210,13 @@ class ModelTrainer:
         safe_experiment_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in experiment_name)
         self.experiment_name = safe_experiment_name
         self.checkpoint_path = Path(checkpoint_override) if checkpoint_override else (Path(self.checkpoint_dir) / f"{self.experiment_name}_best.pth")
+        resume_checkpoint_override = str(config.get("resume_checkpoint_path", "")).strip()
+        self.resume_checkpoint_path = (
+            Path(resume_checkpoint_override)
+            if resume_checkpoint_override
+            else self._derive_last_checkpoint_path(self.checkpoint_path)
+        )
+        self.last_checkpoint_path = self._derive_last_checkpoint_path(self.checkpoint_path)
 
         self._topology_nodes: List[int] = []
         self._topology_edges: List[int] = []
@@ -396,13 +403,22 @@ class ModelTrainer:
             self._restore_from_checkpoint(checkpoint, require_encoder_state=True)
             best_val_loss = float(checkpoint["val_loss"])
             best_epoch = int(checkpoint["epoch"])
-        elif self.checkpoint_path.exists() and not self.retrain:
-            checkpoint = self._load_checkpoint(self.checkpoint_path, require_encoder_state=False)
+        elif not self.retrain:
+            resume_path = self._resolve_resume_checkpoint_path()
+            if resume_path is None:
+                return checkpoint, start_epoch, best_val_loss, best_epoch
+            checkpoint = self._load_checkpoint(resume_path, require_encoder_state=False)
             self._restore_from_checkpoint(checkpoint, require_encoder_state=False)
-            best_val_loss = float(checkpoint["val_loss"])
             start_epoch = int(checkpoint["epoch"])
-            best_epoch = start_epoch
-            logger.info("Loaded checkpoint from epoch %d with val_loss %.6f.", start_epoch, best_val_loss)
+            best_val_loss = float(checkpoint.get("best_val_loss", checkpoint["val_loss"]))
+            best_epoch = int(checkpoint.get("best_epoch", start_epoch))
+            logger.info(
+                "Loaded resume checkpoint from %s at epoch %d (best_epoch=%d, best_val_loss=%.6f).",
+                resume_path,
+                start_epoch,
+                best_epoch,
+                best_val_loss,
+            )
 
         return checkpoint, start_epoch, best_val_loss, best_epoch
 
@@ -594,9 +610,24 @@ class ModelTrainer:
                     best_val_loss = val_loss
                     best_epoch = epoch
                     epochs_without_improvement = 0
-                    self._save_checkpoint(self.checkpoint_path, epoch=epoch, val_loss=best_val_loss, optimizer=optimizer)
+                    self._save_checkpoint(
+                        self.checkpoint_path,
+                        epoch=epoch,
+                        val_loss=best_val_loss,
+                        optimizer=optimizer,
+                        best_epoch=best_epoch,
+                        best_val_loss=best_val_loss,
+                    )
                 else:
                     epochs_without_improvement += 1
+                self._save_checkpoint(
+                    self.last_checkpoint_path,
+                    epoch=epoch,
+                    val_loss=val_loss,
+                    optimizer=optimizer,
+                    best_epoch=best_epoch,
+                    best_val_loss=best_val_loss,
+                )
 
                 if epochs_without_improvement >= self.patience:
                     logger.info("Early stopping triggered at epoch %d (best_epoch=%d, best_val_loss=%.6f).", epoch, best_epoch, best_val_loss)
@@ -683,7 +714,16 @@ class ModelTrainer:
         finally:
             self.model.train(was_training)
 
-    def _save_checkpoint(self, checkpoint_path: Path, epoch: int, val_loss: float, optimizer: Adam) -> None:
+    def _save_checkpoint(
+        self,
+        checkpoint_path: Path,
+        epoch: int,
+        val_loss: float,
+        optimizer: Adam,
+        *,
+        best_epoch: Optional[int] = None,
+        best_val_loss: Optional[float] = None,
+    ) -> None:
         """Persist best model checkpoint for future resume/evaluation flows."""
         checkpoint_payload = {
             "epoch": int(epoch),
@@ -691,10 +731,52 @@ class ModelTrainer:
             "optimizer_state_dict": optimizer.state_dict(),
             "val_loss": float(val_loss),
         }
+        if best_epoch is not None:
+            checkpoint_payload["best_epoch"] = int(best_epoch)
+        if best_val_loss is not None and math.isfinite(float(best_val_loss)):
+            checkpoint_payload["best_val_loss"] = float(best_val_loss)
         feature_encoder = getattr(self.graph_builder, "feature_encoder", None)
         if feature_encoder is not None and hasattr(feature_encoder, "get_state"):
             checkpoint_payload["encoder_state"] = feature_encoder.get_state()
+        if self.tracker is not None and hasattr(self.tracker, "get_run_id"):
+            try:
+                run_id = getattr(self.tracker, "get_run_id")()
+            except Exception:  # noqa: BLE001
+                run_id = None
+            if isinstance(run_id, str) and run_id.strip():
+                checkpoint_payload["mlflow_run_id"] = run_id.strip()
         torch.save(checkpoint_payload, checkpoint_path)
+
+    @staticmethod
+    def _derive_last_checkpoint_path(checkpoint_path: Path) -> Path:
+        """Derive stable last-training checkpoint path from best/effective checkpoint path."""
+        name = checkpoint_path.name
+        if name.endswith("_best.pth"):
+            return checkpoint_path.with_name(f"{name[:-9]}_last.pth")
+        stem = checkpoint_path.stem
+        suffix = checkpoint_path.suffix or ".pth"
+        if stem.endswith("_best"):
+            return checkpoint_path.with_name(f"{stem[:-5]}_last{suffix}")
+        return checkpoint_path.with_name(f"{stem}_last{suffix}")
+
+    def _resolve_resume_checkpoint_path(self) -> Optional[Path]:
+        """Resolve training-resume checkpoint path, preferring explicit resume/last checkpoint."""
+        candidate_paths: List[Path] = []
+        if isinstance(self.resume_checkpoint_path, Path):
+            candidate_paths.append(self.resume_checkpoint_path)
+        if isinstance(self.last_checkpoint_path, Path):
+            candidate_paths.append(self.last_checkpoint_path)
+        candidate_paths.append(self.checkpoint_path)
+
+        seen: set[str] = set()
+        for candidate in candidate_paths:
+            normalized = str(candidate)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            if candidate.exists():
+                return candidate
+        return None
 
     def _load_checkpoint(self, checkpoint_path: Path, require_encoder_state: bool) -> Dict[str, Any]:
         """Load checkpoint with required keys validation."""
@@ -714,6 +796,7 @@ class ModelTrainer:
 
     def _restore_from_checkpoint(self, checkpoint: Dict[str, Any], require_encoder_state: bool) -> None:
         """Restore model and feature encoder states from checkpoint."""
+        self._materialize_lazy_model_modules(checkpoint)
         try:
             self.model.load_state_dict(checkpoint["model_state_dict"])
         except RuntimeError as exc:
@@ -735,6 +818,38 @@ class ModelTrainer:
             ) from exc
         self._restore_encoder_state(checkpoint, require_encoder_state=require_encoder_state)
 
+    def _materialize_lazy_model_modules(self, checkpoint: Dict[str, Any]) -> None:
+        """Materialize lazily-created model modules that may already exist in checkpoint state."""
+        model_state = checkpoint.get("model_state_dict")
+        if not isinstance(model_state, dict):
+            return
+
+        # EOPKGGATv2 creates struct_input_proj lazily on first forward when struct_x dim != struct_hidden_dim.
+        # For resume flows we need the module in place before strict state_dict loading.
+        has_lazy_proj = hasattr(self.model, "struct_input_proj")
+        current_proj = getattr(self.model, "struct_input_proj", None) if has_lazy_proj else None
+        if not has_lazy_proj or current_proj is not None:
+            return
+
+        weight = model_state.get("struct_input_proj.weight")
+        bias = model_state.get("struct_input_proj.bias")
+        if not isinstance(weight, torch.Tensor):
+            return
+        if weight.ndim != 2:
+            raise ValueError("Invalid checkpoint tensor shape for struct_input_proj.weight; expected 2D tensor.")
+
+        out_features = int(weight.shape[0])
+        in_features = int(weight.shape[1])
+        use_bias = isinstance(bias, torch.Tensor)
+
+        layer = nn.Linear(in_features, out_features, bias=use_bias).to(device=self.device, dtype=weight.dtype)
+        setattr(self.model, "struct_input_proj", layer)
+        logger.info(
+            "Materialized lazy module struct_input_proj from checkpoint shape=(out=%d,in=%d).",
+            out_features,
+            in_features,
+        )
+
     def _restore_encoder_state(self, checkpoint: Dict[str, Any], require_encoder_state: bool) -> None:
         """Restore encoder state into graph_builder.feature_encoder when available."""
         encoder_state = checkpoint.get("encoder_state")
@@ -750,6 +865,9 @@ class ModelTrainer:
 
     def _prepare_split_data(self, traces: Sequence[RawTrace]) -> SplitData:
         """Apply micro split into train/val/test on already prepared trace stream."""
+        if self.mode in {"eval_drift", "eval_cross_dataset"}:
+            logger.info("Eval mode [%s]: bypassing micro split; routing all %d traces to test scope.", self.mode, len(traces))
+            return SplitData(train=[], val=[], test=list(traces))
         experiment_cfg = self.config.get("experiment_config", {})
         split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
         split_ratio = self._parse_split_ratio(experiment_cfg.get("split_ratio", [0.7, 0.2, 0.1]))

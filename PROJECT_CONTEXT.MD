@@ -1,7 +1,7 @@
 ﻿# PROJECT_CONTEXT.md
 
-Updated: 2026-03-21
-Purpose: operational context for current MVP2.5 state after Stage 4.2 updates.
+Updated: 2026-03-26
+Purpose: operational context for current MVP2.5 state after Stage 4.2 implementation and closure sync.
 
 ## 1. Current State
 
@@ -58,9 +58,9 @@ Mandatory checks:
 ## 5. Current Priority
 
 Immediate next step:
-1. calibrate and tune policy defaults/thresholds for target datasets after enabling explicit missing-asof policy.
-2. finalize MVP2.5 closure checklist (`Finish_MVP2_5_Plan.MD`) against completed Stage 4.2 worklogs.
-3. run dissertation-goal alignment review and technical-debt audit.
+1. synchronize canonical documentation to implemented Stage 4.2 runtime behavior and defaults.
+2. keep CLI as primary run interface; maintain `experiment-ui` as convenience wrapper and `web-ui` as prototype.
+3. continue dissertation-goal alignment review and technical-debt audit.
 
 ## 6. Priority of Truth
 

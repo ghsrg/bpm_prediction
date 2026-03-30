@@ -1,7 +1,7 @@
 ﻿# ARCHITECTURE_MVP2_5.MD
 
-Updated: 2026-03-19
-Status: ACTIVE (Stage 3.4 completed, Stage 4 in progress)
+Updated: 2026-03-26
+Status: ACTIVE (Stage 4.2 implemented, closure sync in progress)
 
 ## 1. Purpose
 This document is the canonical architecture baseline for MVP2.5.
@@ -134,7 +134,7 @@ flowchart LR
 ## 6. Timestamp Semantics
 
 1. `sync-stats --as-of <ISO>`: snapshot timestamp is forced to provided value.
-2. `sync-stats` without `--as-of`: snapshot timestamp is current UTC time.
+2. `sync-stats` without `--as-of`: effective snapshot timestamp is derived from selected train-cut events (`max(event_ts)` per process scope).
 3. In train/eval with `experiment.stats_time_policy = strict_asof`:
    - builder uses prefix last-event timestamp as runtime `as_of`.
 4. In `latest` policy:

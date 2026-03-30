@@ -1,7 +1,7 @@
 ﻿# ADAPTER_CAMUNDA_SQL.MD
 
 Updated: 2026-03-17  
-Status: ACTIVE (MVP2.5 Stage 3.1 + 3.2)
+Status: ACTIVE (MVP2.5 Stage 3.1 + 3.2 + Stage 3.4/4.2 stats integration)
 
 ## 1. Purpose
 This specification defines the Camunda 7 MSSQL adapter contract used by `CamundaRuntimeAdapter` and related services.
@@ -193,7 +193,7 @@ flowchart TD
 
 Timestamp semantics:
 1. `--as-of` provided: windows are computed relative to provided cutoff.
-2. no `--as-of`: windows are computed relative to current UTC.
+2. no `--as-of`: windows are computed relative to derived process cutoff `effective_as_of=max(event_ts)` after train-cut selection.
 
 Stored windows:
 1. `last_7d`

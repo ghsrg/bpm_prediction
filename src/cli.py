@@ -128,6 +128,61 @@ def _build_mlflow_params(config: Dict[str, Any], max_value_len: int = 480) -> Di
     return params
 
 
+def _resolve_resume_mlflow_run_id(
+    *,
+    mode: str,
+    retrain: bool,
+    checkpoint_payload: Dict[str, Any] | None,
+    checkpoint_epoch: int,
+    target_epochs: int,
+    experiment_name: str,
+    run_name: str,
+    tracking_uri: str,
+) -> str | None:
+    """Resolve MLflow run id for resume-train scenarios; eval modes always start a new run."""
+    mode_key = str(mode).strip().lower()
+    if mode_key in {"eval_drift", "eval_cross_dataset"}:
+        return None
+    if mode_key != "train" or bool(retrain):
+        return None
+    if checkpoint_payload is None:
+        return None
+    if int(checkpoint_epoch) >= int(target_epochs):
+        return None
+
+    embedded_run_id = str(checkpoint_payload.get("mlflow_run_id", "")).strip()
+    if embedded_run_id:
+        return embedded_run_id
+
+    try:
+        return MLflowTracker.find_latest_run_id(
+            experiment_name=str(experiment_name).strip(),
+            run_name=str(run_name).strip(),
+            tracking_uri=str(tracking_uri).strip() or None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resolve_tracking_experiment_name(base_project: str, mode: str) -> str:
+    """Resolve MLflow experiment name without mutating base project name."""
+    base = str(base_project or "DefaultExperiment").strip() or "DefaultExperiment"
+    return base
+
+
+def _derive_last_checkpoint_path(checkpoint_path: str) -> str:
+    """Derive companion last-checkpoint path from effective checkpoint path."""
+    path = Path(str(checkpoint_path).strip())
+    name = path.name
+    if name.endswith("_best.pth"):
+        return str(path.with_name(f"{name[:-9]}_last.pth"))
+    stem = path.stem
+    suffix = path.suffix or ".pth"
+    if stem.endswith("_best"):
+        return str(path.with_name(f"{stem[:-5]}_last{suffix}"))
+    return str(path.with_name(f"{stem}_last{suffix}"))
+
+
 def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility across random/numpy/torch backends."""
     random.seed(seed)
@@ -1185,7 +1240,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     split_ratio = _parse_split_ratio(experiment_cfg)
     train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
-    if mode == "eval_cross_dataset":
+    if mode in {"eval_cross_dataset", "eval_drift"}:
         split_ratio = (0.0, 0.0, 1.0)
 
     prefix_policy = PrefixPolicy()
@@ -1763,31 +1818,46 @@ def main() -> None:
     checkpoint_run_name = str(training_cfg.get("checkpoint_run_name", full_run_name)).strip() or full_run_name
     checkpoint_dir = str(training_cfg.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
     checkpoint_override = str(training_cfg.get("checkpoint_path", "")).strip()
-    eval_load_checkpoint = str(experiment_cfg.get("load_checkpoint", "")).strip()
+    resume_checkpoint_override = str(training_cfg.get("resume_checkpoint_path", "")).strip()
+    load_checkpoint_override = str(experiment_cfg.get("load_checkpoint", "")).strip()
 
     retrain = bool(training_cfg.get("retrain", False))
     resume_train_mode = (mode == "train") and (not retrain)
+    checkpoint_payload_for_resume: Dict[str, Any] | None = None
+    checkpoint_epoch_for_resume = 0
 
     if mode.startswith("eval_"):
-        if not eval_load_checkpoint:
+        if not load_checkpoint_override:
             raise ValueError("Р”Р»СЏ eval СЂРµР¶РёРјС–РІ РЅРµРѕР±С…С–РґРЅРѕ РІРєР°Р·Р°С‚Рё С€Р»СЏС… РґРѕ С‡РµРєРїРѕС–РЅС‚Сѓ РІ experiment.load_checkpoint")
-        resolved_checkpoint_path = eval_load_checkpoint
+        resolved_checkpoint_path = load_checkpoint_override
+        resolved_resume_checkpoint_path = resolved_checkpoint_path
 
     else:
-        resolved_checkpoint_path = checkpoint_override or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
+        resolved_checkpoint_path = (
+            checkpoint_override
+            or load_checkpoint_override
+            or str(Path(checkpoint_dir) / f"{checkpoint_run_name}_best.pth")
+        )
+        resolved_resume_checkpoint_path = (
+            resume_checkpoint_override
+            or (_derive_last_checkpoint_path(resolved_checkpoint_path) if resume_train_mode else resolved_checkpoint_path)
+        )
 
-    should_early_load_checkpoint = mode.startswith("eval_") or (resume_train_mode and Path(resolved_checkpoint_path).exists())
+    early_checkpoint_path = resolved_checkpoint_path if mode.startswith("eval_") else resolved_resume_checkpoint_path
+    should_early_load_checkpoint = mode.startswith("eval_") or (resume_train_mode and Path(early_checkpoint_path).exists())
 
     if should_early_load_checkpoint:
-        if mode.startswith("eval_") and not Path(resolved_checkpoint_path).exists():
-            raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {resolved_checkpoint_path}")
+        if mode.startswith("eval_") and not Path(early_checkpoint_path).exists():
+            raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {early_checkpoint_path}")
 
-        checkpoint_payload = torch.load(resolved_checkpoint_path, map_location="cpu")
+        checkpoint_payload = torch.load(early_checkpoint_path, map_location="cpu")
         if not isinstance(checkpoint_payload, dict):
             raise ValueError("Checkpoint payload must be a dictionary.")
         model_state_dict = checkpoint_payload.get("model_state_dict")
         if model_state_dict is None:
             raise ValueError("Checkpoint payload does not contain required key 'model_state_dict'.")
+        checkpoint_payload_for_resume = checkpoint_payload
+        checkpoint_epoch_for_resume = int(checkpoint_payload.get("epoch", 0) or 0)
         encoder_state = checkpoint_payload.get("encoder_state")
         if encoder_state is None:
             raise ValueError(
@@ -1846,11 +1916,44 @@ def main() -> None:
 
     tracker = None
     if bool(tracking_cfg.get("enabled", False)):
+        tracking_experiment_name = _resolve_tracking_experiment_name(
+            str(experiment_cfg.get("project", "DefaultExperiment")),
+            mode,
+        )
+        target_epochs = int(training_cfg.get("epochs", 10))
+        resume_run_id = _resolve_resume_mlflow_run_id(
+            mode=mode,
+            retrain=retrain,
+            checkpoint_payload=checkpoint_payload_for_resume,
+            checkpoint_epoch=checkpoint_epoch_for_resume,
+            target_epochs=target_epochs,
+            experiment_name=tracking_experiment_name,
+            run_name=full_run_name,
+            tracking_uri=str(tracking_cfg.get("uri", "")).strip(),
+        )
         tracker = MLflowTracker(
-            experiment_name=str(experiment_cfg.get("project", "DefaultExperiment")),
+            experiment_name=tracking_experiment_name,
             run_name=full_run_name,
             tracking_uri=tracking_cfg.get("uri"),
+            resume_run_id=resume_run_id,
         )
+        tracker.log_tag("tracking_project_base", str(experiment_cfg.get("project", "DefaultExperiment")))
+        tracker.log_tag("mode", mode)
+        if isinstance(resume_run_id, str) and resume_run_id.strip():
+            logger.info(
+                "MLflow resume mode: continuing run_id=%s (checkpoint_epoch=%d target_epochs=%d)",
+                resume_run_id,
+                int(checkpoint_epoch_for_resume),
+                int(target_epochs),
+            )
+            tracker.log_tag("resume_from_checkpoint", str(early_checkpoint_path))
+            tracker.log_tag("resume_checkpoint_epoch", int(checkpoint_epoch_for_resume))
+        elif mode in {"eval_drift", "eval_cross_dataset"}:
+            logger.info(
+                "MLflow eval mode (%s): using new experiment '%s' and starting a new run.",
+                mode,
+                tracking_experiment_name,
+            )
         mlflow_params = _build_mlflow_params(config, max_value_len=480)
         tracker.log_params(mlflow_params)
         logger.info("Logged MLflow params from selected blocks: %d entries.", len(mlflow_params))
@@ -1893,6 +1996,7 @@ def main() -> None:
         "retrain": retrain,
         "checkpoint_dir": checkpoint_dir,
         "checkpoint_path": resolved_checkpoint_path,
+        "resume_checkpoint_path": resolved_resume_checkpoint_path,
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
         "drift_window_sliding": int(experiment_cfg.get("drift_window_sliding", 0) or 0),

@@ -1,7 +1,8 @@
 # Finish_MVP2_5_Plan.MD
 
-Date: 2026-03-20  
-Status: Updated (with universal stats contract plan)
+Date: 2026-03-26  
+Status: Updated (implementation complete; closure/doc-sync focus)
+Note: this file remains as historical implementation plan; detailed P0/P1/P2 sections below are retained for traceability.
 
 ## 1. Поточний стан MVP2.5
 
@@ -12,7 +13,7 @@ Status: Updated (with universal stats contract plan)
 4. Neo4j backend інтегровано та валідовано.
 5. XES Stage4.2 дефект `mostly 0.0` локалізовано та виправлено для `BPI_Challenge_2012` (alignment policy).
 
-Ще не закрито:
+Статус на 2026-03-26 (виконано в коді, залишився doc-sync):
 1. Універсальний контракт статистики (формально зафіксований і стабільний для producer/consumer).
 2. Runtime quality gate у consumption path (`DynamicGraphBuilder`).
 3. Config-driven stats mapping у GNN за `encoding` з `data/mapping` config.

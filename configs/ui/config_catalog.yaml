@@ -111,7 +111,7 @@ fields:
   experiment.graph_dataset_cache_policy:
     path: experiment.graph_dataset_cache_policy
     section: experiment
-    label: experiment.graph_dataset_cache_policy
+    label: Дозволені операції з кешем графів
     description: Policy for disk cache of built graph datasets (off/read/write/full).
     affects: Reuse of prepared train/validation/test graphs between runs.
     default: 'off'
@@ -130,7 +130,7 @@ fields:
   experiment.graph_dataset_cache_dir:
     path: experiment.graph_dataset_cache_dir
     section: experiment
-    label: experiment.graph_dataset_cache_dir
+    label: місце збереження кеша
     description: Disk path for persistent cache of prepared graph datasets.
     affects: Location of reusable train/validation/test graph artifacts.
     default: .cache/graph_datasets
@@ -247,7 +247,7 @@ fields:
     path: experiment.load_checkpoint
     section: experiment
     label: 'Експеримент: Завантаження checkpoint'
-    description: Checkpoint path for evaluation or resume.
+    description: Path to checkpoint used in eval_* modes or for manual resume.
     affects: Execution route, data split, and evaluation mode behavior.
     default: ''
     enum:
@@ -312,11 +312,14 @@ fields:
   experiment.on_missing_asof_snapshot:
     path: experiment.on_missing_asof_snapshot
     section: experiment
-    label: experiment.on_missing_asof_snapshot
-    description: Керує сценарієм запуску експерименту та розбиттям даних. (experiment.on_missing_asof_snapshot)
-    affects: ''
-    default: ''
-    enum: []
+    label: Політика при відсутньому as-of snapshot
+    description: Runtime policy for strict_asof when no eligible snapshot is found (disable_stats/use_base/raise).
+    affects: Temporal safety and fallback behavior for stats tensors.
+    default: disable_stats
+    enum:
+    - disable_stats
+    - use_base
+    - raise
     required_in_modes: []
     required_when: {}
     ui:
@@ -364,10 +367,11 @@ fields:
     path: experiment.split_strategy
     section: experiment
     label: Стратегія розбиття
-    description: 'Split strategy: temporal or none.'
+    description: Data split strategy. Current canonical value for MVP2.5 is temporal.
     affects: Execution route, data split, and evaluation mode behavior.
     default: ''
-    enum: []
+    enum:
+    - temporal
     required_in_modes: []
     required_when: {}
     ui:
@@ -931,9 +935,9 @@ fields:
     path: mapping.knowledge_graph.backend
     section: mapping
     label: Бекенд репозиторію знань
-    description: Knowledge graph backend/storage/connectivity parameter.
-    affects: Ingestion correctness and structure/stats availability.
-    default: ''
+    description: Repository backend for structure/snapshot artifacts.
+    affects: Persistence mode and runtime loading path for structure/statistics.
+    default: file
     enum:
     - in_memory
     - file
@@ -1039,6 +1043,120 @@ fields:
       group: backend
       priority: 1
       order: 2
+  mapping.graph_feature_mapping.enabled:
+    path: mapping.graph_feature_mapping.enabled
+    section: mapping
+    label: Графове stats-мапінг увімкнено
+    description: Enables canonical stats_index -> tensor mapping for structural branch.
+    affects: Whether struct_x/structural stats features are produced in runtime.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 1
+  mapping.graph_feature_mapping.stats_quality_gate.enabled:
+    path: mapping.graph_feature_mapping.stats_quality_gate.enabled
+    section: mapping
+    label: Consumer stats quality gate enabled
+    description: Enables consumer-side stats quality gate in DynamicGraphBuilder.
+    affects: Runtime decision to allow/suppress degraded stats tensors.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 2
+  mapping.graph_feature_mapping.stats_quality_gate.on_fail:
+    path: mapping.graph_feature_mapping.stats_quality_gate.on_fail
+    section: mapping
+    label: Consumer stats quality gate on_fail
+    description: Action on consumer quality gate fail.
+    affects: Runtime fallback policy for stats tensors.
+    default: ignore_with_warning
+    enum:
+    - ignore_with_warning
+    - allow_with_warning
+    - raise
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 3
+  mapping.graph_feature_mapping.stats_quality_gate.warn_on_fail:
+    path: mapping.graph_feature_mapping.stats_quality_gate.warn_on_fail
+    section: mapping
+    label: Consumer stats quality gate warn_on_fail
+    description: Emit warning when consumer quality gate rejects or downgrades stats payload.
+    affects: Runtime diagnostics verbosity.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 4
+  mapping.graph_feature_mapping.stats_quality_gate.zero_dominant_threshold:
+    path: mapping.graph_feature_mapping.stats_quality_gate.zero_dominant_threshold
+    section: mapping
+    label: Consumer zero-dominant threshold
+    description: Threshold above which stats snapshot is considered zero-dominant.
+    affects: Runtime quality gate acceptance.
+    default: 0.95
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 5
+  mapping.graph_feature_mapping.stats_quality_gate.min_non_zero_ratio_overall:
+    path: mapping.graph_feature_mapping.stats_quality_gate.min_non_zero_ratio_overall
+    section: mapping
+    label: Consumer min non-zero ratio overall
+    description: Minimal overall non-zero ratio required by consumer gate.
+    affects: Runtime quality gate acceptance.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 6
+  mapping.graph_feature_mapping.stats_quality_gate.min_history_coverage_percent:
+    path: mapping.graph_feature_mapping.stats_quality_gate.min_history_coverage_percent
+    section: mapping
+    label: Consumer min history coverage percent
+    description: Minimal history coverage required by consumer gate.
+    affects: Runtime quality gate acceptance.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 7
   mapping.xes_adapter.activity_key:
     path: mapping.xes_adapter.activity_key
     section: mapping
@@ -1281,12 +1399,15 @@ fields:
     path: model.struct_encoder_type
     section: model
     label: 'Модель: Struct encoder type'
-    description: Model architecture/hyperparameter.
-    affects: Capacity, compute footprint, and generalization behavior.
-    default: ''
-    enum: []
+    description: Encoder type for structural branch of EOPKGGATv2.
+    affects: Structure branch message-passing behavior in EOPKG mode.
+    default: GATv2Conv
+    enum:
+    - GATv2Conv
+    - GCNConv
     required_in_modes: []
-    required_when: {}
+    required_when:
+      model.type: EOPKGGATv2
     ui:
       tab: model
       group: advanced
@@ -1311,9 +1432,9 @@ fields:
     path: model.type
     section: model
     label: 'Модель: Type'
-    description: Model architecture/hyperparameter.
-    affects: Capacity, compute footprint, and generalization behavior.
-    default: ''
+    description: Main model type (baseline or EOPKG).
+    affects: Core runtime architecture and availability of structure/statistics branch.
+    default: BaselineGATv2
     enum:
     - BaselineGATv2
     - BaselineGCN
@@ -1505,14 +1626,111 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  sync_stats.quality_gate.enabled:
+    path: sync_stats.quality_gate.enabled
+    section: sync_stats
+    label: Producer quality gate enabled
+    description: Enables producer-side quality gate in sync-stats.
+    affects: Whether low-quality snapshots are flagged/skipped during sync.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 10
+  sync_stats.quality_gate.on_fail:
+    path: sync_stats.quality_gate.on_fail
+    section: sync_stats
+    label: Producer quality gate on_fail
+    description: Action when producer quality thresholds are not met.
+    affects: Snapshot persistence policy in sync-stats.
+    default: write_with_flag
+    enum:
+    - write_with_flag
+    - skip_snapshot
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 11
+  sync_stats.quality_gate.warn_on_fail:
+    path: sync_stats.quality_gate.warn_on_fail
+    section: sync_stats
+    label: Producer quality gate warn_on_fail
+    description: Emit warning when producer quality gate fails.
+    affects: Sync diagnostics verbosity.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 12
+  sync_stats.quality_gate.zero_dominant_threshold:
+    path: sync_stats.quality_gate.zero_dominant_threshold
+    section: sync_stats
+    label: Producer zero-dominant threshold
+    description: Threshold above which snapshot is considered zero-dominant.
+    affects: Producer quality gate acceptance.
+    default: 0.95
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 13
+  sync_stats.quality_gate.min_non_zero_ratio_overall:
+    path: sync_stats.quality_gate.min_non_zero_ratio_overall
+    section: sync_stats
+    label: Producer min non-zero ratio overall
+    description: Minimal overall non-zero ratio required by producer gate.
+    affects: Producer quality gate acceptance.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 14
+  sync_stats.quality_gate.min_history_coverage_percent:
+    path: sync_stats.quality_gate.min_history_coverage_percent
+    section: sync_stats
+    label: Producer min history coverage percent
+    description: Minimal history coverage required by producer gate.
+    affects: Producer quality gate acceptance.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 15
   tracking.backend:
     path: tracking.backend
     section: tracking
     label: 'Трекінг: Бекенд'
-    description: Experiment tracking parameter.
+    description: Tracking backend. Current supported value in this UI is mlflow.
     affects: Run observability and experiment comparison.
-    default: ''
-    enum: []
+    default: mlflow
+    enum:
+    - mlflow
     required_in_modes: []
     required_when: {}
     ui:

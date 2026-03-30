@@ -1,6 +1,6 @@
 ﻿# LLD_MVP2_5.MD
 
-Updated: 2026-03-21
+Updated: 2026-03-26
 Status: ACTIVE
 
 ## 1. Purpose
@@ -18,7 +18,7 @@ Inputs:
 
 Algorithm:
 1. Resolve strict scope identifiers (`tenant_id`, `process_name`, `version_key`, `proc_def_id`).
-2. Resolve `as_of_ts` (provided or `now_utc`).
+2. Resolve `as_of_ts` (provided explicitly or derived from selected train-cut events as `max(event_ts)` in sync-stats flow).
 3. Persist latest base structure for backward-compatible readers.
 4. If `knowledge_version` not provided, compute next sequence (`k000001`, ...).
 5. Persist immutable snapshot with JSON payload fields.

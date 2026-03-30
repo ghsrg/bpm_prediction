@@ -1,5 +1,5 @@
 include:
-  - "../data/2015_cb_DataDrift.yaml"
+  - "../data/2015_cb_DataDrift.yaml" # підставили  2015_cb_DataDrift для порівняння дріфта з 2015_cd_DataDrift
   - "../model/gatv2_baseline.yaml"
 
 experiment:

@@ -2,7 +2,8 @@
 .env.local
 .cache
 logs/
-output/
+outputs/
+!outputs/ui
 data/*
 !data/camunda_exports/
 data/camunda_exports/*

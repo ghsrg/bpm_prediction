@@ -149,5 +149,5 @@ For every new configurable parameter (any new key in `experiment`, `data`, `mapp
 
 1. Add it to `configs/ui/config_catalog.yaml` in the same change.
 2. Fill metadata at once: `description`, `affects`, `default`, `enum` (if applicable), `required_in_modes`/`required_when`, and `ui` placement.
-3. Expose it in `tools/experiment_ui.py` (load, edit, save, hints, and mode-dependent enable/disable where relevant).
+3. Expose it in `tools/experiment_ui.py` (desktop convenience UI). If the same key is already surfaced in web prototype, keep `tools/web_experiment_ui_app.py` aligned as well.
 4. Keep CLI and UI behavior consistent; no hidden config-only parameters for interactive runs.

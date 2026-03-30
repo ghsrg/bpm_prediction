@@ -1,6 +1,6 @@
 ﻿# EVF_MVP2_5.MD
 
-Updated: 2026-03-19
+Updated: 2026-03-26
 Status: ACTIVE
 
 ## 1. Purpose
@@ -20,7 +20,7 @@ Evaluation framework for MVP2.5 with offline topology + offline stats snapshots.
 
 ### 3.2 Snapshot timestamp source
 1. explicit `--as-of`: fixed historical cutoff.
-2. no `--as-of`: current UTC snapshot.
+2. no `--as-of`: derived snapshot cutoff `effective_as_of=max(event_ts)` after train-cut selection.
 
 ### 3.3 Runtime retrieval policy
 1. `stats_time_policy = strict_asof`:

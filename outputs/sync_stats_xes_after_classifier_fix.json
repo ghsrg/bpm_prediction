@@ -16,7 +16,7 @@
   "processes_selected": 1,
   "details": [
     {
-      "process_namespace": "BPI_Challenge_2012",
+        "process_namespace": "BPI_Challenge_2012",
       "version": "BPI_Challenge_2012",
       "history_coverage_percent": 100.0,
       "num_node_metrics": 1288,

@@ -1,0 +1,165 @@
+data:
+  dataset_label: "bpi2018"
+  dataset_name: "BPI Challenge 2018"
+  log_path: "../Data/BPI Challenge 2018_1_all/BPI Challenge 2018.xes"
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "data/knowledge_graph"
+    strict_load: false
+    ingest_split: "train"
+
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+      - name: "node_exec_count_v_all"
+        metric: "exec_count"
+        window: "all_time"
+        scope: "version"
+        default: 0.0
+        encoding: ["z-score"]
+    edge_weight:
+      metric: "transition_probability"
+      window: "all_time"
+      scope: "version"
+      default: 1.0
+      encoding: ["identity"]
+    stats_quality_gate:
+      enabled: true
+      on_fail: "allow_with_warning"
+      warn_on_fail: true
+
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "activity"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "year"
+    complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
+    pairing_strategy: "lifo"
+    use_classifier: false
+
+  features:
+    - name: "year"
+      role: "version"
+      source: "trace"
+      dtype: "string"
+      fill_na: "unknown_year"
+      encoding: ["embedding"]
+
+    - name: "concept:name"
+      role: "activity"
+      source: "event"
+      source_key: "activity"
+      dtype: "string"
+      fill_na: "<UNK>"
+      encoding: ["embedding"]
+
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_month"
+        - "time2vec_weekofyear"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+
+    - name: "doctype"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "subprocess"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: ["embedding"]
+
+    - name: "success"
+      source: "event"
+      dtype: "boolean"
+      fill_na: false
+      encoding: ["z-score"]
+
+    - name: "amount_applied0"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "payment_actual0"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "penalty_amount0"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "area"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "cross_compliance"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "risk_factor"
+      source: "trace"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+    - name: "number_parcels"
+      source_key: "number_parcels"
+      source: "trace"
+      dtype: "int"
+      fill_na: 0.0
+      encoding: ["z-score"]
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18
+      # Можливі робочі профілі (конфігураційні, не hardcoded у коді):
+      # - Office: [0,1,2,3,4], 9..18
+      # - 24/7: [0,1,2,3,4,5,6], 0..24
+      # - Weekend: [5,6], 8..20

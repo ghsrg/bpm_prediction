@@ -1,39 +1,41 @@
 # AGENT_CONTEXT_MVP2_5.MD
 
-Останнє оновлення: 2026-03-21  
-Статус: ACTIVE, Stage 4.2 у фазі завершення за `docs/worklogs/Finish_MVP2_5_Plan.MD`.
+Last updated: 2026-03-26  
+Status: ACTIVE, Stage 4.2 implemented; canonical docs are being synchronized to actual runtime behavior.
 
-## 1) Поточний фактичний стан (з урахуванням робіт 2026-03-20)
+## 1) Current factual state
 
-Виконано:
-1. Offline structure ingestion (`ingest-topology`) і bulk sync (`sync-topology`).
-2. Repository-backed runtime path через `IKnowledgeGraphPort` (file/in_memory/neo4j).
+Implemented:
+1. Offline structure ingestion and bulk sync (`ingest-topology`, `sync-topology`).
+2. Repository-backed runtime path via `IKnowledgeGraphPort` (`file`, `in_memory`, `neo4j`).
 3. Immutable snapshot policy (strict key, JSON payload, as-of lookup, no TTL).
-4. Universal stats contract v1 у `sync-stats` (`stats_contract_version=1.0`).
-5. Producer quality gate у `sync-stats` (thresholds + `write_with_flag|skip_snapshot`).
-6. Consumer quality gate у `DynamicGraphBuilder` (`ignore_with_warning|allow_with_warning|raise`).
-7. Config-driven stats mapping (`node_numeric/edge_weight` + `encoding`: `identity|log1p|z-score`).
-8. Forward-path telemetry для snapshot metadata у train/inference/eval_drift.
-9. XES stats calculation fix (version binding, no-data skip policy, auto as-of by train-cut).
+4. Universal stats contract v1 in `sync-stats`.
+5. Producer quality/alignment gates in `sync-stats`.
+6. Consumer quality gate in `DynamicGraphBuilder`.
+7. Config-driven stats mapping (`node_numeric`/`edge_weight`) with `encoding` (`identity|log1p|z-score`).
+8. Forward-path telemetry for snapshot metadata in train/eval/inference.
+9. XES stats fixes (version binding, no-data skip, auto as-of by train-cut).
 
-## 2) Канонічні runtime правила MVP2.5
+## 2) Canonical runtime rules
 
-1. Ingestion/sync і train/eval фізично розділені.
-2. Train/eval/infer не мають синхронно перебудовувати topology/stats із raw-джерел.
-3. Для temporal-safe досліджень:
-   - `experiment.stats_time_policy = strict_asof`,
-   - snapshots мають бути підготовлені наперед.
-4. Якщо stats snapshot неякісний або відсутній:
-   - stats-гілка може бути вимкнена policy-gate без падіння всього run.
+1. Ingestion/sync and train/eval/infer are physically separated.
+2. Train/eval/infer must not rebuild topology/stats from raw sources synchronously.
+3. For temporal-safe studies:
+   - use `experiment.stats_time_policy = strict_asof`,
+   - prebuild snapshots timeline (`sync-stats-backfill` recommended).
+4. If snapshot is missing/degraded, stats branch may be disabled by policy without crashing the whole run.
 
-## 3) Актуальні ризики/відкриті пункти перед closure MVP2.5
+## 3) Open sync tasks
 
-1. Документація не повністю синхронна з останніми Stage4.2 змінами:
-   - частина canonical docs описує це як “next step”, хоча код і звіти вже містять реалізацію.
-2. `Finish_MVP2_5_Plan.MD` частково застарів у секції “Ще не закрито”.
-3. Потрібен єдиний release-closure звіт з фінальним acceptance checklist і переносом залишкового техборгу в MVP3 backlog.
+1. Remove stale "next step" wording in canonical docs where implementation already exists.
+2. Align timestamp semantics documentation:
+   - no `--as-of` means derived `effective_as_of=max(event_ts)` after train-cut, not "current UTC".
+3. Align default policy documentation:
+   - current runtime default for `experiment.on_missing_asof_snapshot` is `disable_stats`.
+4. Keep UI positioning consistent:
+   - CLI is primary, `experiment-ui` is convenience wrapper, `web-ui` is prototype.
 
-## 4) Мінімальний operational playbook
+## 4) Minimal operational playbook
 
 1. Sync topology:
 ```bash
@@ -58,7 +60,7 @@ py -3 tools/architecture_guard.py
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-## 5) Ключові файли контексту для наступних сесій
+## 5) Key context files for next sessions
 
 1. `PROJECT_CONTEXT.md`
 2. `docs/worklogs/Finish_MVP2_5_Plan.MD`

@@ -1,0 +1,19 @@
+input: "../Data/Business Process Drift/logs/re/re2.5k.xes"
+output: "../Data/Business Process Drift/logs/re/re2.5k.versioned.xes"
+
+# XES attribute key used by mapping.xes_adapter.version_key.
+version_key: "concept:version"
+
+# trace | event | both
+scope: "both"
+
+# If true, summary is printed but output file is not written.
+dry_run: false
+
+policy:
+  type: "alternating_chunks"
+  versions: ["v1", "v2"]
+
+  # chunk_size has priority when set.
+  # chunk_size: 250
+  chunk_percent: 0.1

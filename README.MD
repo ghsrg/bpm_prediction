@@ -150,6 +150,11 @@
 python main.py --config configs/experiments/02_train_bpi2012.yaml
 ```
 
+MXML -> XES convertor:
+```bash
+python tools/mxml2xes_convertor.py --input "../Data/Business Process Drift/logs/cb/cb2.5k.mxml" --output "../Data/Business Process Drift/logs/cb/cb2.5k.xes"
+```
+
 ## MVP1 Non-Regression Gate
 
 Run before merge:
@@ -454,6 +459,15 @@ python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step 
 python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
 ```
 
+7.1 `add-version2xes` (config-driven XES version labeling)
+```bash
+python main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml
+python main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml --out outputs/add_version2xes_summary.json
+```
+`policy.type=alternating_chunks` assigns versions chunk-by-chunk over chronological trace order in file.
+For `chunk_percent: 0.1` and 2500 traces, chunk size is 250 and labels alternate as `v1/v2` every 250 traces.
+Use `scope: both` to update `concept:version` on both trace and event levels.
+
 8. `visualize-topology` (repository-first)
 ```bash
 python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
@@ -472,6 +486,32 @@ python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_I
 10.1 `cache-clean` (remove stale graph dataset cache entries)
 ```bash
 python main.py cache-clean --cache-dir .cache/graph_datasets
+```
+
+10.2 `cache-clean` usage variants (recommended)
+```bash
+# 1) Preview only: show what would be deleted, keep 5 most recent entries
+python main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --older-than-days 7 --keep-last 5
+
+# 2) Size-based trim: keep 5 most recent entries, shrink cache to <= 8 GB
+python main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --max-size-gb 8 --keep-last 5
+python main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 8 --keep-last 5
+
+# 3) Age-based cleanup: remove entries older than 14 days
+python main.py cache-clean --cache-dir .cache/graph_datasets --older-than-days 14 --keep-last 3
+
+# 4) Save cleanup report to JSON
+python main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 10 --keep-last 5 --summary-out outputs/cache_clean_summary.json
+```
+
+10.3 Graph dataset cache notes
+```text
+- Cache root is controlled by experiment.graph_dataset_cache_dir (default: .cache/graph_datasets).
+- Each cache entry is stored as: <cache_dir>/<dataset_name>/<fingerprint>/...
+- fingerprint changes when relevant config/data signature changes
+  (features, mapping, model, policies, split settings, fraction, vocab/signature).
+- Frequent feature/statistics experiments can produce many large cache entries.
+- Safe policy: always run with --dry-run first, then apply cleanup criteria.
 ```
 
 11. `web-ui` (Streamlit prototype UI)
@@ -499,8 +539,10 @@ Operational stance:
 1. `mode`: `train | eval_drift | eval_cross_dataset`
 2. `split_strategy`: `temporal | none`
 3. `train_ratio`, `fraction`, `split_ratio`
-4. `stats_time_policy`: `latest | strict_asof`
-5. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default: `disable_stats`)
+4. `graph_dataset_cache_policy`: `off | read | write | full`
+5. `graph_dataset_cache_dir`: disk cache root for prepared graph datasets
+6. `stats_time_policy`: `latest | strict_asof`
+7. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default: `disable_stats`)
 
 #### 2.2 `mapping.knowledge_graph` block
 1. `backend`: `in_memory | file | neo4j`

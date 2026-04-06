@@ -25,14 +25,14 @@
     "mapping.camunda_adapter.structure.version_key_format": "",
     "mapping.camunda_adapter.subprocess_graph_mode": ""
   },
-  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n",
+  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_weekofyear\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n",
   "general_experiment_form": {
     "experiment.cache_dir": ".cache/dynamic_graph_builder",
-    "experiment.drift_window_size": "500",
-    "experiment.drift_window_sliding": "100",
+    "experiment.drift_window_size": "100",
+    "experiment.drift_window_sliding": "10",
     "experiment.graph_dataset_disk_spill_enabled": "true",
     "experiment.graph_dataset_shard_size": "20000",
-    "experiment.load_checkpoint": "checkpoints/EOPKG_stat_E_N_42_bpi2018_GATv2_best.pth",
+    "experiment.load_checkpoint": "checkpoints/Baseline_42_re_DD_re_2.5_GATv2_best.pth",
     "experiment.max_ram_gb": "10"
   },
   "general_tracking_form": {
@@ -62,7 +62,7 @@
     "training.tqdm_disable": "False",
     "training.tqdm_leave": "False"
   },
-  "graph_mapping_text": "enabled: true\nnode_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n",
+  "graph_mapping_text": "enabled: false\nnode_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding: [\"z-score\"]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n",
   "input_camunda_mapping_form": {
     "mapping.camunda_adapter.lookback_hours": "",
     "mapping.camunda_adapter.process_filters": "",
@@ -85,20 +85,20 @@
     "mapping.camunda_adapter.runtime.sql_dir": ""
   },
   "input_data_form": {
-    "data.dataset_label": "bpi2018",
-    "data.dataset_name": "BPI Challenge 2018",
-    "data.log_path": "../Data/BPI Challenge 2018_1_all/BPI Challenge 2018.xes"
+    "data.dataset_label": "DD_re_2.5",
+    "data.dataset_name": "re2.5k",
+    "data.log_path": "../Data/Business Process Drift/logs/re/re2.5k.xes"
   },
   "input_xes_form": {
-    "mapping.xes_adapter.activity_key": "activity",
+    "mapping.xes_adapter.activity_key": "concept:name",
     "mapping.xes_adapter.case_id_key": "concept:name",
-    "mapping.xes_adapter.complete_transitions": "- COMPLETE\n- complete\n- ate_abort\n- pi_abort\n- manualskip\n- autoskip",
+    "mapping.xes_adapter.complete_transitions": "- complete",
     "mapping.xes_adapter.lifecycle_key": "lifecycle:transition",
     "mapping.xes_adapter.pairing_strategy": "lifo",
     "mapping.xes_adapter.resource_key": "org:resource",
     "mapping.xes_adapter.timestamp_key": "time:timestamp",
     "mapping.xes_adapter.use_classifier": "False",
-    "mapping.xes_adapter.version_key": "year"
+    "mapping.xes_adapter.version_key": ""
   },
   "model_form": {
     "model.cross_attention_heads": "4",
@@ -109,9 +109,9 @@
     "model.pooling_strategy": "global_mean",
     "model.struct_encoder_type": "GATv2Conv",
     "model.struct_hidden_dim": "64",
-    "model.type": "EOPKGGATv2"
+    "model.type": "BaselineGATv2"
   },
-  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n",
+  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n",
   "sync_stats_form": {
     "sync_stats.confidence_weights.coverage": "",
     "sync_stats.confidence_weights.freshness": "",
@@ -133,17 +133,17 @@
     "backfill_to": "",
     "cache_policy": "full",
     "config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml",
-    "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/bpi2018_Challenge.yaml",
-    "experiment_name": "EOPKG_stat_E_N_42_drift",
+    "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/2015_cb_DataDrift.yaml",
+    "experiment_name": "Baseline_42_re-drift",
     "extra_args": "",
-    "fraction": "0.01",
+    "fraction": "1",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
     "mode": "eval_drift",
     "on_missing_asof_snapshot": "use_base",
-    "preset_name": "baseline_bpi2018_42",
-    "project": "mvp2_5_bpi2018",
-    "retrain": true,
+    "preset_name": "Baseline_DD_re-drift",
+    "project": "mvp2_5_DD",
+    "retrain": false,
     "seed": "42",
     "split_ratio": "- 0.7\n- 0.2\n- 0.1",
     "split_ratio_test": "0.1",
@@ -152,6 +152,6 @@
     "split_strategy": "temporal",
     "stats_time_policy": "latest",
     "sync_as_of": "",
-    "train_ratio": "0.7"
+    "train_ratio": "0"
   }
 }

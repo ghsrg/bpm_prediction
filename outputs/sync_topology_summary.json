@@ -4,16 +4,14 @@
   "source_mode": "single_file",
   "files_scanned": 1,
   "datasets_synced": 1,
-  "total_traces": 43809,
+  "total_traces": 5000,
   "details": [
     {
-      "dataset_name": "BPI Challenge 2018",
-      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\BPI Challenge 2018_1_all\\BPI Challenge 2018.xes",
-      "traces": 43809,
+      "dataset_name": "re2.5k",
+      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\Business Process Drift\\logs\\re\\re2.5k.xes",
+      "traces": 5000,
       "versions_saved": [
-        "2015",
-        "2016",
-        "2017"
+        "re2.5k"
       ],
       "status": "ok"
     }

@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.application.services.topology_extractor_service import TopologyExtractorService
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.prefix_slice import PrefixSlice
+from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
@@ -83,3 +84,51 @@ def test_dynamic_graph_builder_fallbacks_to_none_mask_for_unknown_version(mock_f
     )
     contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix_unknown)
     assert contract["allowed_target_mask"] is None
+
+
+def test_dynamic_graph_builder_unions_active_and_struct_masks(mock_feature_configs):
+    train_traces = [
+        _trace("c1", "v1", ["Start", "Appraise_property", "Assess_eligibility"]),
+        _trace("c2", "v1", ["Start", "Check_credit_history", "Assess_eligibility"]),
+    ]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[
+                ("Start", "Appraise_property"),
+                ("Appraise_property", "Assess_eligibility"),
+                ("Check_credit_history", "Assess_eligibility"),
+            ],
+        ),
+    )
+
+    prefix_events = [
+        _event(0, "Start"),
+        _event(1, "Appraise_property").model_copy(
+            update={
+                "extra": {
+                    "concept:name": "Appraise_property",
+                    "org:resource": "R1",
+                    "amount": 2.0,
+                    "active_activities_after_complete": ["Check_credit_history"],
+                    "active_activity_counts_after_complete": {"Check_credit_history": 1},
+                }
+            }
+        ),
+    ]
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=prefix_events,
+        target_event=_event(2, "Assess_eligibility"),
+    )
+    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
+    mask = contract["allowed_target_mask"]
+    assert isinstance(mask, torch.Tensor)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(mask[activity_vocab["Assess_eligibility"]]) is True
+    assert bool(mask[activity_vocab["Check_credit_history"]]) is True

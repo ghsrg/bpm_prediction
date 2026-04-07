@@ -202,6 +202,11 @@ class ModelTrainer:
         self.mode = str(config.get("mode", self.config.get("experiment_config", {}).get("mode", "train"))).strip().lower()
         self.drift_window_size = int(config.get("drift_window_size", self.config.get("experiment_config", {}).get("drift_window_size", 500)))
         self.drift_window_sliding = int(config.get("drift_window_sliding", self.config.get("experiment_config", {}).get("drift_window_sliding", 0) or 0))
+        self.mask_guided_enabled = bool(config.get("mask_guided_enabled", False))
+        self.mask_guided_apply_in_eval = bool(config.get("mask_guided_apply_in_eval", True))
+        self.mask_guided_hard_threshold = float(config.get("mask_guided_hard_threshold", 1.0))
+        self.mask_guided_soft_penalty = float(config.get("mask_guided_soft_penalty", 2.0))
+        self.mask_guided_min_samples_for_hard = max(1, int(config.get("mask_guided_min_samples_for_hard", 1)))
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -229,6 +234,8 @@ class ModelTrainer:
         self._logged_mask_debug = False
         self._logged_oos_math = False
         self._logged_peak_vram = False
+        self._mask_guided_reliability_rate: float | None = None
+        self._mask_guided_reliability_samples = 0
 
         if self.prepared_data is not None:
             raw_idx_to_version = self.prepared_data.get("idx_to_version", {})
@@ -1157,7 +1164,24 @@ class ModelTrainer:
                     )
                     logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
                 targets = data.y.view(-1).long()
-                loss = self.criterion(logits, targets)
+                allowed_mask = self._normalize_allowed_mask(contract.get("allowed_target_mask"), expected_rows=int(targets.shape[0]))
+                batch_target_in_mask_rate, valid_rows = self._batch_target_in_mask_rate(
+                    allowed_mask=allowed_mask,
+                    targets=targets,
+                )
+                if batch_target_in_mask_rate is not None:
+                    self._update_mask_guided_reliability(rate=batch_target_in_mask_rate, samples=valid_rows)
+                mask_policy = self._resolve_mask_guided_policy(
+                    training=training,
+                    batch_target_in_mask_rate=batch_target_in_mask_rate,
+                    batch_samples=valid_rows,
+                )
+                effective_logits = self._apply_mask_guided_logits(
+                    logits=logits,
+                    allowed_mask=allowed_mask,
+                    policy=mask_policy,
+                )
+                loss = self.criterion(effective_logits, targets)
                 skip_optimizer_step = False
                 if not self._is_finite_tensor(loss):
                     non_finite_loss_batches += 1
@@ -1177,7 +1201,7 @@ class ModelTrainer:
 
             total_loss += float(loss.detach().cpu().item())
             batches += 1
-            all_pred.extend(torch.argmax(logits.detach(), dim=1).cpu().numpy().tolist())
+            all_pred.extend(torch.argmax(effective_logits.detach(), dim=1).cpu().numpy().tolist())
             all_true.extend(targets.detach().cpu().numpy().tolist())
             batch_reporter.update(
                 message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
@@ -1232,7 +1256,11 @@ class ModelTrainer:
         all_true: List[int] = []
         all_pred: List[int] = []
         all_probs: List[np.ndarray] = []
-        all_oos_flags: List[float] = []
+        all_oos_flags_aligned: List[float] = []
+        all_target_in_mask_flags: List[float] = []
+        all_pred_in_mask_flags: List[float] = []
+        all_strict_error_but_allowed_flags: List[float] = []
+        all_mask_cardinality: List[float] = []
         all_lengths: List[int] = []
         all_versions: List[str] = []
         inference_graphs = 0
@@ -1273,6 +1301,21 @@ class ModelTrainer:
                     logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
+                target_tensor = data.y.view(-1).long()
+                allowed_mask = self._normalize_allowed_mask(
+                    contract.get("allowed_target_mask"),
+                    expected_rows=int(target_tensor.shape[0]),
+                )
+                mask_policy = self._resolve_mask_guided_policy(
+                    training=False,
+                    batch_target_in_mask_rate=None,
+                    batch_samples=int(target_tensor.shape[0]),
+                )
+                logits = self._apply_mask_guided_logits(
+                    logits=logits,
+                    allowed_mask=allowed_mask,
+                    policy=mask_policy,
+                )
                 probs = torch.softmax(logits, dim=1)
                 if not self._is_finite_tensor(probs):
                     probs_sanitized_batches += 1
@@ -1281,14 +1324,19 @@ class ModelTrainer:
                         row_sum = probs.sum(dim=1, keepdim=True)
                         safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
                         probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
-                targets = data.y.view(-1).long().cpu().numpy()
+                targets = target_tensor.cpu().numpy()
                 pred_tensor = torch.argmax(probs, dim=1).long()
                 preds = pred_tensor.cpu().numpy()
+                batch_size = int(pred_tensor.shape[0])
+                batch_oos_aligned = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_target_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
                 if self.mode == "eval_drift" and not first_batch_debug_logged:
                     logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", targets[:5].tolist(), preds[:5].tolist())
                     first_batch_debug_logged = True
 
-                allowed_mask = contract.get("allowed_target_mask")
                 if isinstance(allowed_mask, torch.Tensor):
                     if allowed_mask.dim() == 1:
                         allowed_mask = allowed_mask.unsqueeze(0)
@@ -1332,8 +1380,26 @@ class ModelTrainer:
                         except Exception as exc:
                             logger.error("Error during OOS indexing: %s", exc)
                         self._logged_oos_math = True
-                    oos_flags = self._compute_oos_flags(pred_tensor, allowed_mask)
-                    all_oos_flags.extend(oos_flags.detach().cpu().tolist())
+                    row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                    pred_in_mask = allowed_mask[row_ids, pred_tensor].bool()
+                    target_in_mask = allowed_mask[row_ids, target_tensor.to(pred_tensor.device)].bool()
+                    strict_error_but_allowed = (pred_tensor != target_tensor.to(pred_tensor.device)) & pred_in_mask
+                    mask_cardinality = allowed_mask.sum(dim=1).float()
+                    oos_flags = (~pred_in_mask).float()
+
+                    batch_oos_aligned = oos_flags.detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_target_in_mask = target_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_pred_in_mask = pred_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_strict_error_but_allowed = (
+                        strict_error_but_allowed.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    )
+                    batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
+
+                all_oos_flags_aligned.extend(batch_oos_aligned.tolist())
+                all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
+                all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
+                all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
+                all_mask_cardinality.extend(batch_mask_cardinality.tolist())
 
                 if hasattr(data, "prefix_len"):
                     all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
@@ -1383,6 +1449,11 @@ class ModelTrainer:
                 "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
                 "test_oos": None,
+                "test_target_in_mask_rate": None,
+                "test_pred_in_mask_rate": None,
+                "test_strict_error_but_allowed_rate": None,
+                "test_ambiguous_prefix_rate": None,
+                "test_mask_coverage": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
                 "test_inference_time_ms_per_graph": inference_ms_per_graph,
@@ -1412,16 +1483,45 @@ class ModelTrainer:
             "test_accuracy": float(accuracy_score(y_true, y_pred)),
             "test_top3_accuracy": top3_accuracy,
             "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
-            "test_oos": float(np.mean(np.asarray(all_oos_flags, dtype=np.float32))) if all_oos_flags else None,
+            "test_oos": None,
             "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
         }
+        oos_flags_aligned = np.asarray(all_oos_flags_aligned, dtype=np.float32) if all_oos_flags_aligned else None
+        target_in_mask_flags = np.asarray(all_target_in_mask_flags, dtype=np.float32) if all_target_in_mask_flags else None
+        pred_in_mask_flags = np.asarray(all_pred_in_mask_flags, dtype=np.float32) if all_pred_in_mask_flags else None
+        strict_error_but_allowed_flags = (
+            np.asarray(all_strict_error_but_allowed_flags, dtype=np.float32) if all_strict_error_but_allowed_flags else None
+        )
+        mask_cardinality = np.asarray(all_mask_cardinality, dtype=np.float32) if all_mask_cardinality else None
+
+        metrics["test_oos"] = self._nanmean_or_none(oos_flags_aligned)
+        metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
+        metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)
+        metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
+
+        ambiguous_prefix_rate: float | None = None
+        if isinstance(mask_cardinality, np.ndarray) and int(mask_cardinality.shape[0]) == int(y_true.shape[0]):
+            finite_mask_cardinality = np.isfinite(mask_cardinality)
+            if bool(np.any(finite_mask_cardinality)):
+                ambiguous_prefix_rate = float(np.mean(mask_cardinality[finite_mask_cardinality] > 1.0))
+                metrics["test_mask_coverage"] = float(np.mean(finite_mask_cardinality.astype(np.float32)))
+            else:
+                metrics["test_mask_coverage"] = 0.0
+        else:
+            metrics["test_mask_coverage"] = 0.0
+        metrics["test_ambiguous_prefix_rate"] = ambiguous_prefix_rate
+
         metrics.update(
             self._compute_sliced_metrics(
                 y_true=y_true,
                 y_pred=y_pred,
-                oos_flags=np.asarray(all_oos_flags, dtype=np.float32) if all_oos_flags else None,
+                oos_flags=oos_flags_aligned,
+                target_in_mask_flags=target_in_mask_flags,
+                pred_in_mask_flags=pred_in_mask_flags,
+                strict_error_but_allowed_flags=strict_error_but_allowed_flags,
+                mask_cardinality=mask_cardinality,
                 prefix_lengths=np.asarray(all_lengths, dtype=np.int64) if all_lengths else None,
                 versions=all_versions if all_versions else None,
             )
@@ -1474,12 +1574,43 @@ class ModelTrainer:
             metrics = self._evaluate_test(window_loader, stage_label="eval_drift")
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
             ece = float(metrics.get("test_ece", 0.0))
+            window_oos = metrics.get("test_oos")
+            window_target_in_mask = metrics.get("test_target_in_mask_rate")
+            window_pred_in_mask = metrics.get("test_pred_in_mask_rate")
+            window_strict_error_but_allowed = metrics.get("test_strict_error_but_allowed_rate")
+            window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
             if self.tracker is not None:
                 self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=window_idx)
                 self.tracker.log_metric("drift_window_test_ece", ece, step=window_idx)
+                if window_oos is not None:
+                    self.tracker.log_metric("drift_window_test_oos", float(window_oos), step=window_idx)
+                if window_target_in_mask is not None:
+                    self.tracker.log_metric(
+                        "drift_window_target_in_mask_rate",
+                        float(window_target_in_mask),
+                        step=window_idx,
+                    )
+                if window_pred_in_mask is not None:
+                    self.tracker.log_metric(
+                        "drift_window_pred_in_mask_rate",
+                        float(window_pred_in_mask),
+                        step=window_idx,
+                    )
+                if window_strict_error_but_allowed is not None:
+                    self.tracker.log_metric(
+                        "drift_window_strict_error_but_allowed_rate",
+                        float(window_strict_error_but_allowed),
+                        step=window_idx,
+                    )
+                if window_ambiguous_prefix is not None:
+                    self.tracker.log_metric(
+                        "drift_window_ambiguous_prefix_rate",
+                        float(window_ambiguous_prefix),
+                        step=window_idx,
+                    )
 
             start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
             end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
@@ -1494,6 +1625,21 @@ class ModelTrainer:
                     "window_end_ts": end_ts,
                     "window_macro_f1": macro_f1,
                     "window_test_ece": ece,
+                    "window_test_oos": float(window_oos) if window_oos is not None else float("nan"),
+                    "window_target_in_mask_rate": (
+                        float(window_target_in_mask) if window_target_in_mask is not None else float("nan")
+                    ),
+                    "window_pred_in_mask_rate": (
+                        float(window_pred_in_mask) if window_pred_in_mask is not None else float("nan")
+                    ),
+                    "window_strict_error_but_allowed_rate": (
+                        float(window_strict_error_but_allowed)
+                        if window_strict_error_but_allowed is not None
+                        else float("nan")
+                    ),
+                    "window_ambiguous_prefix_rate": (
+                        float(window_ambiguous_prefix) if window_ambiguous_prefix is not None else float("nan")
+                    ),
                 }
             )
 
@@ -1507,7 +1653,12 @@ class ModelTrainer:
                 message=f"Window {window_idx + 1}/{total_windows}",
                 current=int(window_idx + 1),
                 total=total_windows,
-                payload={"macro_f1": float(macro_f1), "ece": float(ece)},
+                payload={
+                    "macro_f1": float(macro_f1),
+                    "ece": float(ece),
+                    "target_in_mask_rate": float(window_target_in_mask) if window_target_in_mask is not None else None,
+                    "pred_in_mask_rate": float(window_pred_in_mask) if window_pred_in_mask is not None else None,
+                },
             )
 
         emit_progress_event(stage="eval_drift.windows", status="done", message="Drift evaluation completed", current=total_windows, total=total_windows)
@@ -1548,6 +1699,118 @@ class ModelTrainer:
         return (~allowed_target_mask[row_ids, y_hat]).float()
 
     @staticmethod
+    def _normalize_allowed_mask(raw_mask: Any, *, expected_rows: int) -> Optional[torch.Tensor]:
+        if not isinstance(raw_mask, torch.Tensor):
+            return None
+        mask = raw_mask.bool()
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        if mask.dim() != 2:
+            return None
+        if int(mask.shape[0]) != int(expected_rows):
+            return None
+        return mask
+
+    @staticmethod
+    def _batch_target_in_mask_rate(*, allowed_mask: Optional[torch.Tensor], targets: torch.Tensor) -> Tuple[Optional[float], int]:
+        if not isinstance(allowed_mask, torch.Tensor):
+            return None, 0
+        if allowed_mask.dim() != 2:
+            return None, 0
+        if targets.dim() != 1:
+            targets = targets.view(-1)
+        if int(allowed_mask.shape[0]) != int(targets.shape[0]):
+            return None, 0
+        row_ids = torch.arange(int(targets.shape[0]), device=targets.device)
+        target_in_mask = allowed_mask[row_ids, targets].bool()
+        sample_count = int(target_in_mask.shape[0])
+        if sample_count <= 0:
+            return None, 0
+        return float(target_in_mask.float().mean().item()), sample_count
+
+    def _update_mask_guided_reliability(self, *, rate: float, samples: int) -> None:
+        if samples <= 0:
+            return
+        if not math.isfinite(float(rate)):
+            return
+        samples_int = int(samples)
+        if samples_int <= 0:
+            return
+        if self._mask_guided_reliability_rate is None or self._mask_guided_reliability_samples <= 0:
+            self._mask_guided_reliability_rate = float(rate)
+            self._mask_guided_reliability_samples = samples_int
+            return
+        prev_samples = int(self._mask_guided_reliability_samples)
+        prev_rate = float(self._mask_guided_reliability_rate)
+        total_samples = prev_samples + samples_int
+        weighted = ((prev_rate * prev_samples) + (float(rate) * samples_int)) / float(total_samples)
+        self._mask_guided_reliability_rate = float(weighted)
+        self._mask_guided_reliability_samples = int(total_samples)
+
+    def _resolve_mask_guided_policy(
+        self,
+        *,
+        training: bool,
+        batch_target_in_mask_rate: Optional[float],
+        batch_samples: int,
+    ) -> str:
+        if not self.mask_guided_enabled:
+            return "off"
+        if training:
+            if batch_target_in_mask_rate is None:
+                return "soft"
+            if int(batch_samples) >= int(self.mask_guided_min_samples_for_hard) and float(batch_target_in_mask_rate) >= float(
+                self.mask_guided_hard_threshold
+            ):
+                return "hard"
+            return "soft"
+        if not self.mask_guided_apply_in_eval:
+            return "off"
+        rate = self._mask_guided_reliability_rate
+        samples = int(self._mask_guided_reliability_samples)
+        if rate is not None and samples >= int(self.mask_guided_min_samples_for_hard) and float(rate) >= float(self.mask_guided_hard_threshold):
+            return "hard"
+        return "soft"
+
+    def _apply_mask_guided_logits(
+        self,
+        *,
+        logits: torch.Tensor,
+        allowed_mask: Optional[torch.Tensor],
+        policy: str,
+    ) -> torch.Tensor:
+        if policy == "off":
+            return logits
+        if not isinstance(allowed_mask, torch.Tensor):
+            return logits
+        if allowed_mask.dim() != 2 or logits.dim() != 2:
+            return logits
+        if int(allowed_mask.shape[0]) != int(logits.shape[0]) or int(allowed_mask.shape[1]) != int(logits.shape[1]):
+            return logits
+        row_has_allowed = allowed_mask.any(dim=1, keepdim=True)
+        effective_disallowed = (~allowed_mask) & row_has_allowed
+        if not bool(effective_disallowed.any().item()):
+            return logits
+        if policy == "hard":
+            hard_floor = torch.finfo(logits.dtype).min / 4.0
+            return logits.masked_fill(effective_disallowed, float(hard_floor))
+        penalty = max(0.0, float(self.mask_guided_soft_penalty))
+        if penalty <= 0.0:
+            return logits
+        return logits - (effective_disallowed.to(logits.dtype) * penalty)
+
+    @staticmethod
+    def _nanmean_or_none(values: Optional[np.ndarray]) -> Optional[float]:
+        if not isinstance(values, np.ndarray):
+            return None
+        if values.size == 0:
+            return None
+        finite_mask = np.isfinite(values)
+        if not bool(np.any(finite_mask)):
+            return None
+        return float(np.mean(values[finite_mask]))
+
+    @staticmethod
     def _length_bin(length: int) -> str:
         """Map prefix length to configured slicing bin."""
         if 1 <= length <= 5:
@@ -1570,12 +1833,30 @@ class ModelTrainer:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         oos_flags: Optional[np.ndarray],
+        target_in_mask_flags: Optional[np.ndarray],
+        pred_in_mask_flags: Optional[np.ndarray],
+        strict_error_but_allowed_flags: Optional[np.ndarray],
+        mask_cardinality: Optional[np.ndarray],
         prefix_lengths: Optional[np.ndarray],
         versions: Optional[List[str]],
     ) -> Dict[str, float]:
         """Compute slicing metrics by prefix length bins and process versions."""
         metrics: Dict[str, float] = {}
         sample_count = int(y_true.shape[0])
+
+        def _append_mask_slice_metrics(metric_suffix: str, idxs: List[int]) -> None:
+            if target_in_mask_flags is not None and int(target_in_mask_flags.shape[0]) == sample_count:
+                value = cls._nanmean_or_none(target_in_mask_flags[idxs])
+                if value is not None:
+                    metrics[f"test_target_in_mask_rate_{metric_suffix}"] = value
+            if pred_in_mask_flags is not None and int(pred_in_mask_flags.shape[0]) == sample_count:
+                value = cls._nanmean_or_none(pred_in_mask_flags[idxs])
+                if value is not None:
+                    metrics[f"test_pred_in_mask_rate_{metric_suffix}"] = value
+            if strict_error_but_allowed_flags is not None and int(strict_error_but_allowed_flags.shape[0]) == sample_count:
+                value = cls._nanmean_or_none(strict_error_but_allowed_flags[idxs])
+                if value is not None:
+                    metrics[f"test_strict_error_but_allowed_rate_{metric_suffix}"] = value
 
         if prefix_lengths is not None and int(prefix_lengths.shape[0]) == sample_count:
             length_bins = ["len_1_5", "len_6_10", "len_11_20", "len_21_plus"]
@@ -1591,7 +1872,10 @@ class ModelTrainer:
                 metrics[f"test_accuracy_{bin_name}"] = float(accuracy_score(bin_true, bin_pred))
                 metrics[f"test_f1_{bin_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
                 if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
-                    metrics[f"test_oos_{bin_name}"] = float(np.mean(oos_flags[idxs]))
+                    value = cls._nanmean_or_none(oos_flags[idxs])
+                    if value is not None:
+                        metrics[f"test_oos_{bin_name}"] = value
+                _append_mask_slice_metrics(bin_name, idxs)
 
         if versions is not None and len(versions) == sample_count:
             grouped_idx: Dict[str, List[int]] = {}
@@ -1605,7 +1889,40 @@ class ModelTrainer:
                 metrics[f"test_accuracy_{suffix}"] = float(accuracy_score(ver_true, ver_pred))
                 metrics[f"test_f1_{suffix}"] = float(f1_score(ver_true, ver_pred, average="macro", zero_division=0))
                 if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
-                    metrics[f"test_oos_{suffix}"] = float(np.mean(oos_flags[idxs]))
+                    value = cls._nanmean_or_none(oos_flags[idxs])
+                    if value is not None:
+                        metrics[f"test_oos_{suffix}"] = value
+                _append_mask_slice_metrics(suffix, idxs)
+
+        if mask_cardinality is not None and int(mask_cardinality.shape[0]) == sample_count:
+            grouped_mask: Dict[str, List[int]] = {
+                "mask_card_1": [],
+                "mask_card_2": [],
+                "mask_card_3_plus": [],
+            }
+            for idx, raw in enumerate(mask_cardinality.tolist()):
+                if not math.isfinite(float(raw)):
+                    continue
+                cardinality = int(raw)
+                if cardinality == 1:
+                    grouped_mask["mask_card_1"].append(idx)
+                elif cardinality == 2:
+                    grouped_mask["mask_card_2"].append(idx)
+                elif cardinality >= 3:
+                    grouped_mask["mask_card_3_plus"].append(idx)
+
+            for group_name, idxs in grouped_mask.items():
+                if not idxs:
+                    continue
+                bin_true = y_true[idxs]
+                bin_pred = y_pred[idxs]
+                metrics[f"test_accuracy_{group_name}"] = float(accuracy_score(bin_true, bin_pred))
+                metrics[f"test_f1_{group_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
+                if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
+                    value = cls._nanmean_or_none(oos_flags[idxs])
+                    if value is not None:
+                        metrics[f"test_oos_{group_name}"] = value
+                _append_mask_slice_metrics(group_name, idxs)
 
         return metrics
 

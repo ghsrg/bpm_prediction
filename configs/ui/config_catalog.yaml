@@ -2002,6 +2002,85 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  training.mask_guided_enabled:
+    path: training.mask_guided_enabled
+    section: training
+    label: 'Training: Mask-guided logits'
+    description: Enable Stage 3 mask-guided training/inference policy (hard when reliable, soft otherwise).
+    affects: Can reduce impossible next-event predictions and improve ranking under parallel ambiguity.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.mask_guided_apply_in_eval:
+    path: training.mask_guided_apply_in_eval
+    section: training
+    label: 'Training: Apply mask-guided in eval'
+    description: Apply mask-guided logits policy during eval/eval_drift inference.
+    affects: Drift and test metrics sensitivity to impossible transitions.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.mask_guided_hard_threshold:
+    path: training.mask_guided_hard_threshold
+    section: training
+    label: 'Training: Mask hard threshold'
+    description: Use hard masking when estimated target_in_mask_rate is at or above this threshold.
+    affects: Tradeoff between strict topology filtering and robustness to mask noise.
+    default: 1.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.mask_guided_soft_penalty:
+    path: training.mask_guided_soft_penalty
+    section: training
+    label: 'Training: Mask soft penalty'
+    description: Logit penalty applied to disallowed classes in soft mode.
+    affects: Ranking pressure away from improbable targets without hard cutoff.
+    default: 2.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
+  training.mask_guided_min_samples_for_hard:
+    path: training.mask_guided_min_samples_for_hard
+    section: training
+    label: 'Training: Min samples for hard'
+    description: Minimum observed samples before enabling hard masking from reliability estimate.
+    affects: Stability of auto-switch between hard and soft masking.
+    default: 1
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1000
   training.patience:
     path: training.patience
     section: training

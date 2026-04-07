@@ -175,7 +175,8 @@ class XESAdapter(IXESAdapter):
         if extra_trace_keys:
             selected_trace_attrs = {k: v for k, v in selected_trace_attrs.items() if k in extra_trace_keys}
 
-        starts_by_key: Dict[Tuple[str, ...], Deque[float]] = defaultdict(deque)
+        starts_by_key: Dict[Tuple[str, ...], Deque[Tuple[float, str]]] = defaultdict(deque)
+        active_activity_counts: Dict[str, int] = defaultdict(int)
         completed_events_raw: List[Dict[str, Any]] = []
         has_lifecycle_data = any(payload.get(lifecycle_key) is not None for payload in event_payloads)
 
@@ -207,7 +208,8 @@ class XESAdapter(IXESAdapter):
             )
 
             if lifecycle_norm is not None and lifecycle_norm in start_transitions:
-                starts_by_key[pairing_key].append(timestamp_epoch)
+                starts_by_key[pairing_key].append((timestamp_epoch, activity_id))
+                active_activity_counts[activity_id] += 1
                 continue
 
             if has_lifecycle_data and lifecycle_norm is not None and lifecycle_norm not in complete_transitions:
@@ -215,8 +217,10 @@ class XESAdapter(IXESAdapter):
 
             event_start_ts = float(timestamp_epoch)
             duration = 0.0
+            active_activities_after_complete: List[str] = []
+            active_activity_counts_after_complete: Dict[str, int] = {}
             if has_lifecycle_data:
-                matched_start_ts, duration = _match_start_and_duration(
+                matched_start_ts, duration, matched_activity = _match_start_and_duration(
                     starts_by_key=starts_by_key,
                     pairing_key=pairing_key,
                     activity_id=activity_id,
@@ -225,6 +229,20 @@ class XESAdapter(IXESAdapter):
                 )
                 if matched_start_ts is not None:
                     event_start_ts = float(matched_start_ts)
+                if matched_activity is not None:
+                    prev = int(active_activity_counts.get(matched_activity, 0))
+                    if prev > 0:
+                        next_val = prev - 1
+                        if next_val <= 0:
+                            active_activity_counts.pop(matched_activity, None)
+                        else:
+                            active_activity_counts[matched_activity] = next_val
+                active_activity_counts_after_complete = {
+                    str(item_activity): int(item_count)
+                    for item_activity, item_count in active_activity_counts.items()
+                    if int(item_count) > 0
+                }
+                active_activities_after_complete = sorted(active_activity_counts_after_complete.keys())
 
             mapped_keys = {
                 timestamp_key,
@@ -261,6 +279,8 @@ class XESAdapter(IXESAdapter):
                     "extra": extra,
                     "original_index": original_index,
                     "event_version": _normalize_optional_str(payload.get(version_key)),
+                    "active_activities_after_complete": active_activities_after_complete,
+                    "active_activity_counts_after_complete": active_activity_counts_after_complete,
                 }
             )
 
@@ -284,6 +304,14 @@ class XESAdapter(IXESAdapter):
             enriched_extra.setdefault(timestamp_key, current_time)
             enriched_extra.setdefault("start_ts", float(event.get("start_ts", current_time)))
             enriched_extra.setdefault("complete_ts", current_time)
+            enriched_extra.setdefault(
+                "active_activities_after_complete",
+                list(event.get("active_activities_after_complete", [])),
+            )
+            enriched_extra.setdefault(
+                "active_activity_counts_after_complete",
+                dict(event.get("active_activity_counts_after_complete", {})),
+            )
             enriched_extra.setdefault(activity_key if isinstance(activity_key, str) else "concept:name", event["activity_id"])
             enriched_extra.setdefault(resource_key, event["resource_id"])
 
@@ -364,32 +392,33 @@ def _build_pairing_key(
 
 def _match_start_and_duration(
     *,
-    starts_by_key: Dict[Tuple[str, ...], Deque[float]],
+    starts_by_key: Dict[Tuple[str, ...], Deque[Tuple[float, str]]],
     pairing_key: Tuple[str, ...],
     activity_id: str,
     end_timestamp: float,
     strategy: str,
-) -> Tuple[Optional[float], float]:
+) -> Tuple[Optional[float], float, Optional[str]]:
     """Match start/end events using selected LIFO/FIFO strategy."""
-    start_time = _pop_start_timestamp(
+    start_record = _pop_start_record(
         starts_by_key=starts_by_key,
         pairing_key=pairing_key,
         activity_id=activity_id,
         strategy=strategy,
     )
-    if start_time is None:
-        return None, 0.0
+    if start_record is None:
+        return None, 0.0, None
 
-    return start_time, max(0.0, end_timestamp - start_time)
+    start_time, matched_activity = start_record
+    return start_time, max(0.0, end_timestamp - start_time), matched_activity
 
 
-def _pop_start_timestamp(
+def _pop_start_record(
     *,
-    starts_by_key: Dict[Tuple[str, ...], Deque[float]],
+    starts_by_key: Dict[Tuple[str, ...], Deque[Tuple[float, str]]],
     pairing_key: Tuple[str, ...],
     activity_id: str,
     strategy: str,
-) -> Optional[float]:
+) -> Optional[Tuple[float, str]]:
     starts = starts_by_key.get(pairing_key)
     if starts:
         return starts.popleft() if strategy == "fifo" else starts.pop()
@@ -409,9 +438,9 @@ def _pop_start_timestamp(
         return None
 
     if strategy == "fifo":
-        selected_key = min(candidate_keys, key=lambda key: float(starts_by_key[key][0]))
+        selected_key = min(candidate_keys, key=lambda key: float(starts_by_key[key][0][0]))
         return starts_by_key[selected_key].popleft()
-    selected_key = max(candidate_keys, key=lambda key: float(starts_by_key[key][-1]))
+    selected_key = max(candidate_keys, key=lambda key: float(starts_by_key[key][-1][0]))
     return starts_by_key[selected_key].pop()
 
 

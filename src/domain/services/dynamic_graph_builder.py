@@ -111,6 +111,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         )
         num_classes = len(activity_vocab)
         allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
+        active_mask = torch.zeros(num_classes, dtype=torch.bool)
+        active_candidates = self._extract_active_candidates(
+            prefix.prefix_events[-1].extra if prefix.prefix_events else {},
+        )
+        for token in active_candidates:
+            idx = activity_vocab.get(token)
+            if idx is None:
+                idx = activity_vocab.get(str(token).strip())
+            if idx is not None:
+                active_mask[int(idx)] = True
         last_activity_idx = activity_vocab.get(last_activity)
         if last_activity_idx is None:
             last_activity_idx = activity_vocab.get(last_activity.strip())
@@ -118,6 +128,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             cached_mask = compiled["allowed_masks_by_src"].get(int(last_activity_idx))
             if isinstance(cached_mask, torch.Tensor):
                 allowed_mask = cached_mask.clone()
+        allowed_mask = torch.logical_or(allowed_mask, active_mask)
 
         # Reuse cached structural tensors across prefixes to avoid per-prefix RAM duplication.
         contract["structural_edge_index"] = compiled["structural_edge_index"]
@@ -127,6 +138,37 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             contract["struct_x"] = struct_x
         contract["allowed_target_mask"] = allowed_mask
         return contract
+
+    @staticmethod
+    def _extract_active_candidates(event_extra: Any) -> set[str]:
+        if not isinstance(event_extra, dict):
+            return set()
+        candidates: set[str] = set()
+
+        raw_counts = event_extra.get("active_activity_counts_after_complete")
+        if isinstance(raw_counts, dict):
+            for key, value in raw_counts.items():
+                try:
+                    count = int(value)
+                except (TypeError, ValueError):
+                    continue
+                token = str(key).strip()
+                if token and count > 0:
+                    candidates.add(token)
+
+        raw_list = event_extra.get("active_activities_after_complete")
+        if isinstance(raw_list, (list, tuple, set)):
+            for item in raw_list:
+                token = str(item).strip()
+                if token:
+                    candidates.add(token)
+        elif isinstance(raw_list, str):
+            for item in raw_list.split(","):
+                token = str(item).strip()
+                if token:
+                    candidates.add(token)
+
+        return candidates
 
     @staticmethod
     def _clean_optional_text(value: Any) -> str:

@@ -6,15 +6,26 @@ from src.domain.entities.raw_trace import RawTrace
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 
 
-def _event(idx: int, activity: str, activity_name: str | None = None, activity_type: str | None = None) -> EventRecord:
+def _event(
+    idx: int,
+    activity: str,
+    activity_name: str | None = None,
+    activity_type: str | None = None,
+    timestamp: float | None = None,
+    start_ts: float | None = None,
+) -> EventRecord:
     extra = {"concept:name": activity}
     if activity_name is not None:
         extra["activity_name"] = activity_name
     if activity_type is not None:
         extra["activity_type"] = activity_type
+    if start_ts is not None:
+        extra["start_ts"] = float(start_ts)
+    resolved_ts = float(1700000000 + idx) if timestamp is None else float(timestamp)
+    extra.setdefault("complete_ts", resolved_ts)
     return EventRecord(
         activity_id=activity,
-        timestamp=float(1700000000 + idx),
+        timestamp=resolved_ts,
         resource_id="R",
         lifecycle="complete",
         position_in_trace=idx,
@@ -221,3 +232,47 @@ def test_extract_from_logs_filters_invalid_edges_into_start_and_out_of_end_event
             assert graph.in_degree(node_id) == 0
         if "endevent" in node_type:
             assert graph.out_degree(node_id) == 0
+
+
+def test_extract_from_logs_skips_edge_when_next_activity_started_before_previous_completed():
+    service = _service("dataset_a")
+    trace = RawTrace(
+        case_id="c_parallel",
+        process_version="v1",
+        events=[
+            _event(0, "A", timestamp=10.0, start_ts=0.0),
+            _event(1, "B", timestamp=15.0, start_ts=5.0),
+            _event(2, "C", timestamp=21.0, start_ts=16.0),
+        ],
+        trace_attributes={},
+    )
+
+    service.fit([trace], process_name="dataset_a")
+    dto = service.get_process_structure("v1", process_name="dataset_a")
+    assert dto is not None
+    assert set(dto.allowed_edges) == {("B", "C")}
+
+
+def test_extract_from_logs_parallel_assign_complete_keeps_only_causal_frontier_edges():
+    service = _service("dataset_a")
+    trace = RawTrace(
+        case_id="c_parallel_realistic",
+        process_version="v1",
+        events=[
+            _event(0, "Check__application__form_completeness", timestamp=100.0, start_ts=90.0),
+            _event(1, "Check_credit_history", timestamp=200.0, start_ts=100.0),
+            _event(2, "Appraise_property", timestamp=260.0, start_ts=100.0),
+            _event(3, "Assess_loan_risk", timestamp=300.0, start_ts=200.0),
+            _event(4, "Assess_eligibility", timestamp=500.0, start_ts=300.0),
+        ],
+        trace_attributes={},
+    )
+
+    service.fit([trace], process_name="dataset_a")
+    dto = service.get_process_structure("v1", process_name="dataset_a")
+    assert dto is not None
+    edges = set(dto.allowed_edges)
+    assert ("Check_credit_history", "Appraise_property") not in edges
+    assert ("Appraise_property", "Assess_loan_risk") not in edges
+    assert ("Check_credit_history", "Assess_loan_risk") in edges
+    assert ("Assess_loan_risk", "Assess_eligibility") in edges

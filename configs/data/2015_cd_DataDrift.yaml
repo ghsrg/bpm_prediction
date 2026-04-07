@@ -16,6 +16,7 @@ mapping:
     lifecycle_key: "lifecycle:transition"
 
     # В MXML життєвий цикл зазвичай пишеться в нижньому регістрі (наприклад, "complete", "assign")
+    start_transitions: ["start"]
     complete_transitions: ["complete"]
     pairing_strategy: "lifo"
     use_classifier: false

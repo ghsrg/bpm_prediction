@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _XES_ATTR_TAGS = {"string", "date", "int", "float", "boolean", "id", "list"}
 _DEFAULT_COMPLETE_TRANSITIONS = {"complete", "ate_abort", "pi_abort", "manualskip", "autoskip"}
+_DEFAULT_START_TRANSITIONS = {"start"}
 
 
 class XESAdapter(IXESAdapter):
@@ -55,6 +56,9 @@ class XESAdapter(IXESAdapter):
         ).strip()
         complete_transitions = {
             str(v).strip().lower() for v in config.get("complete_transitions", list(_DEFAULT_COMPLETE_TRANSITIONS))
+        }
+        start_transitions = {
+            str(v).strip().lower() for v in config.get("start_transitions", list(_DEFAULT_START_TRANSITIONS))
         }
         pairing_strategy = str(config.get("pairing_strategy", "lifo")).strip().lower()
         use_classifier = bool(config.get("use_classifier", True))
@@ -94,6 +98,7 @@ class XESAdapter(IXESAdapter):
                         lifecycle_key=lifecycle_key,
                         version_key=version_key,
                         complete_transitions=complete_transitions,
+                        start_transitions=start_transitions,
                         pairing_strategy=pairing_strategy,
                         use_classifier=use_classifier,
                         classifiers=classifiers,
@@ -136,6 +141,7 @@ class XESAdapter(IXESAdapter):
         lifecycle_key: str,
         version_key: str,
         complete_transitions: set[str],
+        start_transitions: set[str],
         pairing_strategy: str,
         use_classifier: bool,
         classifiers: Dict[str, List[str]],
@@ -200,21 +206,25 @@ class XESAdapter(IXESAdapter):
                 strategy=pairing_strategy,
             )
 
-            if lifecycle_norm == "start":
+            if lifecycle_norm is not None and lifecycle_norm in start_transitions:
                 starts_by_key[pairing_key].append(timestamp_epoch)
                 continue
 
             if has_lifecycle_data and lifecycle_norm is not None and lifecycle_norm not in complete_transitions:
                 continue
 
+            event_start_ts = float(timestamp_epoch)
             duration = 0.0
             if has_lifecycle_data:
-                duration = _match_duration(
+                matched_start_ts, duration = _match_start_and_duration(
                     starts_by_key=starts_by_key,
                     pairing_key=pairing_key,
+                    activity_id=activity_id,
                     end_timestamp=timestamp_epoch,
                     strategy=pairing_strategy,
                 )
+                if matched_start_ts is not None:
+                    event_start_ts = float(matched_start_ts)
 
             mapped_keys = {
                 timestamp_key,
@@ -243,6 +253,7 @@ class XESAdapter(IXESAdapter):
                 {
                     "activity_id": activity_id,
                     "timestamp": timestamp_epoch,
+                    "start_ts": event_start_ts,
                     "resource_id": resource_id,
                     "lifecycle": lifecycle_value,
                     "duration": duration,
@@ -271,6 +282,8 @@ class XESAdapter(IXESAdapter):
             enriched_extra.setdefault("time_since_case_start", time_since_case_start)
             enriched_extra.setdefault("time_since_previous_event", time_since_previous)
             enriched_extra.setdefault(timestamp_key, current_time)
+            enriched_extra.setdefault("start_ts", float(event.get("start_ts", current_time)))
+            enriched_extra.setdefault("complete_ts", current_time)
             enriched_extra.setdefault(activity_key if isinstance(activity_key, str) else "concept:name", event["activity_id"])
             enriched_extra.setdefault(resource_key, event["resource_id"])
 
@@ -349,24 +362,57 @@ def _build_pairing_key(
     return (activity_id,)
 
 
-def _match_duration(
+def _match_start_and_duration(
     *,
     starts_by_key: Dict[Tuple[str, ...], Deque[float]],
     pairing_key: Tuple[str, ...],
+    activity_id: str,
     end_timestamp: float,
     strategy: str,
-) -> float:
+) -> Tuple[Optional[float], float]:
     """Match start/end events using selected LIFO/FIFO strategy."""
+    start_time = _pop_start_timestamp(
+        starts_by_key=starts_by_key,
+        pairing_key=pairing_key,
+        activity_id=activity_id,
+        strategy=strategy,
+    )
+    if start_time is None:
+        return None, 0.0
+
+    return start_time, max(0.0, end_timestamp - start_time)
+
+
+def _pop_start_timestamp(
+    *,
+    starts_by_key: Dict[Tuple[str, ...], Deque[float]],
+    pairing_key: Tuple[str, ...],
+    activity_id: str,
+    strategy: str,
+) -> Optional[float]:
     starts = starts_by_key.get(pairing_key)
-    if not starts:
-        return 0.0
+    if starts:
+        return starts.popleft() if strategy == "fifo" else starts.pop()
+
+    fallback_activity_key = (activity_id,)
+    if pairing_key != fallback_activity_key:
+        fallback_starts = starts_by_key.get(fallback_activity_key)
+        if fallback_starts:
+            return fallback_starts.popleft() if strategy == "fifo" else fallback_starts.pop()
+
+    candidate_keys = [
+        key
+        for key, queue in starts_by_key.items()
+        if queue and len(key) >= 1 and str(key[0]) == str(activity_id)
+    ]
+    if not candidate_keys:
+        return None
 
     if strategy == "fifo":
-        start_time = starts.popleft()
-    else:
-        start_time = starts.pop()
-
-    return max(0.0, end_timestamp - start_time)
+        selected_key = min(candidate_keys, key=lambda key: float(starts_by_key[key][0]))
+        return starts_by_key[selected_key].popleft()
+    selected_key = max(candidate_keys, key=lambda key: float(starts_by_key[key][-1]))
+    return starts_by_key[selected_key].pop()
 
 
 def _resolve_process_version(

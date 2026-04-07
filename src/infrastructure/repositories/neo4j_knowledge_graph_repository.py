@@ -86,6 +86,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         dto_payload.metadata = metadata or None
 
         self._upsert_process_version(process_name=process_key, version_key=version_key, dto=dto_payload)
+        self._clear_structure_for_version(process_name=process_key, version_key=version_key)
         nodes_for_upsert = list(dto_payload.nodes or [])
         if not nodes_for_upsert:
             nodes_for_upsert = self._build_nodes_from_allowed_edges(
@@ -690,6 +691,59 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
               pv.graph_topology_json = $graph_topology_json,
               pv.metadata_json = $metadata_json,
               pv.updated_at_utc = datetime()
+            """,
+            params=params,
+        )
+
+    def _clear_structure_for_version(
+        self,
+        *,
+        process_name: str,
+        version_key: str,
+    ) -> None:
+        params = {
+            "process_name": process_name,
+            "version_key": version_key,
+            "reserved_types": sorted(self._RESERVED_REL_TYPES),
+        }
+        self._run_write(
+            operation="clear_structure_for_version_edges",
+            query="""
+            MATCH (src:ProcessNode {process_name: $process_name})-[r]->(dst:ProcessNode {process_name: $process_name})
+            WHERE NOT type(r) IN $reserved_types
+              AND $version_key IN coalesce(r.versions, [])
+            SET r.versions = [v IN coalesce(r.versions, []) WHERE v <> $version_key]
+            WITH r
+            WHERE size(coalesce(r.versions, [])) = 0
+            DELETE r
+            """,
+            params=params,
+        )
+        self._run_write(
+            operation="clear_structure_for_version_contains_node",
+            query="""
+            MATCH (:ProcessVersion {process_name: $process_name, version_key: $version_key})
+                  -[cn:CONTAINS_NODE {process_name: $process_name}]->
+                  (:ProcessNode {process_name: $process_name})
+            SET cn.versions = [v IN coalesce(cn.versions, []) WHERE v <> $version_key]
+            WITH cn
+            WHERE size(coalesce(cn.versions, [])) = 0
+            DELETE cn
+            """,
+            params=params,
+        )
+        self._run_write(
+            operation="clear_structure_for_version_nodes",
+            query="""
+            MATCH (n:ProcessNode {process_name: $process_name})
+            WHERE $version_key IN coalesce(n.versions, [])
+            SET n.versions = [v IN coalesce(n.versions, []) WHERE v <> $version_key]
+            WITH n
+            WHERE size(coalesce(n.versions, [])) = 0
+            OPTIONAL MATCH (n)-[rel]-()
+            WITH n, count(rel) AS rel_count
+            WHERE rel_count = 0
+            DELETE n
             """,
             params=params,
         )

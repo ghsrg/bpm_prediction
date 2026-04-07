@@ -1205,6 +1205,22 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  mapping.xes_adapter.start_transitions:
+    path: mapping.xes_adapter.start_transitions
+    section: mapping
+    label: 'Mapping: Start transitions'
+    description: XES parsing/mapping parameter (case/activity/time/version/lifecycle
+      alignment).
+    affects: Ingestion correctness and structure/stats availability.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: input
+      group: advanced
+      priority: 100
+      order: 1000
   mapping.xes_adapter.lifecycle_key:
     path: mapping.xes_adapter.lifecycle_key
     section: mapping

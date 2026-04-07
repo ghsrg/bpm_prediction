@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -16,6 +17,7 @@ import yaml
 
 
 _XES_ATTR_TAGS = {"string", "date", "int", "float", "boolean", "id", "list"}
+logger = logging.getLogger(__name__)
 
 
 def _local_name(tag: Any) -> str:
@@ -129,16 +131,41 @@ def run(cfg: Dict[str, Any]) -> Dict[str, Any]:
     total_traces = len(traces)
     if total_traces == 0:
         raise ValueError("No <trace> elements found in input XES.")
+    logger.info("Read traces from XES: total_traces=%d file=%s", total_traces, input_path)
 
     versions, chunk_size = _resolve_policy(policy=policy, total_traces=total_traces)
+    logger.info(
+        "Version policy resolved: type=alternating_chunks versions=%s chunk_size=%d chunk_percent=%.6f",
+        versions,
+        chunk_size,
+        float(policy.get("chunk_percent", 0.0) or 0.0),
+    )
 
     trace_updates = 0
     event_updates = 0
     version_counts: Dict[str, int] = {version: 0 for version in versions}
+    assignment_blocks: List[Dict[str, Any]] = []
+    block_version = ""
+    block_start = 0
 
     for trace_idx, trace in enumerate(traces):
         version = versions[(trace_idx // chunk_size) % len(versions)]
         version_counts[version] = version_counts.get(version, 0) + 1
+        trace_no = trace_idx + 1
+
+        if not block_version:
+            block_version = version
+            block_start = trace_no
+        elif version != block_version:
+            assignment_blocks.append(
+                {
+                    "version": block_version,
+                    "start_trace": int(block_start),
+                    "end_trace": int(trace_no - 1),
+                }
+            )
+            block_version = version
+            block_start = trace_no
 
         if scope in {"trace", "both"}:
             _upsert_xes_attribute(trace, version_key, version)
@@ -150,6 +177,35 @@ def run(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     continue
                 _upsert_xes_attribute(child, version_key, version)
                 event_updates += 1
+
+    if block_version:
+        assignment_blocks.append(
+            {
+                "version": block_version,
+                "start_trace": int(block_start),
+                "end_trace": int(total_traces),
+            }
+        )
+
+    ranges_by_version: Dict[str, List[str]] = {version: [] for version in versions}
+    for row in assignment_blocks:
+        version = str(row.get("version", "")).strip()
+        start_trace = int(row.get("start_trace", 0) or 0)
+        end_trace = int(row.get("end_trace", 0) or 0)
+        if version in ranges_by_version and start_trace > 0 and end_trace >= start_trace:
+            ranges_by_version[version].append(f"{start_trace}-{end_trace}")
+
+    for version in versions:
+        ranges_text = ", ".join(ranges_by_version.get(version, [])) or "-"
+        logger.info("Assigned version=%s to trace ranges: %s", version, ranges_text)
+
+    logger.info(
+        "Assignment summary: total_traces=%d trace_updates=%d event_updates=%d assigned_trace_counts=%s",
+        total_traces,
+        trace_updates,
+        event_updates,
+        version_counts,
+    )
 
     if not dry_run:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +229,8 @@ def run(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "trace_updates": trace_updates,
         "event_updates": event_updates,
         "assigned_trace_counts": version_counts,
+        "assignment_blocks": assignment_blocks,
+        "assigned_trace_ranges": ranges_by_version,
     }
 
 
@@ -184,6 +242,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     args = _build_arg_parser().parse_args(argv)
     cfg_path = Path(str(args.config)).expanduser().resolve()
     if not cfg_path.exists():

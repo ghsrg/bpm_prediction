@@ -1,7 +1,7 @@
 data:
-  dataset_label: bpi2012_stage4_2_xes_stat
-  dataset_name: BPI_Challenge_2012
-  log_path: C:\Users\korsr\PycharmProjects\Data\BPI Challenge 2012_1_all\BPI_Challenge_2012.xes
+  dataset_label: DD_RIO_2.5
+  dataset_name: RIO2.5k.versioned
+  log_path: C:\Users\korsr\PycharmProjects\Data\Business Process Drift\logs\RIO\RIO2.5k.versioned.xes
 mapping:
   adapter: xes
   knowledge_graph:
@@ -18,7 +18,98 @@ mapping:
       scope: version
       default: 0.0
       encoding:
-      - z-score
+      - identity
+    - name: node_duration_median_v_all
+      metric: duration_median
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_v_all
+      metric: duration_p95
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_v_all
+      metric: loop_density
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_v_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_v_all
+      metric: freshness_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_v_all
+      metric: confidence_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_exec_count_p_all
+      metric: exec_count
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_median_p_all
+      metric: duration_median
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_p_all
+      metric: duration_p95
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_p_all
+      metric: loop_density
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_p_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_p_all
+      metric: freshness_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_p_all
+      metric: confidence_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
     edge_weight:
       metric: transition_probability
       window: all_time
@@ -38,14 +129,9 @@ mapping:
     lifecycle_key: lifecycle:transition
     version_key: concept:version
     start_transitions:
-    - start
+    - assign
     complete_transitions:
-    - COMPLETE
     - complete
-    - ate_abort
-    - pi_abort
-    - manualskip
-    - autoskip
     pairing_strategy: lifo
     use_classifier: false
   features:
@@ -111,7 +197,7 @@ policies:
       end_hour: 18
 model:
   model_label: GATv2
-  type: EOPKGGATv2
+  type: BaselineGATv2
   hidden_dim: 64
   struct_encoder_type: GATv2Conv
   struct_hidden_dim: 64
@@ -120,8 +206,8 @@ model:
   graph_strategy: sequential_prefix
   pooling_strategy: global_mean
 training:
-  batch_size: 8
-  epochs: 30
+  batch_size: 128
+  epochs: 50
   learning_rate: 0.001
   patience: 10
   delta: 1e-4
@@ -132,7 +218,7 @@ training:
   show_progress: true
   tqdm_disable: false
   tqdm_leave: false
-  retrain: true
+  retrain: false
   dataloader_num_workers: 0
   dataloader_persistent_workers: true
   dataloader_pin_memory: false
@@ -147,20 +233,25 @@ tracking:
     stage: mvp1_cross_dataset
     model_family: baseline_gnn
 experiment:
-  project: bpm_prediction_mvp2_5
-  name: MVP2_5_Stage4_2_EOPKG_XES_Stat
-  mode: train
+  project: mvp2_5_DD
+  name: Baseline_42
+  mode: sync-topology
   fraction: 1.0
   split_strategy: temporal
-  train_ratio: 0.5
+  train_ratio: 0.2
   split_ratio:
   - 0.7
   - 0.2
   - 0.1
-  stats_time_policy: strict_asof
-  on_missing_asof_snapshot: disable_stats
+  stats_time_policy: latest
+  on_missing_asof_snapshot: use_base
   cache_policy: full
   graph_dataset_cache_policy: full
   graph_dataset_cache_dir: .cache/graph_datasets
+  graph_dataset_disk_spill_enabled: true
   cache_dir: .cache/dynamic_graph_builder
+  graph_dataset_shard_size: 20000
+  max_ram_gb: 10
+  drift_window_size: 100
+  drift_window_sliding: 10
 seed: 42

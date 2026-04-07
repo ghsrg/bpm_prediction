@@ -1,7 +1,7 @@
 data:
-  dataset_label: DD_re_2.5
-  dataset_name: re2.5k
-  log_path: C:\Users\korsr\PycharmProjects\Data\Business Process Drift\logs\re\re2.5k.xes
+  dataset_label: DD_RIO_2.5
+  dataset_name: RIO2.5k.versioned
+  log_path: C:\Users\korsr\PycharmProjects\Data\Business Process Drift\logs\RIO\RIO2.5k.versioned.xes
 mapping:
   adapter: xes
   knowledge_graph:
@@ -10,7 +10,7 @@ mapping:
     strict_load: true
     ingest_split: train
   graph_feature_mapping:
-    enabled: false
+    enabled: true
     node_numeric:
     - name: node_exec_count_v_all
       metric: exec_count
@@ -18,7 +18,98 @@ mapping:
       scope: version
       default: 0.0
       encoding:
-      - z-score
+      - identity
+    - name: node_duration_median_v_all
+      metric: duration_median
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_v_all
+      metric: duration_p95
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_v_all
+      metric: loop_density
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_v_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_v_all
+      metric: freshness_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_v_all
+      metric: confidence_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_exec_count_p_all
+      metric: exec_count
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_median_p_all
+      metric: duration_median
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_p_all
+      metric: duration_p95
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_p_all
+      metric: loop_density
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_p_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_p_all
+      metric: freshness_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_p_all
+      metric: confidence_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
     edge_weight:
       metric: transition_probability
       window: all_time
@@ -36,7 +127,9 @@ mapping:
     timestamp_key: time:timestamp
     resource_key: org:resource
     lifecycle_key: lifecycle:transition
-    version_key: ''
+    version_key: concept:version
+    start_transitions:
+    - assign
     complete_transitions:
     - complete
     pairing_strategy: lifo
@@ -64,8 +157,6 @@ mapping:
     encoding:
     - z-score
     - time2vec_dayofweek
-    - time2vec_month
-    - time2vec_weekofyear
     - time2vec_hour
     - time2vec_work_hours
   - name: duration
@@ -106,7 +197,7 @@ policies:
       end_hour: 18
 model:
   model_label: GATv2
-  type: BaselineGATv2
+  type: EOPKGGATv2
   hidden_dim: 64
   struct_encoder_type: GATv2Conv
   struct_hidden_dim: 64
@@ -143,11 +234,11 @@ tracking:
     model_family: baseline_gnn
 experiment:
   project: mvp2_5_DD
-  name: Baseline_42_re-drift
-  mode: eval_drift
+  name: EOPKG_42
+  mode: sync-topology
   fraction: 1.0
   split_strategy: temporal
-  train_ratio: 0.0
+  train_ratio: 0.1
   split_ratio:
   - 0.7
   - 0.2
@@ -163,5 +254,4 @@ experiment:
   max_ram_gb: 10
   drift_window_size: 100
   drift_window_sliding: 10
-  load_checkpoint: checkpoints/Baseline_42_re_DD_re_2.5_GATv2_best.pth
 seed: 42

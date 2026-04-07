@@ -12,6 +12,9 @@ MVP2.5 currently includes:
 3. Repository-backed structure consumption in train/eval/infer via `IKnowledgeGraphPort`.
 4. Snapshot-based historical lookup (`as_of`) for temporal-safe experiments.
 
+Runtime model/tensor details are specified in:
+1. `docs/GNN_RUNTIME_MVP2_5.MD`.
+
 ## 2. Core Architecture Principle
 The system is split into independent pipelines:
 1. Ingestion pipeline: reads raw sources and persists structure/snapshots.
@@ -167,3 +170,7 @@ bpm_prediction/
     sync_stats.py
     visualize_topology.py
 ```
+
+## 9. Runtime GNN Reference
+For model-specific behavior and tensor assembly details, use:
+1. `docs/GNN_RUNTIME_MVP2_5.MD`

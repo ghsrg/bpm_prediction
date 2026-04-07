@@ -38,6 +38,7 @@ mapping:
     resource_key: "org:resource"
     lifecycle_key: "lifecycle:transition"
     version_key: "year"
+    start_transitions: ["start"]
     complete_transitions: ["COMPLETE", "complete", "ate_abort", "pi_abort", "manualskip", "autoskip"]
     pairing_strategy: "lifo"
     use_classifier: false

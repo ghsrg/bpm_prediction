@@ -6,6 +6,9 @@ Status: ACTIVE
 ## 1. Scope
 Runtime and offline data flows for MVP2.5 after Stage 3.4.
 
+Detailed runtime model and tensor semantics are documented in:
+1. `docs/GNN_RUNTIME_MVP2_5.MD`.
+
 ## 2. Flow A - ingest-topology (single dataset)
 ```mermaid
 flowchart TD

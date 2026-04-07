@@ -343,6 +343,7 @@ Notes:
 ## MVP2.5 Documentation Pack
 
 - [ARCHITECTURE_MVP2_5.MD](docs/ARCHITECTURE_MVP2_5.MD)
+- [GNN_RUNTIME_MVP2_5.MD](docs/GNN_RUNTIME_MVP2_5.MD)
 - [DATA_FLOWS_MVP2_5.MD](docs/DATA_FLOWS_MVP2_5.MD)
 - [DATA_MODEL_MVP2_5.MD](docs/DATA_MODEL_MVP2_5.MD)
 - [LLD_MVP2_5.MD](docs/LLD_MVP2_5.MD)
@@ -472,6 +473,22 @@ Use `scope: both` to update `concept:version` on both trace and event levels.
 ```bash
 python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
 ```
+
+8.1 `visualize-topology` usage patterns
+```bash
+# A) Recommended: render topology from knowledge repository (after ingest-topology/sync-topology)
+python main.py visualize-topology --config configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml --version v1 --out outputs/topology_v1.png
+
+# B) Legacy quick check: build topology directly from raw traces using config cascade
+python main.py visualize-topology --config configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml --from-raw --version v1 --out outputs/topology_raw_v1.png
+
+# C) XES-only raw mode (without experiment config)
+python main.py visualize-topology --data "../Data/Business Process Drift/logs/cb/cb2.5k.xes" --from-raw --version v1 --out outputs/topology_raw_cb_v1.png
+```
+Notes:
+`--config` and `--data` are mutually exclusive.
+`--data` is allowed only together with `--from-raw`.
+Useful tuning flags: `--min-freq`, `--renderer graphviz|pm4py`, `--label-mode id|name|id+name|id+name+type`, `--typed-colors/--no-typed-colors`.
 
 9. `visualize-topology --from-raw` (legacy quick check)
 ```bash

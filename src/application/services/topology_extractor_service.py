@@ -76,9 +76,14 @@ class TopologyExtractorService:
             edge_freq = freq_by_version.setdefault(version_key, {})
             for idx in range(len(trace.events) - 1):
                 src_event = trace.events[idx]
-                dst_event = trace.events[idx + 1]
+                dst_idx = self._select_next_causal_target_index(events=trace.events, src_idx=idx)
+                if dst_idx is None:
+                    continue
+                dst_event = trace.events[dst_idx]
                 src = self._event_label(src_event)
                 dst = self._event_label(dst_event)
+                if not src or not dst:
+                    continue
                 edge = (src, dst)
                 src_meta = self._extract_event_node_metadata(event=src_event, node_id=src)
                 dst_meta = self._extract_event_node_metadata(event=dst_event, node_id=dst)
@@ -128,6 +133,82 @@ class TopologyExtractorService:
             "activity_name": activity_name,
             "activity_type": activity_type,
         }
+
+    @classmethod
+    def _is_causal_edge(cls, *, src_event: Any, dst_event: Any) -> bool:
+        src_complete_ts = cls._event_complete_ts(src_event)
+        dst_start_ts = cls._event_start_ts(dst_event)
+        if cls._is_target_already_in_progress(src_complete_ts=src_complete_ts, dst_start_ts=dst_start_ts):
+            return False
+        return True
+
+    @staticmethod
+    def _is_target_already_in_progress(*, src_complete_ts: float, dst_start_ts: float) -> bool:
+        return dst_start_ts < src_complete_ts
+
+    @staticmethod
+    def _event_complete_ts(event: Any) -> float:
+        extra = getattr(event, "extra", {}) or {}
+        if isinstance(extra, dict):
+            complete_value = extra.get("complete_ts")
+            try:
+                return float(complete_value)
+            except (TypeError, ValueError):
+                pass
+        timestamp = getattr(event, "timestamp", None)
+        try:
+            return float(timestamp)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _event_start_ts(cls, event: Any) -> float:
+        extra = getattr(event, "extra", {}) or {}
+        if isinstance(extra, dict):
+            start_value = extra.get("start_ts")
+            try:
+                return float(start_value)
+            except (TypeError, ValueError):
+                pass
+        return cls._event_complete_ts(event)
+
+    @classmethod
+    def _select_next_causal_target_index(cls, *, events: List[Any], src_idx: int) -> int | None:
+        src_event = events[src_idx]
+        src_complete_ts = cls._event_complete_ts(src_event)
+        for dst_idx in range(src_idx + 1, len(events)):
+            dst_event = events[dst_idx]
+            if not cls._is_causal_edge(src_event=src_event, dst_event=dst_event):
+                continue
+            dst_start_ts = cls._event_start_ts(dst_event)
+            if cls._has_intermediate_completion_before_target_start(
+                events=events,
+                src_idx=src_idx,
+                dst_idx=dst_idx,
+                src_complete_ts=src_complete_ts,
+                dst_start_ts=dst_start_ts,
+            ):
+                continue
+            return dst_idx
+        return None
+
+    @classmethod
+    def _has_intermediate_completion_before_target_start(
+        cls,
+        *,
+        events: List[Any],
+        src_idx: int,
+        dst_idx: int,
+        src_complete_ts: float,
+        dst_start_ts: float,
+    ) -> bool:
+        for idx in range(src_idx + 1, dst_idx):
+            complete_ts = cls._event_complete_ts(events[idx])
+            if complete_ts > dst_start_ts:
+                break
+            if complete_ts > src_complete_ts:
+                return True
+        return False
 
     @staticmethod
     def _is_start_event(activity_type: str) -> bool:

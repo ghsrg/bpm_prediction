@@ -10,6 +10,9 @@ Canonical DTO and artifact contracts for MVP2.5:
 3. stats snapshots,
 4. model tensor consumption.
 
+For model-forward specifics and tensor pipeline wiring, see:
+1. `docs/GNN_RUNTIME_MVP2_5.MD`.
+
 ## 2. Core DTOs
 
 ### 2.1 `ProcessEventDTO`

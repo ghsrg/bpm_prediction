@@ -13,6 +13,7 @@ It captures:
 4. extensibility path to Neo4j and enterprise adapters.
 
 Detailed phase execution plans remain in phase documents (`ARCHITECTURE_MVP*.MD`, `LLD_MVP*.MD`, `DATA_MODEL_MVP*.MD`).
+Phase-specific runtime model/tensor details live in `docs/GNN_RUNTIME_MVP2_5.MD` for MVP2.5.
 
 ## 2. Architectural Style
 The target stack combines:
@@ -183,3 +184,8 @@ flowchart LR
     K1[Offline topology build] --> K2[Offline stats snapshots]
     K2 --> K3[Repository-backed runtime consumption]
 ```
+
+## 13. Runtime Reference Mapping
+For the current MVP2.5 implementation:
+1. System-level architecture: `docs/ARCHITECTURE_MVP2_5.MD`
+2. Runtime model and tensor details: `docs/GNN_RUNTIME_MVP2_5.MD`

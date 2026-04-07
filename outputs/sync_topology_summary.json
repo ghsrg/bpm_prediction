@@ -4,14 +4,15 @@
   "source_mode": "single_file",
   "files_scanned": 1,
   "datasets_synced": 1,
-  "total_traces": 5000,
+  "total_traces": 2500,
   "details": [
     {
-      "dataset_name": "re2.5k",
-      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\Business Process Drift\\logs\\re\\re2.5k.xes",
-      "traces": 5000,
+      "dataset_name": "RIO2.5k.versioned",
+      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\Business Process Drift\\logs\\RIO\\RIO2.5k.versioned.xes",
+      "traces": 2500,
       "versions_saved": [
-        "re2.5k"
+        "v1",
+        "v2"
       ],
       "status": "ok"
     }

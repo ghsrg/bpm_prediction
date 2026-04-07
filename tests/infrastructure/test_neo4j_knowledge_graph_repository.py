@@ -265,6 +265,39 @@ def test_save_process_structure_synthesizes_nodes_from_allowed_edges_when_nodes_
     assert any("set n:endevent" in query.lower() for _, query, _ in node_writes)
 
 
+def test_save_process_structure_clears_previous_version_structure_before_upsert():
+    repo = _build_repo()
+    writes = []
+
+    def _capture_write(self, *, operation, query, params):
+        writes.append((operation, query, params))
+
+    repo._run_write = MethodType(_capture_write, repo)
+
+    dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("A", "B")],
+        edge_statistics={("A", "B"): {"count": 1.0}},
+        nodes=[
+            {"id": "A", "name": "A", "bpmn_tag": "userTask", "activity_type": "userTask"},
+            {"id": "B", "name": "B", "bpmn_tag": "userTask", "activity_type": "userTask"},
+        ],
+        edges=[{"id": "e1", "source": "A", "target": "B", "edge_type": "sequence_flow"}],
+    )
+
+    repo.save_process_structure(version="v1", dto=dto, process_name="proc")
+
+    operations = [operation for operation, _, _ in writes]
+    assert "clear_structure_for_version_edges" in operations
+    assert "clear_structure_for_version_contains_node" in operations
+    assert "clear_structure_for_version_nodes" in operations
+    assert operations.index("clear_structure_for_version_edges") < operations.index("upsert_node")
+    assert operations.index("clear_structure_for_version_nodes") < operations.index("upsert_node")
+
+    clear_edges_query = next(query for operation, query, _ in writes if operation == "clear_structure_for_version_edges")
+    assert "set r.versions = [v in coalesce(r.versions, []) where v <> $version_key]" in clear_edges_query.lower()
+
+
 def test_get_process_structure_asof_overlays_stats_snapshot_json():
     repo = _build_repo()
 

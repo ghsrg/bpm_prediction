@@ -1,6 +1,6 @@
 .env
 .env.local
-.cache
+.cache/
 logs/
 outputs/
 !outputs/ui

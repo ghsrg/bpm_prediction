@@ -170,6 +170,55 @@ def _resolve_tracking_experiment_name(base_project: str, mode: str) -> str:
     return base
 
 
+def _as_bool(raw: Any, *, default: bool = False) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return bool(default)
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Map experiment-level convenience toggles to canonical runtime keys."""
+    if not isinstance(config, dict):
+        return config
+    experiment_cfg = config.get("experiment", {})
+    if not isinstance(experiment_cfg, dict):
+        return config
+
+    model_cfg = config.setdefault("model", {})
+    training_cfg = config.setdefault("training", {})
+    mapping_cfg = config.setdefault("mapping", {})
+    if not isinstance(model_cfg, dict):
+        model_cfg = {}
+        config["model"] = model_cfg
+    if not isinstance(training_cfg, dict):
+        training_cfg = {}
+        config["training"] = training_cfg
+    if not isinstance(mapping_cfg, dict):
+        mapping_cfg = {}
+        config["mapping"] = mapping_cfg
+
+    if "structural_mode" in experiment_cfg:
+        model_cfg["structural_mode"] = _as_bool(experiment_cfg.get("structural_mode"), default=True)
+    if "mask_guided_enabled" in experiment_cfg:
+        training_cfg["mask_guided_enabled"] = _as_bool(experiment_cfg.get("mask_guided_enabled"), default=False)
+    if "retrain" in experiment_cfg:
+        training_cfg["retrain"] = _as_bool(experiment_cfg.get("retrain"), default=False)
+    if "statistic_enabled" in experiment_cfg:
+        graph_feature_mapping_cfg = mapping_cfg.setdefault("graph_feature_mapping", {})
+        if not isinstance(graph_feature_mapping_cfg, dict):
+            graph_feature_mapping_cfg = {}
+            mapping_cfg["graph_feature_mapping"] = graph_feature_mapping_cfg
+        graph_feature_mapping_cfg["enabled"] = _as_bool(experiment_cfg.get("statistic_enabled"), default=False)
+    return config
+
+
 def _derive_last_checkpoint_path(checkpoint_path: str) -> str:
     """Derive companion last-checkpoint path from effective checkpoint path."""
     path = Path(str(checkpoint_path).strip())
@@ -1799,6 +1848,7 @@ def main() -> None:
 
     config_path = _resolve_config_path(args.config)
     config = load_yaml_config(args.config)
+    config = _apply_experiment_switch_overrides(config)
 
     seed = int(config.get("seed", 42))
     set_seed(seed)
@@ -1903,6 +1953,7 @@ def main() -> None:
         output_dim=output_dim,
         dropout=dropout,
         pooling_strategy=pooling_strategy,
+        structural_mode=model_cfg.get("structural_mode", True),
         struct_encoder_type=str(model_cfg.get("struct_encoder_type", "GATv2Conv")),
         struct_hidden_dim=int(model_cfg.get("struct_hidden_dim", hidden_dim)),
         cross_attention_heads=int(model_cfg.get("cross_attention_heads", 4)),

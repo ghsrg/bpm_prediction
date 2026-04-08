@@ -415,6 +415,74 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  experiment.structural_mode:
+    path: experiment.structural_mode
+    section: experiment
+    label: structural_mode
+    description: Enable or disable EOPKG structural attention branch while keeping observed branch unchanged.
+    affects: Clean structural ablation (on versus off) for EOPKG models.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 30
+      order: 230
+  experiment.statistic_enabled:
+    path: experiment.statistic_enabled
+    section: experiment
+    label: statistic_enabled
+    description: Convenience toggle mapped to mapping.graph_feature_mapping.enabled.
+    affects: Whether structural statistics tensors are produced and consumed.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 30
+      order: 231
+  experiment.mask_guided_enabled:
+    path: experiment.mask_guided_enabled
+    section: experiment
+    label: mask_guided_enabled
+    description: Convenience toggle mapped to training.mask_guided_enabled.
+    affects: Enables mask-guided training and inference penalties.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 30
+      order: 232
+  experiment.retrain:
+    path: experiment.retrain
+    section: experiment
+    label: retrain
+    description: Convenience toggle mapped to training.retrain.
+    affects: Force training from scratch instead of resume.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 30
+      order: 233
   mapping.adapter:
     path: mapping.adapter
     section: mapping
@@ -1056,10 +1124,10 @@ fields:
     required_in_modes: []
     required_when: {}
     ui:
-      tab: eopkg
-      group: graph_mapping
-      priority: 2
-      order: 1
+      tab: legacy
+      group: deprecated
+      priority: 999
+      order: 9999
   mapping.graph_feature_mapping.stats_quality_gate.enabled:
     path: mapping.graph_feature_mapping.stats_quality_gate.enabled
     section: mapping
@@ -2002,23 +2070,6 @@ fields:
       group: advanced
       priority: 100
       order: 1000
-  training.mask_guided_enabled:
-    path: training.mask_guided_enabled
-    section: training
-    label: 'Training: Mask-guided logits'
-    description: Enable Stage 3 mask-guided training/inference policy (hard when reliable, soft otherwise).
-    affects: Can reduce impossible next-event predictions and improve ranking under parallel ambiguity.
-    default: 'false'
-    enum:
-    - 'false'
-    - 'true'
-    required_in_modes: []
-    required_when: {}
-    ui:
-      tab: general
-      group: advanced
-      priority: 100
-      order: 1000
   training.mask_guided_apply_in_eval:
     path: training.mask_guided_apply_in_eval
     section: training
@@ -2109,10 +2160,10 @@ fields:
     required_in_modes: []
     required_when: {}
     ui:
-      tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      tab: legacy
+      group: deprecated
+      priority: 999
+      order: 9999
   training.show_progress:
     path: training.show_progress
     section: training

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.cli import (
+    _apply_experiment_switch_overrides,
     _build_mlflow_params,
     _derive_last_checkpoint_path,
     _flatten_config_dict,
@@ -86,3 +87,24 @@ def test_resolve_tracking_experiment_name_for_train_keeps_base_project():
 def test_derive_last_checkpoint_path_from_best_checkpoint_name():
     resolved = _derive_last_checkpoint_path("checkpoints/run_abc_best.pth")
     assert resolved.endswith("run_abc_last.pth")
+
+
+def test_apply_experiment_switch_overrides_maps_convenience_flags():
+    config = {
+        "experiment": {
+            "structural_mode": "false",
+            "statistic_enabled": "true",
+            "mask_guided_enabled": "true",
+            "retrain": "true",
+        },
+        "model": {"type": "EOPKGGATv2"},
+        "mapping": {"graph_feature_mapping": {"enabled": False}},
+        "training": {"retrain": False},
+    }
+
+    patched = _apply_experiment_switch_overrides(config)
+
+    assert patched["model"]["structural_mode"] is False
+    assert patched["mapping"]["graph_feature_mapping"]["enabled"] is True
+    assert patched["training"]["mask_guided_enabled"] is True
+    assert patched["training"]["retrain"] is True

@@ -28,11 +28,13 @@ class BaseEOPKGModel(BaseGNN):
         output_dim: int,
         dropout: float = 0.2,
         pooling_strategy: str = "global_mean",
+        structural_mode: bool | str = True,
     ) -> None:
         super().__init__()
         self.feature_layout = feature_layout
         self.pooling_strategy = pooling_strategy
         self.hidden_dim = hidden_dim
+        self.structural_mode = self._to_bool(structural_mode, default=True)
 
         self.embeddings = nn.ModuleDict()
         self.embedding_dims: Dict[str, int] = {}
@@ -59,6 +61,17 @@ class BaseEOPKGModel(BaseGNN):
         )
         self.classifier = nn.Linear(hidden_dim, output_dim)
         self._warned_missing_struct = False
+
+    @staticmethod
+    def _to_bool(value: bool | str, *, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+        return bool(default)
 
     def _encode_input(self, contract: GraphTensorContract) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_cat = contract["x_cat"]
@@ -119,6 +132,8 @@ class BaseEOPKGModel(BaseGNN):
         x, edge_index, batch = self._encode_input(contract)
         node_hidden = self._forward_local(x, edge_index)
         obs_context = self._pool_nodes(node_hidden, batch)
+        if not self.structural_mode:
+            return self.classifier(obs_context)
 
         struct_context = self._build_struct_context(contract, batch_size=obs_context.shape[0], device=obs_context.device)
         if struct_context is None:
@@ -142,6 +157,7 @@ class EOPKGGCN(BaseEOPKGModel):
         output_dim: int,
         dropout: float = 0.2,
         pooling_strategy: str = "global_mean",
+        structural_mode: bool | str = True,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -149,6 +165,7 @@ class EOPKGGCN(BaseEOPKGModel):
             output_dim=output_dim,
             dropout=dropout,
             pooling_strategy=pooling_strategy,
+            structural_mode=structural_mode,
         )
         self.conv1 = GCNConv(self.input_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
@@ -174,6 +191,7 @@ class EOPKGGATv2(BaseEOPKGModel):
         output_dim: int,
         dropout: float = 0.2,
         pooling_strategy: str = "global_mean",
+        structural_mode: bool | str = True,
         struct_encoder_type: str = "GATv2Conv",
         struct_hidden_dim: int | None = None,
         cross_attention_heads: int = 4,
@@ -184,6 +202,7 @@ class EOPKGGATv2(BaseEOPKGModel):
             output_dim=output_dim,
             dropout=dropout,
             pooling_strategy=pooling_strategy,
+            structural_mode=structural_mode,
         )
         self.num_classes = int(output_dim)
         self.struct_hidden_dim = int(struct_hidden_dim if struct_hidden_dim is not None else hidden_dim)
@@ -262,6 +281,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         node_hidden = self._forward_local(x, edge_index)
         obs_context = self._pool_nodes(node_hidden, batch)
         batch_size = int(obs_context.shape[0])
+        if not self.structural_mode:
+            self.last_cross_attn_weights = None
+            return self.classifier(obs_context)
 
         structural_edge_index = contract.get("structural_edge_index")
         if structural_edge_index is None or structural_edge_index.numel() == 0:

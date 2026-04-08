@@ -159,41 +159,70 @@ flowchart TD
 ```
 
 ### 6.3 EOPKGGATv2
-Dual-encoder path:
-1. observed branch: local GATv2 encoder,
-2. structural branch: `struct_x` or structural embeddings + structural GNN,
-3. cross-attention from observed context to structural nodes,
-4. fused classifier head.
+Dual-encoder model with configurable structural ablation:
+1. observed branch is GATv2-based and uses the same high-level pattern as BaselineGATv2 (`embed + concat + 2 x GATv2 + pool + classifier`),
+2. structural branch uses `struct_x` (when present) or class embeddings, then structural GNN,
+3. cross-attention fuses observed context with structural node representations,
+4. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
 
-Fallback:
-1. if structural edges are missing/empty, run baseline-like observed path only.
+Conceptual view:
+```mermaid
+flowchart LR
+    X[Observed inputs] --> OBS[Observed encoder]
+    OBS --> HOBS[Observed context]
+    SM{structural_mode}
+    HOBS --> SM
+    SM -->|false| CLS0[Classifier]
+    CLS0 --> LOGITS0[logits]
+    SM -->|true| STR[Structural branch]
+    STR --> ATTN[Cross-attention]
+    HOBS --> ATTN
+    ATTN --> FUSE[Fusion]
+    HOBS --> FUSE
+    FUSE --> CLS1[Classifier]
+    CLS1 --> LOGITS1[logits]
+```
 
+Detailed runtime view:
 ```mermaid
 flowchart LR
     subgraph OBS[Observed branch]
-        O1[x_cat and x_num] --> O2[Local GATv2 encoder]
-        O2 --> O3[Pool to H_obs]
+        O1[x_cat] --> O2[Embedding lookup]
+        O3[x_num] --> O4[Concat]
+        O2 --> O4
+        O4 --> O5[GATv2Conv layer 1 heads 4]
+        O5 --> O6[ReLU and Dropout]
+        O6 --> O7[GATv2Conv layer 2 heads 1]
+        O7 --> O8[ReLU and Dropout]
+        O8 --> O9[Pool global_mean or last_node]
     end
 
     subgraph STR[Structural branch]
         S0{struct_x present}
         S1[struct_x]
-        S2[struct node embedding]
-        S3[Structural GNN]
+        S2[Class embedding table]
+        S3[Input projection when needed]
+        S4[Structural GNN GATv2Conv or GCNConv]
+        S5[ReLU and Dropout]
         S0 -->|yes| S1
         S0 -->|no| S2
         S1 --> S3
         S2 --> S3
+        S3 --> S4
+        S4 --> S5
     end
 
-    O3 --> A1[Cross-attention query]
-    S3 --> A2[Cross-attention key and value]
-    A1 --> A3[Cross-attention output]
-    A2 --> A3
-    A3 --> F1[Fusion]
-    O3 --> F1
+    M0{structural_mode}
+    O9 --> M0
+    M0 -->|false| C0[Classifier]
+    C0 --> L0[logits]
+    M0 -->|true| A1[Cross-attention]
+    S5 --> A1
+    O9 --> A1
+    A1 --> F1[Fusion MLP]
+    O9 --> F1
     F1 --> C1[Classifier]
-    C1 --> LOGITS[logits]
+    C1 --> L1[logits]
 ```
 
 ### 6.4 EOPKGGCN
@@ -214,21 +243,32 @@ flowchart LR
     C1 --> LOGITS[logits]
 ```
 
-## 7. Evaluation Semantics
-1. Loss is computed from `logits` and `y` using cross-entropy.
-2. `allowed_target_mask` is not consumed by model forward.
-3. `allowed_target_mask` is consumed by evaluator to compute OOS metrics when present.
+## 7. Loss, Evaluation, and Mask Application
+1. Base objective remains cross-entropy on `y`.
+2. `allowed_target_mask` is used for Stage2 diagnostics (`target_in_mask_rate`, `pred_in_mask_rate`, `strict_error_but_allowed_rate`, OOS, cardinality slices).
+3. Stage3 adds optional mask-guided logits policy in trainer:
+   - `off`: no mask effect on logits,
+   - `soft`: subtract penalty from disallowed classes,
+   - `hard`: suppress disallowed classes.
+4. Hard versus soft decision uses mask reliability:
+   - if `target_in_mask_rate` meets threshold, policy may be hard,
+   - otherwise policy stays soft.
 
 ```mermaid
 flowchart LR
     CONTRACT[GraphTensorContract batch] --> MODEL[Model forward]
-    MODEL --> LOGITS[logits]
-    CONTRACT --> Y[y]
-    LOGITS --> LOSS[cross entropy]
-    Y --> LOSS
+    MODEL --> LOGITS_RAW[raw logits]
     CONTRACT --> MASK[allowed_target_mask optional]
-    LOGITS --> OOS[OOS computation in evaluator]
-    MASK --> OOS
+    MASK --> POLICY[mask_guided policy off soft hard]
+    LOGITS_RAW --> POLICY
+    POLICY --> LOGITS_EFF[effective logits]
+    CONTRACT --> Y[y]
+    LOGITS_EFF --> LOSS[cross entropy]
+    Y --> LOSS
+    LOGITS_EFF --> PRED[predictions]
+    PRED --> METRICS[accuracy f1 ece]
+    MASK --> METRICS
+    Y --> METRICS
 ```
 
 ## 8. Compatibility Rules

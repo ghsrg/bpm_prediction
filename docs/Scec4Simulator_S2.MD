@@ -180,7 +180,7 @@ Stage 2 не повинен ламати XES Stage 1. Можна додати:
 
 ### 8.2 Рекомендоване розширення pipeline
 
-Після Stage 1 варто окремо додати в основний pipeline:
+Після Stage 1 варто окремо додати в основний pipeline техборг на `split_strategy: temporal_cutoff`:
 
 ```yaml
 experiment:
@@ -217,7 +217,7 @@ experiment:
 Для drift research більш консистентний перший варіант:
 
 - кейс належить до split за своїм стартом;
-- version assignment теж рахується за стартом;
+- version assignment у симуляторі задається конфігом версій і activation schedule;
 - overlap при цьому залишається реалістичним.
 
 ## 9. Вплив на mask-aware/version-aware prediction
@@ -301,4 +301,3 @@ Stage 2 має не “розширити симулятор до повного
 - вузький Stage 1;
 - окреме підтвердження користі;
 - лише після цього нарощування richer semantics, diagnostics і temporal evaluation support.
-

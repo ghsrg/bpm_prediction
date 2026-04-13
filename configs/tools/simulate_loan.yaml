@@ -1,0 +1,357 @@
+simulation:
+  process_name: "loan_sim_v1_v4"
+  random_seed: 42
+  start_time: "2025-01-01T00:00:00Z"
+  end_time: "2025-01-05T00:00:00Z"
+
+versions:
+  - version_id: "v1"
+    active_from: "2025-01-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v1.bpmn"
+  - version_id: "v2"
+    active_from: "2025-01-02T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v2_re.bpmn"
+  - version_id: "v3"
+    active_from: "2025-01-03T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v3_re_pl.bpmn"
+  - version_id: "v4"
+    active_from: "2025-01-04T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v4_re_pl_cb.bpmn"
+
+arrival_process:
+  type: "poisson"
+  rate_per_hour: 1.0
+  max_cases: 200
+
+case_attributes:
+  risk_score:
+    type: "beta"
+    alpha: 2.0
+    beta: 5.0
+  p_form_rework:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_revise:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_big_loop:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_cancel:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_quote:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_branch:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+
+resources:
+  roles:
+    clerk:
+      workers:
+        - id: "clerk_1"
+          factor: 1.00
+        - id: "clerk_2"
+          factor: 0.95
+        - id: "clerk_3"
+          factor: 1.55
+
+tasks:
+  Activity_07k7tyn:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_add_notes:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_approve_loan:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_assess_eligibility:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 6}
+  t_audit_case:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 5}
+  t_book_loan:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_call_client:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_cancel_loan:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_check_form:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 240, sigma: 0.30}
+  t_check_funding:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_check_quote:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_collect_docs:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 5}
+  t_confirm_payout:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_create_account:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_credit_check:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 300, sigma: 0.30}
+  t_final_review:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 300, sigma: 0.35}
+  t_identity_check:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_monitor_eight:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_five:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_four:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_nine:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_one:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_seven:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_six:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_three:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_monitor_two:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_plan_setup:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_prepare_pack:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_property_check:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 5}
+  t_receive_update:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_reject_loan:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_reopen_case:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_reserve_funds:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_return_form:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_revise_offer:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_risk_assess:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+  t_send_notice:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_send_offer:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_send_quote:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 2}
+  t_update_risk:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 3}
+  t_verify_docs:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 5}
+  t_verify_terms:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 4}
+
+gateways:
+  gw_form_ok:
+    default_flow_id: "sf007"
+    branches:
+      - flow_id: "sf007"
+        when: {const: true}
+
+  gw_eligible:
+    default_flow_id: "sf019"
+    branches:
+      - flow_id: "sf017"
+        when:
+          all:
+            - var: "risk_score"
+              op: ">="
+              value: 0.85
+      - flow_id: "sf019"
+        when: {const: true}
+
+  gw_send_choice:
+    default_flow_id: "sf023"
+    branches:
+      - flow_id: "sf022"
+        when:
+          all:
+            - var: "p_quote"
+              op: "<"
+              value: 0.50
+      - flow_id: "sf023"
+        when: {const: true}
+
+  gw_client_ok:
+    default_flow_id: "sf030"
+    branches:
+      - flow_id: "sf030"
+        when: {const: true}
+
+  gw_large_loop:
+    default_flow_id: "sf057"
+    branches:
+      - flow_id: "sf057"
+        when: {const: true}
+
+  gw_final_decision:
+    default_flow_id: "sf059"
+    branches:
+      - flow_id: "sf058"
+        when:
+          all:
+            - var: "p_cancel"
+              op: "<"
+              value: 0.12
+      - flow_id: "sf059"
+        when: {const: true}
+
+  Gateway_0o2t3y3:
+    default_flow_id: "Flow_1lrsbky"
+    branches:
+      - flow_id: "Flow_16vfbah"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.20
+      - flow_id: "Flow_1h0355n"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.40
+      - flow_id: "Flow_1lrsbky"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.70
+      - flow_id: "Flow_1tdmx2o"
+        when: {const: true}
+
+  Gateway_1nwy75l:
+    default_flow_id: "sf037"
+    branches:
+      - flow_id: "Flow_18y3nak"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.20
+      - flow_id: "Flow_1mpz582"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.40
+      - flow_id: "sf036"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.70
+      - flow_id: "sf037"
+        when: {const: true}
+
+  Gateway_0dybq4o:
+    default_flow_id: "Flow_0swefs4"
+    branches:
+      - flow_id: "Flow_1ffr2gg"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.30
+      - flow_id: "Flow_0swefs4"
+        when: {const: true}
+
+  Gateway_0pc77rw:
+    default_flow_id: "Flow_1x69xss"
+    branches:
+      - flow_id: "Flow_0ivfy9a"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.30
+      - flow_id: "Flow_1x69xss"
+        when: {const: true}
+
+  Gateway_1s7zg4u:
+    default_flow_id: "Flow_1qd0rtd"
+    branches:
+      - flow_id: "Flow_1e8j02j"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.35
+      - flow_id: "Flow_1qd0rtd"
+        when: {const: true}
+
+  Gateway_0czrb5g:
+    default_flow_id: "Flow_1isimfb"
+    branches:
+      - flow_id: "Flow_0s7mxgo"
+        when:
+          all:
+            - var: "p_branch"
+              op: "<"
+              value: 0.35
+      - flow_id: "Flow_1isimfb"
+        when: {const: true}
+
+output:
+  xes_path: "../../outputs/simulation/loan_v1_v4_simulated.xes"
+  summary_json_path: "../../outputs/simulation/loan_v1_v4_simulated.summary.json"
+  generated_data_config_path: "../../configs/data/generated_simulate_loan.yaml"
+  overwrite: true
+  trace_level_case_attrs: true
+  duplicate_case_attrs_on_events: false
+  emit_assign_for_human_tasks: true
+  emit_assign_for_automatic_tasks: false

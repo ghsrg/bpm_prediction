@@ -1,0 +1,71 @@
+data:
+  dataset_label: loan_sim_v1_v4_simulated
+  log_path: C:\Users\korsr\PycharmProjects\bpm_prediction\outputs\simulation\loan_v1_v4_simulated.xes
+mapping:
+  xes_adapter:
+    case_id_key: concept:name
+    activity_key: concept:name
+    timestamp_key: time:timestamp
+    resource_key: org:resource
+    lifecycle_key: lifecycle:transition
+    version_key: concept:version
+    start_transitions:
+    - assign
+    - start
+    complete_transitions:
+    - complete
+    pairing_strategy: lifo
+    use_classifier: true
+
+  features:
+    - name: "org:resource"
+      role: "resource"
+      source: "event"
+      dtype: "string"
+      fill_na: "UNKNOWN"
+      encoding: [ "embedding" ]
+
+    - name: "time:timestamp"
+      role: "timestamp"
+      source: "event"
+      dtype: "timestamp"
+      fill_na: 0.0
+      encoding:
+        - "z-score"
+        - "time2vec_dayofweek"
+        - "time2vec_month"
+        - "time2vec_hour"
+        - "time2vec_work_hours"
+
+    - name: "duration"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: [ "z-score" ]
+
+    - name: "time_since_case_start"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: [ "z-score" ]
+
+    - name: "time_since_previous_event"
+      source: "event"
+      dtype: "float"
+      fill_na: 0.0
+      encoding: [ "z-score" ]
+
+
+policies:
+  profile: "mvp1_default"
+  activity_fallback_feature: "concept:name"
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: "UTC"
+      working_days: [0, 1, 2, 3, 4]
+      start_hour: 9
+      end_hour: 18

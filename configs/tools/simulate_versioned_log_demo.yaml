@@ -1,0 +1,101 @@
+# Demo config for simulator.
+# Update versions[*].bpmn_path to existing BPMN files before running.
+
+simulation:
+  process_name: "loan_demo_sim"
+  random_seed: 42
+  start_time: "2025-01-01T00:00:00Z"
+  end_time: "2025-01-03T00:00:00Z"
+
+versions:
+  - version_id: "v1"
+    active_from: "2025-01-01T00:00:00Z"
+    bpmn_path: "../../data/bpmn/loan_v1.bpmn"
+  - version_id: "v2"
+    active_from: "2025-01-02T00:00:00Z"
+    bpmn_path: "../../data/bpmn/loan_v2.bpmn"
+
+arrival_process:
+  type: "poisson"
+  rate_per_hour: 4.0
+  max_cases: 2500
+
+case_attributes:
+  amount:
+    type: "lognormal"
+    mean: 30000
+    sigma: 0.5
+  risk_score:
+    type: "beta"
+    alpha: 2.0
+    beta: 5.0
+  client_type:
+    type: "categorical"
+    values:
+      retail: 0.7
+      vip: 0.1
+      sme: 0.2
+
+resources:
+  roles:
+    clerk:
+      workers:
+        - id: "clerk_1"
+          factor: 1.0
+        - id: "clerk_2"
+          factor: 0.95
+    risk_officer:
+      workers:
+        - id: "risk_1"
+          factor: 1.05
+
+tasks:
+  check_application:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration:
+      type: "lognormal"
+      mean_seconds: 480
+      sigma: 0.35
+  assess_risk:
+    execution_mode: "human"
+    roles: ["risk_officer"]
+    duration:
+      type: "gamma"
+      mean_seconds: 900
+      k: 3.0
+  auto_decision:
+    execution_mode: "automatic"
+    duration:
+      type: "fixed"
+      seconds: 2
+    noise:
+      extra_delay_probability: 0.005
+      extra_delay_seconds: 30
+
+gateways:
+  gw_decision:
+    default_flow_id: "flow_manual"
+    branches:
+      - flow_id: "flow_auto"
+        when:
+          all:
+            - var: "risk_score"
+              op: "<="
+              value: 0.2
+            - var: "amount"
+              op: "<"
+              value: 20000
+      - flow_id: "flow_manual"
+        when:
+          const: true
+
+output:
+  xes_path: "../../outputs/simulation/loan_demo_sim.xes"
+  summary_json_path: "../../outputs/simulation/loan_demo_sim.summary.json"
+  generated_data_config_path: "../../configs/data/generated_loan_demo_sim.yaml"
+  overwrite: true
+  trace_level_case_attrs: true
+  duplicate_case_attrs_on_events: false
+  emit_assign_for_human_tasks: true
+  emit_assign_for_automatic_tasks: false

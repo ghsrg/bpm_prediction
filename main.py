@@ -8,6 +8,7 @@ from tools.sync_stats import main as sync_stats_main
 from tools.sync_stats_backfill import main as sync_stats_backfill_main
 from tools.graph_cache_cleaner import main as graph_cache_cleaner_main
 from tools.add_version2xes import main as add_version2xes_main
+from tools.simulate_versioned_log import main as simulate_versioned_log_main
 from tools.experiment_ui import main as experiment_ui_main
 from tools.web_ui import main as web_ui_main
 
@@ -26,6 +27,8 @@ if __name__ == "__main__":
         sys.exit(sync_stats_backfill_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "add-version2xes":
         sys.exit(add_version2xes_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "simulate-versioned-log":
+        sys.exit(simulate_versioned_log_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "cache-clean":
         sys.exit(graph_cache_cleaner_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "experiment-ui":

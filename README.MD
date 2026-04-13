@@ -469,6 +469,20 @@ python main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml
 For `chunk_percent: 0.1` and 2500 traces, chunk size is 250 and labels alternate as `v1/v2` every 250 traces.
 Use `scope: both` to update `concept:version` on both trace and event levels.
 
+7.2 `simulate-versioned-log` (Stage 1 BPMN simulator -> XES)
+```bash
+python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
+python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml --out outputs/simulate_versioned_log_summary.json
+```
+The tool validates BPMN readiness before generation:
+- non-flow elements (`pools`, `lanes`, `artifacts`, layout tags) -> warnings
+- unsupported flow-impacting elements (`inclusiveGateway`, boundary/intermediate events, timers, complex/event-based gateways) -> errors
+
+Artifacts produced by simulator:
+- `output.xes_path` -> generated XES event log
+- `output.summary_json_path` -> simulation summary
+- `output.generated_data_config_path` -> ready-to-use `configs/data/*.yaml` dataset mapping
+
 8. `visualize-topology` (repository-first)
 ```bash
 python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png

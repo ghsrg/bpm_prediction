@@ -183,6 +183,10 @@ def test_evaluate_test_reports_stage2_mask_metrics():
     assert metrics["test_ambiguous_prefix_rate"] == pytest.approx(1.0 / 3.0)
     assert metrics["test_mask_coverage"] == pytest.approx(1.0)
     assert metrics["test_oos"] == pytest.approx(1.0 / 3.0)
+    assert metrics["strict_test_accuracy"] == pytest.approx(1.0 / 3.0)
+    assert metrics["test_accuracy"] == pytest.approx(2.0 / 3.0)
+    assert metrics["test_set_hit_rate_ambiguous"] == pytest.approx(1.0)
+    assert metrics["test_set_nll"] >= 0.0
 
 
 def test_mask_guided_policy_hard_when_reliable_and_soft_when_not():

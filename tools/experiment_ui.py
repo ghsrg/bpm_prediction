@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import os
 import queue
@@ -358,6 +359,20 @@ class _DynamicForm(ttk.Frame):
         self._choice_provider = choice_provider
         self._on_change = on_change
 
+    @staticmethod
+    def _is_bool_choice_set(choices: List[str]) -> bool:
+        if not choices:
+            return False
+        normalized = {str(item).strip().lower() for item in choices if str(item).strip() != ""}
+        return normalized.issubset({"true", "false"}) and len(normalized) >= 1
+
+    @staticmethod
+    def _to_bool_text(value: Any) -> str:
+        text = str(value).strip().lower()
+        if text in {"true", "1", "yes", "on"}:
+            return "true"
+        return "false"
+
     def _on_canvas_resize(self, event: tk.Event) -> None:
         self.canvas.itemconfigure(self.window_id, width=event.width)
 
@@ -377,11 +392,15 @@ class _DynamicForm(ttk.Frame):
             else:
                 ttk.Label(self.inner, text=" ").grid(row=row, column=0, sticky="w", padx=(4, 4), pady=2)
             ttk.Label(self.inner, text=self._label_provider(key)).grid(row=row, column=1, sticky="w", padx=(0, 8), pady=2)
-            var = tk.StringVar(value=_to_text(values[key]))
             choices = self._choice_provider(key)
-            if choices:
-                entry = ttk.Combobox(self.inner, textvariable=var, values=choices, state="normal")
+            if self._is_bool_choice_set(choices):
+                var = tk.StringVar(value=self._to_bool_text(values[key]))
+                entry = ttk.Checkbutton(self.inner, variable=var, onvalue="true", offvalue="false")
             else:
+                var = tk.StringVar(value=_to_text(values[key]))
+            if choices and not self._is_bool_choice_set(choices):
+                entry = ttk.Combobox(self.inner, textvariable=var, values=choices, state="normal")
+            elif not self._is_bool_choice_set(choices):
                 entry = ttk.Entry(self.inner, textvariable=var)
             entry.grid(row=row, column=2, sticky="ew", padx=4, pady=2)
             self.inner.columnconfigure(2, weight=1)
@@ -445,15 +464,18 @@ class ExperimentUI:
             self._presets = {}
         self._pool_meta = self._scan_pool_meta()
         self._catalog = self._load_or_create_catalog()
+        self._preset_highlight_after_id: str | None = None
 
         self.vars: Dict[str, tk.Variable] = {}
         self._build_vars(default_config)
         self._build_ui()
         self._bind_input_shortcuts()
         self._reset_progress_ui()
+        self._refresh_preset_choices()
         self._load_state()
         self._load_base_config_into_form()
         self._apply_payload_to_forms(self._state)
+        self._sync_preset_saved_at_label()
         self._refresh_state_controls()
         self._refresh_preview()
         self._poll_queue()
@@ -841,6 +863,7 @@ class ExperimentUI:
             "model.hidden_dim": "Розмір прихованого представлення основного енкодера.",
             "model.struct_hidden_dim": "Розмір прихованого представлення структурної гілки EOPKG.",
             "model.struct_encoder_type": "Тип структурного GNN шару (GATv2Conv або GCNConv).",
+            "model.fusion_mode": "Режим злиття observed + structural контексту в EOPKGGATv2 (Attention або Concat).",
             "model.cross_attention_heads": "Кількість голів cross-attention у EOPKG.",
             "model.dropout": "Ймовірність dropout для регуляризації.",
             "model.graph_strategy": "Стратегія побудови графових прикладів для моделі.",
@@ -1025,6 +1048,7 @@ class ExperimentUI:
 
     def _build_vars(self, default_config: str | None) -> None:
         default = default_config or str(ROOT_DIR / "configs" / "experiments" / "mvp2_5_stage4_2_eopkg_files_stat.yaml")
+        self.preset_saved_at_var = tk.StringVar(value="Last saved: -")
         self.vars["config_path"] = tk.StringVar(value=default)
         self.vars["data_config_path"] = tk.StringVar(value="")
         self.vars["preset_name"] = tk.StringVar(value="")
@@ -1038,7 +1062,6 @@ class ExperimentUI:
         self.vars["split_ratio_train"] = tk.StringVar(value="0.7")
         self.vars["split_ratio_val"] = tk.StringVar(value="0.2")
         self.vars["split_ratio_test"] = tk.StringVar(value="0.1")
-        self.vars["retrain"] = tk.BooleanVar(value=True)
         self.vars["seed"] = tk.StringVar(value="42")
         self.vars["stats_time_policy"] = tk.StringVar(value="strict_asof")
         self.vars["on_missing_asof_snapshot"] = tk.StringVar(value="disable_stats")
@@ -1136,6 +1159,7 @@ class ExperimentUI:
         for key, var in self.vars.items():
             if isinstance(var, (tk.StringVar, tk.BooleanVar, tk.IntVar, tk.DoubleVar)):
                 var.trace_add("write", lambda *_args: self._refresh_preview())
+        self.vars["preset_name"].trace_add("write", lambda *_args: self._sync_preset_saved_at_label())
 
     def _bind_input_shortcuts(self) -> None:
         def _event(name: str):
@@ -1191,13 +1215,16 @@ class ExperimentUI:
         advanced.rowconfigure(0, weight=1)
 
         ttk.Label(core, text="preset_name").grid(row=0, column=0, sticky="w")
-        ttk.Entry(core, textvariable=self.vars["preset_name"]).grid(row=0, column=1, sticky="ew")
+        self.preset_name_box = ttk.Combobox(core, textvariable=self.vars["preset_name"], state="normal")
+        self.preset_name_box.grid(row=0, column=1, sticky="ew")
         bar = ttk.Frame(core)
         bar.grid(row=0, column=2, sticky="e")
         ttk.Button(bar, text="Save", command=self._save_preset).grid(row=0, column=0, padx=(0, 4))
         ttk.Button(bar, text="Load", command=self._load_preset).grid(row=0, column=1, padx=(0, 4))
         ttk.Button(bar, text="Delete", command=self._delete_preset).grid(row=0, column=2)
         self._add_help_mark(core, 0, "Назва preset для збереження/відновлення поточного стану UI.", col=3)
+        self.preset_saved_at_label = tk.Label(core, textvariable=self.preset_saved_at_var, fg="#2e7d32")
+        self.preset_saved_at_label.grid(row=0, column=4, sticky="w", padx=(8, 0))
         _Hint(core, "Preset = збережений стан UI (це не окремий YAML-файл).", row=1)
 
         ttk.Label(core, text="experiment.mode").grid(row=2, column=0, sticky="w")
@@ -1247,81 +1274,78 @@ class ExperimentUI:
         self._split_ratio_widgets = [split_train, split_val, split_test]
         self._general_field_widgets["split_ratio"] = split_train
 
-        w = ttk.Checkbutton(core, text="training.retrain", variable=self.vars["retrain"]); w.grid(row=10, column=1, sticky="w"); self._general_field_widgets["retrain"] = w
-        self._add_help_mark(core, 10, self._hint_for("training.retrain"))
+        ttk.Label(core, text="seed").grid(row=10, column=0, sticky="w")
+        self._add_help_mark(core, 10, self._hint_for("seed"))
+        w = ttk.Entry(core, textvariable=self.vars["seed"]); w.grid(row=10, column=1, sticky="ew"); self._general_field_widgets["seed"] = w
 
-        ttk.Label(core, text="seed").grid(row=11, column=0, sticky="w")
-        self._add_help_mark(core, 11, self._hint_for("seed"))
-        w = ttk.Entry(core, textvariable=self.vars["seed"]); w.grid(row=11, column=1, sticky="ew"); self._general_field_widgets["seed"] = w
+        ttk.Label(core, text="experiment.stats_time_policy").grid(row=11, column=0, sticky="w")
+        self._add_help_mark(core, 11, self._hint_for("experiment.stats_time_policy"))
+        w = ttk.Combobox(core, textvariable=self.vars["stats_time_policy"], values=["latest", "strict_asof"], state="readonly", width=18); w.grid(row=11, column=1, sticky="w"); self._general_field_widgets["stats_time_policy"] = w
 
-        ttk.Label(core, text="experiment.stats_time_policy").grid(row=12, column=0, sticky="w")
-        self._add_help_mark(core, 12, self._hint_for("experiment.stats_time_policy"))
-        w = ttk.Combobox(core, textvariable=self.vars["stats_time_policy"], values=["latest", "strict_asof"], state="readonly", width=18); w.grid(row=12, column=1, sticky="w"); self._general_field_widgets["stats_time_policy"] = w
-
-        ttk.Label(core, text="experiment.on_missing_asof_snapshot").grid(row=13, column=0, sticky="w")
-        self._add_help_mark(core, 13, self._hint_for("experiment.on_missing_asof_snapshot"))
+        ttk.Label(core, text="experiment.on_missing_asof_snapshot").grid(row=12, column=0, sticky="w")
+        self._add_help_mark(core, 12, self._hint_for("experiment.on_missing_asof_snapshot"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["on_missing_asof_snapshot"],
             values=["disable_stats", "use_base", "raise"],
             state="readonly",
             width=18,
-        ); w.grid(row=13, column=1, sticky="w"); self._general_field_widgets["on_missing_asof_snapshot"] = w
+        ); w.grid(row=12, column=1, sticky="w"); self._general_field_widgets["on_missing_asof_snapshot"] = w
 
-        ttk.Label(core, text="experiment.cache_policy").grid(row=14, column=0, sticky="w")
-        self._add_help_mark(core, 14, self._hint_for("experiment.cache_policy"))
+        ttk.Label(core, text="experiment.cache_policy").grid(row=13, column=0, sticky="w")
+        self._add_help_mark(core, 13, self._hint_for("experiment.cache_policy"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["cache_policy"],
             values=["off", "dto", "full"],
             state="readonly",
             width=18,
-        ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
+        ); w.grid(row=13, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
 
-        ttk.Label(core, text="experiment.graph_dataset_cache_policy").grid(row=15, column=0, sticky="w")
-        self._add_help_mark(core, 15, self._hint_for("experiment.graph_dataset_cache_policy"))
+        ttk.Label(core, text="experiment.graph_dataset_cache_policy").grid(row=14, column=0, sticky="w")
+        self._add_help_mark(core, 14, self._hint_for("experiment.graph_dataset_cache_policy"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["graph_dataset_cache_policy"],
             values=["off", "read", "write", "full"],
             state="readonly",
             width=18,
-        ); w.grid(row=15, column=1, sticky="w"); self._general_field_widgets["graph_dataset_cache_policy"] = w
+        ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["graph_dataset_cache_policy"] = w
 
-        ttk.Label(core, text="experiment.graph_dataset_cache_dir").grid(row=16, column=0, sticky="w")
-        self._add_help_mark(core, 16, self._hint_for("experiment.graph_dataset_cache_dir"))
-        w = ttk.Entry(core, textvariable=self.vars["graph_dataset_cache_dir"]); w.grid(row=16, column=1, sticky="ew"); self._general_field_widgets["graph_dataset_cache_dir"] = w
+        ttk.Label(core, text="experiment.graph_dataset_cache_dir").grid(row=15, column=0, sticky="w")
+        self._add_help_mark(core, 15, self._hint_for("experiment.graph_dataset_cache_dir"))
+        w = ttk.Entry(core, textvariable=self.vars["graph_dataset_cache_dir"]); w.grid(row=15, column=1, sticky="ew"); self._general_field_widgets["graph_dataset_cache_dir"] = w
 
-        ttk.Label(core, text="sync --as-of").grid(row=17, column=0, sticky="w")
+        ttk.Label(core, text="sync --as-of").grid(row=16, column=0, sticky="w")
         self.sync_asof_entry = ttk.Entry(core, textvariable=self.vars["sync_as_of"])
-        self.sync_asof_entry.grid(row=17, column=1, sticky="ew")
-        self._add_help_mark(core, 17, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
+        self.sync_asof_entry.grid(row=16, column=1, sticky="ew")
+        self._add_help_mark(core, 16, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
 
-        ttk.Label(core, text="backfill step").grid(row=18, column=0, sticky="w")
+        ttk.Label(core, text="backfill step").grid(row=17, column=0, sticky="w")
         self.backfill_step_box = ttk.Combobox(
             core, textvariable=self.vars["backfill_step"], values=["daily", "weekly", "monthly"], state="readonly", width=18
         )
-        self.backfill_step_box.grid(row=18, column=1, sticky="w")
-        self._add_help_mark(core, 18, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
+        self.backfill_step_box.grid(row=17, column=1, sticky="w")
+        self._add_help_mark(core, 17, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
 
-        ttk.Label(core, text="backfill step-days").grid(row=19, column=0, sticky="w")
+        ttk.Label(core, text="backfill step-days").grid(row=18, column=0, sticky="w")
         self.backfill_step_days_entry = ttk.Entry(core, textvariable=self.vars["backfill_step_days"])
-        self.backfill_step_days_entry.grid(row=19, column=1, sticky="ew")
-        self._add_help_mark(core, 19, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
+        self.backfill_step_days_entry.grid(row=18, column=1, sticky="ew")
+        self._add_help_mark(core, 18, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
 
-        ttk.Label(core, text="backfill from").grid(row=20, column=0, sticky="w")
+        ttk.Label(core, text="backfill from").grid(row=19, column=0, sticky="w")
         self.backfill_from_entry = ttk.Entry(core, textvariable=self.vars["backfill_from"])
-        self.backfill_from_entry.grid(row=20, column=1, sticky="ew")
-        self._add_help_mark(core, 20, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
+        self.backfill_from_entry.grid(row=19, column=1, sticky="ew")
+        self._add_help_mark(core, 19, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
 
-        ttk.Label(core, text="backfill to").grid(row=21, column=0, sticky="w")
+        ttk.Label(core, text="backfill to").grid(row=20, column=0, sticky="w")
         self.backfill_to_entry = ttk.Entry(core, textvariable=self.vars["backfill_to"])
-        self.backfill_to_entry.grid(row=21, column=1, sticky="ew")
-        self._add_help_mark(core, 21, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
+        self.backfill_to_entry.grid(row=20, column=1, sticky="ew")
+        self._add_help_mark(core, 20, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
 
-        ttk.Label(core, text="extra_args").grid(row=22, column=0, sticky="w")
-        self._add_help_mark(core, 22, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
-        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=22, column=1, sticky="ew")
+        ttk.Label(core, text="extra_args").grid(row=21, column=0, sticky="w")
+        self._add_help_mark(core, 21, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
+        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=21, column=1, sticky="ew")
 
         adv_sections = ttk.Notebook(advanced)
         adv_sections.grid(row=0, column=0, sticky="nsew")
@@ -1772,7 +1796,6 @@ class ExperimentUI:
             )
         )
         self.vars["graph_dataset_cache_dir"].set(str(exp.get("graph_dataset_cache_dir", exp.get("graph_cache_dir", ".cache/graph_datasets"))))
-        self.vars["retrain"].set(bool(train.get("retrain", False)))
         self.vars["seed"].set(str(self._base_config.get("seed", 42)))
         self.vars["adapter"].set(str(mapping.get("adapter", "camunda")))
 
@@ -1844,9 +1867,11 @@ class ExperimentUI:
         self.sync_stats_form.set_fields(self._ordered_field_dict(sync_all))
 
         model_all: Dict[str, Any] = dict(model_flat)
-        for path, meta in self._pool_meta.items():
+        # Build model form from catalog (not only from scanned pool) so newly added
+        # model parameters appear even before they exist in any base config.
+        for path, meta in self._catalog.items():
             if meta.section == "model" and path not in model_all:
-                model_all[path] = ""
+                model_all[path] = _deep_get(self._base_config, path, self._catalog_default(path, ""))
         self.model_form.set_fields(self._ordered_field_dict(model_all))
 
         extra_experiment: Dict[str, Any] = {}
@@ -1910,9 +1935,6 @@ class ExperimentUI:
 
         is_sync_mode = mode in {"sync-topology", "sync-stats", "sync-stats-backfill"}
         for name, widget in self._general_field_widgets.items():
-            if name == "retrain":
-                widget.configure(state="disabled" if is_sync_mode else "normal")
-                continue
             if isinstance(widget, ttk.Combobox):
                 widget.configure(state="disabled" if is_sync_mode else "readonly")
             else:
@@ -2078,7 +2100,6 @@ class ExperimentUI:
         self.vars["cache_policy"].set(str(self._catalog_default("experiment.cache_policy", "full")))
         self.vars["graph_dataset_cache_policy"].set(str(self._catalog_default("experiment.graph_dataset_cache_policy", "off")))
         self.vars["graph_dataset_cache_dir"].set(str(self._catalog_default("experiment.graph_dataset_cache_dir", ".cache/graph_datasets")))
-        self.vars["retrain"].set(self._to_bool(self._catalog_default("training.retrain", True), fallback=True))
         self.vars["seed"].set(str(self._catalog_default("seed", "42")))
         self.vars["adapter"].set(str(self._catalog_default("mapping.adapter", "camunda")))
         self.vars["sync_as_of"].set("")
@@ -2131,7 +2152,6 @@ class ExperimentUI:
             self._normalize_graph_dataset_cache_policy(self.vars["graph_dataset_cache_policy"].get()),
         )
         _deep_set(cfg, "experiment.graph_dataset_cache_dir", str(self.vars["graph_dataset_cache_dir"].get()).strip())
-        _deep_set(cfg, "training.retrain", bool(self.vars["retrain"].get()))
         _deep_set(cfg, "seed", int(float(str(self.vars["seed"].get()).strip() or "42")))
         _deep_set(cfg, "mapping.adapter", str(self.vars["adapter"].get()).strip())
 
@@ -2169,6 +2189,70 @@ class ExperimentUI:
         _deep_set(cfg, "policies", self._get_text_block(self.policies_text))
         _deep_set(cfg, "mapping.graph_feature_mapping", self._get_text_block(self.graph_mapping_text))
         return cfg
+
+    @staticmethod
+    def _now_iso_utc() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _format_saved_at(raw: Any) -> str:
+        text = str(raw).strip()
+        if not text:
+            return "-"
+        normalized = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return text
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
+
+    @staticmethod
+    def _extract_preset_payload(entry: Any) -> Dict[str, Any] | None:
+        if not isinstance(entry, dict):
+            return None
+        payload = entry.get("payload")
+        if isinstance(payload, dict):
+            return payload
+        # Backward compatibility: old format stored payload directly.
+        return entry
+
+    @staticmethod
+    def _extract_preset_last_saved_at(entry: Any) -> str:
+        if not isinstance(entry, dict):
+            return ""
+        value = entry.get("last_saved_at")
+        return str(value).strip() if value is not None else ""
+
+    def _refresh_preset_choices(self) -> None:
+        if not hasattr(self, "preset_name_box"):
+            return
+        names = sorted(str(key) for key in self._presets.keys())
+        self.preset_name_box.configure(values=names)
+
+    def _sync_preset_saved_at_label(self, *, highlight: bool = False) -> None:
+        name = str(self.vars["preset_name"].get()).strip()
+        entry = self._presets.get(name)
+        saved_at = self._extract_preset_last_saved_at(entry)
+        text = self._format_saved_at(saved_at) if saved_at else "-"
+        self.preset_saved_at_var.set(f"Last saved: {text}")
+        if not hasattr(self, "preset_saved_at_label"):
+            return
+        base_color = "#2e7d32" if saved_at else "#616161"
+        self.preset_saved_at_label.configure(fg=base_color)
+        if not highlight:
+            return
+        if self._preset_highlight_after_id is not None:
+            try:
+                self.root.after_cancel(self._preset_highlight_after_id)
+            except Exception:
+                pass
+        self.preset_saved_at_label.configure(fg="#ef6c00")
+        self._preset_highlight_after_id = self.root.after(
+            1800,
+            lambda: self.preset_saved_at_label.configure(fg=base_color),
+        )
 
     def _save_state(self) -> None:
         payload = {
@@ -2306,13 +2390,20 @@ class ExperimentUI:
             "policies_text": self.policies_text.get("1.0", tk.END),
             "graph_mapping_text": self.graph_mapping_text.get("1.0", tk.END),
         }
-        self._presets[name] = payload
+        self._presets[name] = {
+            "payload": payload,
+            "last_saved_at": self._now_iso_utc(),
+        }
         _write_json(PRESETS_PATH, self._presets)
+        self._refresh_preset_choices()
+        self.vars["preset_name"].set(name)
+        self._sync_preset_saved_at_label(highlight=True)
         messagebox.showinfo("Preset", f"Saved preset: {name}")
 
     def _load_preset(self) -> None:
         name = str(self.vars["preset_name"].get()).strip()
-        payload = self._presets.get(name)
+        entry = self._presets.get(name)
+        payload = self._extract_preset_payload(entry)
         if not isinstance(payload, dict):
             messagebox.showwarning("Preset", f"Preset not found: {name}")
             return
@@ -2338,12 +2429,15 @@ class ExperimentUI:
                     continue
         self._refresh_state_controls()
         self._refresh_preview()
+        self._sync_preset_saved_at_label(highlight=True)
 
     def _delete_preset(self) -> None:
         name = str(self.vars["preset_name"].get()).strip()
         if name in self._presets:
             del self._presets[name]
             _write_json(PRESETS_PATH, self._presets)
+            self._refresh_preset_choices()
+            self._sync_preset_saved_at_label()
             messagebox.showinfo("Preset", f"Deleted preset: {name}")
         else:
             messagebox.showwarning("Preset", f"Preset not found: {name}")

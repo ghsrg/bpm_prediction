@@ -1402,6 +1402,24 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  model.fusion_mode:
+    path: model.fusion_mode
+    section: model
+    label: 'Модель: Fusion mode'
+    description: Fusion strategy for EOPKGGATv2 structural + observed contexts.
+    affects: How structural context is combined with observed branch in EOPKG mode.
+    default: Attention
+    enum:
+    - Attention
+    - Concat
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1000
   model.dropout:
     path: model.dropout
     section: model

@@ -195,6 +195,7 @@ class EOPKGGATv2(BaseEOPKGModel):
         struct_encoder_type: str = "GATv2Conv",
         struct_hidden_dim: int | None = None,
         cross_attention_heads: int = 4,
+        fusion_mode: str = "concat_mlp",
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -208,6 +209,20 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.struct_hidden_dim = int(struct_hidden_dim if struct_hidden_dim is not None else hidden_dim)
         self.struct_encoder_type = str(struct_encoder_type or "GATv2Conv")
         self.cross_attention_heads = int(cross_attention_heads)
+        raw_fusion_mode = str(fusion_mode or "attention").strip().lower()
+        alias_map = {
+            "attention": "attention",
+            "concat": "concat",
+            # Backward compatibility aliases.
+            "concat_mlp": "attention",
+            "struct_pool_concat": "concat",
+        }
+        self.fusion_mode = alias_map.get(raw_fusion_mode, raw_fusion_mode)
+        if self.fusion_mode not in {"attention", "concat"}:
+            raise ValueError(
+                f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
+                "Available: ['Attention', 'Concat']"
+            )
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
@@ -308,17 +323,21 @@ class EOPKGGATv2(BaseEOPKGModel):
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)
 
-        query = obs_context.unsqueeze(1)  # [B, 1, hidden_dim]
-        kv = self.struct_to_attn(h_norm).unsqueeze(0).expand(batch_size, -1, -1)  # [B, C, hidden_dim]
-        attn_output, attn_weights = self.cross_attention(
-            query=query,
-            key=kv,
-            value=kv,
-            need_weights=True,
-            average_attn_weights=False,
-        )
-        self.last_cross_attn_weights = attn_weights.detach()
-
-        context_struct = self.attn_to_struct(attn_output.squeeze(1))  # [B, struct_hidden_dim]
+        if self.fusion_mode == "concat":
+            # Structural context is a pooled summary of structural node states.
+            context_struct = h_norm.mean(dim=0, keepdim=True).expand(batch_size, -1)
+            self.last_cross_attn_weights = None
+        else:
+            query = obs_context.unsqueeze(1)  # [B, 1, hidden_dim]
+            kv = self.struct_to_attn(h_norm).unsqueeze(0).expand(batch_size, -1, -1)  # [B, C, hidden_dim]
+            attn_output, attn_weights = self.cross_attention(
+                query=query,
+                key=kv,
+                value=kv,
+                need_weights=True,
+                average_attn_weights=False,
+            )
+            self.last_cross_attn_weights = attn_weights.detach()
+            context_struct = self.attn_to_struct(attn_output.squeeze(1))  # [B, struct_hidden_dim]
         fused = self.fusion(torch.cat([obs_context, context_struct], dim=1))
         return self.classifier(fused)

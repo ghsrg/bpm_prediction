@@ -577,11 +577,15 @@ class ModelTrainer:
 
                 epoch_metrics = {
                     "train_loss": train_loss,
-                    "train_macro_f1": train_macro_f1,
+                    "strict_train_macro_f1": train_macro_f1,
                     "val_loss": val_loss,
+                    "strict_val_macro_f1": val_macro_f1,
+                    "strict_val_weighted_f1": val_weighted_f1,
+                    "epoch_duration_sec": epoch_duration,
+                    # Legacy aliases for backward compatibility with existing dashboards.
+                    "train_macro_f1": train_macro_f1,
                     "val_macro_f1": val_macro_f1,
                     "val_weighted_f1": val_weighted_f1,
-                    "epoch_duration_sec": epoch_duration,
                 }
                 history.append(epoch_metrics)
                 self._log_epoch_metrics(epoch=epoch, metrics=epoch_metrics)
@@ -677,6 +681,8 @@ class ModelTrainer:
             payload={
                 "test_macro_f1": float(test_metrics.get("test_macro_f1", 0.0)),
                 "test_accuracy": float(test_metrics.get("test_accuracy", 0.0)),
+                "strict_test_macro_f1": float(test_metrics.get("strict_test_macro_f1", 0.0)),
+                "strict_test_accuracy": float(test_metrics.get("strict_test_accuracy", 0.0)),
             },
         )
         self._log_test_metrics(test_metrics)
@@ -1261,6 +1267,9 @@ class ModelTrainer:
         all_pred_in_mask_flags: List[float] = []
         all_strict_error_but_allowed_flags: List[float] = []
         all_mask_cardinality: List[float] = []
+        all_hybrid_correct_flags: List[float] = []
+        all_hybrid_set_nll: List[float] = []
+        all_ambiguous_flags: List[float] = []
         all_lengths: List[int] = []
         all_versions: List[str] = []
         inference_graphs = 0
@@ -1333,6 +1342,14 @@ class ModelTrainer:
                 batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
                 batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
                 batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_hybrid_correct = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                batch_hybrid_set_nll = -torch.log(
+                    probs[
+                        torch.arange(batch_size, device=probs.device),
+                        target_tensor.to(probs.device),
+                    ].clamp_min(1e-12)
+                )
+                batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
                 if self.mode == "eval_drift" and not first_batch_debug_logged:
                     logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", targets[:5].tolist(), preds[:5].tolist())
                     first_batch_debug_logged = True
@@ -1386,6 +1403,19 @@ class ModelTrainer:
                     strict_error_but_allowed = (pred_tensor != target_tensor.to(pred_tensor.device)) & pred_in_mask
                     mask_cardinality = allowed_mask.sum(dim=1).float()
                     oos_flags = (~pred_in_mask).float()
+                    ambiguous_mask = mask_cardinality > 1.0
+                    row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                    set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
+                    set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
+                    target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
+                    selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
+                    batch_hybrid_set_nll = -torch.log(selected_prob_mass)
+                    batch_hybrid_correct = torch.where(
+                        ambiguous_mask,
+                        pred_in_mask.float(),
+                        (pred_tensor == target_tensor.to(pred_tensor.device)).float(),
+                    )
+                    batch_ambiguous = ambiguous_mask.float()
 
                     batch_oos_aligned = oos_flags.detach().cpu().numpy().astype(np.float32, copy=False)
                     batch_target_in_mask = target_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
@@ -1400,6 +1430,13 @@ class ModelTrainer:
                 all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
                 all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
                 all_mask_cardinality.extend(batch_mask_cardinality.tolist())
+                all_hybrid_correct_flags.extend(
+                    batch_hybrid_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_hybrid_set_nll.extend(
+                    batch_hybrid_set_nll.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_ambiguous_flags.extend(batch_ambiguous.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
 
                 if hasattr(data, "prefix_len"):
                     all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
@@ -1442,17 +1479,22 @@ class ModelTrainer:
 
         if not all_true:
             return {
+                "test_accuracy": 0.0,
                 "test_macro_f1": 0.0,
                 "test_weighted_f1": 0.0,
-                "test_accuracy": 0.0,
+                "test_set_nll": 0.0,
                 "test_top3_accuracy": 0.0,
-                "test_weighted_f1": 0.0,
                 "test_ece": 0.0,
+                "strict_test_accuracy": 0.0,
+                "strict_test_macro_f1": 0.0,
+                "strict_test_weighted_f1": 0.0,
                 "test_oos": None,
                 "test_target_in_mask_rate": None,
                 "test_pred_in_mask_rate": None,
                 "test_strict_error_but_allowed_rate": None,
                 "test_ambiguous_prefix_rate": None,
+                "test_set_hit_rate_ambiguous": None,
+                "test_accuracy_deterministic": None,
                 "test_mask_coverage": 0.0,
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
@@ -1476,16 +1518,45 @@ class ModelTrainer:
             top3_accuracy = float(accuracy_score(y_true, y_pred))
         else:
             top3_accuracy = float(top_k_accuracy_score(y_true, y_prob, k=top_k, labels=list(range(num_classes))))
+        strict_accuracy = float(accuracy_score(y_true, y_pred))
+        strict_macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        strict_weighted_f1 = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
+        strict_precision_macro = float(precision_score(y_true, y_pred, average="macro", zero_division=0))
+        strict_recall_macro = float(recall_score(y_true, y_pred, average="macro", zero_division=0))
+        hybrid_correct_flags = np.asarray(all_hybrid_correct_flags, dtype=np.float32) if all_hybrid_correct_flags else None
+        hybrid_set_nll = np.asarray(all_hybrid_set_nll, dtype=np.float32) if all_hybrid_set_nll else None
+        ambiguous_flags = np.asarray(all_ambiguous_flags, dtype=np.float32) if all_ambiguous_flags else None
+        pred_in_mask_flags_raw = np.asarray(all_pred_in_mask_flags, dtype=np.float32) if all_pred_in_mask_flags else None
+
+        y_true_hybrid = np.asarray(y_true, dtype=np.int64).copy()
+        if (
+            isinstance(ambiguous_flags, np.ndarray)
+            and isinstance(pred_in_mask_flags_raw, np.ndarray)
+            and int(ambiguous_flags.shape[0]) == int(y_true_hybrid.shape[0])
+            and int(pred_in_mask_flags_raw.shape[0]) == int(y_true_hybrid.shape[0])
+        ):
+            override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
+            if override_idxs.size > 0:
+                y_true_hybrid[override_idxs] = y_pred[override_idxs]
+        hybrid_accuracy = self._nanmean_or_none(hybrid_correct_flags)
+        if hybrid_accuracy is None:
+            hybrid_accuracy = strict_accuracy
 
         metrics = {
-            "test_macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
-            "test_weighted_f1": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
-            "test_accuracy": float(accuracy_score(y_true, y_pred)),
+            "test_accuracy": float(hybrid_accuracy),
+            "test_macro_f1": float(f1_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "test_weighted_f1": float(f1_score(y_true_hybrid, y_pred, average="weighted", zero_division=0)),
+            "test_set_nll": float(self._nanmean_or_none(hybrid_set_nll) or 0.0),
             "test_top3_accuracy": top3_accuracy,
             "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
             "test_oos": None,
-            "test_precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
-            "test_recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
+            "test_precision_macro": float(precision_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "test_recall_macro": float(recall_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "strict_test_accuracy": strict_accuracy,
+            "strict_test_macro_f1": strict_macro_f1,
+            "strict_test_weighted_f1": strict_weighted_f1,
+            "strict_test_precision_macro": strict_precision_macro,
+            "strict_test_recall_macro": strict_recall_macro,
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
         }
         oos_flags_aligned = np.asarray(all_oos_flags_aligned, dtype=np.float32) if all_oos_flags_aligned else None
@@ -1502,17 +1573,47 @@ class ModelTrainer:
         metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
 
         ambiguous_prefix_rate: float | None = None
+        test_set_hit_rate_ambiguous: float | None = None
+        test_accuracy_deterministic: float | None = None
         if isinstance(mask_cardinality, np.ndarray) and int(mask_cardinality.shape[0]) == int(y_true.shape[0]):
             finite_mask_cardinality = np.isfinite(mask_cardinality)
             if bool(np.any(finite_mask_cardinality)):
                 ambiguous_prefix_rate = float(np.mean(mask_cardinality[finite_mask_cardinality] > 1.0))
                 metrics["test_mask_coverage"] = float(np.mean(finite_mask_cardinality.astype(np.float32)))
+                if isinstance(pred_in_mask_flags, np.ndarray) and int(pred_in_mask_flags.shape[0]) == int(y_true.shape[0]):
+                    ambiguous_idxs = np.where((mask_cardinality > 1.0) & finite_mask_cardinality)[0]
+                    if ambiguous_idxs.size > 0:
+                        value = self._nanmean_or_none(pred_in_mask_flags[ambiguous_idxs])
+                        if value is not None:
+                            test_set_hit_rate_ambiguous = float(value)
+                    deterministic_idxs = np.where((mask_cardinality == 1.0) & finite_mask_cardinality)[0]
+                    if deterministic_idxs.size > 0 and isinstance(hybrid_correct_flags, np.ndarray):
+                        value = self._nanmean_or_none(hybrid_correct_flags[deterministic_idxs])
+                        if value is not None:
+                            test_accuracy_deterministic = float(value)
             else:
                 metrics["test_mask_coverage"] = 0.0
         else:
             metrics["test_mask_coverage"] = 0.0
         metrics["test_ambiguous_prefix_rate"] = ambiguous_prefix_rate
+        metrics["test_set_hit_rate_ambiguous"] = test_set_hit_rate_ambiguous
+        metrics["test_accuracy_deterministic"] = test_accuracy_deterministic
 
+        metrics.update(
+            self._compute_sliced_metrics(
+                y_true=y_true_hybrid,
+                y_pred=y_pred,
+                oos_flags=oos_flags_aligned,
+                target_in_mask_flags=target_in_mask_flags,
+                pred_in_mask_flags=pred_in_mask_flags,
+                strict_error_but_allowed_flags=strict_error_but_allowed_flags,
+                mask_cardinality=mask_cardinality,
+                prefix_lengths=np.asarray(all_lengths, dtype=np.int64) if all_lengths else None,
+                versions=all_versions if all_versions else None,
+                metric_prefix="",
+                emit_mask_metrics=True,
+            )
+        )
         metrics.update(
             self._compute_sliced_metrics(
                 y_true=y_true,
@@ -1524,8 +1625,14 @@ class ModelTrainer:
                 mask_cardinality=mask_cardinality,
                 prefix_lengths=np.asarray(all_lengths, dtype=np.int64) if all_lengths else None,
                 versions=all_versions if all_versions else None,
+                metric_prefix="strict_",
+                emit_mask_metrics=False,
             )
         )
+        # Legacy aliases for one-release compatibility.
+        metrics["legacy_test_accuracy"] = float(metrics["strict_test_accuracy"])
+        metrics["legacy_test_macro_f1"] = float(metrics["strict_test_macro_f1"])
+        metrics["legacy_test_weighted_f1"] = float(metrics["strict_test_weighted_f1"])
         return metrics
 
     @staticmethod
@@ -1573,18 +1680,23 @@ class ModelTrainer:
             window_loader = self._build_loader(window_traces, shuffle=False)
             metrics = self._evaluate_test(window_loader, stage_label="eval_drift")
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
+            strict_macro_f1 = float(metrics.get("strict_test_macro_f1", 0.0))
             ece = float(metrics.get("test_ece", 0.0))
             window_oos = metrics.get("test_oos")
             window_target_in_mask = metrics.get("test_target_in_mask_rate")
             window_pred_in_mask = metrics.get("test_pred_in_mask_rate")
             window_strict_error_but_allowed = metrics.get("test_strict_error_but_allowed_rate")
             window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
+            window_set_nll = metrics.get("test_set_nll")
 
-            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "ece": f"{ece:.4f}"})
+            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
             if self.tracker is not None:
                 self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=window_idx)
+                self.tracker.log_metric("drift_window_strict_macro_f1", strict_macro_f1, step=window_idx)
                 self.tracker.log_metric("drift_window_test_ece", ece, step=window_idx)
+                if window_set_nll is not None:
+                    self.tracker.log_metric("drift_window_test_set_nll", float(window_set_nll), step=window_idx)
                 if window_oos is not None:
                     self.tracker.log_metric("drift_window_test_oos", float(window_oos), step=window_idx)
                 if window_target_in_mask is not None:
@@ -1614,7 +1726,15 @@ class ModelTrainer:
 
             start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
             end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
-            logger.info("Window %d/%d (%.3f - %.3f) | F1: %.4f...", window_idx + 1, total_windows, start_ts, end_ts, macro_f1)
+            logger.info(
+                "Window %d/%d (%.3f - %.3f) | F1(hybrid): %.4f | F1(strict): %.4f...",
+                window_idx + 1,
+                total_windows,
+                start_ts,
+                end_ts,
+                macro_f1,
+                strict_macro_f1,
+            )
 
             drift_results.append(
                 {
@@ -1624,7 +1744,9 @@ class ModelTrainer:
                     "window_start_ts": start_ts,
                     "window_end_ts": end_ts,
                     "window_macro_f1": macro_f1,
+                    "window_strict_macro_f1": strict_macro_f1,
                     "window_test_ece": ece,
+                    "window_test_set_nll": float(window_set_nll) if window_set_nll is not None else float("nan"),
                     "window_test_oos": float(window_oos) if window_oos is not None else float("nan"),
                     "window_target_in_mask_rate": (
                         float(window_target_in_mask) if window_target_in_mask is not None else float("nan")
@@ -1655,6 +1777,7 @@ class ModelTrainer:
                 total=total_windows,
                 payload={
                     "macro_f1": float(macro_f1),
+                    "strict_macro_f1": float(strict_macro_f1),
                     "ece": float(ece),
                     "target_in_mask_rate": float(window_target_in_mask) if window_target_in_mask is not None else None,
                     "pred_in_mask_rate": float(window_pred_in_mask) if window_pred_in_mask is not None else None,
@@ -1839,24 +1962,29 @@ class ModelTrainer:
         mask_cardinality: Optional[np.ndarray],
         prefix_lengths: Optional[np.ndarray],
         versions: Optional[List[str]],
+        metric_prefix: str = "",
+        emit_mask_metrics: bool = True,
     ) -> Dict[str, float]:
         """Compute slicing metrics by prefix length bins and process versions."""
         metrics: Dict[str, float] = {}
         sample_count = int(y_true.shape[0])
+        prefix = str(metric_prefix or "")
 
         def _append_mask_slice_metrics(metric_suffix: str, idxs: List[int]) -> None:
+            if not emit_mask_metrics:
+                return
             if target_in_mask_flags is not None and int(target_in_mask_flags.shape[0]) == sample_count:
                 value = cls._nanmean_or_none(target_in_mask_flags[idxs])
                 if value is not None:
-                    metrics[f"test_target_in_mask_rate_{metric_suffix}"] = value
+                    metrics[f"{prefix}test_target_in_mask_rate_{metric_suffix}"] = value
             if pred_in_mask_flags is not None and int(pred_in_mask_flags.shape[0]) == sample_count:
                 value = cls._nanmean_or_none(pred_in_mask_flags[idxs])
                 if value is not None:
-                    metrics[f"test_pred_in_mask_rate_{metric_suffix}"] = value
+                    metrics[f"{prefix}test_pred_in_mask_rate_{metric_suffix}"] = value
             if strict_error_but_allowed_flags is not None and int(strict_error_but_allowed_flags.shape[0]) == sample_count:
                 value = cls._nanmean_or_none(strict_error_but_allowed_flags[idxs])
                 if value is not None:
-                    metrics[f"test_strict_error_but_allowed_rate_{metric_suffix}"] = value
+                    metrics[f"{prefix}test_strict_error_but_allowed_rate_{metric_suffix}"] = value
 
         if prefix_lengths is not None and int(prefix_lengths.shape[0]) == sample_count:
             length_bins = ["len_1_5", "len_6_10", "len_11_20", "len_21_plus"]
@@ -1869,12 +1997,12 @@ class ModelTrainer:
                     continue
                 bin_true = y_true[idxs]
                 bin_pred = y_pred[idxs]
-                metrics[f"test_accuracy_{bin_name}"] = float(accuracy_score(bin_true, bin_pred))
-                metrics[f"test_f1_{bin_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
+                metrics[f"{prefix}test_accuracy_{bin_name}"] = float(accuracy_score(bin_true, bin_pred))
+                metrics[f"{prefix}test_f1_{bin_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
                 if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
                     value = cls._nanmean_or_none(oos_flags[idxs])
                     if value is not None:
-                        metrics[f"test_oos_{bin_name}"] = value
+                        metrics[f"{prefix}test_oos_{bin_name}"] = value
                 _append_mask_slice_metrics(bin_name, idxs)
 
         if versions is not None and len(versions) == sample_count:
@@ -1886,12 +2014,12 @@ class ModelTrainer:
                 ver_true = y_true[idxs]
                 ver_pred = y_pred[idxs]
                 suffix = cls._safe_key_suffix(version)
-                metrics[f"test_accuracy_{suffix}"] = float(accuracy_score(ver_true, ver_pred))
-                metrics[f"test_f1_{suffix}"] = float(f1_score(ver_true, ver_pred, average="macro", zero_division=0))
+                metrics[f"{prefix}test_accuracy_{suffix}"] = float(accuracy_score(ver_true, ver_pred))
+                metrics[f"{prefix}test_f1_{suffix}"] = float(f1_score(ver_true, ver_pred, average="macro", zero_division=0))
                 if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
                     value = cls._nanmean_or_none(oos_flags[idxs])
                     if value is not None:
-                        metrics[f"test_oos_{suffix}"] = value
+                        metrics[f"{prefix}test_oos_{suffix}"] = value
                 _append_mask_slice_metrics(suffix, idxs)
 
         if mask_cardinality is not None and int(mask_cardinality.shape[0]) == sample_count:
@@ -1916,12 +2044,12 @@ class ModelTrainer:
                     continue
                 bin_true = y_true[idxs]
                 bin_pred = y_pred[idxs]
-                metrics[f"test_accuracy_{group_name}"] = float(accuracy_score(bin_true, bin_pred))
-                metrics[f"test_f1_{group_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
+                metrics[f"{prefix}test_accuracy_{group_name}"] = float(accuracy_score(bin_true, bin_pred))
+                metrics[f"{prefix}test_f1_{group_name}"] = float(f1_score(bin_true, bin_pred, average="macro", zero_division=0))
                 if oos_flags is not None and int(oos_flags.shape[0]) == sample_count:
                     value = cls._nanmean_or_none(oos_flags[idxs])
                     if value is not None:
-                        metrics[f"test_oos_{group_name}"] = value
+                        metrics[f"{prefix}test_oos_{group_name}"] = value
                 _append_mask_slice_metrics(group_name, idxs)
 
         return metrics

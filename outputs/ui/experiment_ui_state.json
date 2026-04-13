@@ -25,19 +25,19 @@
     "mapping.camunda_adapter.structure.version_key_format": "",
     "mapping.camunda_adapter.subprocess_graph_mode": ""
   },
-  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n",
+  "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_weekofyear\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: AMOUNT_REQ\n  source: trace\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n",
   "general_experiment_form": {
     "experiment.cache_dir": ".cache/dynamic_graph_builder",
     "experiment.drift_window_size": "100",
     "experiment.drift_window_sliding": "10",
     "experiment.graph_dataset_disk_spill_enabled": "true",
     "experiment.graph_dataset_shard_size": "20000",
-    "experiment.load_checkpoint": "checkpoints/Baseline_42_DD_RIO_2.5_GATv2_best.pth",
-    "experiment.mask_guided_enabled": "false",
+    "experiment.load_checkpoint": "checkpoints/S_Con-MN-42_bpi2012_GATv2_best.pth",
+    "experiment.mask_guided_enabled": "true",
     "experiment.max_ram_gb": "10",
-    "experiment.retrain": "false",
+    "experiment.retrain": "true",
     "experiment.statistic_enabled": "false",
-    "experiment.structural_mode": "false"
+    "experiment.structural_mode": "true"
   },
   "general_tracking_form": {
     "tracking.backend": "mlflow",
@@ -60,18 +60,17 @@
     "training.learning_rate": "0.001",
     "training.loss_function": "cross_entropy",
     "training.mask_guided_apply_in_eval": "true",
-    "training.mask_guided_enabled": "true",
     "training.mask_guided_hard_threshold": "1.0",
     "training.mask_guided_min_samples_for_hard": "1",
     "training.mask_guided_soft_penalty": "2.0",
-    "training.patience": "10",
+    "training.patience": "20",
     "training.show_progress": "True",
     "training.torch_num_interop_threads": "2",
     "training.torch_num_threads": "8",
     "training.tqdm_disable": "False",
     "training.tqdm_leave": "False"
   },
-  "graph_mapping_text": "enabled: true\nnode_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n",
+  "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
   "input_camunda_mapping_form": {
     "mapping.camunda_adapter.lookback_hours": "",
     "mapping.camunda_adapter.process_filters": "",
@@ -94,34 +93,35 @@
     "mapping.camunda_adapter.runtime.sql_dir": ""
   },
   "input_data_form": {
-    "data.dataset_label": "DD_RIO_2.5",
-    "data.dataset_name": "RIO2.5k.versioned",
-    "data.log_path": "../Data/Business Process Drift/logs/RIO/RIO2.5k.versioned.xes"
+    "data.dataset_label": "bpi2012",
+    "data.dataset_name": "BPI_Challenge_2012",
+    "data.log_path": "../Data/BPI Challenge 2012_1_all/BPI_Challenge_2012.xes"
   },
   "input_xes_form": {
     "mapping.xes_adapter.activity_key": "concept:name",
     "mapping.xes_adapter.case_id_key": "concept:name",
-    "mapping.xes_adapter.complete_transitions": "- complete",
+    "mapping.xes_adapter.complete_transitions": "- COMPLETE\n- complete\n- ate_abort\n- pi_abort\n- manualskip\n- autoskip",
     "mapping.xes_adapter.lifecycle_key": "lifecycle:transition",
     "mapping.xes_adapter.pairing_strategy": "lifo",
     "mapping.xes_adapter.resource_key": "org:resource",
-    "mapping.xes_adapter.start_transitions": "- assign",
+    "mapping.xes_adapter.start_transitions": "- START",
     "mapping.xes_adapter.timestamp_key": "time:timestamp",
-    "mapping.xes_adapter.use_classifier": "False",
+    "mapping.xes_adapter.use_classifier": "True",
     "mapping.xes_adapter.version_key": "concept:version"
   },
   "model_form": {
     "model.cross_attention_heads": "4",
     "model.dropout": "0.2",
+    "model.fusion_mode": "Concat",
     "model.graph_strategy": "sequential_prefix",
     "model.hidden_dim": "64",
     "model.model_label": "GATv2",
     "model.pooling_strategy": "global_mean",
     "model.struct_encoder_type": "GATv2Conv",
     "model.struct_hidden_dim": "64",
-    "model.type": "BaselineGATv2"
+    "model.type": "EOPKGGATv2"
   },
-  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n",
+  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n",
   "sync_stats_form": {
     "sync_stats.confidence_weights.coverage": "",
     "sync_stats.confidence_weights.freshness": "",
@@ -141,19 +141,18 @@
     "backfill_step": "monthly",
     "backfill_step_days": "",
     "backfill_to": "",
-    "cache_policy": "full",
+    "cache_policy": "off",
     "config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml",
-    "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/2015_cb_DataDrift.yaml",
-    "experiment_name": "Baseline_42-Drift-m",
+    "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/bpi2012_Challenge.yaml",
+    "experiment_name": "S_Con-MN-42-drift",
     "extra_args": "",
     "fraction": "1",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
     "mode": "eval_drift",
     "on_missing_asof_snapshot": "use_base",
-    "preset_name": "eline_DD_RIO",
-    "project": "mvp2_5_DD",
-    "retrain": false,
+    "preset_name": "S_Con-MN-2012-drift",
+    "project": "mvp2_6",
     "seed": "42",
     "split_ratio": "- 0.7\n- 0.2\n- 0.1",
     "split_ratio_test": "0.1",
@@ -162,6 +161,6 @@
     "split_strategy": "temporal",
     "stats_time_policy": "latest",
     "sync_as_of": "",
-    "train_ratio": "0"
+    "train_ratio": "0.1"
   }
 }

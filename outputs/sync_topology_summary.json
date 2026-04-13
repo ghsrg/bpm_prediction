@@ -4,15 +4,14 @@
   "source_mode": "single_file",
   "files_scanned": 1,
   "datasets_synced": 1,
-  "total_traces": 2500,
+  "total_traces": 13087,
   "details": [
     {
-      "dataset_name": "RIO2.5k.versioned",
-      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\Business Process Drift\\logs\\RIO\\RIO2.5k.versioned.xes",
-      "traces": 2500,
+      "dataset_name": "BPI_Challenge_2012",
+      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\BPI Challenge 2012_1_all\\BPI_Challenge_2012.xes",
+      "traces": 13087,
       "versions_saved": [
-        "v1",
-        "v2"
+        "BPI_Challenge_2012"
       ],
       "status": "ok"
     }

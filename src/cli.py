@@ -1957,6 +1957,7 @@ def main() -> None:
         struct_encoder_type=str(model_cfg.get("struct_encoder_type", "GATv2Conv")),
         struct_hidden_dim=int(model_cfg.get("struct_hidden_dim", hidden_dim)),
         cross_attention_heads=int(model_cfg.get("cross_attention_heads", 4)),
+        fusion_mode=str(model_cfg.get("fusion_mode", "Attention")),
     )
     logger.info("Initialized model via factory: type=%s", model_type)
 

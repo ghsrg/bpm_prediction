@@ -125,7 +125,7 @@ CORE_FIELDS: List[str] = [
     "training.checkpoint_path",
     "training.checkpoint_run_name",
     "training.checkpoint_dir",
-    "training.retrain",
+    "experiment.retrain",
     "mapping.graph_feature_mapping.enabled",
 ]
 
@@ -140,6 +140,7 @@ STRICT_ENUM_PATHS = {
     "mapping.knowledge_graph.backend",
     "model.type",
     "model.struct_encoder_type",
+    "model.fusion_mode",
     "tracking.backend",
 }
 
@@ -207,6 +208,10 @@ SPECIAL_SELECT_CHOICES: Dict[str, List[tuple[str, str]]] = {
     "model.struct_encoder_type": [
         ("GATv2Conv", "GATv2Conv"),
         ("GCNConv", "GCNConv"),
+    ],
+    "model.fusion_mode": [
+        ("Attention", "Attention"),
+        ("Concat", "Concat"),
     ],
 }
 
@@ -429,7 +434,14 @@ def _build_type_hints(
         if meta is not None and meta.default not in {"", None}:
             hints[path] = _infer_type_name(meta.default)
             continue
-        if path in {"training.retrain", "mapping.graph_feature_mapping.enabled"}:
+        if path in {
+            "training.retrain",
+            "mapping.graph_feature_mapping.enabled",
+            "experiment.retrain",
+            "experiment.statistic_enabled",
+            "experiment.structural_mode",
+            "experiment.mask_guided_enabled",
+        }:
             hints[path] = "bool"
             continue
         hints[path] = "str"
@@ -1122,7 +1134,8 @@ def _render_field(path: str, meta: CatalogMeta | None) -> None:
     widget_key = f"field::{path}"
     current_cfg = st.session_state.get("base_config", {})
     model_type = str(_deep_get(current_cfg, "model.type", "")).strip()
-    struct_encoder_disabled = path == "model.struct_encoder_type" and model_type != "EOPKGGATv2"
+    eopkg_only_field = path in {"model.struct_encoder_type", "model.fusion_mode"}
+    struct_encoder_disabled = eopkg_only_field and model_type != "EOPKGGATv2"
 
     if path in SPECIAL_SELECT_CHOICES:
         value_labels = SPECIAL_SELECT_CHOICES[path]
@@ -1144,7 +1157,7 @@ def _render_field(path: str, meta: CatalogMeta | None) -> None:
         )
         values[path] = chosen
         if struct_encoder_disabled:
-            st.caption("`model.struct_encoder_type` застосовується лише для `model.type=EOPKGGATv2`.")
+            st.caption(f"`{path}` застосовується лише для `model.type=EOPKGGATv2`.")
         return
 
     if meta is not None and meta.enum and path in STRICT_ENUM_PATHS:
@@ -1164,7 +1177,7 @@ def _render_field(path: str, meta: CatalogMeta | None) -> None:
             )
             values[path] = chosen
             if struct_encoder_disabled:
-                st.caption("`model.struct_encoder_type` застосовується лише для `model.type=EOPKGGATv2`.")
+                st.caption(f"`{path}` застосовується лише для `model.type=EOPKGGATv2`.")
             return
 
     if type_name == "bool":

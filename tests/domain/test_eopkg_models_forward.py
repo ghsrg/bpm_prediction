@@ -66,6 +66,22 @@ def test_eopkg_forward_with_structural_tensors(model_type: str):
     assert tuple(logits.shape) == (1, 7)
 
 
+@pytest.mark.parametrize("fusion_mode", ["Attention", "Concat", "concat_mlp", "struct_pool_concat"])
+def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_feature_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode=fusion_mode,
+    )
+    logits = model(_contract(with_struct=True))
+    assert isinstance(logits, torch.Tensor)
+    assert tuple(logits.shape) == (1, 7)
+
+
 @pytest.mark.parametrize("model_type", ["EOPKGGCN", "EOPKGGATv2"])
 def test_eopkg_fallback_without_structural_tensors_logs_warning_and_keeps_shape(
     model_type: str, caplog: pytest.LogCaptureFixture
@@ -106,3 +122,16 @@ def test_eopkg_structural_mode_off_ignores_structural_branch(model_type: str):
     assert tuple(logits_without_struct.shape) == (1, 7)
     assert tuple(logits_with_struct.shape) == (1, 7)
     assert torch.allclose(logits_without_struct, logits_with_struct, atol=1e-6, rtol=0.0)
+
+
+def test_eopkggatv2_rejects_unknown_fusion_mode():
+    with pytest.raises(ValueError, match="Unsupported model.fusion_mode"):
+        create_model(
+            model_type="EOPKGGATv2",
+            feature_layout=_feature_layout(),
+            hidden_dim=16,
+            output_dim=7,
+            dropout=0.0,
+            pooling_strategy="global_mean",
+            fusion_mode="unknown_mode",
+        )

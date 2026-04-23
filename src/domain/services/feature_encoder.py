@@ -96,6 +96,15 @@ class FeatureEncoder:
             if "<UNK>" not in restored_vocab:
                 restored_vocab["<UNK>"] = 0
             restored_vocabs[cfg.name] = restored_vocab
+        if self.activity_feature_name not in restored_vocabs:
+            activity_vocab = raw_vocabs.get(self.activity_feature_name)
+            if isinstance(activity_vocab, dict):
+                restored_activity_vocab = {str(token): int(index) for token, index in activity_vocab.items()}
+                if "<UNK>" not in restored_activity_vocab:
+                    restored_activity_vocab["<UNK>"] = 0
+                restored_vocabs[self.activity_feature_name] = restored_activity_vocab
+            else:
+                restored_vocabs[self.activity_feature_name] = {"<UNK>": 0}
         self.categorical_vocabs = restored_vocabs
 
         raw_scalers = state_dict.get("numerical_scalers", state_dict.get("numeric_stats", {}))
@@ -190,6 +199,8 @@ class FeatureEncoder:
     def _build_categorical_vocabs(self, traces: Sequence[RawTrace]) -> Dict[str, Dict[str, int]]:
         """Build vocabularies for embedding-encoded features with <UNK>=0."""
         vocabs: Dict[str, Dict[str, int]] = {cfg.name: {"<UNK>": 0} for cfg in self.cat_feature_configs}
+        if self.activity_feature_name not in vocabs:
+            vocabs[self.activity_feature_name] = {"<UNK>": 0}
 
         for trace in traces:
             for cfg in self.cat_feature_configs:
@@ -199,8 +210,25 @@ class FeatureEncoder:
                     token = str(value)
                     if token not in vocab:
                         vocab[token] = len(vocab)
+            if self.activity_feature_name not in self.feature_by_name:
+                activity_vocab = vocabs[self.activity_feature_name]
+                for event in trace.events:
+                    token = self._resolve_target_activity_token(event)
+                    if token not in activity_vocab:
+                        activity_vocab[token] = len(activity_vocab)
 
         return vocabs
+
+    def _resolve_target_activity_token(self, event: Any) -> str:
+        """Resolve target labels even when activity is not an input feature."""
+        extra = getattr(event, "extra", {}) or {}
+        if isinstance(extra, dict):
+            raw = extra.get(self.activity_feature_name)
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+        activity_id = getattr(event, "activity_id", "")
+        text = str(activity_id).strip()
+        return text if text else "<UNK>"
 
     def _build_numeric_stats(self, traces: Sequence[RawTrace]) -> Dict[str, Dict[str, float]]:
         """Build z-score stats for all features that request z-score encoding."""

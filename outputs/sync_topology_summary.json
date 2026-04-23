@@ -4,14 +4,17 @@
   "source_mode": "single_file",
   "files_scanned": 1,
   "datasets_synced": 1,
-  "total_traces": 13087,
+  "total_traces": 89,
   "details": [
     {
-      "dataset_name": "BPI_Challenge_2012",
-      "source_file": "C:\\Users\\korsr\\PycharmProjects\\Data\\BPI Challenge 2012_1_all\\BPI_Challenge_2012.xes",
-      "traces": 13087,
+      "dataset_name": "loan_v1_v4_simulated",
+      "source_file": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\simulation\\loan_v1_v4_simulated.xes",
+      "traces": 89,
       "versions_saved": [
-        "BPI_Challenge_2012"
+        "v1",
+        "v2",
+        "v3",
+        "v4"
       ],
       "status": "ok"
     }

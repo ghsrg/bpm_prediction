@@ -1,0 +1,25 @@
+data:
+  dataset_name: loan_v1_v4_simulated
+  dataset_label: loan_v1_v4_simulated
+  log_path: "__camunda__"
+
+mapping:
+  adapter: "camunda"
+  knowledge_graph:
+    backend: "neo4j"
+    strict_load: false
+    ingest_split: "full"
+    neo4j:
+      connection_profile: "local"
+      connections_file: "configs/connections/neo4j.yaml"
+      verify_connectivity: true
+  camunda_adapter:
+    process_filters: ["loan_v1_v4_simulated"]
+    structure:
+      source: "bpmn"
+      structure_from_logs: false
+      bpmn_source: "files"
+      files:
+        export_dir: "data/camunda_exports"
+        catalog_file: "loan_sim_process_definitions.csv"
+        bpmn_dir: "bpmn_xml"

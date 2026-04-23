@@ -471,7 +471,7 @@ Use `scope: both` to update `concept:version` on both trace and event levels.
 
 7.2 `simulate-versioned-log` (Stage 1 BPMN simulator -> XES)
 ```bash
-python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
+    python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
 python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml --out outputs/simulate_versioned_log_summary.json
 ```
 The tool validates BPMN readiness before generation:

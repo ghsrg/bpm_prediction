@@ -2,26 +2,26 @@ simulation:
   process_name: "loan_sim_v1_v4"
   random_seed: 42
   start_time: "2025-01-01T00:00:00Z"
-  end_time: "2025-01-05T00:00:00Z"
+  end_time: "2025-05-01T00:00:00Z"
 
 versions:
   - version_id: "v1"
     active_from: "2025-01-01T00:00:00Z"
     bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v1.bpmn"
   - version_id: "v2"
-    active_from: "2025-01-02T00:00:00Z"
+    active_from: "2025-02-01T00:00:00Z"
     bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v2_re.bpmn"
   - version_id: "v3"
-    active_from: "2025-01-03T00:00:00Z"
+    active_from: "2025-03-01T00:00:00Z"
     bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v3_re_pl.bpmn"
   - version_id: "v4"
-    active_from: "2025-01-04T00:00:00Z"
+    active_from: "2025-04-01T00:00:00Z"
     bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v4_re_pl_cb.bpmn"
 
 arrival_process:
   type: "poisson"
-  rate_per_hour: 1.0
-  max_cases: 200
+  rate_per_hour: 1.74
+  max_cases: 6000
 
 case_attributes:
   risk_score:
@@ -62,138 +62,158 @@ resources:
         - id: "clerk_2"
           factor: 0.95
         - id: "clerk_3"
-          factor: 1.55
+          factor: 1.10
+        - id: "clerk_4"
+          factor: 1.05
+        - id: "clerk_5"
+          factor: 0.90
+        - id: "clerk_6"
+          factor: 1.15
+        - id: "clerk_7"
+          factor: 1.00
+        - id: "clerk_8"
+          factor: 0.98
+        - id: "clerk_9"
+          factor: 1.08
+        - id: "clerk_10"
+          factor: 0.92
 
 tasks:
   Activity_07k7tyn:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 60}
   t_add_notes:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 120}
   t_approve_loan:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_assess_eligibility:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 6}
+    duration: {type: "fixed", seconds: 180}
   t_audit_case:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 5}
+    duration: {type: "fixed", seconds: 180}
   t_book_loan:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 120}
   t_call_client:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 180}
+    noise: {extra_delay_probability: 0.015, extra_delay_seconds: 1814400}
   t_cancel_loan:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_check_form:
     execution_mode: "human"
     roles: ["clerk"]
-    duration: {type: "lognormal", mean_seconds: 240, sigma: 0.30}
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.45}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
   t_check_funding:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 120}
+    noise: {extra_delay_probability: 0.005, extra_delay_seconds: 6480000}
   t_check_quote:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 90}
   t_collect_docs:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 5}
+    duration: {type: "fixed", seconds: 180}
+    noise: {extra_delay_probability: 0.035, extra_delay_seconds: 3888000}
   t_confirm_payout:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_create_account:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_credit_check:
     execution_mode: "human"
     roles: ["clerk"]
-    duration: {type: "lognormal", mean_seconds: 300, sigma: 0.30}
+    duration: {type: "lognormal", mean_seconds: 3600, sigma: 0.55}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
   t_final_review:
     execution_mode: "human"
     roles: ["clerk"]
-    duration: {type: "lognormal", mean_seconds: 300, sigma: 0.35}
+    duration: {type: "lognormal", mean_seconds: 7200, sigma: 0.60}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
   t_identity_check:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 90}
   t_monitor_eight:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_five:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_four:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_nine:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_one:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_seven:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_six:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_three:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_monitor_two:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_plan_setup:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 90}
   t_prepare_pack:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_property_check:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 5}
+    duration: {type: "fixed", seconds: 180}
   t_receive_update:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_reject_loan:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_reopen_case:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_reserve_funds:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_return_form:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_revise_offer:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 120}
   t_risk_assess:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 180}
   t_send_notice:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_send_offer:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_send_quote:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 2}
+    duration: {type: "fixed", seconds: 60}
   t_update_risk:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 3}
+    duration: {type: "fixed", seconds: 120}
   t_verify_docs:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 5}
+    duration: {type: "fixed", seconds: 180}
   t_verify_terms:
     execution_mode: "automatic"
-    duration: {type: "fixed", seconds: 4}
+    duration: {type: "fixed", seconds: 120}
 
 gateways:
   gw_form_ok:

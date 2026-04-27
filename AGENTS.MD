@@ -460,3 +460,35 @@ Use this rule:
 Do not add new long-form worklogs as source of truth. If a durable decision is
 made, write an ADR. If a session note is needed, keep it historical and link it
 from the relevant ADR only when it adds useful context.
+
+## Mandatory Documentation Drift Check
+
+Before finishing any task that changes code, config, CLI behavior, data contracts,
+runtime semantics, tests, or architecture, the agent must explicitly run a
+documentation impact check.
+
+Checklist:
+
+1. `runtime_behavior_changed`
+   - If yes, update `docs/current/project-state.md`.
+2. `architecture_decision_changed`
+   - If yes, create/update ADR in `docs/adr/`.
+3. `architecture_debt_changed`
+   - If yes, update `docs/current/architecture-debt.md`.
+4. `cli_or_command_changed`
+   - If yes, update `docs/runbooks/mvp2_5-commands.md` and README if user-facing.
+5. `config_key_added_or_changed`
+   - If yes, update `configs/ui/config_catalog.yaml`.
+6. `data_contract_changed`
+   - If yes, update `docs/DATA_MODEL_MVP2_5.MD` and related runtime docs.
+7. `gnn_tensor_or_forward_changed`
+   - If yes, update `docs/GNN_RUNTIME_MVP2_5.MD`.
+8. `docs_routing_changed`
+   - If yes, update `AGENTS.MD` and `docs/index.md`.
+
+The final response must include one of:
+
+- `Documentation drift check: updated <files>`
+- `Documentation drift check: no documentation changes required because <reason>`
+
+Never silently skip this check.

@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-04-07
+Updated: 2026-04-27
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -115,7 +115,8 @@ sequenceDiagram
 1. `stats_snapshot_version_seq: int | None`
 2. `stats_snapshot_as_of_epoch: float | None`
 3. `stats_allowed: bool | None`
-4. batch diagnostic variants for snapshot ids/timestamps.
+4. `stats_missing_asof_snapshot: bool | None`
+5. batch diagnostic variants for snapshot ids, timestamps, and missing-as-of markers.
 
 ## 6. Model Architecture Behavior
 
@@ -275,3 +276,16 @@ flowchart LR
 1. Baseline path must remain valid when all structural tensors are absent.
 2. EOPKG path must degrade safely to observed-only forward when structural tensors are absent.
 3. Optional tensor fields must never break MVP1-compatible execution.
+
+## 9. Current Batch Snapshot Limitation
+
+Stage 4.2 uses transitional Option-A behavior for structural payload selection:
+
+1. PyG batches may contain samples from different stats snapshots.
+2. `ModelTrainer` warns when mixed snapshot version ids are detected.
+3. The structural forward payload is selected from the first graph in the batch.
+4. This is acceptable for exploratory/runtime compatibility, but not the final
+   research-grade batching contract.
+
+Target direction is tracked in
+`docs/adr/0005-snapshot-homogeneous-batching.md`.

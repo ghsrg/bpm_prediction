@@ -1,6 +1,6 @@
 ﻿# EVF_MVP2_5.MD
 
-Updated: 2026-03-26
+Updated: 2026-04-27
 Status: ACTIVE
 
 ## 1. Purpose
@@ -33,12 +33,13 @@ Evaluation framework for MVP2.5 with offline topology + offline stats snapshots.
 For drift-safe studies:
 1. Build periodic snapshot timeline (for example monthly).
 2. Use isolated experiment namespace/storage.
-3. Run train/eval with `strict_asof`.
-4. Keep fixed seed and identical train split for baseline and EOPKG.
+3. Run train/eval with `experiment.stats_time_policy = strict_asof`.
+4. Use `experiment.on_missing_asof_snapshot = raise` for dissertation-grade evidence.
+5. Keep fixed seed and identical train split for baseline and EOPKG.
 
 ## 5. Leakage Risk Notes
-1. If no eligible snapshot exists for requested `as_of`, repository fallback is applied.
-2. This must be explicitly reported in experiment notes.
+1. If no eligible snapshot exists for requested `as_of`, runtime behavior is controlled by `experiment.on_missing_asof_snapshot`.
+2. Fallback policies (`disable_stats`, `use_base`) must be explicitly reported in experiment notes and treated as exploratory.
 3. For strict historical studies, ensure snapshots cover required timeline points.
 
 ## 6. Metrics
@@ -70,9 +71,9 @@ Track in reports:
 
 ## 9. Validation Commands
 ```bash
-python main.py sync-topology --config <sync_topology.yaml> --out outputs/sync_topology.json
-python main.py sync-stats --config <sync_stats.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
-python main.py --config <train_or_eval.yaml>
+.\.venv\Scripts\python.exe main.py sync-topology --config <sync_topology.yaml> --out outputs/sync_topology.json
+.\.venv\Scripts\python.exe main.py sync-stats --config <sync_stats.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
+.\.venv\Scripts\python.exe main.py --config <train_or_eval.yaml>
 .\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
 ```
 

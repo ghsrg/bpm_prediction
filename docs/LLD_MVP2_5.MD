@@ -1,6 +1,6 @@
 ﻿# LLD_MVP2_5.MD
 
-Updated: 2026-03-26
+Updated: 2026-04-27
 Status: ACTIVE
 
 ## 1. Purpose
@@ -77,12 +77,34 @@ Builder expects:
 2. edge metrics (`transition_probability`, latency stats)
 3. global metrics (`resource_handover_entropy`, coverage)
 4. producer quality telemetry (`non_zero_ratio_*`, `zero_dominant`, `is_usable_for_training`)
+5. producer alignment telemetry (`event_match_ratio`, `unique_activity_coverage`, `node_coverage`)
 
 And stores:
 1. windowed nested stats (`node_stats`, `edge_stats`, `gnn_features`)
 2. flattened `metadata.stats_index`
-3. universal contract block `metadata.stats_contract` (`version=1.0`, identity, quality, policy)
+3. universal contract block `metadata.stats_contract` (`version=1.0`, identity, quality, policy, alignment)
 4. diagnostics (`stats_diagnostics`)
+
+### 5.0.1 Producer Alignment Gate
+
+Implemented config keys:
+1. `sync_stats.alignment_gate.enabled`
+2. `sync_stats.alignment_gate.warn_on_fail`
+3. `sync_stats.alignment_gate.min_event_match_ratio`
+4. `sync_stats.alignment_gate.min_unique_activity_coverage`
+5. `sync_stats.alignment_gate.min_node_coverage`
+6. `sync_stats.alignment_gate.on_fail`
+
+Default thresholds in `tools/sync_stats.py`:
+1. `min_event_match_ratio = 0.6`
+2. `min_unique_activity_coverage = 0.6`
+3. `min_node_coverage = 0.0`
+4. `on_fail = write_with_flag`
+
+Runtime behavior:
+1. `write_with_flag`: persist snapshot with alignment metadata and warning.
+2. `skip_snapshot`: skip rejected snapshot.
+3. `raise`: fail fast.
 
 ## 5.1 Sync-Stats-Backfill Wrapper
 

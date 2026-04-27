@@ -1,6 +1,6 @@
 ﻿# DATA_FLOWS_MVP2_5.MD
 
-Updated: 2026-03-26
+Updated: 2026-04-27
 Status: ACTIVE
 
 ## 1. Scope
@@ -33,13 +33,24 @@ flowchart TD
 ## 4. Flow C - sync-stats (offline enrichment)
 ```mermaid
 flowchart TD
-    C1[CLI sync-stats] --> C2[Load runtime events from Camunda adapter]
+    C1[CLI sync-stats] --> C2[Load runtime events from Camunda or XES-lite adapter]
     C2 --> C3[Load structure by process and version]
     C3 --> C4[Compute window metrics]
     C4 --> C5[Build stats_index and diagnostics]
-    C5 --> C6[save_process_structure_snapshot]
-    C6 --> C7[Immutable knowledge_version created]
-    C7 --> C8[Summary JSON]
+    C5 --> C6[Apply quality and alignment gates]
+    C6 --> C7[save_process_structure_snapshot]
+    C7 --> C8[Immutable knowledge_version created]
+    C8 --> C9[Summary JSON]
+```
+
+### 4.1 Flow C2 - sync-stats-backfill
+```mermaid
+flowchart TD
+    B1[CLI sync-stats-backfill] --> B2[Resolve event timestamp range]
+    B2 --> B3[Build daily weekly monthly or custom timeline]
+    B3 --> B4[Invoke sync-stats --as-of per point]
+    B4 --> B5[Write per-run summaries]
+    B5 --> B6[Optional aggregate summary]
 ```
 
 ## 5. Flow D - train/eval/infer consumption

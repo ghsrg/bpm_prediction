@@ -1,15 +1,33 @@
 # AGENT_GUIDE.md
 # Інструкція для LLM-агента / код-генератора 
 
-Це **єдиний документ**, який ти повинен читати перед тим, як генерувати будь-який код, пропонувати зміни чи планувати рефакторинг у проєкті `bpm_prediction`.
+> **Deprecated / Redirect (2026-04-27):**
+> This file is a historical agent guide. It is no longer the first-read source
+> for agents.
+>
+> Current agent entrypoint:
+> 1. `AGENTS.MD`
+> 2. `docs/current/project-state.md`
+> 3. `docs/current/architecture-debt.md`
+>
+> Use this file only as historical context if explicitly requested or referenced
+> by an ADR/current document.
 
-Всі інші `.md` файли — це джерело правди. Ти **не можеш** їх ігнорувати, переписувати чи інтерпретувати по-своєму.
+Це **історичний документ**. Актуальний first-read маршрут для агента визначено в `AGENTS.MD`.
 
-## 1. Порядок пріоритетності документів
-Читай і виконуй у такому порядку (від найвищого пріоритету до найнижчого):
+Historical text below may be stale. If it conflicts with `AGENTS.MD`,
+`docs/current/project-state.md`, `docs/current/architecture-debt.md`, or an
+accepted ADR, the current documents win.
 
-1. **AGENT_GUIDE.MD** — цей файл (ти зараз його читаєш).
-2. **PROJECT_CONTEXT.MD** — короткий актуальний контекст проекту.
+## 1. Historical Document Priority
+
+Do not use this historical list as the current first-read path. Current routing
+is defined in `AGENTS.MD`.
+
+Historical order retained for context:
+
+1. **AGENT_GUIDE.MD** — historical guide.
+2. **PROJECT_CONTEXT.MD** — historical operational context.
 3. **docs/ARCHITECTURE_GUIDELINES.MD** — конституція архітектури, незмінні правила.
 4. **docs/ARCHITECTURE_RULES.MD** — жорсткі правила залежностей і заборон.
 5. **docs/TARGET_ARCHITECTURE.MD** — цільова архітектура (поточний target blueprint).
@@ -49,10 +67,12 @@
 Ти зобов'язаний використовувати структуру полів для базових DTO. Всі зміни мають бути погоджені і оновлена документація
 
 ## 5. Що робити, коли отримуєш завдання
+This section is historical. For current workflow, use `AGENTS.MD`.
+
 Кожного разу, коли розробник дає тобі задачу, виконуй такий алгоритм:
 
 1. Прочитай завдання повністю.
-2. Подивись у цьому файлі (`AGENT_GUIDE.MD`) — чи є пряма заборона або обмеження. Якщо є обмеження - уточни.
+2. Подивись в `AGENTS.MD` — чи є пряма заборона або обмеження. Якщо є обмеження - уточни.
 3. Визнач, які саме `.md` файли стосуються задачі (згідно з пріоритетним списком вище).
 4. Читай **тільки** ці файли в порядку пріоритету.
 5. Склади план дій у форматі:
@@ -105,7 +125,7 @@ Read in this strict order:
 3. `docs/DATA_FLOWS_MVP2_5.MD`
 4. `docs/LLD_MVP2_5.MD`
 5. `docs/EVF_MVP2_5.MD`
-6. `README.MD` section `MVP2.5 Stage 4.2 Runbook (Canonical)`
+6. `docs/runbooks/mvp2_5-commands.md`
 
 ### Hard execution rules
 1. Topology and stats are prepared offline (`ingest-topology`, `sync-topology`, `sync-stats`).

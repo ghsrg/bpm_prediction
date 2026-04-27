@@ -8,31 +8,14 @@
 
 ---
 
-## 📚 Зміст Документації
+## Documentation
 
-### 1) Governance / Canon
-- **[README.MD](./README.MD)** — головна точка входу, контекст дослідження, поточні правила.
-- **[Глосарій (GLOSSARY.MD)](docs/GLOSSARY.MD)** — терміни предметної області.
-- **[Змінні (VARIABLES.MD)](docs/VARIABLES.MD)** — канон позначень і змінних з математичної моделі.
-
-### 2) Architecture / HLD
-- **[ARCHITECTURE_GUIDELINES.MD](docs/ARCHITECTURE_GUIDELINES.MD)** — нормативи та обов'язкові принципи.
-- **[TARGET_ARCHITECTURE.MD](docs/TARGET_ARCHITECTURE.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[ARCHITECTURE_RULES.MD](docs/ARCHITECTURE_RULES.MD)** — формалізовані правила Clean + Hexagonal та dependency boundaries.
-
-### 3) Data specifications
-- **[ARCHITECTURE_MVP1.MD](docs/ARCHITECTURE_MVP1.MD)** — цільова архітектура в режимі `ENTERPRISE_POC`.
-- **[DATA_MODEL_MVP1.MD](docs/DATA_MODEL_MVP1.MD)** — опис моделі даних та їх труктурні залежності.
-- **[DATA_FLOWS_MVP1.MD](docs/DATA_FLOWS_MVP1.MD)** — контракти функції, та флоу даних.
-- **[ADAPTER_XES.MD](docs/ADAPTER_XES.MD)** — специфікація XES-адаптера.* 
-- **[ADAPTER_CAMUNDA_SQL.MD](docs/ADAPTER_CAMUNDA_SQL.MD)** — специфікація адаптера Camunda7 MSSQL.
-
-### 4) Algorithm / Validation
-- **[LLD_MVP1.MD](docs/LLD_MVP1.MD)** — low-level design (алгоритмічні деталі, каркас) *(draft).* 
-- **[EVF_MVP1.MD](docs/EVF_MVP1.MD)** — experimentation & validation framework (каркас) *(draft).* 
-
-### 5) Legacy reference
-- **[etalon/README.md](./etalon/README.md)** — попередня реалізація (legacy baseline), використовується як референс.
+- [Documentation Index](docs/index.md) — повна карта документації.
+- [Project State](docs/current/project-state.md) — актуальний стан MVP2.5 Stage 4.2.
+- [Architecture Debt](docs/current/architecture-debt.md) — актуальний архітектурний борг.
+- [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md) — операційні команди.
+- [ADR](docs/adr/README.md) — зафіксовані архітектурні рішення.
+- [Glossary](docs/GLOSSARY.MD) і [Variables](docs/VARIABLES.MD) — терміни та позначення.
 
 
 ### `etalon/` — попередня реалізація (reference baseline)
@@ -146,498 +129,45 @@
 
 ## Quick Start
 
-```bash
-python main.py --config configs/experiments/02_train_bpi2012.yaml
+Use the project virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --config configs/experiments/02_train_bpi2012.yaml
 ```
 
-MXML -> XES convertor:
-```bash
-python tools/mxml2xes_convertor.py --input "../Data/Business Process Drift/logs/cb/cb2.5k.mxml" --output "../Data/Business Process Drift/logs/cb/cb2.5k.xes"
-```
+For the full command catalog, use [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md).
 
-## MVP1 Non-Regression Gate
+## Validation
 
-Run before merge:
-
-```bash
-py -3 tools/architecture_guard.py
-pytest tests/ -v
-```
-
-Show topology graph (typed colors + rich labels)
-```bash
-python main.py visualize-topology \
-  --config configs/experiments/02_train_bpi2012.yaml \
-  --version bpi2012 \
-  --renderer graphviz \
-  --label-mode id+name+type \
-  --typed-colors \
-  --min-freq 10
-```
-
-Save topology graph to `outputs/`
-```bash
-python main.py visualize-topology \
-  --config configs/experiments/02_train_bpi2012.yaml \
-  --version bpi2012 \
-  --renderer graphviz \
-  --label-mode id+name+type \
-  --typed-colors \
-  --min-freq 10 \
-  --out outputs/topology_v7.png
-```
-
-Topology CLI keys:
-```text
---config PATH            experiment config path (includes data/mapping)
---version VALUE          process version key to render
---renderer               graphviz | pm4py (default: graphviz)
---label-mode             id | name | id+name | id+name+type
---typed-colors           enable type-based colors (use --no-typed-colors to disable)
---min-freq N             keep only edges with frequency >= N
---out PATH               save image to file (.png/.pdf/.svg), otherwise open viewer
-```
-
-Type color mapping (graphviz renderer):
-```text
-start/end events         green/orange
-gateways                 blue (diamond)
-user tasks               light blue
-service tasks            teal
-other events (timer/escalation/message/...) yellow
-fallback/unknown         gray
-```
-
-Show one Instance Graph (IG) for parser sanity-check:
-```bash
-    python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --list-cases --top 20
-```
-
-Render a specific process instance by id:
-```bash
-python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id <PROC_INST_ID> --out outputs/ig_case.png
-python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id 5b4f4435-1c62-11f1-8767-aa0a79ffc04e --out outputs/ig_case.png
-```
-
-Render one case by strategy (when there are thousands of cases):
-```bash
-python main.py visualize-graph \
-  --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml \
-  --pick with-call-activity \
-  --index 0 \
-  --out outputs/ig_call_case.png
-```
-
-IG CLI keys:
-```text
---config PATH            experiment config path (camunda or xes mapping)
---data PATH              direct XES path (XES-only mode)
---case-id ID             exact process instance id (case_id / PROC_INST_ID_)
---pick STRATEGY          latest | random | longest | shortest | with-call-activity
---index N                choose N-th case in ranked list for selected strategy
---seed N                 random seed for --pick random
---list-cases             print ranked candidate list
---top N                  how many rows to print with --list-cases
---mode                   activity-centric | execution-centric (Camunda mode override)
---max-nodes N            limit nodes/events in rendered graph (default: 500)
---out PATH               save image to file (.png), otherwise open viewer
---title TEXT             custom graph title
-```
-
-## Operational Commands (MVP2.5)
-
-1) Build topology artifacts (decoupled ingestion)
-```bash
-python main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
-```
-
-2) Visualize topology from knowledge repository (default mode)
-```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version bpi2012 --min-freq 10 --out outputs/topology_repo.png
-```
-
-3) Visualize topology directly from raw logs (legacy/quick check)
-```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --from-raw --version bpi2012 --min-freq 10 --out outputs/topology_raw.png
-```
-
-4) Train model
-```bash
-python main.py --config configs/experiments/02_train_bpi2012.yaml
-```
-
-5) Evaluate drift
-```bash
-python main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
-```
-
-6) Run tests
-```bash
-pytest tests/ -v
-pytest -m mvp1_regression -v
-```
-
-7) Bulk sync topology (all process definitions / all XES files)
-```bash
-# Camunda files -> Neo4j
-python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_camunda_files_neo4j.yaml --out outputs/sync_camunda_files_neo4j.json
-
-# Camunda SQL -> Neo4j
-python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_neo4j.yaml --out outputs/sync_camunda_sql_neo4j.json
-
-# XES directory -> file backend
-python main.py sync-topology --config configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml --out outputs/sync_xes_dir_file.json
-```
-
-8) Sync Tier A runtime statistics (Stage 3.4)
-```bash
-# Files exports -> file knowledge backend
-python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml --out outputs/sync_stats_files.json
-
-# SQL runtime -> file knowledge backend
-python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_sql.yaml --out outputs/sync_stats_sql.json
-
-# Explicit cutoff timestamp for strict historical evaluation
-python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml --as-of 2026-03-12T00:00:00Z --out outputs/sync_stats_asof.json
-```
-
-8.1) Historical backfill for periodic snapshots (recommended for `strict_asof`)
-```bash
-# Auto-detect first/last event and run weekly sync-stats snapshots
-python main.py sync-stats-backfill --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml --step weekly --out-dir outputs/sync_stats_backfill
-
-# Monthly backfill in custom bounds
-python main.py sync-stats-backfill --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml --step monthly --from 2023-01-01T00:00:00Z --to 2026-03-01T00:00:00Z
-```
-
-sync-stats CLI keys:
-```text
---config PATH            experiment config (supports mapping.adapter=camunda|xes)
---out PATH               summary JSON output path
---as-of ISO_TS           optional historical cutoff for strict_asof policy
-```
-
-sync-stats-backfill CLI keys:
-```text
---config PATH            experiment config (camunda or xes adapter)
---out-dir PATH           directory for per-run sync summaries
---summary-out PATH       optional path for aggregated backfill summary JSON
---step VALUE             daily | weekly | monthly
---step-days N            custom step in days (overrides --step)
---from ISO_TS            optional lower bound override
---to ISO_TS              optional upper bound override
---dry-run                print planned points without executing sync-stats
-```
-
-Notes:
-```text
-- visualize-topology without --from-raw reads only pre-ingested structure via knowledge_graph backend.
-- If topology is missing, run ingest-topology first.
-- For drift-safe research runs use: sync-topology -> sync-stats-backfill (timeline) -> train/eval with strict_asof.
-- knowledge backend is configured in mapping.knowledge_graph (backend/path/strict_load/ingest_split).
-- sync-topology writes Camunda namespaces as process_key@tenant when tenant_id is available.
-```
-
----
-
-## MVP2.5 Documentation Pack
-
-- [ARCHITECTURE_MVP2_5.MD](docs/ARCHITECTURE_MVP2_5.MD)
-- [GNN_RUNTIME_MVP2_5.MD](docs/GNN_RUNTIME_MVP2_5.MD)
-- [DATA_FLOWS_MVP2_5.MD](docs/DATA_FLOWS_MVP2_5.MD)
-- [DATA_MODEL_MVP2_5.MD](docs/DATA_MODEL_MVP2_5.MD)
-- [LLD_MVP2_5.MD](docs/LLD_MVP2_5.MD)
-- [EVF_MVP2_5.MD](docs/EVF_MVP2_5.MD)
-- [ADAPTER_CAMUNDA_SQL.MD](docs/ADAPTER_CAMUNDA_SQL.MD)
-
-## MVP2.5 Quick Operations
-
-1. Build topology artifact (offline)
-```bash
-python main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
-```
-
-2. Train using pre-ingested structure
-```bash
-python main.py --config configs/experiments/02_train_bpi2012.yaml
-```
-
-3. Run drift evaluation
-```bash
-python main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
-```
-
-4. Visualize topology from repository (default)
-```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --version bpi2012 --out outputs/topology_repo.png
-```
-
-5. Visualize topology from raw logs (legacy mode)
-```bash
-python main.py visualize-topology --config configs/experiments/02_train_bpi2012.yaml --from-raw --version bpi2012 --out outputs/topology_raw.png
-```
-
-6. Visualize one instance graph
-```bash
-python main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --case-id <PROC_INST_ID> --out outputs/ig_case.png
-```
-
-7. Regression and full test runs
-```bash
+```powershell
+.\.venv\Scripts\python.exe tools\architecture_guard.py
 .\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-8. Sync-topology config matrix
-```text
-configs/experiments/mvp2_5_stage4_2_sync_camunda_files_file.yaml
-configs/experiments/mvp2_5_stage4_2_sync_camunda_files_neo4j.yaml
-configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_file.yaml
-configs/experiments/mvp2_5_stage4_2_sync_camunda_sql_neo4j.yaml
-configs/experiments/mvp2_5_stage4_2_sync_xes_dir_file.yaml
-configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
-```
+## Current Runtime Workflow
 
-9. Stage 4.2 stats configs (sync + stat-aware train/eval)
-```text
-configs/experiments/mvp2_5_stage3_4_sync_stats_files.yaml
-configs/experiments/mvp2_5_stage3_4_sync_stats_sql.yaml
-configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml
-configs/experiments/mvp2_5_stage4_2_baseline_files_stat.yaml
-configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-configs/experiments/mvp2_5_stage4_2_baseline_xes_stat.yaml
-configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml
-```
-
-Worklogs and historical plans are now stored in:
-- `docs/worklogs/`
-
-## MVP2.5 Stage 4.2 Runbook (Canonical)
-
-Use this section as the primary operational reference for MVP2.5.
-
-### 1. Modes and Commands
-
-1. `train`
-```bash
-python main.py --config <train_experiment.yaml>
-```
-
-2. `eval_drift`
-```bash
-python main.py --config <eval_drift_experiment.yaml>
-```
-
-3. `eval_cross_dataset`
-```bash
-python main.py --config <eval_cross_dataset_experiment.yaml>
-```
-
-4. `ingest-topology` (single dataset structure build)
-```bash
-python main.py ingest-topology --config <experiment.yaml> --out outputs/ingest_summary.json
-```
-
-5. `sync-topology` (bulk structure sync)
-```bash
-python main.py sync-topology --config <sync_topology_experiment.yaml> --out outputs/sync_topology.json
-```
-
-6. `sync-stats` (offline stats enrichment)
-```bash
-python main.py sync-stats --config <sync_stats_experiment.yaml> --out outputs/sync_stats.json
-python main.py sync-stats --config <sync_stats_experiment.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
-```
-XES-lite examples:
-```bash
-python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --out outputs/sync_stats_xes.json
-python main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_xes_asof.json
-```
-
-7. `sync-stats-backfill` (periodic historical sync wrapper)
-```bash
-python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step weekly --out-dir outputs/sync_stats_backfill
-python main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
-```
-
-7.1 `add-version2xes` (config-driven XES version labeling)
-```bash
-python main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml
-python main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml --out outputs/add_version2xes_summary.json
-```
-`policy.type=alternating_chunks` assigns versions chunk-by-chunk over chronological trace order in file.
-For `chunk_percent: 0.1` and 2500 traces, chunk size is 250 and labels alternate as `v1/v2` every 250 traces.
-Use `scope: both` to update `concept:version` on both trace and event levels.
-
-7.2 `simulate-versioned-log` (Stage 1 BPMN simulator -> XES)
-```bash
-    python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
-python main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml --out outputs/simulate_versioned_log_summary.json
-```
-The tool validates BPMN readiness before generation:
-- non-flow elements (`pools`, `lanes`, `artifacts`, layout tags) -> warnings
-- unsupported flow-impacting elements (`inclusiveGateway`, boundary/intermediate events, timers, complex/event-based gateways) -> errors
-
-Artifacts produced by simulator:
-- `output.xes_path` -> generated XES event log
-- `output.summary_json_path` -> simulation summary
-- `output.generated_data_config_path` -> ready-to-use `configs/data/*.yaml` dataset mapping
-
-8. `visualize-topology` (repository-first)
-```bash
-python main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
-```
-
-8.1 `visualize-topology` usage patterns
-```bash
-# A) Recommended: render topology from knowledge repository (after ingest-topology/sync-topology)
-python main.py visualize-topology --config configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml --version v1 --out outputs/topology_v1.png
-
-# B) Legacy quick check: build topology directly from raw traces using config cascade
-python main.py visualize-topology --config configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml --from-raw --version v1 --out outputs/topology_raw_v1.png
-
-# C) XES-only raw mode (without experiment config)
-python main.py visualize-topology --data "../Data/Business Process Drift/logs/cb/cb2.5k.xes" --from-raw --version v1 --out outputs/topology_raw_cb_v1.png
-```
-Notes:
-`--config` and `--data` are mutually exclusive.
-`--data` is allowed only together with `--from-raw`.
-Useful tuning flags: `--min-freq`, `--renderer graphviz|pm4py`, `--label-mode id|name|id+name|id+name+type`, `--typed-colors/--no-typed-colors`.
-
-9. `visualize-topology --from-raw` (legacy quick check)
-```bash
-python main.py visualize-topology --config <experiment.yaml> --from-raw --version <version_key> --out outputs/topology_raw.png
-```
-
-10. `visualize-graph` (single IG)
-```bash
-python main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
-```
-
-10.1 `cache-clean` (remove stale graph dataset cache entries)
-```bash
-python main.py cache-clean --cache-dir .cache/graph_datasets
-```
-
-10.2 `cache-clean` usage variants (recommended)
-```bash
-# 1) Preview only: show what would be deleted, keep 5 most recent entries
-python main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --older-than-days 7 --keep-last 5
-
-# 2) Size-based trim: keep 5 most recent entries, shrink cache to <= 8 GB
-python main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --max-size-gb 8 --keep-last 5
-python main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 8 --keep-last 5
-
-# 3) Age-based cleanup: remove entries older than 14 days
-python main.py cache-clean --cache-dir .cache/graph_datasets --older-than-days 14 --keep-last 3
-
-# 4) Save cleanup report to JSON
-python main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 10 --keep-last 5 --summary-out outputs/cache_clean_summary.json
-```
-
-10.3 Graph dataset cache notes
-```text
-- Cache root is controlled by experiment.graph_dataset_cache_dir (default: .cache/graph_datasets).
-- Each cache entry is stored as: <cache_dir>/<dataset_name>/<fingerprint>/...
-- fingerprint changes when relevant config/data signature changes
-  (features, mapping, model, policies, split settings, fraction, vocab/signature).
-- Frequent feature/statistics experiments can produce many large cache entries.
-- Safe policy: always run with --dry-run first, then apply cleanup criteria.
-```
-
-11. `web-ui` (Streamlit prototype UI)
-```bash
-python main.py web-ui
-# optional prefill config
-python main.py web-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-```
-
-12. `experiment-ui` (desktop convenience wrapper over CLI configs)
-```bash
-python tools/experiment_ui.py --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-# or
-python main.py experiment-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-```
-
-Operational stance:
-1. CLI remains the primary execution interface.
-2. `experiment-ui` is a convenience wrapper.
-3. `web-ui` is currently a prototype.
-
-### 2. Key Config Attributes
-
-#### 2.1 `experiment` block
-1. `mode`: `train | eval_drift | eval_cross_dataset`
-2. `split_strategy`: `temporal | none`
-3. `train_ratio`, `fraction`, `split_ratio`
-4. `graph_dataset_cache_policy`: `off | read | write | full`
-5. `graph_dataset_cache_dir`: disk cache root for prepared graph datasets
-6. `stats_time_policy`: `latest | strict_asof`
-7. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default runtime: `disable_stats`)
-
-#### 2.2 `mapping.knowledge_graph` block
-1. `backend`: `in_memory | file | neo4j`
-2. `strict_load`: fail-fast when topology is required
-3. backend-specific storage/connection settings
-
-#### 2.3 `mapping.graph_feature_mapping` block
-1. `enabled: true`
-2. `node_numeric`: list of mapped stats metrics
-3. `edge_weight`: edge metric mapping
-4. `node_numeric[*].encoding` / `edge_weight.encoding`: `identity | log1p | z-score`
-5. `stats_quality_gate`: consumer-side policy (`ignore_with_warning | allow_with_warning | raise`)
-
-#### 2.4 `sync_stats.quality_gate` block
-1. `enabled`
-2. `zero_dominant_threshold`
-3. `min_non_zero_ratio_overall`
-4. `min_history_coverage_percent`
-5. `on_fail`: `write_with_flag | skip_snapshot`
-
-### 3. How Sync and Timestamps Work
-
-#### 3.1 `sync-stats` timestamp source
-1. With `--as-of`: snapshot timestamp is forced to provided ISO time.
-2. Without `--as-of`: effective timestamp is derived per process from `max(event_ts)` after train-cut (`split_strategy/train_ratio/fraction`).
-
-#### 3.2 Runtime lookup timestamp
-1. If `stats_time_policy = strict_asof`:
-   - for each prefix, lookup uses timestamp of the last event in that prefix.
-2. If `stats_time_policy = latest`:
-   - latest available snapshot/structure is used.
-3. If strict lookup has no eligible `as_of <= prefix_ts` snapshot:
-   - behavior is controlled by `experiment.on_missing_asof_snapshot`:
-     - `disable_stats`: keep structure/mask, disable stats tensors for this prefix,
-     - `use_base`: allow base payload stats fallback,
-     - `raise`: fail-fast.
-
-#### 3.3 Window semantics in snapshot payload
-Each snapshot stores windows relative to its own `as_of`:
-1. `last_7d`
-2. `last_30d`
-3. `last_90d`
-4. `all_time`
-
-Each window is computed for scopes:
-1. `version`
-2. `process`
-
-Source note:
-1. `mapping.adapter: camunda` -> Tier A full runtime stats (recommended).
-2. `mapping.adapter: xes` -> Tier A-lite stats (no execution-tree concurrency semantics).
-
-### 4. Recommended Stage 4.2 Workflow
 ```mermaid
 flowchart LR
-    R1[sync-topology] --> R2[sync-stats timeline]
-    R2 --> R3[train or eval with strict_asof]
-    R3 --> R4[visualize and report]
+    R1[sync-topology] --> R2[sync-stats-backfill timeline]
+    R2 --> R3[train/eval with strict_asof]
+    R3 --> R4[report with snapshot metadata]
 ```
 
-### 5. Notes for Research Safety
-1. For temporal studies, create periodic snapshots (for example monthly) and run with `strict_asof`.
-2. Prefer `sync-stats-backfill --step weekly|monthly` for initial historical bootstrap.
-3. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
-4. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
-5. For research-grade temporal runs prefer `on_missing_asof_snapshot=raise`; fallback modes remain available for exploratory runs.
-6. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.
+For research-grade temporal runs:
+
+```yaml
+experiment:
+  stats_time_policy: strict_asof
+  on_missing_asof_snapshot: raise
+```
+
+## Current Documentation
+
+- [Documentation Index](docs/index.md)
+- [Project State](docs/current/project-state.md)
+- [Architecture Debt](docs/current/architecture-debt.md)
+- [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md)
+- [ADR](docs/adr/README.md)
+
+Worklogs and historical plans are stored in [docs/worklogs](docs/worklogs/).

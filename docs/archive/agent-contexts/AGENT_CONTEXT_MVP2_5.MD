@@ -1,7 +1,19 @@
 # AGENT_CONTEXT_MVP2_5.MD
 
 Last updated: 2026-03-26  
-Status: ACTIVE, Stage 4.2 implemented; canonical docs are being synchronized to actual runtime behavior.
+Status: deprecated-for-agent-first-read; Stage 4.2 historical context.
+
+> **Deprecated / Redirect (2026-04-27):**
+> This file is historical context and is no longer part of the default
+> first-read path for agents.
+>
+> Current agent entrypoint:
+> 1. `AGENTS.MD`
+> 2. `docs/current/project-state.md`
+> 3. `docs/current/architecture-debt.md`
+>
+> Use `docs/current/project-state.md` for current MVP2.5 state and
+> `docs/runbooks/mvp2_5-commands.md` for operational commands.
 
 ## 1) Current factual state
 
@@ -55,17 +67,20 @@ python main.py --config <train_or_eval_experiment.yaml>
 
 4. Regression gates:
 ```bash
-py -3 tools/architecture_guard.py
+.\.venv\Scripts\python.exe tools\architecture_guard.py
 .\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-## 5) Key context files for next sessions
+## 5) Historical Context Files
 
-1. `PROJECT_CONTEXT.md`
-2. `docs/worklogs/Finish_MVP2_5_Plan.MD`
-3. `docs/worklogs/MVP2_5_Universal_Stats_Contract_Phase1_Report.MD`
-4. `docs/worklogs/MVP2_5_Universal_Stats_Contract_Phase2_Quality_Gate_Report.MD`
-5. `docs/worklogs/MVP2_5_Config_Driven_Stats_Matrix_Report.MD`
-6. `docs/worklogs/MVP2_5_Stage4_2_XES_Stats_Fix_Report.MD`
-7. `docs/worklogs/MVP2_5_Stage4_2_GNN_Stats_Forward_Logging_Report.MD`
+Current first-read path is defined in `AGENTS.MD`.
+
+Historical context, only if explicitly needed:
+
+1. `docs/worklogs/Finish_MVP2_5_Plan.MD`
+2. `docs/worklogs/MVP2_5_Universal_Stats_Contract_Phase1_Report.MD`
+3. `docs/worklogs/MVP2_5_Universal_Stats_Contract_Phase2_Quality_Gate_Report.MD`
+4. `docs/worklogs/MVP2_5_Config_Driven_Stats_Matrix_Report.MD`
+5. `docs/worklogs/MVP2_5_Stage4_2_XES_Stats_Fix_Report.MD`
+6. `docs/worklogs/MVP2_5_Stage4_2_GNN_Stats_Forward_Logging_Report.MD`

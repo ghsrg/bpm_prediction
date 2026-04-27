@@ -1,7 +1,19 @@
 # AGENT_CONTEXT_MVP2.MD
 
 Останнє оновлення: 2026-03-21  
-Статус: MVP2 завершено як окремий етап; використовується як сумісний функціональний шар у MVP2.5.
+Статус: deprecated-for-agent-first-read; MVP2 historical compatibility context.
+
+> **Deprecated / Redirect (2026-04-27):**
+> This file is historical context and is no longer part of the default
+> first-read path for agents.
+>
+> Current agent entrypoint:
+> 1. `AGENTS.MD`
+> 2. `docs/current/project-state.md`
+> 3. `docs/current/architecture-debt.md`
+>
+> Use this file only for MVP2 backward-compatibility reasoning when explicitly
+> routed by `AGENTS.MD` or requested by the user.
 
 ## 1) Що зафіксовано в MVP2
 
@@ -39,7 +51,7 @@
 
 ## 5) Мінімальні перевірки для безпечних змін у MVP2-зоні
 
-1. `py -3 tools/architecture_guard.py`
+1. `.\.venv\Scripts\python.exe tools\architecture_guard.py`
 2. `.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v`
 3. Цільові тести MVP2/MVP2.5:
    - `tests/domain/test_dynamic_graph_builder_*.py`

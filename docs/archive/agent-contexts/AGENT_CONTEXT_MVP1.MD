@@ -1,7 +1,19 @@
 # AGENT_CONTEXT_MVP1.MD
 
 Останнє оновлення: 2026-03-21  
-Статус: MVP1 зафіксовано як стабільний baseline, підтримується як non-regression контур.
+Статус: deprecated-for-agent-first-read; MVP1 historical baseline context.
+
+> **Deprecated / Redirect (2026-04-27):**
+> This file is historical context and is no longer part of the default
+> first-read path for agents.
+>
+> Current agent entrypoint:
+> 1. `AGENTS.MD`
+> 2. `docs/current/project-state.md`
+> 3. `docs/current/architecture-debt.md`
+>
+> Use this file only for MVP1 backward-compatibility reasoning when explicitly
+> routed by `AGENTS.MD` or requested by the user.
 
 ## 1) Поточна роль MVP1 у проєкті
 
@@ -30,7 +42,7 @@ python main.py --config <path_to_mvp1_experiment_yaml>
 
 ## 4) Обов'язковий regression gate для будь-яких змін
 
-1. `py -3 tools/architecture_guard.py`
+1. `.\.venv\Scripts\python.exe tools\architecture_guard.py`
 2. `.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v`
 3. `.\.venv\Scripts\python.exe -m pytest tests/ -v`
 

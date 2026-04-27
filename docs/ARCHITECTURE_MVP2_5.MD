@@ -1,6 +1,6 @@
 ﻿# ARCHITECTURE_MVP2_5.MD
 
-Updated: 2026-03-26
+Updated: 2026-04-27
 Status: ACTIVE (Stage 4.2 implemented, closure sync in progress)
 
 ## 1. Purpose
@@ -8,9 +8,11 @@ This document is the canonical architecture baseline for MVP2.5.
 
 MVP2.5 currently includes:
 1. Offline topology ingestion (`ingest-topology`, `sync-topology`).
-2. Offline statistics enrichment (`sync-stats`).
+2. Offline statistics enrichment (`sync-stats`, `sync-stats-backfill`).
 3. Repository-backed structure consumption in train/eval/infer via `IKnowledgeGraphPort`.
 4. Snapshot-based historical lookup (`as_of`) for temporal-safe experiments.
+5. Operational tooling for topology/instance visualization, cache cleanup,
+   XES version labeling, versioned log simulation, desktop UI, and web UI.
 
 Runtime model/tensor details are specified in:
 1. `docs/GNN_RUNTIME_MVP2_5.MD`.
@@ -29,6 +31,7 @@ flowchart LR
         CLI_INGEST[CLI ingest-topology]
         CLI_SYNC[CLI sync-topology]
         CLI_STATS[CLI sync-stats]
+        CLI_BACKFILL[CLI sync-stats-backfill]
         CLI_TRAIN[CLI train and eval]
         TOOL_VIS[CLI visualize-topology]
     end
@@ -69,6 +72,7 @@ flowchart LR
     CLI_INGEST --> UC_INGEST
     CLI_SYNC --> UC_SYNC
     CLI_STATS --> UC_STATS
+    CLI_BACKFILL --> CLI_STATS
     CLI_TRAIN --> UC_TRAIN
     TOOL_VIS --> UC_VIS
 
@@ -115,10 +119,17 @@ flowchart LR
 2. Save/update structure by `(process_name, version)`.
 
 ### 4.3 Stats sync (offline)
-1. Read runtime activity events from Camunda runtime adapter.
+1. Read runtime activity events from Camunda runtime adapter or XES-lite adapter path.
 2. Load existing structure from repository.
 3. Compute Tier A stats windows (`last_7d`, `last_30d`, `last_90d`, `all_time`) relative to `as_of`.
-4. Persist immutable snapshot (`knowledge_version`) in repository.
+4. Apply producer quality and alignment gates.
+5. Persist immutable snapshot (`knowledge_version`) in repository.
+
+### 4.3.1 Stats backfill (offline)
+1. Detect selected event timestamp range.
+2. Build daily, weekly, monthly, or custom step timeline.
+3. Invoke `sync-stats --as-of <point>` for each timeline point.
+4. Persist per-run summaries and optional aggregate summary.
 
 ### 4.4 Train/eval/infer (online runtime)
 1. Read traces and build prefixes.
@@ -168,7 +179,12 @@ bpm_prediction/
     ingest_topology.py
     sync_topology.py
     sync_stats.py
+    sync_stats_backfill.py
     visualize_topology.py
+    visualize_graph.py
+    graph_cache_cleaner.py
+    add_version2xes.py
+    simulate_versioned_log.py
 ```
 
 ## 9. Runtime GNN Reference

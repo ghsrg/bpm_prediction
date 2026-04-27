@@ -1841,6 +1841,103 @@ fields:
       group: sync_stats
       priority: 2
       order: 15
+  sync_stats.alignment_gate.enabled:
+    path: sync_stats.alignment_gate.enabled
+    section: sync_stats
+    label: Producer alignment gate enabled
+    description: Enables producer-side activity-to-topology alignment gate in sync-stats.
+    affects: Whether weakly aligned stats snapshots are flagged/skipped/raised during sync.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 20
+  sync_stats.alignment_gate.warn_on_fail:
+    path: sync_stats.alignment_gate.warn_on_fail
+    section: sync_stats
+    label: Producer alignment gate warn_on_fail
+    description: Emit warning when producer alignment gate fails.
+    affects: Sync diagnostics verbosity for activity-to-topology mismatches.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 21
+  sync_stats.alignment_gate.min_event_match_ratio:
+    path: sync_stats.alignment_gate.min_event_match_ratio
+    section: sync_stats
+    label: Producer min event match ratio
+    description: Minimal ratio of runtime events whose activity ids match topology nodes.
+    affects: Activity-to-topology alignment acceptance for stats snapshots.
+    default: 0.6
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 22
+  sync_stats.alignment_gate.min_unique_activity_coverage:
+    path: sync_stats.alignment_gate.min_unique_activity_coverage
+    section: sync_stats
+    label: Producer min unique activity coverage
+    description: Minimal coverage of unique runtime activities by topology nodes.
+    affects: Activity-to-topology alignment acceptance for stats snapshots.
+    default: 0.6
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 23
+  sync_stats.alignment_gate.min_node_coverage:
+    path: sync_stats.alignment_gate.min_node_coverage
+    section: sync_stats
+    label: Producer min node coverage
+    description: Minimal topology node coverage by matched runtime activities.
+    affects: Activity-to-topology alignment acceptance for stats snapshots.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 24
+  sync_stats.alignment_gate.on_fail:
+    path: sync_stats.alignment_gate.on_fail
+    section: sync_stats
+    label: Producer alignment gate on_fail
+    description: Action when producer alignment thresholds are not met.
+    affects: Snapshot persistence/fail-fast policy in sync-stats.
+    default: write_with_flag
+    enum:
+    - write_with_flag
+    - skip_snapshot
+    - raise
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 25
   tracking.backend:
     path: tracking.backend
     section: tracking

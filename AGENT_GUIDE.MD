@@ -89,6 +89,13 @@
 - Root must stay clean.
 - New and historical reports/plans are stored under `docs/worklogs/`.
 
+## Windows / Agent Environment Note
+
+Project Python must be invoked through the local virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe <command>
+
 ## MVP2.5 Stage 4.2 Addendum
 
 ### Mandatory docs for any task related to structure/stats/train timing

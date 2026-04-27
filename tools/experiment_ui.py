@@ -1068,6 +1068,7 @@ class ExperimentUI:
         self.vars["cache_policy"] = tk.StringVar(value="full")
         self.vars["graph_dataset_cache_policy"] = tk.StringVar(value="off")
         self.vars["graph_dataset_cache_dir"] = tk.StringVar(value=".cache/graph_datasets")
+        self.vars["gateway_mode"] = tk.StringVar(value="collapse_for_prediction")
         self.vars["adapter"] = tk.StringVar(value="camunda")
         self.vars["sync_as_of"] = tk.StringVar(value="")
         self.vars["backfill_step"] = tk.StringVar(value="weekly")
@@ -1075,6 +1076,22 @@ class ExperimentUI:
         self.vars["backfill_from"] = tk.StringVar(value="")
         self.vars["backfill_to"] = tk.StringVar(value="")
         self.vars["extra_args"] = tk.StringVar(value="")
+
+    @staticmethod
+    def _default_gateway_mode_for_adapter(adapter: str) -> str:
+        return "collapse_for_prediction" if str(adapter).strip().lower() == "xes" else "preserve"
+
+    def _resolve_gateway_mode_from_mapping(self, mapping_payload: Any) -> str:
+        if isinstance(mapping_payload, dict):
+            projection = mapping_payload.get("topology_projection", {})
+            if isinstance(projection, dict):
+                mode = str(projection.get("gateway_mode", "")).strip()
+                if mode in {"preserve", "collapse_for_prediction"}:
+                    return mode
+            mode = str(mapping_payload.get("gateway_mode", "")).strip()
+            if mode in {"preserve", "collapse_for_prediction"}:
+                return mode
+        return self._default_gateway_mode_for_adapter(self.vars["adapter"].get())
 
     @staticmethod
     def _normalize_graph_dataset_cache_policy(raw: Any) -> str:
@@ -1535,10 +1552,27 @@ class ExperimentUI:
         self.sync_stats_form.grid(row=0, column=0, sticky="nsew")
 
         mapping_tab.columnconfigure(0, weight=1)
-        mapping_tab.rowconfigure(1, weight=1)
-        ttk.Label(mapping_tab, text="mapping.graph_feature_mapping (YAML)").grid(row=0, column=0, sticky="w")
+        mapping_tab.rowconfigure(2, weight=1)
+        gateway_bar = ttk.Frame(mapping_tab)
+        gateway_bar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ttk.Label(gateway_bar, text="gateways").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.gateway_mode_box = ttk.Combobox(
+            gateway_bar,
+            textvariable=self.vars["gateway_mode"],
+            values=["preserve", "collapse_for_prediction"],
+            state="readonly",
+            width=28,
+        )
+        self.gateway_mode_box.grid(row=0, column=1, sticky="w")
+        self._add_help_mark(
+            gateway_bar,
+            0,
+            "Projection for GNN/mask: preserve keeps BPMN gateway nodes; collapse_for_prediction links task-to-task through gateways for XES logs.",
+            col=2,
+        )
+        ttk.Label(mapping_tab, text="mapping.graph_feature_mapping (YAML)").grid(row=1, column=0, sticky="w")
         self.graph_mapping_text = ScrolledText(mapping_tab, height=16, wrap="word", undo=True, autoseparators=True, maxundo=500)
-        self.graph_mapping_text.grid(row=1, column=0, sticky="nsew")
+        self.graph_mapping_text.grid(row=2, column=0, sticky="nsew")
         self._bind_text_shortcuts(self.graph_mapping_text)
 
     def _build_model_tab(self) -> None:
@@ -1798,6 +1832,9 @@ class ExperimentUI:
         self.vars["graph_dataset_cache_dir"].set(str(exp.get("graph_dataset_cache_dir", exp.get("graph_cache_dir", ".cache/graph_datasets"))))
         self.vars["seed"].set(str(self._base_config.get("seed", 42)))
         self.vars["adapter"].set(str(mapping.get("adapter", "camunda")))
+        self.vars["gateway_mode"].set(
+            self._resolve_gateway_mode_from_mapping(mapping.get("graph_feature_mapping", {}))
+        )
 
         data_flat = _flatten(_deep_get(self._base_config, "data", {}), "data")
         mapping_flat = _flatten(mapping, "mapping")
@@ -1923,6 +1960,8 @@ class ExperimentUI:
     def _refresh_state_controls(self) -> None:
         mode = str(self.vars["mode"].get()).strip()
         adapter = str(self.vars["adapter"].get()).strip().lower()
+        if str(self.vars["gateway_mode"].get()).strip() not in {"preserve", "collapse_for_prediction"}:
+            self.vars["gateway_mode"].set(self._default_gateway_mode_for_adapter(adapter))
 
         is_sync_stats = mode == "sync-stats"
         is_backfill = mode == "sync-stats-backfill"
@@ -1939,6 +1978,10 @@ class ExperimentUI:
                 widget.configure(state="disabled" if is_sync_mode else "readonly")
             else:
                 widget.configure(state="disabled" if is_sync_mode else "normal")
+        if mode in {"sync-topology", "sync-stats", "sync-stats-backfill"}:
+            train_ratio_widget = self._general_field_widgets.get("train_ratio")
+            if train_ratio_widget is not None:
+                train_ratio_widget.configure(state="normal")
         for widget in getattr(self, "_split_ratio_widgets", []):
             widget.configure(state="disabled" if is_sync_mode else "normal")
         self.model_form.set_enabled_by_prefix(enabled_prefixes=("model.",) if not is_sync_mode else tuple(), disabled_prefixes=tuple())
@@ -1954,6 +1997,7 @@ class ExperimentUI:
         text_state = "normal" if not is_sync_mode else "disabled"
         for widget in (self.features_text, self.policies_text, self.graph_mapping_text):
             widget.configure(state=text_state)
+        self.gateway_mode_box.configure(state="readonly" if not is_sync_mode else "disabled")
 
         if adapter == "camunda":
             self.input_data_form.set_enabled_by_prefix(enabled_prefixes=("data.",), disabled_prefixes=tuple())
@@ -2102,6 +2146,7 @@ class ExperimentUI:
         self.vars["graph_dataset_cache_dir"].set(str(self._catalog_default("experiment.graph_dataset_cache_dir", ".cache/graph_datasets")))
         self.vars["seed"].set(str(self._catalog_default("seed", "42")))
         self.vars["adapter"].set(str(self._catalog_default("mapping.adapter", "camunda")))
+        self.vars["gateway_mode"].set(self._default_gateway_mode_for_adapter(self.vars["adapter"].get()))
         self.vars["sync_as_of"].set("")
         self.vars["backfill_step"].set("weekly")
         self.vars["backfill_step_days"].set("")
@@ -2187,7 +2232,18 @@ class ExperimentUI:
         if "features" in cfg:
             _deep_set(cfg, "features", features_payload)
         _deep_set(cfg, "policies", self._get_text_block(self.policies_text))
-        _deep_set(cfg, "mapping.graph_feature_mapping", self._get_text_block(self.graph_mapping_text))
+        graph_mapping_payload = self._get_text_block(self.graph_mapping_text)
+        if not isinstance(graph_mapping_payload, dict):
+            graph_mapping_payload = {}
+        projection = graph_mapping_payload.get("topology_projection", {})
+        if not isinstance(projection, dict):
+            projection = {}
+        gateway_mode = str(self.vars["gateway_mode"].get()).strip()
+        if gateway_mode not in {"preserve", "collapse_for_prediction"}:
+            gateway_mode = self._default_gateway_mode_for_adapter(self.vars["adapter"].get())
+        projection["gateway_mode"] = gateway_mode
+        graph_mapping_payload["topology_projection"] = projection
+        _deep_set(cfg, "mapping.graph_feature_mapping", graph_mapping_payload)
         return cfg
 
     @staticmethod
@@ -2367,6 +2423,8 @@ class ExperimentUI:
             self._set_text_block(self.policies_text, payload.get("policies_text"))
         if isinstance(payload.get("graph_mapping_text"), str):
             self._set_text_block(self.graph_mapping_text, payload.get("graph_mapping_text"))
+        if isinstance(vars_payload, dict) and "gateway_mode" not in vars_payload:
+            self.vars["gateway_mode"].set(self._resolve_gateway_mode_from_mapping(self._get_text_block(self.graph_mapping_text)))
 
     def _save_preset(self) -> None:
         name = str(self.vars["preset_name"].get()).strip()

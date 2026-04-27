@@ -132,3 +132,86 @@ def test_dynamic_graph_builder_unions_active_and_struct_masks(mock_feature_confi
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
     assert bool(mask[activity_vocab["Assess_eligibility"]]) is True
     assert bool(mask[activity_vocab["Check_credit_history"]]) is True
+
+
+def test_dynamic_graph_builder_collapses_gateway_path_for_prediction_mask(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["TaskA", "TaskB"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("TaskA", "Gateway_XOR",), ("Gateway_XOR", "TaskB")],
+            nodes=[
+                {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {
+                    "id": "Gateway_XOR",
+                    "bpmn_tag": "exclusiveGateway",
+                    "type": "exclusiveGateway",
+                    "activity_type": "exclusiveGateway",
+                },
+                {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "TaskA")],
+        target_event=_event(1, "TaskB"),
+    )
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+    ).build_graph(prefix)
+
+    mask = contract["allowed_target_mask"]
+    assert isinstance(mask, torch.Tensor)
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(mask[activity_vocab["TaskB"]]) is True
+
+
+def test_dynamic_graph_builder_gateway_collapse_stops_at_next_prediction_node(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["TaskA", "TaskB", "TaskC"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[
+                ("TaskA", "Gateway_1"),
+                ("Gateway_1", "TaskB"),
+                ("TaskB", "Gateway_2"),
+                ("Gateway_2", "TaskC"),
+            ],
+            nodes=[
+                {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "Gateway_1", "bpmn_tag": "parallelGateway", "type": "parallelGateway", "activity_type": "parallelGateway"},
+                {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+                {"id": "Gateway_2", "bpmn_tag": "exclusiveGateway", "type": "exclusiveGateway", "activity_type": "exclusiveGateway"},
+                {"id": "TaskC", "bpmn_tag": "scriptTask", "type": "scriptTask", "activity_type": "scriptTask"},
+            ],
+        ),
+    )
+
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "TaskA")],
+        target_event=_event(1, "TaskB"),
+    )
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+    ).build_graph(prefix)
+
+    mask = contract["allowed_target_mask"]
+    assert isinstance(mask, torch.Tensor)
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(mask[activity_vocab["TaskB"]]) is True
+    assert bool(mask[activity_vocab["TaskC"]]) is False

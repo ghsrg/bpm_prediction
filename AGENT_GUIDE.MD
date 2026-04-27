@@ -24,18 +24,15 @@
 14. **docs/GLOSSARY.MD** — канон термінів.
 15. **MVP1/MVP2 docs** (ARCHITECTURE_MVP1/2, DATA_MODEL_MVP1/2, DATA_FLOWS_MVP1/2, LLD_MVP1/2, EVF_MVP1/2) — використовуй тільки для backward compatibility або історичного контексту.
 
-**Правило вирішення конфліктів:** Якщо в цих файлах є суперечність — пріоритет завжди у того документа, що стоїть **вище у цьому списку** (ближче до пункту 1). Є файл Дисертація Коротенко.docx, це теоретичний канон. 
-Але якщо суперечності критичні — зупинись і задай питання розробнику!
-Якщо виявлено суперечність, або тобі незрозуміло, як саме реалізувати конкретний метод — ЗУПИНИСЬ. Ти не маєш права фантазувати. Задай питання розробнику.
 
-**Статус legacy-матеріалів:** папка `etalon/` є deprecated і не використовується як джерело архітектурних рішень у MVP1.
+**Правило вирішення конфліктів:** Якщо в цих файлах є суперечність — пріоритет завжди у того документа, що стоїть **вище у цьому списку** (ближче до пункту 1). Є файл Дисертація Коротенко.docx, це теоретичний канон. 
+Але якщо суперечності критичні — зупинись і задай питання, не роби обхідні рішення без погодження!
+Якщо виявлено суперечність, або тобі незрозуміло, як саме реалізувати конкретний метод — ЗУПИНИСЬ. Ти не маєш права фантазувати. Задай питання розробнику.
 
 ## 2. Жорсткі заборони (ніколи не порушуй)
 - **Архітектура:** Не пиши код, який порушує Clean/Hexagonal Architecture. Domain не імпортує адаптери, Application залежить тільки від абстракцій (портів).
-- **Scope MVP1:** Не додавай `EPOKG`, структурні маски, `Critic`, `Reliability Semaphore` або механізми `Continual Learning` у MVP1 — це функціонал MVP2+. Зараз будуємо чистий Baseline GNN.
+- **Scope:** Не додавай функціонал з майбутніх MVP, якщо це не вимушено архітектурою.
 - **Модель:** Не створюй окрему модель на кожну версію процесу (κ). Завжди єдина параметрична модель `θ_base`.
-- **Дані:** Не використовуй `EventLog` / `EventLogBatch` як фізичні сутності у MVP1. Використовуй потік: `RawTrace` $\to$ `PrefixSlice` $\to$ `InstanceGraph` $\to$ `GraphTensorContract`.
-- **Парсинг:** Не використовуй DOM-парсинг для XES (весь файл у пам'ять). Тільки потокове читання (`lxml.etree.iterparse` / `pm4py` stream).
 - **Іменування:** Не змінюй назви класів/методів з контрактів (наприклад, `IXESAdapter`, `IPrefixPolicy`, `IGraphBuilder`).
 - **Сліпе кодування:** Не генеруй код без посилання на конкретний файл і рядок/розділ документації, де це описано.
 
@@ -46,45 +43,16 @@
 - **Data Ingestion:** `lxml`, `pm4py`, `pandas` (обмежено, тільки для аналітики, не для core-логіки).
 - **Tracking:** `mlflow`.
 - **Infra/Utils:** `PyYAML`, `psutil`, `tqdm`.
-Заборонено додавати нові сторонні залежності без погодження. Якщо є логічна необхідність - запутуй що потрібно і для чого.
+Заборонено додавати нові сторонні залежності без погодження. Якщо є логічна необхідність - пропонуй що потрібно і для чого.
 
 ## 4. Зафіксовані контракти даних (DTO)
-Ти зобов'язаний використовувати строго цю структуру полів для базових DTO:
-
-```python
-class EventRecord(BaseModel):
-    activity_id: str
-    timestamp: float                   # Unix epoch float
-    resource_id: str
-    lifecycle: Optional[str]
-    position_in_trace: int
-    duration: float                    # Seconds float
-    time_since_case_start: float       # Seconds float
-    time_since_previous_event: float   # Seconds float
-    extra: Dict[str, Any]
-    activity_instance_id: Optional[str]
-
-class RawTrace(BaseModel):
-    case_id: str
-    process_version: str
-    events: List[EventRecord]
-    trace_attributes: Dict[str, Any]
-
-class GraphTensorContract(TypedDict):
-    x_cat: torch.LongTensor       # [N_nodes, F_cat]
-    x_num: torch.FloatTensor      # [N_nodes, F_num]
-    edge_index: torch.LongTensor  # [2, E_edges]
-    edge_type: torch.LongTensor   # [E_edges] (Для MVP1: заповнено 0)
-    y: torch.LongTensor           # [1]
-    batch: torch.LongTensor       # [N_nodes]
-    num_nodes: int                # N_nodes
-```
+Ти зобов'язаний використовувати структуру полів для базових DTO. Всі зміни мають бути погоджені і оновлена документація
 
 ## 5. Що робити, коли отримуєш завдання
 Кожного разу, коли розробник дає тобі задачу, виконуй такий алгоритм:
 
 1. Прочитай завдання повністю.
-2. Подивись у цьому файлі (`AGENT_GUIDE.MD`) — чи є пряма заборона або обмеження.
+2. Подивись у цьому файлі (`AGENT_GUIDE.MD`) — чи є пряма заборона або обмеження. Якщо є обмеження - уточни.
 3. Визнач, які саме `.md` файли стосуються задачі (згідно з пріоритетним списком вище).
 4. Читай **тільки** ці файли в порядку пріоритету.
 5. Склади план дій у форматі:
@@ -103,7 +71,7 @@ class GraphTensorContract(TypedDict):
 
 ---
 
-## MVP2.5 Addendum (2026-03-15)
+## MVP2.5 Addendum 
 
 ### New mandatory docs to read for MVP2.5 tasks
 1. `docs/ARCHITECTURE_MVP2_5.MD`
@@ -121,7 +89,7 @@ class GraphTensorContract(TypedDict):
 - Root must stay clean.
 - New and historical reports/plans are stored under `docs/worklogs/`.
 
-## MVP2.5 Stage 3.4 Addendum (2026-03-19)
+## MVP2.5 Stage 4.2 Addendum
 
 ### Mandatory docs for any task related to structure/stats/train timing
 Read in this strict order:
@@ -130,12 +98,16 @@ Read in this strict order:
 3. `docs/DATA_FLOWS_MVP2_5.MD`
 4. `docs/LLD_MVP2_5.MD`
 5. `docs/EVF_MVP2_5.MD`
-6. `README.MD` section `MVP2.5 Stage 3.4 Runbook (Canonical)`
+6. `README.MD` section `MVP2.5 Stage 4.2 Runbook (Canonical)`
 
 ### Hard execution rules
 1. Topology and stats are prepared offline (`ingest-topology`, `sync-topology`, `sync-stats`).
 2. Train/eval/infer must consume repository artifacts only.
-3. For temporal-safe studies, use `experiment.stats_time_policy = strict_asof` and maintain snapshot timeline.
+3. Different fallback policies are allowed for exploratory runs.
+4. For research-grade temporal studies, use:
+   - `experiment.stats_time_policy = strict_asof`
+   - `experiment.on_missing_asof_snapshot = raise`
+   - maintained snapshot timeline (`sync-stats-backfill` recommended).
 
 ### Snapshot policy (must not be violated)
 1. Immutable snapshots only.

@@ -331,7 +331,18 @@ def _compute_scope_stats(
         "latency_median": {},
         "latency_p95": {},
     }
-    for src, dst in allowed_edges:
+    activity_id_set = {_normalize_text(activity) for activity in activity_ids if _normalize_text(activity)}
+    edge_candidates = {
+        (_normalize_text(src), _normalize_text(dst))
+        for src, dst in allowed_edges
+        if _normalize_text(src) and _normalize_text(dst)
+    }
+    edge_candidates.update(
+        (src, dst)
+        for src, dst in transition_counts.keys()
+        if src in activity_id_set and dst in activity_id_set
+    )
+    for src, dst in sorted(edge_candidates):
         edge_key = f"{src}|||{dst}"
         count = float(transition_counts.get((src, dst), 0))
         out_count = float(outgoing.get(src, 0))

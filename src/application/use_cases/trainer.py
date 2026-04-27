@@ -2484,7 +2484,37 @@ class ModelTrainer:
             return
         data_metrics = self.config.get("data_metrics", {})
         if isinstance(data_metrics, dict):
-            for key in ("data_num_traces", "data_num_events", "vocab_activity_size", "vocab_resource_size"):
+            for key in (
+                "data_all_num_traces",
+                "data_all_num_events",
+                "data_num_traces",
+                "data_num_events",
+                "vocab_activity_size",
+                "vocab_resource_size",
+                "data_all_versions_count",
+                "data_prepared_versions_count",
+                "data_train_versions_count",
+                "data_val_versions_count",
+                "data_test_versions_count",
+                "data_all_versions",
+                "data_prepared_versions",
+                "data_train_versions",
+                "data_val_versions",
+                "data_test_versions",
+                "data_version_collapse_warning",
+                "train_struct_x_max_abs",
+                "train_struct_x_p99_abs",
+                "train_struct_x_scale_warning",
+                "val_struct_x_max_abs",
+                "val_struct_x_p99_abs",
+                "val_struct_x_scale_warning",
+                "test_struct_x_max_abs",
+                "test_struct_x_p99_abs",
+                "test_struct_x_scale_warning",
+                "train_edge_weight_max_abs",
+                "train_edge_weight_p99_abs",
+                "train_edge_weight_scale_warning",
+            ):
                 if key in data_metrics:
                     self.tracker.log_param(key, data_metrics[key])
 

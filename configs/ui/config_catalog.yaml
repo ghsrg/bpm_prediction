@@ -1128,6 +1128,23 @@ fields:
       group: deprecated
       priority: 999
       order: 9999
+  mapping.graph_feature_mapping.topology_projection.gateway_mode:
+    path: mapping.graph_feature_mapping.topology_projection.gateway_mode
+    section: mapping
+    label: gateways
+    description: Controls whether BPMN gateway nodes are preserved or collapsed into task-to-task projection for GNN/mask runtime.
+    affects: Structural edge tensor and allowed_target_mask construction.
+    default: collapse_for_prediction
+    enum:
+    - preserve
+    - collapse_for_prediction
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 1
   mapping.graph_feature_mapping.stats_quality_gate.enabled:
     path: mapping.graph_feature_mapping.stats_quality_gate.enabled
     section: mapping

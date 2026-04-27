@@ -573,7 +573,7 @@ Operational stance:
 4. `graph_dataset_cache_policy`: `off | read | write | full`
 5. `graph_dataset_cache_dir`: disk cache root for prepared graph datasets
 6. `stats_time_policy`: `latest | strict_asof`
-7. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default: `disable_stats`)
+7. `on_missing_asof_snapshot`: `disable_stats | use_base | raise` (default runtime: `disable_stats`)
 
 #### 2.2 `mapping.knowledge_graph` block
 1. `backend`: `in_memory | file | neo4j`
@@ -639,5 +639,5 @@ flowchart LR
 2. Prefer `sync-stats-backfill --step weekly|monthly` for initial historical bootstrap.
 3. Keep experiment namespace/storage isolated to avoid mixing with unrelated latest snapshots.
 4. Always include snapshot metadata (`knowledge_version`, `as_of_ts`) in report artifacts.
-5. Set `on_missing_asof_snapshot=disable_stats` for no-leak temporal experiments.
+5. For research-grade temporal runs prefer `on_missing_asof_snapshot=raise`; fallback modes remain available for exploratory runs.
 6. Enable quality-gate controls to prevent zero-dominant stats from polluting model input.

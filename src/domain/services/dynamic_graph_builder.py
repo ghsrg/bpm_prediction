@@ -47,6 +47,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             self.stats_time_policy = "latest"
         self.on_missing_asof_snapshot = self._resolve_missing_asof_policy(on_missing_asof_snapshot)
         self.stats_quality_gate = self._resolve_quality_gate_config(stats_quality_gate)
+        self.topology_gateway_mode = self._resolve_topology_gateway_mode(self.graph_feature_mapping)
         self._quality_warned_keys: set[tuple[str, str, str]] = set()
         self._missing_asof_warned_keys: set[tuple[str, str, str]] = set()
         self.cache_policy = self._resolve_cache_policy(cache_policy)
@@ -466,9 +467,24 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "quality_gate": self.stats_quality_gate,
             "time_policy": self.stats_time_policy,
             "missing_asof_policy": self.on_missing_asof_snapshot,
+            "topology_gateway_mode": self.topology_gateway_mode,
         }
         text = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         return hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()
+
+    @staticmethod
+    def _resolve_topology_gateway_mode(graph_feature_mapping: Dict[str, Any]) -> str:
+        block = graph_feature_mapping if isinstance(graph_feature_mapping, dict) else {}
+        projection = block.get("topology_projection", {})
+        raw = None
+        if isinstance(projection, dict):
+            raw = projection.get("gateway_mode")
+        if raw is None:
+            raw = block.get("gateway_mode")
+        mode = str(raw or "preserve").strip().lower()
+        if mode not in {"preserve", "collapse_for_prediction"}:
+            return "preserve"
+        return mode
 
     def _resolve_compiled_topology(
         self,
@@ -508,7 +524,8 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if not stats_allowed:
             edge_stats = {}
 
-        for src, dst in dto.allowed_edges:
+        projected_edge_paths = self._project_allowed_edge_paths_for_prediction(dto)
+        for src, dst in projected_edge_paths:
             src_token = str(src).strip()
             dst_token = str(dst).strip()
             src_idx = activity_vocab.get(src_token)
@@ -521,7 +538,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             structural_dst.append(dst_idx_int)
             if edge_weight_spec is not None:
                 edge_key = f"{src_token}|||{dst_token}"
-                structural_weight.append(float(edge_weight_index.get(edge_key, edge_weight_spec.get("default", 1.0))))
+                if edge_key in edge_weight_index:
+                    structural_weight.append(float(edge_weight_index.get(edge_key, edge_weight_spec.get("default", 1.0))))
+                else:
+                    structural_weight.append(
+                        self._projected_edge_weight(
+                            paths=projected_edge_paths.get((src_token, dst_token), []),
+                            edge_weight_index=edge_weight_index,
+                            edge_weight_spec=edge_weight_spec,
+                        )
+                    )
             else:
                 stats = edge_stats.get((src, dst), {})
                 structural_weight.append(float(stats.get("count", 1.0)))
@@ -559,6 +585,131 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
             self._save_compiled_topology_to_disk(cache_key=cache_key, compiled=compiled)
         return compiled
+
+    def _project_allowed_edge_paths_for_prediction(self, dto: ProcessStructureDTO) -> dict[tuple[str, str], list[list[str]]]:
+        original_paths = {
+            (str(src).strip(), str(dst).strip()): [[str(src).strip(), str(dst).strip()]]
+            for src, dst in dto.allowed_edges
+            if str(src).strip() and str(dst).strip()
+        }
+        if self.topology_gateway_mode != "collapse_for_prediction":
+            return original_paths
+
+        nodes = dto.nodes or []
+        if not nodes:
+            return original_paths
+
+        node_roles = self._classify_projection_nodes(nodes)
+        outgoing: dict[str, list[str]] = {}
+        for src, dst in dto.allowed_edges:
+            src_token = str(src).strip()
+            dst_token = str(dst).strip()
+            if not src_token or not dst_token:
+                continue
+            outgoing.setdefault(src_token, []).append(dst_token)
+
+        projected: dict[tuple[str, str], list[list[str]]] = {}
+        for src, role in node_roles.items():
+            if role != "prediction":
+                continue
+            for dst, path in self._reachable_prediction_node_paths_through_transparent(
+                source=src,
+                outgoing=outgoing,
+                node_roles=node_roles,
+            ).items():
+                if dst != src:
+                    projected.setdefault((src, dst), []).extend(path)
+
+        if not projected:
+            return original_paths
+        return dict(sorted(projected.items(), key=lambda item: item[0]))
+
+    @classmethod
+    def _classify_projection_nodes(cls, nodes: list[Dict[str, Any]]) -> dict[str, str]:
+        roles: dict[str, str] = {}
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id", "")).strip()
+            if not node_id:
+                continue
+            tags = " ".join(
+                str(node.get(key, "")).strip().lower()
+                for key in ("bpmn_tag", "type", "activity_type", "logical_type")
+            )
+            normalized = tags.replace(" ", "").replace("_", "").replace("-", "")
+            if cls._is_prediction_node_type(normalized):
+                roles[node_id] = "prediction"
+            else:
+                roles[node_id] = "transparent"
+        return roles
+
+    @staticmethod
+    def _is_prediction_node_type(normalized_type: str) -> bool:
+        if not normalized_type:
+            return False
+        if "gateway" in normalized_type:
+            return False
+        if "event" in normalized_type:
+            return False
+        return any(
+            token in normalized_type
+            for token in (
+                "task",
+                "userTask".lower(),
+                "servicetask",
+                "scripttask",
+                "manualtask",
+                "businessruletask",
+                "sendtask",
+                "receivetask",
+                "callactivity",
+                "subprocess",
+            )
+        )
+
+    @staticmethod
+    def _reachable_prediction_node_paths_through_transparent(
+        *,
+        source: str,
+        outgoing: dict[str, list[str]],
+        node_roles: dict[str, str],
+    ) -> dict[str, list[list[str]]]:
+        found: dict[str, list[list[str]]] = {}
+        visited: set[str] = {source}
+        queue: list[tuple[str, list[str]]] = [(node, [source, node]) for node in outgoing.get(source, [])]
+        while queue:
+            current, path = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            role = node_roles.get(current, "prediction")
+            if role == "prediction":
+                found.setdefault(current, []).append(path)
+                continue
+            queue.extend((next_node, [*path, next_node]) for next_node in outgoing.get(current, []))
+        return found
+
+    @staticmethod
+    def _projected_edge_weight(
+        *,
+        paths: list[list[str]],
+        edge_weight_index: Dict[str, float],
+        edge_weight_spec: Dict[str, Any],
+    ) -> float:
+        default = float(edge_weight_spec.get("default", 1.0) or 1.0)
+        metric = str(edge_weight_spec.get("metric", "")).strip().lower()
+        if metric != "transition_probability" or not paths:
+            return default
+        total = 0.0
+        for path in paths:
+            if len(path) < 2:
+                continue
+            probability = 1.0
+            for src, dst in zip(path, path[1:]):
+                probability *= float(edge_weight_index.get(f"{src}|||{dst}", default))
+            total += probability
+        return float(max(0.0, min(1.0, total if total > 0.0 else default)))
 
     def _resolve_topology_disk_cache_dir(self, raw_dir: str | None) -> Path | None:
         if self.cache_policy != "full":

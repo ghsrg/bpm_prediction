@@ -1,7 +1,7 @@
 ﻿# PROJECT_CONTEXT.md
 
-Updated: 2026-03-26
-Purpose: operational context for current MVP2.5 state after Stage 4.2 implementation and closure sync.
+Updated: 2026-04-24
+Purpose: operational context for current MVP2.5 state after Stage 4.2 implementation with canonical-doc synchronization in progress.
 
 ## 1. Current State
 
@@ -47,6 +47,9 @@ Mandatory checks:
 6. Stats quality gate may disable stats tensors without failing the whole run (policy-driven fallback).
 7. If strict_asof has no eligible snapshot (`as_of <= prefix_ts`), behavior is policy-driven via `experiment.on_missing_asof_snapshot` (`disable_stats|use_base|raise`).
 8. Forward stats now include explicit counters: `missing_asof_snapshot_batches` and `missing_asof_snapshot[true/false]`.
+9. Exploratory runs may use fallback policies, but research-grade temporal runs should prefer:
+   - `stats_time_policy = strict_asof`
+   - `on_missing_asof_snapshot = raise`.
 
 ## 4. Config Ownership
 
@@ -55,12 +58,14 @@ Mandatory checks:
 3. `mapping.graph_feature_mapping`: stats feature matrix mapping + per-feature `encoding`.
 4. `sync_stats.quality_gate` and `mapping.graph_feature_mapping.stats_quality_gate`: producer/consumer quality policy.
 
-## 5. Current Priority
+## 5. Current Priorities
 
-Immediate next step:
-1. synchronize canonical documentation to implemented Stage 4.2 runtime behavior and defaults.
-2. keep CLI as primary run interface; maintain `experiment-ui` as convenience wrapper and `web-ui` as prototype.
-3. continue dissertation-goal alignment review and technical-debt audit.
+1. Keep canonical documentation aligned with implemented Stage 4.2 runtime behavior and real repository layout.
+2. Keep CLI as primary run interface; maintain `experiment-ui` as convenience wrapper and `web-ui` as prototype.
+3. Track known architecture debt explicitly:
+   - snapshot-homogeneous batching,
+   - activity-to-topology alignment gate hardening,
+   - `src/cli.py` decomposition planning.
 
 ## 6. Priority of Truth
 

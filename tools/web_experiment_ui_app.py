@@ -213,6 +213,10 @@ SPECIAL_SELECT_CHOICES: Dict[str, List[tuple[str, str]]] = {
         ("Attention", "Attention"),
         ("Concat", "Concat"),
     ],
+    "mapping.graph_feature_mapping.topology_projection.gateway_mode": [
+        ("preserve", "preserve"),
+        ("collapse_for_prediction", "collapse_for_prediction"),
+    ],
 }
 
 
@@ -482,6 +486,7 @@ def _init_session() -> None:
     st.session_state.setdefault("yaml_policies_text", "{}")
     st.session_state.setdefault("yaml_graph_mapping_text", "{}")
     st.session_state.setdefault("graph_mapping_enabled", False)
+    st.session_state.setdefault("graph_gateway_mode", "collapse_for_prediction")
     st.session_state.setdefault("pending_run_cfg", None)
     st.session_state.setdefault("pending_run_warnings", [])
     st.session_state.setdefault("mlflow_runs", [])
@@ -511,6 +516,7 @@ def _apply_loaded_config(config: Dict[str, Any], loaded_path: str) -> None:
         "yaml_policies_widget",
         "yaml_graph_mapping_widget",
         "graph_mapping_enabled_widget",
+        "graph_gateway_mode_widget",
         "confirm_run_warnings",
     ):
         st.session_state.pop(key, None)
@@ -529,6 +535,15 @@ def _apply_loaded_config(config: Dict[str, Any], loaded_path: str) -> None:
     policies_value = _deep_get(config, "policies", {})
     graph_mapping_value = _deep_get(config, "mapping.graph_feature_mapping", {})
     graph_enabled = _normalize_bool(_deep_get(config, "mapping.graph_feature_mapping.enabled", False), fallback=False)
+    graph_gateway_mode = str(
+        _deep_get(
+            config,
+            "mapping.graph_feature_mapping.topology_projection.gateway_mode",
+            "collapse_for_prediction" if str(_deep_get(config, "mapping.adapter", "")).strip().lower() == "xes" else "preserve",
+        )
+    ).strip()
+    if graph_gateway_mode not in {"preserve", "collapse_for_prediction"}:
+        graph_gateway_mode = "collapse_for_prediction" if str(_deep_get(config, "mapping.adapter", "")).strip().lower() == "xes" else "preserve"
 
     st.session_state["loaded_config_path"] = loaded_path
     st.session_state["base_config"] = deepcopy(config)
@@ -541,10 +556,12 @@ def _apply_loaded_config(config: Dict[str, Any], loaded_path: str) -> None:
         graph_mapping_value if graph_mapping_value is not None else {"enabled": graph_enabled}
     )
     st.session_state["graph_mapping_enabled"] = graph_enabled
+    st.session_state["graph_gateway_mode"] = graph_gateway_mode
     st.session_state["yaml_features_widget"] = st.session_state["yaml_features_text"]
     st.session_state["yaml_policies_widget"] = st.session_state["yaml_policies_text"]
     st.session_state["yaml_graph_mapping_widget"] = st.session_state["yaml_graph_mapping_text"]
     st.session_state["graph_mapping_enabled_widget"] = graph_enabled
+    st.session_state["graph_gateway_mode_widget"] = graph_gateway_mode
     st.session_state["pending_run_cfg"] = None
     st.session_state["pending_run_warnings"] = []
 
@@ -593,8 +610,18 @@ def _compose_config() -> tuple[Dict[str, Any], List[str]]:
     if not isinstance(graph_mapping_payload, dict):
         graph_mapping_payload = {}
     graph_mapping_payload["enabled"] = bool(st.session_state.get("graph_mapping_enabled", False))
+    projection = graph_mapping_payload.get("topology_projection", {})
+    if not isinstance(projection, dict):
+        projection = {}
+    gateway_mode = str(st.session_state.get("graph_gateway_mode", "")).strip()
+    if gateway_mode not in {"preserve", "collapse_for_prediction"}:
+        adapter = str(_deep_get(cfg, "mapping.adapter", "")).strip().lower()
+        gateway_mode = "collapse_for_prediction" if adapter == "xes" else "preserve"
+    projection["gateway_mode"] = gateway_mode
+    graph_mapping_payload["topology_projection"] = projection
     _deep_set(cfg, "mapping.graph_feature_mapping", graph_mapping_payload)
     _deep_set(cfg, "mapping.graph_feature_mapping.enabled", bool(st.session_state.get("graph_mapping_enabled", False)))
+    _deep_set(cfg, "mapping.graph_feature_mapping.topology_projection.gateway_mode", gateway_mode)
 
     return cfg, parse_warnings
 
@@ -1670,6 +1697,19 @@ def main() -> None:
                     "mapping.graph_feature_mapping.enabled",
                     value=bool(st.session_state.get("graph_mapping_enabled", False)),
                     key="graph_mapping_enabled_widget",
+                )
+                gateway_options = ["preserve", "collapse_for_prediction"]
+                current_gateway = str(st.session_state.get("graph_gateway_mode", "collapse_for_prediction")).strip()
+                gateway_index = gateway_options.index(current_gateway) if current_gateway in gateway_options else 1
+                st.session_state["graph_gateway_mode"] = st.selectbox(
+                    "gateways",
+                    options=gateway_options,
+                    index=gateway_index,
+                    help=(
+                        "mapping.graph_feature_mapping.topology_projection.gateway_mode. "
+                        "Use collapse_for_prediction for XES logs without gateway events; preserve for Camunda/BPMN runtime topology."
+                    ),
+                    key="graph_gateway_mode_widget",
                 )
                 st.session_state["yaml_graph_mapping_text"] = _render_yaml_editor(
                     "mapping.graph_feature_mapping",

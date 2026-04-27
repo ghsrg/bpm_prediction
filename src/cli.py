@@ -426,6 +426,24 @@ def _apply_cascade_prepare(
     return macro[:keep_count]
 
 
+def _trace_version_counts(traces: Sequence[RawTrace]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for trace in traces:
+        version = str(getattr(trace, "process_version", "")).strip() or "__missing__"
+        counts[version] = counts.get(version, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: item[0]))
+
+
+def _format_trace_version_counts(counts: Dict[str, int], *, max_items: int = 12) -> str:
+    if not counts:
+        return "none"
+    items = list(counts.items())
+    rendered = [f"{version}:{count}" for version, count in items[:max_items]]
+    if len(items) > max_items:
+        rendered.append(f"...+{len(items) - max_items}")
+    return ",".join(rendered)
+
+
 def _safe_iso_to_epoch(value: Any) -> float | None:
     """Parse ISO datetime string into UTC epoch seconds; return None on invalid values."""
     if value is None:
@@ -671,6 +689,61 @@ def _iter_graphs_from_dataset_payload(payload: Any) -> Iterator[Data]:
         for item in payload:
             if isinstance(item, Data):
                 yield item
+
+
+def _tensor_scale_diagnostics(
+    payload: Any,
+    *,
+    tensor_name: str,
+    sample_limit: int = 5000,
+    warn_abs_threshold: float = 1_000_000.0,
+) -> Dict[str, Any]:
+    values: List[torch.Tensor] = []
+    seen = 0
+    for graph in _iter_graphs_from_dataset_payload(payload):
+        tensor = getattr(graph, tensor_name, None)
+        if isinstance(tensor, torch.Tensor) and tensor.numel() > 0:
+            values.append(tensor.detach().float().flatten().cpu())
+        seen += 1
+        if seen >= sample_limit:
+            break
+    if not values:
+        return {
+            "sampled_graphs": int(seen),
+            "values": 0,
+            "finite_values": 0,
+            "max_abs": 0.0,
+            "p99_abs": 0.0,
+            "has_non_finite": False,
+            "scale_warning": False,
+        }
+
+    joined = torch.cat(values)
+    finite_mask = torch.isfinite(joined)
+    finite = joined[finite_mask]
+    if finite.numel() == 0:
+        return {
+            "sampled_graphs": int(seen),
+            "values": int(joined.numel()),
+            "finite_values": 0,
+            "max_abs": float("inf"),
+            "p99_abs": float("inf"),
+            "has_non_finite": True,
+            "scale_warning": True,
+        }
+    abs_values = torch.abs(finite)
+    max_abs = float(torch.max(abs_values).item())
+    p99_abs = float(torch.quantile(abs_values, 0.99).item())
+    has_non_finite = bool(int(finite_mask.sum().item()) != int(joined.numel()))
+    return {
+        "sampled_graphs": int(seen),
+        "values": int(joined.numel()),
+        "finite_values": int(finite.numel()),
+        "max_abs": max_abs,
+        "p99_abs": p99_abs,
+        "has_non_finite": has_non_finite,
+        "scale_warning": bool(has_non_finite or max_abs > float(warn_abs_threshold)),
+    }
 
 
 def _load_graph_dataset_cache(
@@ -1250,6 +1323,14 @@ def _summarize_graph_feature_mapping(graph_feature_mapping: Dict[str, Any]) -> D
         if isinstance(quality_gate_cfg, dict)
         else "ignore_with_warning"
     )
+    projection_cfg = graph_feature_mapping.get("topology_projection", {})
+    gateway_mode = (
+        str(projection_cfg.get("gateway_mode", "preserve")).strip()
+        if isinstance(projection_cfg, dict)
+        else "preserve"
+    )
+    if gateway_mode not in {"preserve", "collapse_for_prediction"}:
+        gateway_mode = "preserve"
 
     return {
         "enabled": enabled,
@@ -1259,6 +1340,7 @@ def _summarize_graph_feature_mapping(graph_feature_mapping: Dict[str, Any]) -> D
         "edge_weight_metric": edge_weight_metric or "none",
         "stats_quality_gate_enabled": bool(stats_quality_gate_enabled),
         "stats_quality_gate_on_fail": stats_quality_gate_on_fail or "ignore_with_warning",
+        "topology_gateway_mode": gateway_mode,
     }
 
 
@@ -1317,6 +1399,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         total=int(len(traces)),
         payload={"events": int(event_count)},
     )
+    all_traces = list(traces)
+    all_version_counts = _trace_version_counts(all_traces)
     traces = _apply_cascade_prepare(
         traces,
         mode=mode,
@@ -1327,6 +1411,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     logger.info("Applied cascade filter (mode=%s, fraction=%.4f) -> traces=%d", mode, fraction, len(traces))
     data_num_traces = len(traces)
     data_num_events = sum(len(trace.events) for trace in traces)
+    prepared_version_counts = _trace_version_counts(traces)
 
     feature_configs = parse_feature_configs(config)
     schema_resolver = SchemaResolver()
@@ -1353,6 +1438,31 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     reverse_resource_vocab = {idx: key for key, idx in resource_vocab.items()}
 
     train_traces, val_traces, test_traces = _strict_temporal_split(traces, split_ratio, split_strategy)
+    train_version_counts = _trace_version_counts(train_traces)
+    val_version_counts = _trace_version_counts(val_traces)
+    test_version_counts = _trace_version_counts(test_traces)
+    version_collapse_warning = len(all_version_counts) > 1 and len(prepared_version_counts) <= 1
+    logger.info(
+        "DATA_SPLIT versions all=%s prepared=%s train=%s val=%s test=%s",
+        _format_trace_version_counts(all_version_counts),
+        _format_trace_version_counts(prepared_version_counts),
+        _format_trace_version_counts(train_version_counts),
+        _format_trace_version_counts(val_version_counts),
+        _format_trace_version_counts(test_version_counts),
+    )
+    if version_collapse_warning:
+        logger.warning(
+            "DATA_SPLIT_VERSION_COLLAPSE: source log has %d versions but cascade-selected data has %d version. "
+            "mode=%s train_ratio=%.4f fraction=%.4f selected=%s all=%s. "
+            "For versioned training, increase experiment.train_ratio or use eval_drift for the tail.",
+            len(all_version_counts),
+            len(prepared_version_counts),
+            mode,
+            train_ratio,
+            fraction,
+            _format_trace_version_counts(prepared_version_counts),
+            _format_trace_version_counts(all_version_counts),
+        )
     knowledge_repo = build_knowledge_graph_repository(config)
     knowledge_cfg = get_knowledge_graph_settings(config)
     available_versions = knowledge_repo.list_versions(process_name=dataset_name)
@@ -1380,6 +1490,15 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     graph_feature_mapping = (
         dict(graph_feature_mapping_raw) if isinstance(graph_feature_mapping_raw, dict) else {}
     )
+    topology_projection_cfg = graph_feature_mapping.get("topology_projection")
+    if not isinstance(topology_projection_cfg, dict):
+        topology_projection_cfg = {}
+        graph_feature_mapping["topology_projection"] = topology_projection_cfg
+    if not str(topology_projection_cfg.get("gateway_mode", "")).strip():
+        topology_projection_cfg["gateway_mode"] = (
+            "collapse_for_prediction" if adapter_kind == "xes" else "preserve"
+        )
+    mapping_cfg["graph_feature_mapping"] = graph_feature_mapping
     feature_summary = _summarize_graph_feature_mapping(graph_feature_mapping)
     stats_time_policy = str(experiment_cfg.get("stats_time_policy", "latest")).strip().lower() or "latest"
     on_missing_asof_snapshot = str(
@@ -1428,6 +1547,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "edge_weight_metric": str(feature_summary.get("edge_weight_metric", "none")),
         "stats_quality_gate_enabled": bool(feature_summary.get("stats_quality_gate_enabled", False)),
         "stats_quality_gate_on_fail": str(feature_summary.get("stats_quality_gate_on_fail", "ignore_with_warning")),
+        "topology_gateway_mode": str(feature_summary.get("topology_gateway_mode", "preserve")),
         "global_process_stats_forward_enabled": False,
         "stats_time_policy": stats_time_policy,
         "on_missing_asof_snapshot": on_missing_asof_snapshot,
@@ -1441,6 +1561,17 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "knowledge_backend": str(knowledge_cfg.get("backend", "in_memory")),
         "knowledge_strict_load": bool(knowledge_cfg.get("strict_load", False)),
         "knowledge_versions_count": int(len(available_versions)),
+        "data_all_versions_count": int(len(all_version_counts)),
+        "data_prepared_versions_count": int(len(prepared_version_counts)),
+        "data_train_versions_count": int(len(train_version_counts)),
+        "data_val_versions_count": int(len(val_version_counts)),
+        "data_test_versions_count": int(len(test_version_counts)),
+        "data_all_versions": _format_trace_version_counts(all_version_counts),
+        "data_prepared_versions": _format_trace_version_counts(prepared_version_counts),
+        "data_train_versions": _format_trace_version_counts(train_version_counts),
+        "data_val_versions": _format_trace_version_counts(val_version_counts),
+        "data_test_versions": _format_trace_version_counts(test_version_counts),
+        "data_version_collapse_warning": bool(version_collapse_warning),
         "xes_use_classifier": xes_use_classifier,
         "xes_activity_key": xes_activity_key or None,
         "xes_version_key": xes_version_key or None,
@@ -1466,7 +1597,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         float(run_profile["max_ram_gb"]),
     )
     logger.info(
-        "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s global_process_forward=%s",
+        "RUN_PROFILE structure backend=%s strict_load=%s versions=%d graph_features=%s node_features=%d node_scopes=%s edge_weight=%s edge_metric=%s gateway_mode=%s global_process_forward=%s",
         run_profile["knowledge_backend"],
         run_profile["knowledge_strict_load"],
         run_profile["knowledge_versions_count"],
@@ -1475,6 +1606,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         ",".join(str(item) for item in run_profile["node_scopes"]) or "none",
         "on" if run_profile["edge_weight_enabled"] else "off",
         run_profile["edge_weight_metric"],
+        run_profile["topology_gateway_mode"],
         "on" if run_profile["global_process_stats_forward_enabled"] else "off",
     )
     if adapter_kind == "xes":
@@ -1484,6 +1616,15 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
             xes_activity_key or "concept:name",
             xes_version_key or "concept:version",
         )
+    logger.info(
+        "RUN_PROFILE data_versions all=%s prepared=%s train=%s val=%s test=%s collapse_warning=%s",
+        run_profile["data_all_versions"],
+        run_profile["data_prepared_versions"],
+        run_profile["data_train_versions"],
+        run_profile["data_val_versions"],
+        run_profile["data_test_versions"],
+        bool(run_profile["data_version_collapse_warning"]),
+    )
     logger.info(
         "RUN_PROFILE checks alignment_guard=%s quality_guard=%s forward_stats_summary=%s cache_policy=%s",
         "manual",
@@ -1528,7 +1669,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         stats_time_policy=stats_time_policy,
         on_missing_asof_snapshot=on_missing_asof_snapshot,
         log_path=log_path,
-        traces_all=traces,
+        traces_all=all_traces,
         train_traces=train_traces,
         val_traces=val_traces,
         test_traces=test_traces,
@@ -1750,6 +1891,30 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     }
     run_profile["graph_dataset_cache_hit"] = bool(cache_hit)
     run_profile["graph_dataset_cache_key"] = cache_fingerprint[:12]
+    train_struct_x_diag = _tensor_scale_diagnostics(train_dataset, tensor_name="struct_x")
+    val_struct_x_diag = _tensor_scale_diagnostics(val_dataset, tensor_name="struct_x")
+    test_struct_x_diag = _tensor_scale_diagnostics(test_dataset, tensor_name="struct_x")
+    train_edge_weight_diag = _tensor_scale_diagnostics(train_dataset, tensor_name="structural_edge_weight")
+    logger.info(
+        "STRUCT_TENSOR_SCALE train_struct_x max_abs=%.6g p99_abs=%.6g warning=%s val_struct_x max_abs=%.6g p99_abs=%.6g warning=%s test_struct_x max_abs=%.6g p99_abs=%.6g warning=%s train_edge_weight max_abs=%.6g p99_abs=%.6g warning=%s",
+        float(train_struct_x_diag["max_abs"]),
+        float(train_struct_x_diag["p99_abs"]),
+        bool(train_struct_x_diag["scale_warning"]),
+        float(val_struct_x_diag["max_abs"]),
+        float(val_struct_x_diag["p99_abs"]),
+        bool(val_struct_x_diag["scale_warning"]),
+        float(test_struct_x_diag["max_abs"]),
+        float(test_struct_x_diag["p99_abs"]),
+        bool(test_struct_x_diag["scale_warning"]),
+        float(train_edge_weight_diag["max_abs"]),
+        float(train_edge_weight_diag["p99_abs"]),
+        bool(train_edge_weight_diag["scale_warning"]),
+    )
+    if bool(train_struct_x_diag["scale_warning"]) or bool(val_struct_x_diag["scale_warning"]) or bool(test_struct_x_diag["scale_warning"]):
+        logger.warning(
+            "STRUCT_TENSOR_SCALE_WARNING: struct_x contains very large or non-finite values. "
+            "Use bounded encodings such as ['log1p', 'z-score'] for count/duration statistics instead of raw identity."
+        )
     logger.info(
         "Graph datasets ready: train_graphs=%d, val_graphs=%d, test_graphs=%d",
         _dataset_payload_graph_count(train_dataset),
@@ -1781,10 +1946,35 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
             "train_ratio": train_ratio,
         },
         "data_metrics": {
+            "data_all_num_traces": int(len(all_traces)),
+            "data_all_num_events": int(event_count),
             "data_num_traces": int(data_num_traces),
             "data_num_events": int(data_num_events),
             "vocab_activity_size": int(len(activity_vocab)),
             "vocab_resource_size": int(len(resource_vocab)),
+            "data_all_versions_count": int(len(all_version_counts)),
+            "data_prepared_versions_count": int(len(prepared_version_counts)),
+            "data_train_versions_count": int(len(train_version_counts)),
+            "data_val_versions_count": int(len(val_version_counts)),
+            "data_test_versions_count": int(len(test_version_counts)),
+            "data_all_versions": _format_trace_version_counts(all_version_counts),
+            "data_prepared_versions": _format_trace_version_counts(prepared_version_counts),
+            "data_train_versions": _format_trace_version_counts(train_version_counts),
+            "data_val_versions": _format_trace_version_counts(val_version_counts),
+            "data_test_versions": _format_trace_version_counts(test_version_counts),
+            "data_version_collapse_warning": bool(version_collapse_warning),
+            "train_struct_x_max_abs": float(train_struct_x_diag["max_abs"]),
+            "train_struct_x_p99_abs": float(train_struct_x_diag["p99_abs"]),
+            "train_struct_x_scale_warning": bool(train_struct_x_diag["scale_warning"]),
+            "val_struct_x_max_abs": float(val_struct_x_diag["max_abs"]),
+            "val_struct_x_p99_abs": float(val_struct_x_diag["p99_abs"]),
+            "val_struct_x_scale_warning": bool(val_struct_x_diag["scale_warning"]),
+            "test_struct_x_max_abs": float(test_struct_x_diag["max_abs"]),
+            "test_struct_x_p99_abs": float(test_struct_x_diag["p99_abs"]),
+            "test_struct_x_scale_warning": bool(test_struct_x_diag["scale_warning"]),
+            "train_edge_weight_max_abs": float(train_edge_weight_diag["max_abs"]),
+            "train_edge_weight_p99_abs": float(train_edge_weight_diag["p99_abs"]),
+            "train_edge_weight_scale_warning": bool(train_edge_weight_diag["scale_warning"]),
         },
         "activity_vocab": activity_vocab,
         "resource_vocab": resource_vocab,

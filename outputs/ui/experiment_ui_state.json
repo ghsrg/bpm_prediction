@@ -32,11 +32,11 @@
     "experiment.drift_window_sliding": "10",
     "experiment.graph_dataset_disk_spill_enabled": "true",
     "experiment.graph_dataset_shard_size": "20000",
-    "experiment.load_checkpoint": "checkpoints/S_Att-MS-42_loan_v1_v4_simulated_GATv2_best.pth",
+    "experiment.load_checkpoint": "",
     "experiment.mask_guided_enabled": "true",
     "experiment.max_ram_gb": "10",
     "experiment.retrain": "true",
-    "experiment.statistic_enabled": "true",
+    "experiment.statistic_enabled": "false",
     "experiment.structural_mode": "true"
   },
   "general_tracking_form": {
@@ -104,7 +104,7 @@
     "mapping.xes_adapter.lifecycle_key": "lifecycle:transition",
     "mapping.xes_adapter.pairing_strategy": "lifo",
     "mapping.xes_adapter.resource_key": "org:resource",
-    "mapping.xes_adapter.start_transitions": "- assign\n- start",
+    "mapping.xes_adapter.start_transitions": "\n- start",
     "mapping.xes_adapter.timestamp_key": "time:timestamp",
     "mapping.xes_adapter.use_classifier": "True",
     "mapping.xes_adapter.version_key": "concept:version"
@@ -138,20 +138,21 @@
   "vars": {
     "adapter": "xes",
     "backfill_from": "",
-    "backfill_step": "weekly",
+    "backfill_step": "monthly",
     "backfill_step_days": "",
     "backfill_to": "",
     "cache_policy": "off",
     "config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml",
     "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/generated_simulate_loan.yaml",
-    "experiment_name": "S_Att-MS-drift-42",
+    "experiment_name": "S_Att-MN-42",
     "extra_args": "",
     "fraction": "1",
+    "gateway_mode": "preserve",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
-    "mode": "sync-stats-backfill",
+    "mode": "train",
     "on_missing_asof_snapshot": "use_base",
-    "preset_name": "S_Att-MS-loan-drift",
+    "preset_name": "S_Att-MN-loan",
     "project": "mvp2_6",
     "seed": "42",
     "split_ratio": "- 0.7\n- 0.2\n- 0.1",
@@ -159,8 +160,8 @@
     "split_ratio_train": "0.7",
     "split_ratio_val": "0.2",
     "split_strategy": "temporal",
-    "stats_time_policy": "strict_asof",
+    "stats_time_policy": "latest",
     "sync_as_of": "",
-    "train_ratio": "1"
+    "train_ratio": "0.25"
   }
 }

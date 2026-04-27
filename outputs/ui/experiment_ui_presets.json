@@ -845,7 +845,7 @@
     }
   },
   "Base-MN-loan-drift": {
-    "last_saved_at": "2026-04-20T10:51:43.753167+00:00",
+    "last_saved_at": "2026-04-24T10:35:31.601344+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -873,7 +873,7 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n",
+      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
@@ -918,7 +918,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -969,7 +969,7 @@
         "model.struct_hidden_dim": "64",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.confidence_weights.coverage": "",
         "sync_stats.confidence_weights.freshness": "",
@@ -995,6 +995,7 @@
         "experiment_name": "Base-MN-drift-42",
         "extra_args": "",
         "fraction": "1",
+        "gateway_mode": "collapse_for_prediction",
         "graph_dataset_cache_dir": ".cache/graph_datasets",
         "graph_dataset_cache_policy": "full",
         "mode": "eval_drift",
@@ -2704,7 +2705,7 @@
     }
   },
   "S_Att-MN-loan": {
-    "last_saved_at": "2026-04-21T18:03:18.720677+00:00",
+    "last_saved_at": "2026-04-24T17:21:00.781499+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -2732,7 +2733,7 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n",
+      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
@@ -2777,7 +2778,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -2811,7 +2812,7 @@
         "mapping.xes_adapter.lifecycle_key": "lifecycle:transition",
         "mapping.xes_adapter.pairing_strategy": "lifo",
         "mapping.xes_adapter.resource_key": "org:resource",
-        "mapping.xes_adapter.start_transitions": "- assign\n- start",
+        "mapping.xes_adapter.start_transitions": "\n- start",
         "mapping.xes_adapter.timestamp_key": "time:timestamp",
         "mapping.xes_adapter.use_classifier": "True",
         "mapping.xes_adapter.version_key": "concept:version"
@@ -2828,7 +2829,7 @@
         "model.struct_hidden_dim": "64",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.confidence_weights.coverage": "",
         "sync_stats.confidence_weights.freshness": "",
@@ -2854,6 +2855,7 @@
         "experiment_name": "S_Att-MN-42",
         "extra_args": "",
         "fraction": "1",
+        "gateway_mode": "collapse_for_prediction",
         "graph_dataset_cache_dir": ".cache/graph_datasets",
         "graph_dataset_cache_policy": "full",
         "mode": "train",
@@ -3042,7 +3044,7 @@
     }
   },
   "S_Att-MS-loan": {
-    "last_saved_at": "2026-04-23T09:39:33.242497+00:00",
+    "last_saved_at": "2026-04-24T09:19:31.988182+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -3070,17 +3072,17 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n",
+      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
         "experiment.drift_window_sliding": "10",
         "experiment.graph_dataset_disk_spill_enabled": "true",
         "experiment.graph_dataset_shard_size": "20000",
-        "experiment.load_checkpoint": "",
+        "experiment.load_checkpoint": "checkpoints/S_Att-MS-42_loan_v1_v4_simulated_GATv2_last.pth",
         "experiment.mask_guided_enabled": "true",
         "experiment.max_ram_gb": "10",
-        "experiment.retrain": "true",
+        "experiment.retrain": "false",
         "experiment.statistic_enabled": "true",
         "experiment.structural_mode": "true"
       },
@@ -3115,7 +3117,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: last_7d\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: last_7d\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score, log1p]\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score, log1p]\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score]\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:[z-score]\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:[z-score, log1p]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding: [identity]\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -3166,7 +3168,7 @@
         "model.struct_hidden_dim": "64",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.confidence_weights.coverage": "",
         "sync_stats.confidence_weights.freshness": "",
@@ -3192,10 +3194,11 @@
         "experiment_name": "S_Att-MS-42",
         "extra_args": "",
         "fraction": "1",
+        "gateway_mode": "collapse_for_prediction",
         "graph_dataset_cache_dir": ".cache/graph_datasets",
         "graph_dataset_cache_policy": "full",
         "mode": "train",
-        "on_missing_asof_snapshot": "use_base",
+        "on_missing_asof_snapshot": "disable_stats",
         "preset_name": "S_Att-MS-loan",
         "project": "mvp2_6",
         "seed": "42",
@@ -3211,7 +3214,7 @@
     }
   },
   "S_Att-MS-loan-drift": {
-    "last_saved_at": "2026-04-23T08:48:41.099958+00:00",
+    "last_saved_at": "2026-04-23T15:21:39.355079+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -3239,7 +3242,7 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n",
+      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
@@ -3249,7 +3252,7 @@
         "experiment.load_checkpoint": "checkpoints/S_Att-MS-42_loan_v1_v4_simulated_GATv2_best.pth",
         "experiment.mask_guided_enabled": "true",
         "experiment.max_ram_gb": "10",
-        "experiment.retrain": "true",
+        "experiment.retrain": "false",
         "experiment.statistic_enabled": "true",
         "experiment.structural_mode": "true"
       },
@@ -3284,7 +3287,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: last_7d\n  scope: version\n  default: 0.0\n  encoding:[z-score, log1p]\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score, log1p]\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score]\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding:[z-score]\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:[z-score, log1p]\nedge_weight:\n  metric: transition_probability\n  window: last_7d\n  scope: version\n  default: 1.0\n  encoding: [identity]\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -3335,7 +3338,7 @@
         "model.struct_hidden_dim": "64",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.confidence_weights.coverage": "",
         "sync_stats.confidence_weights.freshness": "",
@@ -3361,6 +3364,7 @@
         "experiment_name": "S_Att-MS-drift-42",
         "extra_args": "",
         "fraction": "1",
+        "gateway_mode": "collapse_for_prediction",
         "graph_dataset_cache_dir": ".cache/graph_datasets",
         "graph_dataset_cache_policy": "full",
         "mode": "eval_drift",
@@ -3375,7 +3379,7 @@
         "split_strategy": "temporal",
         "stats_time_policy": "strict_asof",
         "sync_as_of": "",
-        "train_ratio": "1"
+        "train_ratio": "0"
       }
     }
   },
@@ -5070,7 +5074,7 @@
     }
   },
   "S_Con-MN-loan": {
-    "last_saved_at": "2026-04-21T07:13:29.421386+00:00",
+    "last_saved_at": "2026-04-24T09:12:04.183506+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -5098,7 +5102,7 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n",
+      "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
@@ -5143,7 +5147,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -5194,7 +5198,7 @@
         "model.struct_hidden_dim": "64",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.confidence_weights.coverage": "",
         "sync_stats.confidence_weights.freshness": "",
@@ -5220,6 +5224,7 @@
         "experiment_name": "S_Con-MN-42",
         "extra_args": "",
         "fraction": "1",
+        "gateway_mode": "collapse_for_prediction",
         "graph_dataset_cache_dir": ".cache/graph_datasets",
         "graph_dataset_cache_policy": "full",
         "mode": "train",
@@ -5234,7 +5239,7 @@
         "split_strategy": "temporal",
         "stats_time_policy": "latest",
         "sync_as_of": "",
-        "train_ratio": "0.1"
+        "train_ratio": "0.25"
       }
     }
   },

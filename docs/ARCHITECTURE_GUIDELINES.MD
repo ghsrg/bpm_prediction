@@ -104,10 +104,10 @@ Layer separation is mandatory:
 
 (Розділення шарів є обов’язковим.)
 
-- Domain (`src/core/`)
-- Application (`src/pipeline/`)
+- Domain (`src/domain/`)
+- Application (`src/application/`)
 - Adapters (`src/adapters/`)
-- Frameworks (external systems)
+- Infrastructure / Frameworks (`src/infrastructure/`, external systems)
 
 (Чітке розмежування:
 - ядро логіки,

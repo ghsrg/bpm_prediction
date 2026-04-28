@@ -1,7 +1,7 @@
 # ADR-0006: Research-Grade Activity-to-Topology Alignment Gate
 
 Date: 2026-04-27
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -56,19 +56,22 @@ Negative:
 
 ## Runtime Rules
 
-Current behavior:
+Accepted behavior:
 
-1. `sync-stats` computes alignment metrics.
-2. `sync-stats.alignment_gate.on_fail` controls behavior.
+1. `sync-stats` delegates alignment computation to `ActivityTopologyAlignmentService`.
+2. `sync_stats.alignment_gate.profile` selects `legacy_exact`, `safe_normalized`, or `research_strict`.
 3. Alignment metadata is written into `metadata.stats_contract.alignment`.
+4. Ambiguous mappings fail closed when `fail_on_ambiguity` is enabled.
+5. `node_coverage` denominator uses loggable topology nodes for safe/research profiles, not all BPMN nodes.
 
-Target research-grade behavior:
+Research-grade behavior:
 
-1. use locked thresholds for `event_match_ratio`,
+1. use `sync_stats.alignment_gate.profile: research_strict`,
+2. use locked thresholds for `event_match_ratio`,
    `unique_activity_coverage`, and `node_coverage`,
-2. use `on_fail: raise` or an equivalent fail-fast profile for final runs,
-3. report alignment metrics in experiment artifacts,
-4. do not treat `write_with_flag` snapshots as final research-grade evidence.
+3. use `on_fail: raise` for final runs,
+4. report alignment metrics in experiment artifacts,
+5. do not treat `write_with_flag` snapshots as final research-grade evidence.
 
 ## Affected Files
 
@@ -84,4 +87,3 @@ Target research-grade behavior:
 - `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
 - `docs/DATA_MODEL_MVP2_5.MD`
 - `docs/EVF_MVP2_5.MD`
-

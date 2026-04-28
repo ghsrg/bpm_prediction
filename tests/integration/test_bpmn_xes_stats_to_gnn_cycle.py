@@ -166,10 +166,11 @@ sync_stats:
   show_progress: false
   alignment_gate:
     enabled: true
-    min_event_match_ratio: 0.0
-    min_unique_activity_coverage: 0.0
-    min_node_coverage: 0.0
-    on_fail: "write_with_flag"
+    profile: "safe_normalized"
+    min_event_match_ratio: 1.0
+    min_unique_activity_coverage: 1.0
+    min_node_coverage: 0.75
+    on_fail: "raise"
 
 experiment:
   mode: "sync-stats"
@@ -235,6 +236,13 @@ def test_bpmn_gateway_topology_and_xes_stats_feed_gnn_contract(tmp_path: Path, m
 
     stats_dto = repo.get_process_structure("v1", process_name="loan_proc")
     assert stats_dto is not None
+    alignment = stats_dto.metadata["stats_contract"]["alignment"]
+    assert alignment["profile"] == "safe_normalized"
+    assert alignment["is_aligned"] is True
+    assert alignment["event_match_ratio"] == pytest.approx(1.0)
+    assert alignment["unique_activity_coverage"] == pytest.approx(1.0)
+    assert alignment["loggable_node_count"] == 4
+    assert alignment["ignored_structural_node_count"] == 3
     stats_index = (stats_dto.metadata or {}).get("stats_index", {})
     assert stats_index["node"]["all_time.version.exec_count"]["TaskA"] == pytest.approx(2.0)
     assert stats_index["node"]["all_time.version.exec_count"]["TaskB"] == pytest.approx(1.0)

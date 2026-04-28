@@ -60,11 +60,11 @@ micro-batching, or fail-fast research profile.
 
 ### activity_to_topology_alignment_gate
 
-- `status`: active
+- `status`: closed
 - `priority`: P0
 - `adr`: `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`
-- `current_behavior`: producer-side alignment metrics exist in `sync-stats`
-- `target_state`: locked strict alignment profile for research-grade runs
+- `current_behavior`: producer-side alignment profiles and strict research profile are implemented
+- `target_state`: closed; maintain catalog/docs sync for future alignment config keys
 
 **Description (ukr):**
 
@@ -80,8 +80,9 @@ micro-batching, or fail-fast research profile.
 
 **Next direction:**
 
-Define strict thresholds for `event_match_ratio`, `unique_activity_coverage`,
-and `node_coverage`; use fail-fast behavior for dissertation-grade runs.
+Use `sync_stats.alignment_gate.profile: research_strict` with `on_fail: raise`
+for dissertation-grade runs. Future work belongs to
+`topology_projection_alignment`, not this producer-side gate.
 
 ---
 

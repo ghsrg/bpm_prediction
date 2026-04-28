@@ -1858,6 +1858,125 @@ fields:
       group: sync_stats
       priority: 2
       order: 20
+  sync_stats.alignment_gate.profile:
+    path: sync_stats.alignment_gate.profile
+    section: sync_stats
+    label: Producer alignment profile
+    description: Matching profile for activity-to-topology alignment.
+    affects: Alignment denominator, candidate matching strategy, and research strictness.
+    default: legacy_exact
+    enum:
+    - legacy_exact
+    - safe_normalized
+    - research_strict
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 21
+  sync_stats.alignment_gate.candidate_node_fields:
+    path: sync_stats.alignment_gate.candidate_node_fields
+    section: sync_stats
+    label: Producer alignment candidate fields
+    description: Ordered topology node fields used as activity mapping candidates.
+    affects: Which topology identifiers/names can satisfy the alignment gate.
+    default:
+    - id
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 22
+  sync_stats.alignment_gate.ignore_structural_only_nodes:
+    path: sync_stats.alignment_gate.ignore_structural_only_nodes
+    section: sync_stats
+    label: Producer alignment ignore structural nodes
+    description: Exclude structural-only BPMN nodes from node coverage denominator.
+    affects: Node coverage semantics for BPMN processes with events and gateways.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 23
+  sync_stats.alignment_gate.strip_classifier_suffix:
+    path: sync_stats.alignment_gate.strip_classifier_suffix
+    section: sync_stats
+    label: Producer alignment strip classifier suffix
+    description: Strip lifecycle classifier suffixes such as +complete or ::complete before matching.
+    affects: Activity mapping when logs include classifier-extended names.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 24
+  sync_stats.alignment_gate.normalize_case:
+    path: sync_stats.alignment_gate.normalize_case
+    section: sync_stats
+    label: Producer alignment normalize case
+    description: Use case-insensitive candidate matching after exact matching.
+    affects: Activity mapping tolerance for casing differences.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 25
+  sync_stats.alignment_gate.collapse_separators:
+    path: sync_stats.alignment_gate.collapse_separators
+    section: sync_stats
+    label: Producer alignment collapse separators
+    description: Collapse spaces, underscores, and hyphens during normalized matching.
+    affects: Activity mapping tolerance for separator differences.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 26
+  sync_stats.alignment_gate.fail_on_ambiguity:
+    path: sync_stats.alignment_gate.fail_on_ambiguity
+    section: sync_stats
+    label: Producer alignment fail on ambiguity
+    description: Reject snapshots when an event activity can map to multiple topology nodes.
+    affects: False-positive prevention for normalized activity matching.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 27
   sync_stats.alignment_gate.warn_on_fail:
     path: sync_stats.alignment_gate.warn_on_fail
     section: sync_stats
@@ -1874,7 +1993,7 @@ fields:
       tab: eopkg
       group: sync_stats
       priority: 2
-      order: 21
+      order: 28
   sync_stats.alignment_gate.min_event_match_ratio:
     path: sync_stats.alignment_gate.min_event_match_ratio
     section: sync_stats
@@ -1889,7 +2008,7 @@ fields:
       tab: eopkg
       group: sync_stats
       priority: 2
-      order: 22
+      order: 29
   sync_stats.alignment_gate.min_unique_activity_coverage:
     path: sync_stats.alignment_gate.min_unique_activity_coverage
     section: sync_stats
@@ -1904,7 +2023,7 @@ fields:
       tab: eopkg
       group: sync_stats
       priority: 2
-      order: 23
+      order: 30
   sync_stats.alignment_gate.min_node_coverage:
     path: sync_stats.alignment_gate.min_node_coverage
     section: sync_stats
@@ -1919,7 +2038,7 @@ fields:
       tab: eopkg
       group: sync_stats
       priority: 2
-      order: 24
+      order: 31
   sync_stats.alignment_gate.on_fail:
     path: sync_stats.alignment_gate.on_fail
     section: sync_stats
@@ -1937,7 +2056,7 @@ fields:
       tab: eopkg
       group: sync_stats
       priority: 2
-      order: 25
+      order: 32
   tracking.backend:
     path: tracking.backend
     section: tracking

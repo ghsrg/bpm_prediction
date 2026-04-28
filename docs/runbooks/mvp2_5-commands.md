@@ -163,6 +163,15 @@ Recommended research config:
 experiment:
   stats_time_policy: strict_asof
   on_missing_asof_snapshot: raise
+
+sync_stats:
+  alignment_gate:
+    enabled: true
+    profile: research_strict
+    min_event_match_ratio: 0.9
+    min_unique_activity_coverage: 0.9
+    min_node_coverage: 0.8
+    on_fail: raise
 ```
 
 **Description (ukr):**
@@ -362,6 +371,13 @@ Operational stance:
 ### sync_stats.alignment_gate
 
 - `enabled`
+- `profile`: `legacy_exact | safe_normalized | research_strict`
+- `candidate_node_fields`
+- `ignore_structural_only_nodes`
+- `strip_classifier_suffix`
+- `normalize_case`
+- `collapse_separators`
+- `fail_on_ambiguity`
 - `min_event_match_ratio`
 - `min_unique_activity_coverage`
 - `min_node_coverage`

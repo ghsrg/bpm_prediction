@@ -189,6 +189,24 @@ class CatalogFieldMeta:
     ui_order: int
 
 
+def _merge_catalog_section_fields(
+    *,
+    base_fields: Dict[str, Any],
+    pool_meta: Dict[str, PoolFieldMeta],
+    catalog: Dict[str, CatalogFieldMeta],
+    section: str,
+) -> Dict[str, Any]:
+    """Merge config, scanned pool, and catalog-only fields for one UI section."""
+    merged: Dict[str, Any] = dict(base_fields)
+    for path, meta in pool_meta.items():
+        if meta.section == section and path not in merged:
+            merged[path] = ""
+    for path, meta in catalog.items():
+        if meta.section == section and path not in merged:
+            merged[path] = meta.default if meta.default not in ("", None) else ""
+    return merged
+
+
 class _ToolTip:
     def __init__(self, widget: tk.Widget, text: str) -> None:
         self.widget = widget
@@ -1897,10 +1915,12 @@ class ExperimentUI:
         self.input_camunda_mapping_form.set_fields(self._ordered_field_dict(input_cam_mapping_flat))
         self.eopkg_backend_form.set_fields(self._ordered_field_dict(eopkg_backend_flat))
         self.eopkg_structure_form.set_fields(self._ordered_field_dict(eopkg_structure_flat))
-        sync_all: Dict[str, Any] = dict(sync_stats_flat)
-        for path, meta in self._pool_meta.items():
-            if meta.section == "sync_stats" and path not in sync_all:
-                sync_all[path] = ""
+        sync_all = _merge_catalog_section_fields(
+            base_fields=sync_stats_flat,
+            pool_meta=self._pool_meta,
+            catalog=self._catalog,
+            section="sync_stats",
+        )
         self.sync_stats_form.set_fields(self._ordered_field_dict(sync_all))
 
         model_all: Dict[str, Any] = dict(model_flat)

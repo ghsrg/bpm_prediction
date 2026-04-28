@@ -89,17 +89,35 @@ And stores:
 
 Implemented config keys:
 1. `sync_stats.alignment_gate.enabled`
-2. `sync_stats.alignment_gate.warn_on_fail`
-3. `sync_stats.alignment_gate.min_event_match_ratio`
-4. `sync_stats.alignment_gate.min_unique_activity_coverage`
-5. `sync_stats.alignment_gate.min_node_coverage`
-6. `sync_stats.alignment_gate.on_fail`
+2. `sync_stats.alignment_gate.profile`
+3. `sync_stats.alignment_gate.candidate_node_fields`
+4. `sync_stats.alignment_gate.ignore_structural_only_nodes`
+5. `sync_stats.alignment_gate.strip_classifier_suffix`
+6. `sync_stats.alignment_gate.normalize_case`
+7. `sync_stats.alignment_gate.collapse_separators`
+8. `sync_stats.alignment_gate.fail_on_ambiguity`
+9. `sync_stats.alignment_gate.warn_on_fail`
+10. `sync_stats.alignment_gate.min_event_match_ratio`
+11. `sync_stats.alignment_gate.min_unique_activity_coverage`
+12. `sync_stats.alignment_gate.min_node_coverage`
+13. `sync_stats.alignment_gate.on_fail`
 
 Default thresholds in `tools/sync_stats.py`:
-1. `min_event_match_ratio = 0.6`
-2. `min_unique_activity_coverage = 0.6`
-3. `min_node_coverage = 0.0`
-4. `on_fail = write_with_flag`
+1. `profile = legacy_exact`
+2. `min_event_match_ratio = 0.6`
+3. `min_unique_activity_coverage = 0.6`
+4. `min_node_coverage = 0.0`
+5. `on_fail = write_with_flag`
+
+Producer alignment profiles:
+1. `legacy_exact`: exact `activity_def_id` to topology node id matching; compatibility mode.
+2. `safe_normalized`: loggable-node denominator; id/name candidates; case/separator normalization; classifier suffix stripping; ambiguity fails closed.
+3. `research_strict`: safe matching semantics with strict thresholds for dissertation-grade runs.
+
+Denominator semantics:
+1. `legacy_exact` uses all topology ids as the node coverage denominator.
+2. `safe_normalized` and `research_strict` exclude structural-only BPMN nodes such as events and gateways from `node_coverage`.
+3. `event_match_ratio` and `unique_activity_coverage` always use event activities as denominator.
 
 Runtime behavior:
 1. `write_with_flag`: persist snapshot with alignment metadata and warning.

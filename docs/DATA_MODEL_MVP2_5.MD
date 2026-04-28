@@ -107,16 +107,29 @@ Quality block includes (producer-side):
 9. `quality_failures`
 
 Alignment block includes (producer-side):
-1. `is_aligned`
-2. `alignment_reason`
-3. `alignment_failures`
-4. `event_match_ratio`
-5. `unique_activity_coverage`
-6. `node_coverage`
-7. `min_event_match_ratio`
-8. `min_unique_activity_coverage`
-9. `min_node_coverage`
-10. `scope_used`
+1. `profile`
+2. `scope_used`
+3. `is_aligned`
+4. `alignment_reason`
+5. `alignment_failures`
+6. `event_match_ratio`
+7. `unique_activity_coverage`
+8. `node_coverage`
+9. `min_event_match_ratio`
+10. `min_unique_activity_coverage`
+11. `min_node_coverage`
+12. `event_count`
+13. `unique_event_activity_count`
+14. `structure_node_count`
+15. `loggable_node_count`
+16. `ignored_structural_node_count`
+17. `matched_event_count`
+18. `matched_unique_activity_count`
+19. `matched_loggable_node_count`
+20. `unmatched_event_activities_top`
+21. `ambiguous_event_activities_top`
+22. `match_counts_by_strategy`
+23. `candidate_node_fields`
 
 Identity/provenance notes:
 1. `identity.knowledge_version` and `identity.as_of_ts` are expected for snapshot-backed reads.

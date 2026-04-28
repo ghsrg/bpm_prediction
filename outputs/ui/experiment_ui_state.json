@@ -25,7 +25,7 @@
     "mapping.camunda_adapter.structure.version_key_format": "",
     "mapping.camunda_adapter.subprocess_graph_mode": ""
   },
-  "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n",
+  "features_text": "- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n",
   "general_experiment_form": {
     "experiment.cache_dir": ".cache/dynamic_graph_builder",
     "experiment.drift_window_size": "100",
@@ -70,7 +70,7 @@
     "training.tqdm_disable": "False",
     "training.tqdm_leave": "False"
   },
-  "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+  "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
   "input_camunda_mapping_form": {
     "mapping.camunda_adapter.lookback_hours": "",
     "mapping.camunda_adapter.process_filters": "",
@@ -121,8 +121,21 @@
     "model.struct_hidden_dim": "64",
     "model.type": "EOPKGGATv2"
   },
-  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n",
+  "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n",
   "sync_stats_form": {
+    "sync_stats.alignment_gate.candidate_node_fields": "- id",
+    "sync_stats.alignment_gate.collapse_separators": "false",
+    "sync_stats.alignment_gate.enabled": "true",
+    "sync_stats.alignment_gate.fail_on_ambiguity": "true",
+    "sync_stats.alignment_gate.ignore_structural_only_nodes": "false",
+    "sync_stats.alignment_gate.min_event_match_ratio": "0.6",
+    "sync_stats.alignment_gate.min_node_coverage": "0.0",
+    "sync_stats.alignment_gate.min_unique_activity_coverage": "0.6",
+    "sync_stats.alignment_gate.normalize_case": "false",
+    "sync_stats.alignment_gate.on_fail": "write_with_flag",
+    "sync_stats.alignment_gate.profile": "safe_normalized",
+    "sync_stats.alignment_gate.strip_classifier_suffix": "false",
+    "sync_stats.alignment_gate.warn_on_fail": "true",
     "sync_stats.confidence_weights.coverage": "",
     "sync_stats.confidence_weights.freshness": "",
     "sync_stats.confidence_weights.sample_size": "",
@@ -130,6 +143,12 @@
     "sync_stats.freshness_half_life_days": "",
     "sync_stats.process_filters": "",
     "sync_stats.process_scope_policy": "",
+    "sync_stats.quality_gate.enabled": "true",
+    "sync_stats.quality_gate.min_history_coverage_percent": "0.0",
+    "sync_stats.quality_gate.min_non_zero_ratio_overall": "0.0",
+    "sync_stats.quality_gate.on_fail": "write_with_flag",
+    "sync_stats.quality_gate.warn_on_fail": "true",
+    "sync_stats.quality_gate.zero_dominant_threshold": "0.95",
     "sync_stats.show_progress": "",
     "sync_stats.stats_time_policy": "",
     "sync_stats.tenant_filters": "",
@@ -150,7 +169,7 @@
     "gateway_mode": "preserve",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
-    "mode": "train",
+    "mode": "sync-stats-backfill",
     "on_missing_asof_snapshot": "use_base",
     "preset_name": "S_Att-MN-loan",
     "project": "mvp2_6",
@@ -162,6 +181,6 @@
     "split_strategy": "temporal",
     "stats_time_policy": "latest",
     "sync_as_of": "",
-    "train_ratio": "0.25"
+    "train_ratio": "1"
   }
 }

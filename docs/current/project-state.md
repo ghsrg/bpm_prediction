@@ -87,6 +87,8 @@ Backend має бути config-driven: перемикання між `file`, `in
 - `contract_version`: `1.0`
 - `producer`: `sync-stats`
 - `consumer`: `DynamicGraphBuilder`
+- `alignment_profiles`: `legacy_exact`, `safe_normalized`, `research_strict`
+- `alignment_service`: `src/domain/services/activity_topology_alignment_service.py`
 
 **Description (ukr):**
 
@@ -324,8 +326,8 @@ interpreter з AppData, треба повторити той самий venv com
 1. `documentation_governance`
    - keep `AGENTS.MD`, `docs/current/*`, and `docs/adr/*` aligned.
 2. `research_grade_debt`
-   - resolve P0 debt from `docs/current/architecture-debt.md` before final
-     structure/drift conclusions.
+   - remaining active P0 debt is tracked in `docs/current/architecture-debt.md`;
+     producer-side activity-to-topology alignment gate is closed.
 3. `canonical_doc_sync`
    - remove stale "next step" wording from old canonical docs when touched.
 4. `cli_primary_surface`

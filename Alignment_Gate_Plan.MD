@@ -1,560 +1,1457 @@
-# Activity-to-Topology Alignment Gate Plan
+# Activity-to-Topology Alignment Gate Implementation Plan
 
-Date: 2026-04-24  
-Status: Analysis and implementation plan only  
-Scope: eliminate weak/unsafe activity-to-topology alignment behavior in `sync-stats` and cover it with real-object tests
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## 1. Goal
+**Goal:** Close the P0 `activity_to_topology_alignment_gate` debt by making `sync-stats` alignment deterministic, auditable, research-grade, and covered by pure-domain plus real-object tests.
 
-Make `Activity-to-Topology Alignment Gate`:
+**Architecture:** Extract the alignment logic from `tools/sync_stats.py` into a pure domain service. Keep `sync-stats` as orchestration only: config parsing, event loading, repository writes, and summary output. Preserve current operational policies (`write_with_flag`, `skip_snapshot`, `raise`) while adding explicit matching profiles, loggable-node denominator semantics, ambiguity diagnostics, and a locked research profile.
 
-1. deterministic,
-2. explainable,
-3. robust to known real-world naming shifts,
-4. strict enough for research-grade runs,
-5. covered by integration-style tests using real XES, real `ProcessStructureDTO`, real repository objects, and real `sync_stats_main` runs.
+**Tech Stack:** Python 3.11 in project `.venv`, Pydantic DTOs, `pytest`, existing `FileBasedKnowledgeGraphRepository`, existing `sync_stats_main`, existing BPMN/XES integration test fixtures.
 
-This plan does not change code yet. It defines the target design and test pack.
+---
 
-## 2. Current State
+## Current Verified Context
 
-Current implementation lives in [tools/sync_stats.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tools/sync_stats.py).
+- Current debt: `docs/current/architecture-debt.md` -> `activity_to_topology_alignment_gate`.
+- Target decision: `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`.
+- Current implementation: `tools/sync_stats.py`.
+- Current gate defaults:
+  - `min_event_match_ratio = 0.6`
+  - `min_unique_activity_coverage = 0.6`
+  - `min_node_coverage = 0.0`
+  - `on_fail = write_with_flag`
+  - `warn_on_fail = true`
+- Current weakness:
+  - `_dto_activity_ids(dto)` uses `dto.nodes[].id` or `allowed_edges`.
+  - `_build_alignment_summary(...)` exact-matches normalized `event.activity_def_id` against node ids only.
+  - `node_coverage` denominator includes structural-only BPMN nodes when present.
+  - Diagnostics do not show match provenance or ambiguity.
+- Existing tests already cover:
+  - `skip_snapshot` on mismatch in `tests/application/test_sync_stats_tool.py`.
+  - `write_with_flag` alignment metadata in `tests/application/test_sync_stats_tool.py`.
+  - BPMN -> XES -> stats -> GNN smoke in `tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py`.
+- `configs/ui/config_catalog.yaml` already contains current `sync_stats.alignment_gate.*` keys as of 2026-04-27.
 
-Key observations:
+---
 
-1. `_build_alignment_summary(...)` currently compares normalized `event.activity_def_id` against `_dto_activity_ids(dto)`.
-2. `_dto_activity_ids(dto)` currently takes `dto.nodes[].id` only, or falls back to `allowed_edges`.
-3. Matching is effectively exact-string matching after trim/null normalization.
-4. `node_coverage` is computed against all DTO node ids, including structural-only nodes such as gateways/start/end when they are present in BPMN-derived topology.
-5. Existing tests prove the gate is wired, but they mostly validate binary mismatch/pass behavior and do not cover realistic naming shifts deeply.
+## Design Decision
 
-Relevant existing evidence:
-
-1. Current gate config parsing: [tools/sync_stats.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tools/sync_stats.py:475)
-2. Current summary logic: [tools/sync_stats.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tools/sync_stats.py:784)
-3. Current gate application path: [tools/sync_stats.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tools/sync_stats.py:1516)
-4. Existing application tests: [tests/application/test_sync_stats_tool.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tests/application/test_sync_stats_tool.py:694)
-5. Existing end-to-end BPMN -> XES -> stats -> GNN cycle: [tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py:1)
-
-## 3. Problem Breakdown
-
-### 3.1 Exact-id matching is too weak
-
-Known real mismatches are not model bugs, but naming representation shifts:
-
-1. XES classifier adds lifecycle suffixes such as `Approve+COMPLETE`.
-2. BPMN node id may be `Task_Approve`, while event activity is `Approve`.
-3. Case and separator drift: `Task A`, `Task_A`, `task-a`.
-4. Some logs align to BPMN `node.name`, not BPMN `node.id`.
-
-With current exact-id logic, these scenarios become false negatives.
-
-### 3.2 `node_coverage` is semantically wrong for BPMN topology
-
-Current `node_coverage = matched_unique / all_nodes`.
-
-That is unsafe because `all_nodes` may include:
-
-1. `startEvent`
-2. `endEvent`
-3. gateways
-4. other structural-only nodes that are never expected to appear in event logs
-
-So a perfectly healthy log can still look under-covered.
-
-### 3.3 Current gate is tool-local and not reusable
-
-The logic sits inside `tools/sync_stats.py`, which makes it:
-
-1. harder to test as a reusable policy,
-2. harder to reason about as a domain rule,
-3. harder to reuse later in preflight checks or research pipelines.
-
-### 3.4 Diagnostics are not rich enough
-
-Current summary gives ratios and top unmatched activities, but not enough to answer:
-
-1. which matcher rule resolved an activity,
-2. whether matching used `id` or `name`,
-3. whether a match was ambiguous,
-4. whether failure came from exact mismatch or from structural-only node inflation.
-
-## 4. Target State
-
-Introduce a deterministic alignment service with explicit matching policy and richer diagnostics.
-
-### 4.1 Core principle
-
-The gate should validate alignment against **loggable activity nodes**, not against every structural node in the BPMN graph.
-
-### 4.2 Safe matching policy
-
-Matching should be deterministic and conservative, with ordered strategies:
-
-1. exact match to `node.id`,
-2. exact match to `node.name` when unique,
-3. normalized match with case-folding and separator collapse,
-4. optional classifier/lifecycle suffix stripping for XES-driven alignment,
-5. optional adapter-specific canonicalization rules.
-
-The gate should not use fuzzy string similarity or edit distance in the first implementation. That would be too risky and hard to explain.
-
-### 4.3 Ambiguity must fail closed
-
-If one event activity maps to more than one node candidate after normalization, the gate must not silently choose one.
-
-It should:
-
-1. mark the activity as ambiguous,
-2. report diagnostics,
-3. fail or quarantine according to `on_fail`.
-
-## 5. Proposed Architecture
-
-### 5.1 Extract a dedicated domain service
-
-Create a reusable service, for example:
-
-1. `src/domain/services/activity_topology_alignment_service.py`
-
-Responsibility:
-
-1. build alignment candidate index from `ProcessStructureDTO`,
-2. normalize event activities and node candidates,
-3. evaluate alignment metrics,
-4. return structured diagnostics.
-
-Why domain service:
-
-1. inputs are domain entities (`ProcessEventDTO`, `ProcessStructureDTO`),
-2. logic is pure and deterministic,
-3. tooling should orchestrate it, not own it.
-
-### 5.2 Introduce explicit policy objects
-
-Recommended shape:
-
-1. `AlignmentGateConfig`
-2. `AlignmentMatchPolicy`
-3. `AlignmentSummary`
-
-These may start as dataclasses or typed dicts.
-
-Minimum policy fields:
-
-1. `min_event_match_ratio`
-2. `min_unique_activity_coverage`
-3. `min_node_coverage`
-4. `candidate_node_fields`
-5. `ignore_structural_only_nodes`
-6. `strip_classifier_suffix`
-7. `normalize_case`
-8. `collapse_separators`
-9. `on_fail`
-
-### 5.3 Define loggable node filtering
-
-The service should separate:
-
-1. loggable nodes
-2. structural-only nodes
-
-Default loggable set should include executable/activity-like BPMN tags such as:
-
-1. `userTask`
-2. `manualTask`
-3. `serviceTask`
-4. `scriptTask`
-5. `businessRuleTask`
-6. `sendTask`
-7. `receiveTask`
-8. `callActivity`
-9. `subProcess`
-
-Default structural-only set should exclude from alignment denominator:
-
-1. `startEvent`
-2. `endEvent`
-3. all gateways
-4. boundary/intermediate helper nodes unless there is a proven event-log mapping rule
-
-This is the most important semantic fix for `node_coverage`.
-
-### 5.4 Keep compatibility modes
-
-Do not break current runs abruptly. Introduce matcher profiles:
+Implement the first closure pass with three explicit profiles:
 
 1. `legacy_exact`
+   - Preserves current exact-id behavior for comparison and rollback.
+   - Uses all DTO ids only.
+   - No normalization beyond trim.
+
 2. `safe_normalized`
+   - Intended practical default after tests prove behavior.
+   - Uses loggable nodes only.
+   - Matches by exact id, exact unique name, normalized id, normalized unique name.
+   - Supports optional classifier suffix stripping.
+   - Fails closed on ambiguity.
+
 3. `research_strict`
+   - Same conservative matching semantics as `safe_normalized`.
+   - Uses strict thresholds and `on_fail=raise` in research configs.
+   - Does not allow `write_with_flag` snapshots as final evidence.
 
-Recommended behavior:
+Do not introduce fuzzy matching, edit distance, or automatic global `Task_` prefix stripping in this task. These create false-positive risk and are harder to defend.
 
-1. `legacy_exact` preserves current semantics for comparison/debug.
-2. `safe_normalized` becomes the practical default for `sync-stats`.
-3. `research_strict` uses the same canonicalization, but stricter thresholds and `on_fail=raise` or `skip_snapshot`.
+---
 
-## 6. Matching Rules
+## File Structure
 
-### 6.1 Canonicalization rules
+### Create
 
-Canonicalization should be deterministic and transparent:
+- `src/domain/services/activity_topology_alignment_service.py`
+  - Pure alignment service.
+  - Owns matching profiles, canonicalization, candidate index, metrics, and diagnostics.
 
-1. trim,
-2. lowercase,
-3. collapse spaces, `_`, `-` into one normalized separator,
-4. optionally remove classifier suffixes like `+complete`, `+start`,
-5. optionally strip known BPMN technical prefixes only when explicitly enabled.
+- `tests/domain/test_activity_topology_alignment_service.py`
+  - Pure tests for candidate filtering, matching provenance, ambiguity, and denominator semantics.
 
-Important:
+- `tests/application/test_sync_stats_alignment_gate_real_objects.py`
+  - Real-object `sync_stats_main` tests using `FileBasedKnowledgeGraphRepository`, real `ProcessStructureDTO`, generated XES, and persisted metadata.
 
-1. prefix stripping such as `Task_` should not be globally hardcoded without a policy switch,
-2. `node.name` fallback should be allowed only when unique after normalization,
-3. if both `node.id` and `node.name` produce conflicting candidates, report ambiguity.
+### Modify
 
-### 6.2 Match provenance
+- `tools/sync_stats.py`
+  - Replace `_dto_activity_ids(...)` and `_build_alignment_summary(...)` usage with domain service.
+  - Keep config parsing and `on_fail` behavior in tool.
 
-`AlignmentSummary` should include how matches were obtained:
+- `configs/ui/config_catalog.yaml`
+  - Add new optional profile/policy fields introduced by this implementation.
 
-1. `matched_by_exact_id`
-2. `matched_by_exact_name`
-3. `matched_by_normalized_id`
-4. `matched_by_normalized_name`
-5. `matched_by_classifier_strip`
-6. `ambiguous_activity_count`
-7. `unmatched_event_activities_top`
+- `docs/current/architecture-debt.md`
+  - Mark `activity_to_topology_alignment_gate` as closed only after tests pass and docs are updated.
 
-This is necessary to trust the gate and debug dataset-specific policies.
+- `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`
+  - Change `Status: Proposed` to `Accepted` only after implementation and tests pass.
 
-## 7. Implementation Plan
+- `docs/LLD_MVP2_5.MD`
+  - Document matching profiles, denominator semantics, and ambiguity behavior.
 
-### Phase 1. Freeze semantics and metrics
+- `docs/DATA_MODEL_MVP2_5.MD`
+  - Document added alignment diagnostic fields in `metadata.stats_contract.alignment`.
 
-1. Document that alignment denominator uses only loggable nodes.
-2. Freeze a canonical definition for:
-   - `event_match_ratio`
-   - `unique_activity_coverage`
-   - `node_coverage`
-3. Define that ambiguity is a failure condition.
-4. Decide which matcher profile is default for exploratory runs.
+- `docs/runbooks/mvp2_5-commands.md`
+  - Add research-grade alignment config snippet.
 
-Deliverable:
+---
 
-1. updated contract note in docs and plan-approved matching semantics.
+## Target Alignment Contract
 
-### Phase 2. Extract service from `tools/sync_stats.py`
+### Metrics
 
-1. Move alignment computation into a domain service.
-2. Keep `tools/sync_stats.py` responsible only for:
-   - config parsing,
-   - orchestration,
-   - persistence,
-   - summary/report formatting.
-3. Keep old behavior behind `legacy_exact` profile during migration.
+- `event_match_ratio = matched_event_count / event_count`
+- `unique_activity_coverage = matched_unique_event_activity_count / unique_event_activity_count`
+- `node_coverage = matched_loggable_node_count / loggable_node_count`
 
-Deliverable:
+### Loggable Node Denominator
 
-1. alignment logic no longer buried inside CLI tool code.
+Loggable node types:
 
-### Phase 3. Add canonical candidate index
+```python
+LOGGABLE_BPMN_TAGS = {
+    "userTask",
+    "manualTask",
+    "serviceTask",
+    "scriptTask",
+    "businessRuleTask",
+    "sendTask",
+    "receiveTask",
+    "callActivity",
+    "subProcess",
+    "task",
+}
+```
 
-1. Build candidate index from DTO nodes using:
-   - `id`
-   - `name`
-   - normalized forms
-2. Filter candidate nodes by loggable BPMN types.
-3. Add ambiguity detection.
-4. Record match provenance.
+Structural-only nodes excluded from denominator by default:
 
-Deliverable:
+```python
+STRUCTURAL_ONLY_BPMN_TAGS = {
+    "startEvent",
+    "endEvent",
+    "exclusiveGateway",
+    "parallelGateway",
+    "inclusiveGateway",
+    "eventBasedGateway",
+    "complexGateway",
+    "boundaryEvent",
+    "intermediateCatchEvent",
+    "intermediateThrowEvent",
+}
+```
 
-1. `AlignmentSummary` with richer diagnostics and correct denominator semantics.
+### Required Diagnostics
 
-### Phase 4. Integrate gate into `sync-stats`
+`metadata.stats_contract.alignment` must include at least:
 
-1. Replace current `_build_alignment_summary(...)` usage with the new service.
-2. Preserve current `on_fail` options:
-   - `write_with_flag`
-   - `skip_snapshot`
-   - `raise`
-3. Extend persisted `metadata.stats_contract.alignment` with diagnostic details.
+- `profile`
+- `scope_used`
+- `event_count`
+- `unique_event_activity_count`
+- `structure_node_count`
+- `loggable_node_count`
+- `matched_event_count`
+- `matched_unique_activity_count`
+- `matched_loggable_node_count`
+- `event_match_ratio`
+- `unique_activity_coverage`
+- `node_coverage`
+- `is_aligned`
+- `alignment_reason`
+- `alignment_failures`
+- `unmatched_event_activities_top`
+- `ambiguous_event_activities_top`
+- `match_counts_by_strategy`
+- `candidate_node_fields`
+- `ignored_structural_node_count`
 
-Deliverable:
+---
 
-1. same high-level gate behavior, better semantics and better evidence.
+## Task 1: Add Pure Domain Service Tests First
 
-### Phase 5. Lock research profile
+**Files:**
+- Create: `tests/domain/test_activity_topology_alignment_service.py`
+- Create later in Task 2: `src/domain/services/activity_topology_alignment_service.py`
 
-For research-grade runs define one locked profile:
+- [x] **Step 1: Write failing tests for exact id, name fallback, normalized fallback, structural denominator, and ambiguity**
 
-1. ignore structural-only nodes,
-2. enable safe canonicalization,
-3. fail on ambiguity,
-4. require high thresholds.
+Create `tests/domain/test_activity_topology_alignment_service.py`:
 
-Recommended starting thresholds:
+```python
+from __future__ import annotations
 
-1. `min_event_match_ratio >= 0.9`
-2. `min_unique_activity_coverage >= 0.9`
-3. `min_node_coverage >= 0.8`
+import pytest
 
-`node_coverage` may be set to `0.9` after observing real datasets, but `0.8` is a safer initial value when optional tasks exist.
+from src.domain.entities.process_event import ProcessEventDTO
+from src.domain.entities.process_structure import ProcessStructureDTO
+from src.domain.services.activity_topology_alignment_service import (
+    AlignmentGateConfig,
+    ActivityTopologyAlignmentService,
+)
 
-## 8. Test Strategy
 
-Main principle: no mock-only confidence. The backbone must be real-object tests.
+def _event(activity: str, name: str | None = None) -> ProcessEventDTO:
+    return ProcessEventDTO(
+        case_id="C1",
+        activity_def_id=activity,
+        activity_name=name,
+        proc_def_key="loan_proc",
+        proc_def_version="v1",
+    )
 
-### 8.1 Test layers
 
-1. Small pure-service tests for matcher correctness.
-2. Real-object application tests via `sync_stats_main`, `FileBasedKnowledgeGraphRepository`, real `ProcessStructureDTO`, and generated XES.
-3. End-to-end integration tests via `sync_topology_main` + `sync_stats_main` on BPMN + XES.
+def _dto(nodes: list[dict], edges: list[tuple[str, str]] | None = None) -> ProcessStructureDTO:
+    return ProcessStructureDTO(
+        version="v1",
+        allowed_edges=edges or [("TaskA", "TaskB")],
+        nodes=nodes,
+    )
 
-Unit tests are supplementary. Real-object tests are mandatory.
 
-## 9. Real-Object Test Matrix
+def test_exact_id_profile_preserves_legacy_matching():
+    dto = _dto(
+        [
+            {"id": "TaskA", "name": "Task A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "TaskB", "name": "Task B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+        ],
+        [("TaskA", "TaskB")],
+    )
 
-### T1. Exact aligned baseline
+    summary = ActivityTopologyAlignmentService().evaluate(
+        events=[_event("TaskA"), _event("TaskB")],
+        dto=dto,
+        config=AlignmentGateConfig(profile="legacy_exact", min_event_match_ratio=1.0, min_unique_activity_coverage=1.0, min_node_coverage=1.0),
+        scope_used="version",
+    )
 
-Purpose:
+    assert summary.is_aligned is True
+    assert summary.event_match_ratio == pytest.approx(1.0)
+    assert summary.node_coverage == pytest.approx(1.0)
+    assert summary.match_counts_by_strategy["exact_id"] == 2
 
-1. prove healthy pass path.
 
-Setup:
+def test_safe_profile_matches_unique_node_name_when_id_differs():
+    dto = _dto(
+        [
+            {"id": "Task_Approve", "name": "Approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "Task_Archive", "name": "Archive", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+        ],
+        [("Task_Approve", "Task_Archive")],
+    )
 
-1. DTO node ids exactly match XES activity ids.
-2. thresholds are high.
+    summary = ActivityTopologyAlignmentService().evaluate(
+        events=[_event("Approve"), _event("Archive")],
+        dto=dto,
+        config=AlignmentGateConfig(profile="safe_normalized", min_event_match_ratio=1.0, min_unique_activity_coverage=1.0, min_node_coverage=1.0),
+        scope_used="version",
+    )
+
+    assert summary.is_aligned is True
+    assert summary.event_match_ratio == pytest.approx(1.0)
+    assert summary.match_counts_by_strategy["exact_name"] == 2
+
+
+def test_safe_profile_normalizes_case_and_separators():
+    dto = _dto(
+        [
+            {"id": "task_a", "name": "Task A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "task_b", "name": "Task B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+        ],
+        [("task_a", "task_b")],
+    )
+
+    summary = ActivityTopologyAlignmentService().evaluate(
+        events=[_event("Task-A"), _event("TASK B")],
+        dto=dto,
+        config=AlignmentGateConfig(profile="safe_normalized", min_event_match_ratio=1.0, min_unique_activity_coverage=1.0, min_node_coverage=1.0),
+        scope_used="version",
+    )
+
+    assert summary.is_aligned is True
+    assert summary.match_counts_by_strategy["normalized_id"] + summary.match_counts_by_strategy["normalized_name"] == 2
+
+
+def test_node_coverage_ignores_structural_only_nodes():
+    dto = _dto(
+        [
+            {"id": "StartEvent", "name": "Start", "bpmn_tag": "startEvent", "type": "startEvent", "activity_type": "startEvent"},
+            {"id": "TaskA", "name": "Task A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "GatewayChoice", "name": "Choice", "bpmn_tag": "exclusiveGateway", "type": "exclusiveGateway", "activity_type": "exclusiveGateway"},
+            {"id": "TaskB", "name": "Task B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            {"id": "EndEvent", "name": "End", "bpmn_tag": "endEvent", "type": "endEvent", "activity_type": "endEvent"},
+        ],
+        [("StartEvent", "TaskA"), ("TaskA", "GatewayChoice"), ("GatewayChoice", "TaskB"), ("TaskB", "EndEvent")],
+    )
+
+    summary = ActivityTopologyAlignmentService().evaluate(
+        events=[_event("TaskA"), _event("TaskB")],
+        dto=dto,
+        config=AlignmentGateConfig(profile="safe_normalized", min_event_match_ratio=1.0, min_unique_activity_coverage=1.0, min_node_coverage=1.0),
+        scope_used="version",
+    )
+
+    assert summary.is_aligned is True
+    assert summary.structure_node_count == 5
+    assert summary.loggable_node_count == 2
+    assert summary.ignored_structural_node_count == 3
+    assert summary.node_coverage == pytest.approx(1.0)
+
+
+def test_ambiguous_normalized_name_fails_closed():
+    dto = _dto(
+        [
+            {"id": "TaskA1", "name": "Approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "TaskA2", "name": "approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+        ],
+        [("TaskA1", "TaskA2")],
+    )
+
+    summary = ActivityTopologyAlignmentService().evaluate(
+        events=[_event("Approve")],
+        dto=dto,
+        config=AlignmentGateConfig(profile="safe_normalized", min_event_match_ratio=1.0, min_unique_activity_coverage=1.0, min_node_coverage=0.0),
+        scope_used="version",
+    )
+
+    assert summary.is_aligned is False
+    assert "ambiguous_activity_mapping" in summary.alignment_failures
+    assert summary.ambiguous_event_activities_top == ["Approve"]
+```
+
+- [x] **Step 2: Run tests and verify they fail because service does not exist**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/domain/test_activity_topology_alignment_service.py -v
+```
 
 Expected:
 
-1. gate passes,
-2. all alignment ratios near `1.0`,
-3. stats snapshot is written.
+```text
+ModuleNotFoundError: No module named 'src.domain.services.activity_topology_alignment_service'
+```
 
-### T2. Classifier suffix shift
+---
 
-Purpose:
+## Task 2: Implement Pure Alignment Service
 
-1. validate the known `Approve+COMPLETE` style mismatch.
+**Files:**
+- Create: `src/domain/services/activity_topology_alignment_service.py`
+- Test: `tests/domain/test_activity_topology_alignment_service.py`
 
-Setup:
+- [x] **Step 1: Create service with profiles, canonicalization, candidate index, and diagnostics**
 
-1. BPMN/DTO nodes use raw task ids or names,
-2. XES is read with classifier-enabled activity ids or manually generated suffixed activity ids.
+Create `src/domain/services/activity_topology_alignment_service.py`:
+
+```python
+"""Activity-to-topology alignment service for sync-stats research safety."""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any, Iterable, Sequence
+
+from src.domain.entities.process_event import ProcessEventDTO
+from src.domain.entities.process_structure import ProcessStructureDTO
+
+
+LOGGABLE_BPMN_TAGS = {
+    "userTask",
+    "manualTask",
+    "serviceTask",
+    "scriptTask",
+    "businessRuleTask",
+    "sendTask",
+    "receiveTask",
+    "callActivity",
+    "subProcess",
+    "task",
+}
+
+STRUCTURAL_ONLY_BPMN_TAGS = {
+    "startEvent",
+    "endEvent",
+    "exclusiveGateway",
+    "parallelGateway",
+    "inclusiveGateway",
+    "eventBasedGateway",
+    "complexGateway",
+    "boundaryEvent",
+    "intermediateCatchEvent",
+    "intermediateThrowEvent",
+}
+
+_SEPARATOR_RE = re.compile(r"[\s_\-]+")
+_CLASSIFIER_SUFFIX_RE = re.compile(r"(\+|::)(complete|start|schedule|assign|withdraw|resume|suspend)$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class AlignmentGateConfig:
+    profile: str = "legacy_exact"
+    min_event_match_ratio: float = 0.6
+    min_unique_activity_coverage: float = 0.6
+    min_node_coverage: float = 0.0
+    candidate_node_fields: tuple[str, ...] = ("id",)
+    ignore_structural_only_nodes: bool = False
+    strip_classifier_suffix: bool = False
+    normalize_case: bool = False
+    collapse_separators: bool = False
+    fail_on_ambiguity: bool = True
+
+    @classmethod
+    def from_mapping(cls, payload: dict[str, Any] | None) -> "AlignmentGateConfig":
+        raw = dict(payload or {})
+        profile = str(raw.get("profile", raw.get("match_profile", "legacy_exact"))).strip() or "legacy_exact"
+        base = cls.for_profile(profile)
+        fields_raw = raw.get("candidate_node_fields", base.candidate_node_fields)
+        if isinstance(fields_raw, str):
+            fields = tuple(item.strip() for item in fields_raw.split(",") if item.strip())
+        elif isinstance(fields_raw, Iterable):
+            fields = tuple(str(item).strip() for item in fields_raw if str(item).strip())
+        else:
+            fields = base.candidate_node_fields
+        return cls(
+            profile=profile,
+            min_event_match_ratio=float(raw.get("min_event_match_ratio", base.min_event_match_ratio)),
+            min_unique_activity_coverage=float(raw.get("min_unique_activity_coverage", base.min_unique_activity_coverage)),
+            min_node_coverage=float(raw.get("min_node_coverage", base.min_node_coverage)),
+            candidate_node_fields=fields or base.candidate_node_fields,
+            ignore_structural_only_nodes=bool(raw.get("ignore_structural_only_nodes", base.ignore_structural_only_nodes)),
+            strip_classifier_suffix=bool(raw.get("strip_classifier_suffix", base.strip_classifier_suffix)),
+            normalize_case=bool(raw.get("normalize_case", base.normalize_case)),
+            collapse_separators=bool(raw.get("collapse_separators", base.collapse_separators)),
+            fail_on_ambiguity=bool(raw.get("fail_on_ambiguity", base.fail_on_ambiguity)),
+        )
+
+    @classmethod
+    def for_profile(cls, profile: str) -> "AlignmentGateConfig":
+        key = str(profile).strip() or "legacy_exact"
+        if key == "legacy_exact":
+            return cls(profile=key)
+        if key == "safe_normalized":
+            return cls(
+                profile=key,
+                candidate_node_fields=("id", "name"),
+                ignore_structural_only_nodes=True,
+                strip_classifier_suffix=True,
+                normalize_case=True,
+                collapse_separators=True,
+                fail_on_ambiguity=True,
+            )
+        if key == "research_strict":
+            return cls(
+                profile=key,
+                min_event_match_ratio=0.9,
+                min_unique_activity_coverage=0.9,
+                min_node_coverage=0.8,
+                candidate_node_fields=("id", "name"),
+                ignore_structural_only_nodes=True,
+                strip_classifier_suffix=True,
+                normalize_case=True,
+                collapse_separators=True,
+                fail_on_ambiguity=True,
+            )
+        raise ValueError("sync_stats.alignment_gate.profile must be one of {'legacy_exact', 'safe_normalized', 'research_strict'}.")
+
+
+@dataclass(frozen=True)
+class AlignmentSummary:
+    profile: str
+    scope_used: str
+    event_count: int
+    unique_event_activity_count: int
+    structure_node_count: int
+    loggable_node_count: int
+    ignored_structural_node_count: int
+    matched_event_count: int
+    matched_unique_activity_count: int
+    matched_loggable_node_count: int
+    event_match_ratio: float
+    unique_activity_coverage: float
+    node_coverage: float
+    min_event_match_ratio: float
+    min_unique_activity_coverage: float
+    min_node_coverage: float
+    is_aligned: bool
+    alignment_reason: str
+    alignment_failures: list[str] = field(default_factory=list)
+    unmatched_event_activities_top: list[str] = field(default_factory=list)
+    ambiguous_event_activities_top: list[str] = field(default_factory=list)
+    match_counts_by_strategy: dict[str, int] = field(default_factory=dict)
+    candidate_node_fields: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "scope_used": self.scope_used,
+            "event_count": self.event_count,
+            "unique_event_activity_count": self.unique_event_activity_count,
+            "structure_node_count": self.structure_node_count,
+            "loggable_node_count": self.loggable_node_count,
+            "ignored_structural_node_count": self.ignored_structural_node_count,
+            "matched_event_count": self.matched_event_count,
+            "matched_unique_activity_count": self.matched_unique_activity_count,
+            "matched_loggable_node_count": self.matched_loggable_node_count,
+            "event_match_ratio": self.event_match_ratio,
+            "unique_activity_coverage": self.unique_activity_coverage,
+            "node_coverage": self.node_coverage,
+            "min_event_match_ratio": self.min_event_match_ratio,
+            "min_unique_activity_coverage": self.min_unique_activity_coverage,
+            "min_node_coverage": self.min_node_coverage,
+            "is_aligned": self.is_aligned,
+            "alignment_reason": self.alignment_reason,
+            "alignment_failures": list(self.alignment_failures),
+            "unmatched_event_activities_top": list(self.unmatched_event_activities_top),
+            "ambiguous_event_activities_top": list(self.ambiguous_event_activities_top),
+            "match_counts_by_strategy": dict(self.match_counts_by_strategy),
+            "candidate_node_fields": list(self.candidate_node_fields),
+        }
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    node_id: str
+    field: str
+    value: str
+    normalized: str
+    is_loggable: bool
+
+
+class ActivityTopologyAlignmentService:
+    def evaluate(
+        self,
+        *,
+        events: Sequence[ProcessEventDTO],
+        dto: ProcessStructureDTO,
+        config: AlignmentGateConfig,
+        scope_used: str,
+    ) -> AlignmentSummary:
+        candidates, structure_node_count, loggable_node_count = self._candidates(dto, config)
+        exact_id = self._index(candidates, field="id", normalized=False)
+        exact_name = self._index(candidates, field="name", normalized=False)
+        normalized_id = self._index(candidates, field="id", normalized=True)
+        normalized_name = self._index(candidates, field="name", normalized=True)
+
+        event_values = [self._clean(event.activity_def_id) for event in events if self._clean(event.activity_def_id)]
+        unique_event_values = set(event_values)
+        matched_events: list[str] = []
+        matched_nodes: set[str] = set()
+        unmatched_counter: Counter[str] = Counter()
+        ambiguous_counter: Counter[str] = Counter()
+        strategy_counts: Counter[str] = Counter()
+
+        for activity in event_values:
+            match = self._match_activity(
+                activity=activity,
+                config=config,
+                exact_id=exact_id,
+                exact_name=exact_name,
+                normalized_id=normalized_id,
+                normalized_name=normalized_name,
+            )
+            if match["ambiguous"]:
+                ambiguous_counter[activity] += 1
+                unmatched_counter[activity] += 1
+                continue
+            node_id = str(match["node_id"])
+            if node_id:
+                matched_events.append(activity)
+                matched_nodes.add(node_id)
+                strategy_counts[str(match["strategy"])] += 1
+            else:
+                unmatched_counter[activity] += 1
+
+        event_count = len(event_values)
+        unique_event_count = len(unique_event_values)
+        matched_event_count = len(matched_events)
+        matched_unique_count = len({item for item in unique_event_values if item not in unmatched_counter})
+        matched_loggable_node_count = len(matched_nodes)
+
+        event_match_ratio = self._safe_ratio(matched_event_count, event_count)
+        unique_activity_coverage = self._safe_ratio(matched_unique_count, unique_event_count)
+        node_coverage = self._safe_ratio(matched_loggable_node_count, loggable_node_count)
+
+        failures: list[str] = []
+        if loggable_node_count <= 0:
+            failures.append("empty_structure_nodes")
+        if event_count <= 0:
+            failures.append("no_events_for_alignment")
+        if config.fail_on_ambiguity and ambiguous_counter:
+            failures.append("ambiguous_activity_mapping")
+        if event_count > 0 and event_match_ratio < config.min_event_match_ratio:
+            failures.append("below_min_event_match_ratio")
+        if unique_event_count > 0 and unique_activity_coverage < config.min_unique_activity_coverage:
+            failures.append("below_min_unique_activity_coverage")
+        if loggable_node_count > 0 and node_coverage < config.min_node_coverage:
+            failures.append("below_min_node_coverage")
+
+        reason = failures[0] if failures else "ok"
+        return AlignmentSummary(
+            profile=config.profile,
+            scope_used=str(scope_used),
+            event_count=event_count,
+            unique_event_activity_count=unique_event_count,
+            structure_node_count=structure_node_count,
+            loggable_node_count=loggable_node_count,
+            ignored_structural_node_count=max(0, structure_node_count - loggable_node_count),
+            matched_event_count=matched_event_count,
+            matched_unique_activity_count=matched_unique_count,
+            matched_loggable_node_count=matched_loggable_node_count,
+            event_match_ratio=event_match_ratio,
+            unique_activity_coverage=unique_activity_coverage,
+            node_coverage=node_coverage,
+            min_event_match_ratio=float(config.min_event_match_ratio),
+            min_unique_activity_coverage=float(config.min_unique_activity_coverage),
+            min_node_coverage=float(config.min_node_coverage),
+            is_aligned=not failures,
+            alignment_reason=reason,
+            alignment_failures=list(dict.fromkeys(failures)),
+            unmatched_event_activities_top=[key for key, _ in unmatched_counter.most_common(10)],
+            ambiguous_event_activities_top=[key for key, _ in ambiguous_counter.most_common(10)],
+            match_counts_by_strategy={key: int(strategy_counts.get(key, 0)) for key in ["exact_id", "exact_name", "normalized_id", "normalized_name"]},
+            candidate_node_fields=list(config.candidate_node_fields),
+        )
+
+    def _candidates(self, dto: ProcessStructureDTO, config: AlignmentGateConfig) -> tuple[list[_Candidate], int, int]:
+        nodes = [node for node in (dto.nodes or []) if isinstance(node, dict)]
+        if not nodes:
+            fallback_nodes = sorted({src for src, _ in dto.allowed_edges} | {dst for _, dst in dto.allowed_edges})
+            nodes = [{"id": node_id, "bpmn_tag": "task", "type": "task", "activity_type": "task"} for node_id in fallback_nodes]
+
+        result: list[_Candidate] = []
+        loggable_count = 0
+        for node in nodes:
+            node_id = self._clean(node.get("id"))
+            if not node_id:
+                continue
+            is_loggable = self._is_loggable(node, config)
+            if is_loggable:
+                loggable_count += 1
+            if config.ignore_structural_only_nodes and not is_loggable:
+                continue
+            for field_name in config.candidate_node_fields:
+                raw_value = self._clean(node.get(field_name))
+                if not raw_value:
+                    continue
+                result.append(
+                    _Candidate(
+                        node_id=node_id,
+                        field=str(field_name),
+                        value=raw_value,
+                        normalized=self._canonicalize(raw_value, config),
+                        is_loggable=is_loggable,
+                    )
+                )
+        return result, len([node for node in nodes if self._clean(node.get("id"))]), loggable_count
+
+    def _match_activity(self, *, activity: str, config: AlignmentGateConfig, exact_id: dict[str, set[str]], exact_name: dict[str, set[str]], normalized_id: dict[str, set[str]], normalized_name: dict[str, set[str]]) -> dict[str, Any]:
+        checks = [
+            ("exact_id", activity, exact_id),
+            ("exact_name", activity, exact_name),
+            ("normalized_id", self._canonicalize(activity, config), normalized_id),
+            ("normalized_name", self._canonicalize(activity, config), normalized_name),
+        ]
+        if config.profile == "legacy_exact":
+            checks = [("exact_id", activity, exact_id)]
+        for strategy, key, index in checks:
+            matches = index.get(key, set())
+            if len(matches) == 1:
+                return {"node_id": next(iter(matches)), "strategy": strategy, "ambiguous": False}
+            if len(matches) > 1:
+                return {"node_id": "", "strategy": strategy, "ambiguous": True}
+        return {"node_id": "", "strategy": "", "ambiguous": False}
+
+    @staticmethod
+    def _index(candidates: Sequence[_Candidate], *, field: str, normalized: bool) -> dict[str, set[str]]:
+        result: dict[str, set[str]] = {}
+        for candidate in candidates:
+            if candidate.field != field:
+                continue
+            key = candidate.normalized if normalized else candidate.value
+            result.setdefault(key, set()).add(candidate.node_id)
+        return result
+
+    @staticmethod
+    def _is_loggable(node: dict[str, Any], config: AlignmentGateConfig) -> bool:
+        if not config.ignore_structural_only_nodes:
+            return True
+        values = {
+            str(node.get("bpmn_tag", "")).strip(),
+            str(node.get("type", "")).strip(),
+            str(node.get("activity_type", "")).strip(),
+        }
+        if values.intersection(LOGGABLE_BPMN_TAGS):
+            return True
+        if values.intersection(STRUCTURAL_ONLY_BPMN_TAGS):
+            return False
+        return True
+
+    @classmethod
+    def _canonicalize(cls, value: str, config: AlignmentGateConfig) -> str:
+        text = cls._clean(value)
+        if config.strip_classifier_suffix:
+            text = _CLASSIFIER_SUFFIX_RE.sub("", text)
+        if config.normalize_case:
+            text = text.casefold()
+        if config.collapse_separators:
+            text = _SEPARATOR_RE.sub(" ", text).strip()
+        return text
+
+    @staticmethod
+    def _clean(value: Any) -> str:
+        return str(value or "").strip()
+
+    @staticmethod
+    def _safe_ratio(numerator: int, denominator: int) -> float:
+        if denominator <= 0:
+            return 0.0
+        return float(numerator / denominator)
+```
+
+- [x] **Step 2: Run pure service tests and fix only if the shown code has small mechanical issues**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/domain/test_activity_topology_alignment_service.py -v
+```
 
 Expected:
 
-1. `legacy_exact` rejects,
-2. canonicalized matcher with `strip_classifier_suffix=true` passes,
-3. summary shows `matched_by_classifier_strip > 0`.
+```text
+5 passed
+```
 
-### T3. BPMN id vs node name shift
+---
 
-Purpose:
+## Task 3: Integrate Service Into `sync-stats` Without Changing Default Behavior
 
-1. validate real BPMN `id` vs business label mismatch.
+**Files:**
+- Modify: `tools/sync_stats.py`
+- Test: existing `tests/application/test_sync_stats_tool.py`
 
-Setup:
+- [x] **Step 1: Import the service and update alignment config parsing**
 
-1. DTO node id = `Task_Approve`,
-2. DTO node name = `Approve`,
-3. XES activity = `Approve`.
+In `tools/sync_stats.py`, add import:
 
-Expected:
+```python
+from src.domain.services.activity_topology_alignment_service import (
+    AlignmentGateConfig,
+    ActivityTopologyAlignmentService,
+)
+```
 
-1. exact-id mode rejects,
-2. name-aware unique matching passes,
-3. provenance shows name-based resolution.
+Update `_DEFAULT_ALIGNMENT_GATE`:
 
-### T4. Case and separator shift
+```python
+_DEFAULT_ALIGNMENT_GATE = {
+    "enabled": True,
+    "profile": "legacy_exact",
+    "min_event_match_ratio": 0.6,
+    "min_unique_activity_coverage": 0.6,
+    "min_node_coverage": 0.0,
+    "on_fail": "write_with_flag",
+    "warn_on_fail": True,
+    "candidate_node_fields": ["id"],
+    "ignore_structural_only_nodes": False,
+    "strip_classifier_suffix": False,
+    "normalize_case": False,
+    "collapse_separators": False,
+    "fail_on_ambiguity": True,
+}
+```
 
-Purpose:
+Extend `_resolve_alignment_gate_config(...)` after existing validation:
 
-1. handle `Task A` vs `task_a` vs `task-a`.
+```python
+    profile = _normalize_text(cfg.get("profile", _DEFAULT_ALIGNMENT_GATE["profile"])) or "legacy_exact"
+    if profile not in {"legacy_exact", "safe_normalized", "research_strict"}:
+        raise ValueError("sync_stats.alignment_gate.profile must be one of {'legacy_exact', 'safe_normalized', 'research_strict'}.")
 
-Setup:
+    base_profile = AlignmentGateConfig.for_profile(profile)
+    candidate_node_fields = cfg.get("candidate_node_fields", list(base_profile.candidate_node_fields))
+    if isinstance(candidate_node_fields, str):
+        candidate_node_fields = [item.strip() for item in candidate_node_fields.split(",") if item.strip()]
+    if not isinstance(candidate_node_fields, list) or not candidate_node_fields:
+        candidate_node_fields = list(base_profile.candidate_node_fields)
+```
 
-1. same business activity represented with different case/separator style.
+Return these additional keys:
 
-Expected:
+```python
+        "profile": profile,
+        "candidate_node_fields": list(candidate_node_fields),
+        "ignore_structural_only_nodes": bool(cfg.get("ignore_structural_only_nodes", base_profile.ignore_structural_only_nodes)),
+        "strip_classifier_suffix": bool(cfg.get("strip_classifier_suffix", base_profile.strip_classifier_suffix)),
+        "normalize_case": bool(cfg.get("normalize_case", base_profile.normalize_case)),
+        "collapse_separators": bool(cfg.get("collapse_separators", base_profile.collapse_separators)),
+        "fail_on_ambiguity": bool(cfg.get("fail_on_ambiguity", base_profile.fail_on_ambiguity)),
+```
 
-1. normalized matcher passes,
-2. exact legacy mode rejects or partially rejects.
+- [x] **Step 2: Replace local summary call with service call**
 
-### T5. Structural-only nodes do not depress `node_coverage`
+Replace:
 
-Purpose:
+```python
+            alignment_summary = _build_alignment_summary(
+                events=alignment_events,
+                activity_ids=_dto_activity_ids(dto),
+                gate_cfg=alignment_gate_cfg,
+                scope_used=alignment_scope_used,
+            )
+```
 
-1. eliminate false negative due to gateways/start/end.
+With:
 
-Setup:
+```python
+            alignment_summary = ActivityTopologyAlignmentService().evaluate(
+                events=alignment_events,
+                dto=dto,
+                config=AlignmentGateConfig.from_mapping(alignment_gate_cfg),
+                scope_used=alignment_scope_used,
+            ).to_dict()
+```
 
-1. topology from real BPMN with gateways/start/end,
-2. log contains only executable tasks.
+Keep `_dto_activity_ids(...)` and `_build_alignment_summary(...)` temporarily until tests pass, then remove them in Task 3 Step 4.
 
-Expected:
+- [x] **Step 3: Run existing alignment tests**
 
-1. gate computes denominator over loggable nodes only,
-2. `node_coverage` reflects executable-task coverage rather than total BPMN node count.
+Run:
 
-This scenario should reuse a real BPMN topology similar to [tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py](C:/Users/korsr/PycharmProjects/bpm_prediction/tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py:1).
-
-### T6. Partial overlap
-
-Purpose:
-
-1. verify threshold behavior, not just binary zero-vs-one mismatch.
-
-Setup:
-
-1. two activities align,
-2. one activity is unknown or shifted beyond allowed normalization.
-
-Expected:
-
-1. ratios land in intermediate range,
-2. pass/fail depends on threshold,
-3. unmatched top list contains the bad activity.
-
-### T7. Ambiguous name collision
-
-Purpose:
-
-1. prove fail-closed behavior.
-
-Setup:
-
-1. two DTO nodes normalize to the same candidate label,
-2. XES activity maps to both.
-
-Expected:
-
-1. gate rejects,
-2. summary records ambiguity,
-3. no silent auto-resolution happens.
-
-### T8. `on_fail=skip_snapshot`
-
-Purpose:
-
-1. keep current operational policy verified under realistic mismatch.
-
-Setup:
-
-1. failing alignment scenario from T2/T3/T7,
-2. `on_fail=skip_snapshot`.
-
-Expected:
-
-1. summary reports skipped snapshot,
-2. repository structure remains without written stats.
-
-### T9. `on_fail=write_with_flag`
-
-Purpose:
-
-1. keep exploratory behavior available.
-
-Setup:
-
-1. failing alignment scenario,
-2. `on_fail=write_with_flag`.
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/application/test_sync_stats_tool.py::test_sync_stats_alignment_gate_can_skip_snapshot_on_activity_mismatch tests/application/test_sync_stats_tool.py::test_sync_stats_alignment_gate_write_with_flag_persists_alignment_metadata -v
+```
 
 Expected:
 
-1. snapshot is written,
-2. metadata contains `is_aligned=false`,
-3. diagnostics are persisted.
+```text
+2 passed
+```
 
-### T10. `on_fail=raise`
+- [x] **Step 4: Remove dead local functions**
 
-Purpose:
+After existing tests pass, remove from `tools/sync_stats.py`:
 
-1. verify research fail-fast mode.
+```python
+def _dto_activity_ids(...)
+def _build_alignment_summary(...)
+```
 
-Setup:
+- [x] **Step 5: Run broader sync-stats application tests**
 
-1. failing alignment scenario,
-2. `on_fail=raise`.
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/application/test_sync_stats_tool.py -v
+```
 
 Expected:
 
-1. tool returns error,
-2. no snapshot is persisted.
+```text
+all tests in tests/application/test_sync_stats_tool.py pass
+```
 
-## 10. Proposed Test File Layout
+---
 
-### Pure service tests
+## Task 4: Add Real-Object Alignment Gate Tests
 
-1. `tests/domain/test_activity_topology_alignment_service.py`
+**Files:**
+- Create: `tests/application/test_sync_stats_alignment_gate_real_objects.py`
+- Modify only if needed: `tools/sync_stats.py`
 
-Purpose:
+- [x] **Step 1: Create real-object test helper file**
 
-1. matcher ordering,
-2. ambiguity detection,
-3. denominator semantics,
-4. summary/provenance correctness.
+Create `tests/application/test_sync_stats_alignment_gate_real_objects.py` with reusable helpers:
 
-### Real-object sync-stats tests
+```python
+from __future__ import annotations
 
-1. `tests/application/test_sync_stats_alignment_gate_real_objects.py`
+import json
+from pathlib import Path
 
-Use:
+import pytest
 
-1. generated XES,
-2. `FileBasedKnowledgeGraphRepository`,
-3. real `ProcessStructureDTO`,
-4. real `sync_stats_main`.
+from src.domain.entities.process_structure import ProcessStructureDTO
+from src.infrastructure.repositories.file_based_knowledge_graph_repository import FileBasedKnowledgeGraphRepository
+from tools.sync_stats import main as sync_stats_main
 
-This should be the main test pack for shift scenarios T1-T10.
 
-### BPMN + XES end-to-end integration
+def _event(activity: str, ts: str, resource: str = "u1") -> str:
+    return f"""
+    <event>
+      <string key="concept:name" value="{activity}" />
+      <string key="lifecycle:transition" value="complete" />
+      <date key="time:timestamp" value="{ts}" />
+      <string key="org:resource" value="{resource}" />
+    </event>"""
 
-1. `tests/integration/test_alignment_gate_bpmn_xes_e2e.py`
 
-Use:
+def _trace(case_id: str, version: str, activities: list[str]) -> str:
+    events = [
+        _event(activity, f"2024-01-01T00:{idx + 1:02d}:00+00:00", f"u{idx + 1}")
+        for idx, activity in enumerate(activities)
+    ]
+    return f"""
+  <trace>
+    <string key="concept:name" value="{case_id}" />
+    <string key="concept:version" value="{version}" />
+{''.join(events)}
+  </trace>"""
 
-1. real BPMN file,
-2. `sync_topology_main`,
-3. `sync_stats_main`,
-4. repository reload,
-5. optional `DynamicGraphBuilder` smoke check after aligned snapshot.
 
-This validates that topology extraction shape and alignment semantics stay compatible.
+def _write_xes(path: Path, activities: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""<?xml version="1.0" encoding="UTF-8" ?>
+<log xes.version="1.0" xes.features="nested-attributes">
+{_trace("C1", "alpha", activities)}
+</log>
+""",
+        encoding="utf-8",
+    )
 
-## 11. Suggested Implementation Order
 
-1. Freeze semantics for loggable-node denominator.
-2. Extract alignment service without changing behavior.
-3. Add matcher profiles and provenance diagnostics.
-4. Add real-object test pack for exact, classifier, name, separator, partial, ambiguous scenarios.
-5. Switch `sync-stats` default from implicit exact-id behavior to `safe_normalized`.
-6. Add one locked research config example and acceptance thresholds in docs.
+def _save_structure(kg_dir: Path, nodes: list[dict]) -> FileBasedKnowledgeGraphRepository:
+    repo = FileBasedKnowledgeGraphRepository(base_dir=kg_dir)
+    node_ids = [str(node["id"]) for node in nodes]
+    edges = list(zip(node_ids[:-1], node_ids[1:])) or [(node_ids[0], node_ids[0])]
+    repo.save_process_structure(
+        "alpha",
+        ProcessStructureDTO(version="alpha", allowed_edges=edges, nodes=nodes),
+        process_name="alpha",
+    )
+    return repo
 
-## 12. Acceptance Criteria
 
-The debt can be considered closed when all points below are true:
+def _write_config(path: Path, *, xes_path: Path, kg_dir: Path, profile: str, on_fail: str, thresholds: tuple[float, float, float]) -> None:
+    min_event, min_unique, min_node = thresholds
+    path.write_text(
+        f"""
+data:
+  dataset_name: "alpha"
+  dataset_label: "alpha"
+  log_path: "{xes_path.as_posix()}"
 
-1. alignment logic is no longer embedded only inside `tools/sync_stats.py`,
-2. `node_coverage` no longer counts structural-only BPMN nodes in the acceptance denominator,
-3. classifier suffix and `id` vs `name` mismatch scenarios are either resolved or explicitly rejected with clear diagnostics,
-4. ambiguity fails closed,
-5. real-object tests cover exact, shifted, partial, and ambiguous cases,
-6. `write_with_flag`, `skip_snapshot`, and `raise` are all verified on real mismatch scenarios,
-7. one research-grade profile is documented with locked thresholds.
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "file"
+    path: "{kg_dir.as_posix()}"
+    strict_load: true
+  xes_adapter:
+    case_id_key: "concept:name"
+    activity_key: "concept:name"
+    timestamp_key: "time:timestamp"
+    resource_key: "org:resource"
+    lifecycle_key: "lifecycle:transition"
+    version_key: "concept:version"
+    pairing_strategy: "lifo"
+    use_classifier: false
 
-## 13. Risks and Guardrails
+sync_stats:
+  enabled: true
+  stats_time_policy: "strict_asof"
+  process_scope_policy: "up_to_target_version"
+  windows_days: [7, 30]
+  process_filters: ["alpha"]
+  alignment_gate:
+    enabled: true
+    profile: "{profile}"
+    min_event_match_ratio: {min_event}
+    min_unique_activity_coverage: {min_unique}
+    min_node_coverage: {min_node}
+    on_fail: "{on_fail}"
+    warn_on_fail: false
+  show_progress: false
 
-1. Do not introduce fuzzy matching in phase 1. It can silently create false positives.
-2. Do not auto-strip prefixes like `Task_` globally without explicit policy. It is dataset-sensitive.
-3. Do not use all BPMN nodes in `node_coverage`.
-4. Do not let `node.name` fallback silently resolve ambiguous duplicates.
-5. Keep `legacy_exact` available until the new matcher is proven by the real-object test pack.
+experiment:
+  mode: "sync-stats"
+  split_strategy: "none"
+  train_ratio: 1.0
+  fraction: 1.0
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
 
-## 14. Recommended Immediate Next Task
 
-Implementation task should start with:
+def _run_sync(cfg_path: Path, out_path: Path) -> dict:
+    rc = sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-02T00:00:00Z"])
+    assert rc == 0
+    return json.loads(out_path.read_text(encoding="utf-8"))
+```
 
-1. extracting a dedicated alignment service,
-2. fixing denominator semantics to loggable nodes only,
-3. adding the real-object test pack before switching default matcher profile.
+- [x] **Step 2: Add real-object test for `Task_Approve` id vs `Approve` name**
+
+Append:
+
+```python
+def test_safe_normalized_matches_unique_node_names_in_real_sync_stats(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg.yaml"
+    out_path = tmp_path / "summary.json"
+
+    _write_xes(xes_path, ["Approve", "Archive"])
+    repo = _save_structure(
+        kg_dir,
+        [
+            {"id": "Task_Approve", "name": "Approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "Task_Archive", "name": "Archive", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+        ],
+    )
+    _write_config(cfg_path, xes_path=xes_path, kg_dir=kg_dir, profile="safe_normalized", on_fail="raise", thresholds=(1.0, 1.0, 1.0))
+
+    summary = _run_sync(cfg_path, out_path)
+
+    assert summary["processed_versions"] == 1
+    loaded = repo.get_process_structure("alpha", process_name="alpha")
+    alignment = loaded.metadata["stats_contract"]["alignment"]
+    assert alignment["is_aligned"] is True
+    assert alignment["event_match_ratio"] == pytest.approx(1.0)
+    assert alignment["node_coverage"] == pytest.approx(1.0)
+    assert alignment["match_counts_by_strategy"]["exact_name"] == 2
+```
+
+- [x] **Step 3: Add real-object test that structural nodes do not depress node coverage**
+
+Append:
+
+```python
+def test_safe_normalized_ignores_structural_nodes_in_real_sync_stats(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg.yaml"
+    out_path = tmp_path / "summary.json"
+
+    _write_xes(xes_path, ["TaskA", "TaskB"])
+    repo = _save_structure(
+        kg_dir,
+        [
+            {"id": "StartEvent", "name": "Start", "bpmn_tag": "startEvent", "type": "startEvent", "activity_type": "startEvent"},
+            {"id": "TaskA", "name": "Task A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "GatewayChoice", "name": "Gateway", "bpmn_tag": "exclusiveGateway", "type": "exclusiveGateway", "activity_type": "exclusiveGateway"},
+            {"id": "TaskB", "name": "Task B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            {"id": "EndEvent", "name": "End", "bpmn_tag": "endEvent", "type": "endEvent", "activity_type": "endEvent"},
+        ],
+    )
+    _write_config(cfg_path, xes_path=xes_path, kg_dir=kg_dir, profile="safe_normalized", on_fail="raise", thresholds=(1.0, 1.0, 1.0))
+
+    summary = _run_sync(cfg_path, out_path)
+
+    assert summary["processed_versions"] == 1
+    loaded = repo.get_process_structure("alpha", process_name="alpha")
+    alignment = loaded.metadata["stats_contract"]["alignment"]
+    assert alignment["structure_node_count"] == 5
+    assert alignment["loggable_node_count"] == 2
+    assert alignment["ignored_structural_node_count"] == 3
+    assert alignment["node_coverage"] == pytest.approx(1.0)
+```
+
+- [x] **Step 4: Add real-object test for ambiguous duplicate name failing closed**
+
+Append:
+
+```python
+def test_safe_normalized_ambiguous_name_raises_in_real_sync_stats(tmp_path: Path):
+    xes_path = tmp_path / "alpha.xes"
+    kg_dir = tmp_path / "kg"
+    cfg_path = tmp_path / "cfg.yaml"
+    out_path = tmp_path / "summary.json"
+
+    _write_xes(xes_path, ["Approve"])
+    _save_structure(
+        kg_dir,
+        [
+            {"id": "TaskA1", "name": "Approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {"id": "TaskA2", "name": "approve", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+        ],
+    )
+    _write_config(cfg_path, xes_path=xes_path, kg_dir=kg_dir, profile="safe_normalized", on_fail="raise", thresholds=(1.0, 1.0, 0.0))
+
+    with pytest.raises(ValueError, match="ambiguous_activity_mapping"):
+        sync_stats_main(["--config", str(cfg_path), "--out", str(out_path), "--as-of", "2024-01-02T00:00:00Z"])
+```
+
+- [x] **Step 5: Run real-object test file**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/application/test_sync_stats_alignment_gate_real_objects.py -v
+```
+
+Expected:
+
+```text
+3 passed
+```
+
+---
+
+## Task 5: Add BPMN/XES E2E Research Profile Coverage
+
+**Files:**
+- Modify: `tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py`
+
+- [x] **Step 1: Change the existing integration config to use `safe_normalized` with strict thresholds**
+
+In `_write_sync_stats_config(...)`, replace:
+
+```yaml
+  alignment_gate:
+    enabled: true
+    min_event_match_ratio: 0.0
+    min_unique_activity_coverage: 0.0
+    min_node_coverage: 0.0
+```
+
+With:
+
+```yaml
+  alignment_gate:
+    enabled: true
+    profile: "safe_normalized"
+    min_event_match_ratio: 1.0
+    min_unique_activity_coverage: 1.0
+    min_node_coverage: 0.75
+    on_fail: "raise"
+```
+
+Reason: this test has BPMN structural nodes (`StartEvent`, `GatewayChoice`, `EndEvent`) but only loggable tasks in XES. The new denominator should let the test pass without weakening thresholds to zero.
+
+- [x] **Step 2: Assert persisted alignment diagnostics**
+
+After:
+
+```python
+    stats_dto = repo.get_process_structure("v1", process_name="loan_proc")
+    assert stats_dto is not None
+```
+
+Add:
+
+```python
+    alignment = stats_dto.metadata["stats_contract"]["alignment"]
+    assert alignment["profile"] == "safe_normalized"
+    assert alignment["is_aligned"] is True
+    assert alignment["event_match_ratio"] == pytest.approx(1.0)
+    assert alignment["unique_activity_coverage"] == pytest.approx(1.0)
+    assert alignment["loggable_node_count"] == 4
+    assert alignment["ignored_structural_node_count"] == 3
+```
+
+- [x] **Step 3: Run integration test**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py -v
+```
+
+Expected:
+
+```text
+1 passed
+```
+
+---
+
+## Task 6: Update Config Catalog for New Alignment Policy Keys
+
+**Files:**
+- Modify: `configs/ui/config_catalog.yaml`
+
+- [x] **Step 1: Add new optional keys under the existing `sync_stats.alignment_gate.*` block**
+
+Add catalog entries for:
+
+```yaml
+  sync_stats.alignment_gate.profile:
+    path: sync_stats.alignment_gate.profile
+    section: sync_stats
+    label: Producer alignment profile
+    description: Matching profile for activity-to-topology alignment.
+    affects: Alignment denominator, candidate matching strategy, and research strictness.
+    default: legacy_exact
+    enum:
+    - legacy_exact
+    - safe_normalized
+    - research_strict
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: sync_stats
+      priority: 2
+      order: 19
+```
+
+Also add boolean/list fields:
+
+```yaml
+sync_stats.alignment_gate.candidate_node_fields
+sync_stats.alignment_gate.ignore_structural_only_nodes
+sync_stats.alignment_gate.strip_classifier_suffix
+sync_stats.alignment_gate.normalize_case
+sync_stats.alignment_gate.collapse_separators
+sync_stats.alignment_gate.fail_on_ambiguity
+```
+
+Use defaults that match `legacy_exact`:
+
+```text
+candidate_node_fields: ["id"]
+ignore_structural_only_nodes: false
+strip_classifier_suffix: false
+normalize_case: false
+collapse_separators: false
+fail_on_ambiguity: true
+```
+
+- [x] **Step 2: Verify YAML syntax**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import yaml; yaml.safe_load(open('configs/ui/config_catalog.yaml', encoding='utf-8')); print('YAML OK')"
+```
+
+Expected:
+
+```text
+YAML OK
+```
+
+---
+
+## Task 7: Add Research Config Example
+
+**Files:**
+- Create: `configs/experiments/mvp2_5_stage4_2_research_strict_alignment_example.yaml`
+
+- [x] **Step 1: Create config example based on existing Stage 4.2 stats config**
+
+Create `configs/experiments/mvp2_5_stage4_2_research_strict_alignment_example.yaml`:
+
+```yaml
+# Research-grade alignment profile example.
+# Copy the relevant data/mapping/model/training blocks from the actual experiment config.
+
+experiment:
+  mode: train
+  stats_time_policy: strict_asof
+  on_missing_asof_snapshot: raise
+
+sync_stats:
+  enabled: true
+  stats_time_policy: strict_asof
+  process_scope_policy: up_to_target_version
+  alignment_gate:
+    enabled: true
+    profile: research_strict
+    min_event_match_ratio: 0.9
+    min_unique_activity_coverage: 0.9
+    min_node_coverage: 0.8
+    on_fail: raise
+    warn_on_fail: true
+```
+
+- [x] **Step 2: Decide whether this should be a runnable config or a snippet**
+
+If the project convention rejects partial example configs, place the snippet in `docs/runbooks/mvp2_5-commands.md` instead and do not create this YAML file. Prefer not to add non-runnable configs to `configs/experiments/` unless the repo already has examples of that style.
+
+---
+
+## Task 8: Documentation Updates
+
+**Files:**
+- Modify: `docs/LLD_MVP2_5.MD`
+- Modify: `docs/DATA_MODEL_MVP2_5.MD`
+- Modify: `docs/runbooks/mvp2_5-commands.md`
+- Modify: `docs/current/architecture-debt.md`
+- Modify: `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`
+- Modify only if routing changes: `AGENTS.MD`
+
+- [x] **Step 1: Update `docs/LLD_MVP2_5.MD`**
+
+Document:
+
+```md
+### Producer Alignment Profiles
+
+- `legacy_exact`: exact `activity_def_id` to node id matching; compatibility mode.
+- `safe_normalized`: loggable-node denominator; id/name candidates; case/separator normalization; classifier suffix stripping; ambiguity fails closed.
+- `research_strict`: safe matching semantics with locked high thresholds and fail-fast policy.
+```
+
+- [x] **Step 2: Update `docs/DATA_MODEL_MVP2_5.MD`**
+
+Extend alignment block fields:
+
+```md
+Alignment block includes:
+1. `profile`
+2. `is_aligned`
+3. `alignment_reason`
+4. `alignment_failures`
+5. `event_match_ratio`
+6. `unique_activity_coverage`
+7. `node_coverage`
+8. `structure_node_count`
+9. `loggable_node_count`
+10. `ignored_structural_node_count`
+11. `matched_event_count`
+12. `matched_unique_activity_count`
+13. `matched_loggable_node_count`
+14. `unmatched_event_activities_top`
+15. `ambiguous_event_activities_top`
+16. `match_counts_by_strategy`
+17. `candidate_node_fields`
+```
+
+- [x] **Step 3: Update `docs/runbooks/mvp2_5-commands.md`**
+
+Add research-grade snippet:
+
+```yaml
+experiment:
+  stats_time_policy: strict_asof
+  on_missing_asof_snapshot: raise
+
+sync_stats:
+  alignment_gate:
+    enabled: true
+    profile: research_strict
+    min_event_match_ratio: 0.9
+    min_unique_activity_coverage: 0.9
+    min_node_coverage: 0.8
+    on_fail: raise
+```
+
+- [x] **Step 4: Update debt and ADR**
+
+If all tests pass:
+
+In `docs/current/architecture-debt.md`, change `activity_to_topology_alignment_gate`:
+
+```md
+- `status`: closed
+- `current_behavior`: producer-side alignment profiles and strict research profile are implemented
+- `target_state`: closed; maintain catalog/docs sync for future config keys
+```
+
+In `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`, change:
+
+```md
+Status: Accepted
+```
+
+Add runtime rules:
+
+```md
+1. Research-grade runs use `sync_stats.alignment_gate.profile: research_strict`.
+2. Ambiguous mappings fail closed.
+3. `node_coverage` denominator uses loggable topology nodes, not all BPMN nodes.
+```
+
+---
+
+## Task 9: Validation Pack
+
+**Files:**
+- No edits unless validation exposes failures.
+
+- [x] **Step 1: Run architecture guard**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\architecture_guard.py
+```
+
+Expected:
+
+```text
+[ARCH_GUARD] OK: architecture dependency rules satisfied.
+```
+
+- [x] **Step 2: Run focused tests**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/domain/test_activity_topology_alignment_service.py tests/application/test_sync_stats_alignment_gate_real_objects.py tests/application/test_sync_stats_tool.py tests/integration/test_bpmn_xes_stats_to_gnn_cycle.py -v
+```
+
+Expected:
+
+```text
+all selected tests pass
+```
+
+- [x] **Step 3: Run MVP1 regression gate**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
+```
+
+Expected:
+
+```text
+all selected mvp1_regression tests pass
+```
+
+- [x] **Step 4: Run full tests if time allows**
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+Expected:
+
+```text
+all tests pass
+```
+
+If full tests are too slow, report exactly which focused tests were run and why full suite was not run.
+
+---
+
+## Acceptance Criteria
+
+The `activity_to_topology_alignment_gate` debt is closed only when:
+
+1. Alignment computation is in `src/domain/services/activity_topology_alignment_service.py`.
+2. `tools/sync_stats.py` delegates alignment computation to the domain service.
+3. `legacy_exact` preserves current behavior.
+4. `safe_normalized` matches unique node names and normalized id/name variants.
+5. Structural-only BPMN nodes are excluded from `node_coverage` denominator in safe/research profiles.
+6. Ambiguous mappings fail closed with persisted diagnostics.
+7. `write_with_flag`, `skip_snapshot`, and `raise` remain supported.
+8. Real-object tests cover name shift, structural denominator, and ambiguity.
+9. BPMN/XES integration test uses non-zero strict alignment thresholds.
+10. Config catalog documents every new `sync_stats.alignment_gate.*` key.
+11. ADR-0006 is accepted.
+12. `docs/current/architecture-debt.md` marks this debt closed.
+13. Documentation drift check is included in final response.
+
+---
+
+## Implementation Notes
+
+- Do not switch the global default profile from `legacy_exact` to `safe_normalized` in the same first implementation unless all existing sync-stats tests and the integration test pass without lowering thresholds.
+- If default remains `legacy_exact`, the P0 debt can still close if `research_strict` is implemented, documented, and tested.
+- Do not use fuzzy matching.
+- Do not hardcode global `Task_` prefix stripping.
+- Keep all matching deterministic and explainable through `match_counts_by_strategy`.

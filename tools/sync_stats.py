@@ -20,6 +20,10 @@ from src.adapters.ingestion.camunda_runtime_adapter import CamundaRuntimeAdapter
 from src.cli import load_yaml_config
 from src.domain.entities.process_event import ProcessEventDTO
 from src.domain.entities.process_structure import ProcessStructureDTO
+from src.domain.services.activity_topology_alignment_service import (
+    ActivityTopologyAlignmentService,
+    AlignmentGateConfig,
+)
 from src.infrastructure.repositories.knowledge_graph_repository_factory import (
     build_knowledge_graph_repository,
     get_knowledge_graph_settings,
@@ -42,9 +46,16 @@ _DEFAULT_QUALITY_GATE = {
 }
 _DEFAULT_ALIGNMENT_GATE = {
     "enabled": True,
+    "profile": "legacy_exact",
     "min_event_match_ratio": 0.6,
     "min_unique_activity_coverage": 0.6,
     "min_node_coverage": 0.0,
+    "candidate_node_fields": ["id"],
+    "ignore_structural_only_nodes": False,
+    "strip_classifier_suffix": False,
+    "normalize_case": False,
+    "collapse_separators": False,
+    "fail_on_ambiguity": True,
     "on_fail": "write_with_flag",
     "warn_on_fail": True,
 }
@@ -478,18 +489,20 @@ def _resolve_alignment_gate_config(sync_cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     enabled = bool(cfg.get("enabled", _DEFAULT_ALIGNMENT_GATE["enabled"]))
     warn_on_fail = bool(cfg.get("warn_on_fail", _DEFAULT_ALIGNMENT_GATE["warn_on_fail"]))
+    profile = _normalize_text(cfg.get("profile", _DEFAULT_ALIGNMENT_GATE["profile"])) or "legacy_exact"
+    base_profile = AlignmentGateConfig.for_profile(profile)
 
-    min_event_match_ratio = float(cfg.get("min_event_match_ratio", _DEFAULT_ALIGNMENT_GATE["min_event_match_ratio"]) or 0.0)
+    min_event_match_ratio = float(cfg.get("min_event_match_ratio", base_profile.min_event_match_ratio) or 0.0)
     if min_event_match_ratio < 0.0 or min_event_match_ratio > 1.0:
         raise ValueError("sync_stats.alignment_gate.min_event_match_ratio must be within [0.0, 1.0].")
 
     min_unique_activity_coverage = float(
-        cfg.get("min_unique_activity_coverage", _DEFAULT_ALIGNMENT_GATE["min_unique_activity_coverage"]) or 0.0
+        cfg.get("min_unique_activity_coverage", base_profile.min_unique_activity_coverage) or 0.0
     )
     if min_unique_activity_coverage < 0.0 or min_unique_activity_coverage > 1.0:
         raise ValueError("sync_stats.alignment_gate.min_unique_activity_coverage must be within [0.0, 1.0].")
 
-    min_node_coverage = float(cfg.get("min_node_coverage", _DEFAULT_ALIGNMENT_GATE["min_node_coverage"]) or 0.0)
+    min_node_coverage = float(cfg.get("min_node_coverage", base_profile.min_node_coverage) or 0.0)
     if min_node_coverage < 0.0 or min_node_coverage > 1.0:
         raise ValueError("sync_stats.alignment_gate.min_node_coverage must be within [0.0, 1.0].")
 
@@ -499,11 +512,43 @@ def _resolve_alignment_gate_config(sync_cfg: Dict[str, Any]) -> Dict[str, Any]:
             "sync_stats.alignment_gate.on_fail must be one of {'write_with_flag', 'skip_snapshot', 'raise'}."
         )
 
+    candidate_node_fields = cfg.get("candidate_node_fields", base_profile.candidate_node_fields)
+    if isinstance(candidate_node_fields, str):
+        candidate_node_fields = [
+            item.strip() for item in candidate_node_fields.split(",") if item.strip()
+        ]
+    elif isinstance(candidate_node_fields, (list, tuple, set)):
+        candidate_node_fields = [
+            str(item).strip() for item in candidate_node_fields if str(item).strip()
+        ]
+    else:
+        candidate_node_fields = list(base_profile.candidate_node_fields)
+    if not candidate_node_fields:
+        candidate_node_fields = list(base_profile.candidate_node_fields)
+
     return {
         "enabled": enabled,
+        "profile": profile,
         "min_event_match_ratio": float(min_event_match_ratio),
         "min_unique_activity_coverage": float(min_unique_activity_coverage),
         "min_node_coverage": float(min_node_coverage),
+        "candidate_node_fields": list(candidate_node_fields),
+        "ignore_structural_only_nodes": bool(
+            cfg.get(
+                "ignore_structural_only_nodes",
+                base_profile.ignore_structural_only_nodes,
+            )
+        ),
+        "strip_classifier_suffix": bool(
+            cfg.get("strip_classifier_suffix", base_profile.strip_classifier_suffix)
+        ),
+        "normalize_case": bool(cfg.get("normalize_case", base_profile.normalize_case)),
+        "collapse_separators": bool(
+            cfg.get("collapse_separators", base_profile.collapse_separators)
+        ),
+        "fail_on_ambiguity": bool(
+            cfg.get("fail_on_ambiguity", base_profile.fail_on_ambiguity)
+        ),
         "on_fail": on_fail,
         "warn_on_fail": warn_on_fail,
     }
@@ -755,77 +800,6 @@ def _build_stats_quality(
         "is_usable_for_training": bool(is_usable_for_training),
         "quality_reason": quality_reason,
         "quality_failures": list(dict.fromkeys(quality_failures)),
-    }
-
-
-def _build_alignment_summary(
-    *,
-    events: Sequence[ProcessEventDTO],
-    activity_ids: Sequence[str],
-    gate_cfg: Dict[str, Any],
-    scope_used: str,
-) -> Dict[str, Any]:
-    node_ids = {_normalize_text(item) for item in activity_ids if _normalize_text(item)}
-    node_count = int(len(node_ids))
-
-    normalized_event_ids = [
-        _normalize_text(event.activity_def_id)
-        for event in events
-        if _normalize_text(event.activity_def_id)
-    ]
-    event_count = int(len(normalized_event_ids))
-    unique_event_ids = {item for item in normalized_event_ids if item}
-    unique_event_count = int(len(unique_event_ids))
-
-    matched_event_count = int(sum(1 for item in normalized_event_ids if item in node_ids))
-    matched_unique_ids = unique_event_ids.intersection(node_ids)
-    matched_unique_count = int(len(matched_unique_ids))
-
-    event_match_ratio = _safe_ratio(matched_event_count, event_count)
-    unique_activity_coverage = _safe_ratio(matched_unique_count, unique_event_count)
-    node_coverage = _safe_ratio(matched_unique_count, node_count)
-
-    unmatched_counter = Counter(item for item in normalized_event_ids if item and item not in node_ids)
-    unmatched_top = [key for key, _ in unmatched_counter.most_common(10)]
-
-    min_event_match_ratio = float(gate_cfg.get("min_event_match_ratio", _DEFAULT_ALIGNMENT_GATE["min_event_match_ratio"]))
-    min_unique_activity_coverage = float(
-        gate_cfg.get("min_unique_activity_coverage", _DEFAULT_ALIGNMENT_GATE["min_unique_activity_coverage"])
-    )
-    min_node_coverage = float(gate_cfg.get("min_node_coverage", _DEFAULT_ALIGNMENT_GATE["min_node_coverage"]))
-
-    failures: List[str] = []
-    if node_count <= 0:
-        failures.append("empty_structure_nodes")
-    if event_count <= 0:
-        failures.append("no_events_for_alignment")
-    if event_count > 0 and event_match_ratio < min_event_match_ratio:
-        failures.append("below_min_event_match_ratio")
-    if unique_event_count > 0 and unique_activity_coverage < min_unique_activity_coverage:
-        failures.append("below_min_unique_activity_coverage")
-    if node_count > 0 and node_coverage < min_node_coverage:
-        failures.append("below_min_node_coverage")
-
-    alignment_reason = failures[0] if failures else "ok"
-    is_aligned = not failures
-
-    return {
-        "scope_used": str(scope_used),
-        "event_count": int(event_count),
-        "unique_event_activity_count": int(unique_event_count),
-        "structure_node_count": int(node_count),
-        "matched_event_count": int(matched_event_count),
-        "matched_unique_activity_count": int(matched_unique_count),
-        "event_match_ratio": float(event_match_ratio),
-        "unique_activity_coverage": float(unique_activity_coverage),
-        "node_coverage": float(node_coverage),
-        "min_event_match_ratio": float(min_event_match_ratio),
-        "min_unique_activity_coverage": float(min_unique_activity_coverage),
-        "min_node_coverage": float(min_node_coverage),
-        "is_aligned": bool(is_aligned),
-        "alignment_reason": alignment_reason,
-        "alignment_failures": list(dict.fromkeys(failures)),
-        "unmatched_event_activities_top": unmatched_top,
     }
 
 
@@ -1510,12 +1484,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             alignment_scope_used = "version" if version_event_count > 0 else "process"
             alignment_events = version_scope_events if version_event_count > 0 else process_scope_events
-            alignment_summary = _build_alignment_summary(
+            alignment_summary = ActivityTopologyAlignmentService().evaluate(
                 events=alignment_events,
-                activity_ids=_dto_activity_ids(dto),
-                gate_cfg=alignment_gate_cfg,
+                dto=dto,
+                config=AlignmentGateConfig.from_mapping(alignment_gate_cfg),
                 scope_used=alignment_scope_used,
-            )
+            ).to_dict()
             alignment_rejected = bool(alignment_gate_cfg.get("enabled", True)) and (not bool(alignment_summary.get("is_aligned", True)))
             if alignment_rejected and alignment_gate_cfg.get("warn_on_fail", True):
                 logger.warning(

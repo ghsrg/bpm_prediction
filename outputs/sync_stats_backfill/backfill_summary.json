@@ -1,18 +1,10 @@
 {
   "status": "ok",
   "mode": "sync-stats-backfill",
-  "config": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\configs\\experiments\\ui_run_x2wbiqy5.yaml",
+  "config": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\configs\\experiments\\ui_run_kvk1c4y_.yaml",
   "adapter": "xes",
   "selected_processes": [
-    "B2BContracts_ApproveProject",
-    "BPI Challenge 2018",
-    "BPI_Challenge_2012",
-    "RIO2.5k",
-    "RIO2.5k.versioned",
-    "cb2.5k",
-    "loan_v1_v4_simulated",
-    "re2.5k",
-    "re2.5k.versioned"
+    "loan_v1_v4_simulated"
   ],
   "time_bounds_discovered": {
     "first_event_ts": "2025-01-01T00:29:35.928886+00:00",
@@ -29,6 +21,94 @@
   "runs_total": 8,
   "runs_completed": 8,
   "dry_run": false,
+  "aggregate": {
+    "runs": {
+      "total": 8,
+      "ok": 8,
+      "failed": 0,
+      "planned": 0
+    },
+    "versions": {
+      "processed": 32,
+      "skipped": 0,
+      "usable_for_training": 32,
+      "not_usable_for_training": 0
+    },
+    "quality": {
+      "reasons": {
+        "ok": 32
+      }
+    },
+    "alignment": {
+      "ok": 32,
+      "failed": 0,
+      "min_event_match_ratio": 1.0,
+      "min_unique_activity_coverage": 1.0,
+      "min_node_coverage": 0.023809523809523808,
+      "failed_reasons": {}
+    },
+    "skips": {
+      "reasons": {}
+    },
+    "by_process_version": {
+      "loan_v1_v4_simulated::v1": {
+        "runs_seen": 8,
+        "usable_for_training": 8,
+        "not_usable_for_training": 0,
+        "alignment_failed": 0,
+        "quality_reasons": {
+          "ok": 8
+        },
+        "alignment_failed_reasons": {},
+        "min_event_match_ratio": 1.0,
+        "min_unique_activity_coverage": 1.0,
+        "min_node_coverage": 0.024390243902439025
+      },
+      "loan_v1_v4_simulated::v2": {
+        "runs_seen": 8,
+        "usable_for_training": 8,
+        "not_usable_for_training": 0,
+        "alignment_failed": 0,
+        "quality_reasons": {
+          "ok": 8
+        },
+        "alignment_failed_reasons": {},
+        "min_event_match_ratio": 1.0,
+        "min_unique_activity_coverage": 1.0,
+        "min_node_coverage": 0.024390243902439025
+      },
+      "loan_v1_v4_simulated::v3": {
+        "runs_seen": 8,
+        "usable_for_training": 8,
+        "not_usable_for_training": 0,
+        "alignment_failed": 0,
+        "quality_reasons": {
+          "ok": 8
+        },
+        "alignment_failed_reasons": {},
+        "min_event_match_ratio": 1.0,
+        "min_unique_activity_coverage": 1.0,
+        "min_node_coverage": 0.024390243902439025
+      },
+      "loan_v1_v4_simulated::v4": {
+        "runs_seen": 8,
+        "usable_for_training": 8,
+        "not_usable_for_training": 0,
+        "alignment_failed": 0,
+        "quality_reasons": {
+          "ok": 8
+        },
+        "alignment_failed_reasons": {},
+        "min_event_match_ratio": 1.0,
+        "min_unique_activity_coverage": 1.0,
+        "min_node_coverage": 0.023809523809523808
+      }
+    },
+    "summary_files": {
+      "read": 8,
+      "missing_or_invalid": 0
+    }
+  },
   "runs": [
     {
       "index": 1,

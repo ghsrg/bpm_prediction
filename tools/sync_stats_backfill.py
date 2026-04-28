@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +38,198 @@ logger = logging.getLogger(__name__)
 class BackfillStep:
     mode: str
     days: int
+
+
+def _counter_dict(counter: Counter[str]) -> Dict[str, int]:
+    return {key: int(value) for key, value in sorted(counter.items())}
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def _min_metric(current: float | None, value: Any) -> float | None:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return current
+    if current is None or parsed < current:
+        return parsed
+    return current
+
+
+def _load_run_summary(path: Path) -> Dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _new_backfill_aggregate(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    status_counts = Counter(str(item.get("status", "unknown")) for item in runs)
+    return {
+        "runs": {
+            "total": int(len(runs)),
+            "ok": int(status_counts.get("ok", 0)),
+            "failed": int(status_counts.get("failed", 0)),
+            "planned": int(status_counts.get("planned", 0)),
+        },
+        "versions": {
+            "processed": 0,
+            "skipped": 0,
+            "usable_for_training": 0,
+            "not_usable_for_training": 0,
+        },
+        "quality": {"reasons": {}},
+        "alignment": {
+            "ok": 0,
+            "failed": 0,
+            "min_event_match_ratio": None,
+            "min_unique_activity_coverage": None,
+            "min_node_coverage": None,
+            "failed_reasons": {},
+        },
+        "skips": {"reasons": {}},
+        "by_process_version": {},
+        "summary_files": {"read": 0, "missing_or_invalid": 0},
+    }
+
+
+def _build_backfill_aggregate(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    aggregate = _new_backfill_aggregate(runs)
+    quality_reasons: Counter[str] = Counter()
+    alignment_failed_reasons: Counter[str] = Counter()
+    skip_reasons: Counter[str] = Counter()
+    by_process_version: Dict[str, Dict[str, Any]] = {}
+
+    for run in runs:
+        if str(run.get("status")) != "ok":
+            continue
+        run_summary = _load_run_summary(Path(str(run.get("out", ""))))
+        if run_summary is None:
+            aggregate["summary_files"]["missing_or_invalid"] += 1
+            continue
+        aggregate["summary_files"]["read"] += 1
+
+        details = run_summary.get("details", [])
+        if not isinstance(details, list):
+            details = []
+        skipped_details = run_summary.get("skipped_details", [])
+        if not isinstance(skipped_details, list):
+            skipped_details = []
+
+        processed_count = len(details)
+        skipped_count = len(skipped_details)
+        if processed_count <= 0:
+            processed_count = int(run_summary.get("processed_versions", 0) or 0)
+        if skipped_count <= 0:
+            skipped_count = int(run_summary.get("skipped_versions", 0) or 0)
+        aggregate["versions"]["processed"] += int(processed_count)
+        aggregate["versions"]["skipped"] += int(skipped_count)
+
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            process_name = str(
+                item.get("process_namespace") or item.get("process_name") or ""
+            ).strip()
+            version = str(item.get("version") or "").strip()
+            key = f"{process_name}::{version}" if process_name or version else "unknown::unknown"
+            process_bucket = by_process_version.setdefault(
+                key,
+                {
+                    "runs_seen": 0,
+                    "usable_for_training": 0,
+                    "not_usable_for_training": 0,
+                    "alignment_failed": 0,
+                    "quality_reasons": Counter(),
+                    "alignment_failed_reasons": Counter(),
+                    "min_event_match_ratio": None,
+                    "min_unique_activity_coverage": None,
+                    "min_node_coverage": None,
+                },
+            )
+            process_bucket["runs_seen"] += 1
+
+            if bool(item.get("is_usable_for_training", False)):
+                aggregate["versions"]["usable_for_training"] += 1
+                process_bucket["usable_for_training"] += 1
+                quality_reason = str(item.get("quality_reason") or "ok")
+            else:
+                aggregate["versions"]["not_usable_for_training"] += 1
+                process_bucket["not_usable_for_training"] += 1
+                quality_reason = str(item.get("quality_reason") or "not_usable")
+            quality_reasons[quality_reason] += 1
+            process_bucket["quality_reasons"][quality_reason] += 1
+
+            aggregate["alignment"]["min_event_match_ratio"] = _min_metric(
+                aggregate["alignment"]["min_event_match_ratio"],
+                item.get("alignment_event_match_ratio"),
+            )
+            aggregate["alignment"]["min_unique_activity_coverage"] = _min_metric(
+                aggregate["alignment"]["min_unique_activity_coverage"],
+                item.get("alignment_unique_activity_coverage"),
+            )
+            aggregate["alignment"]["min_node_coverage"] = _min_metric(
+                aggregate["alignment"]["min_node_coverage"],
+                item.get("alignment_node_coverage"),
+            )
+            process_bucket["min_event_match_ratio"] = _min_metric(
+                process_bucket["min_event_match_ratio"],
+                item.get("alignment_event_match_ratio"),
+            )
+            process_bucket["min_unique_activity_coverage"] = _min_metric(
+                process_bucket["min_unique_activity_coverage"],
+                item.get("alignment_unique_activity_coverage"),
+            )
+            process_bucket["min_node_coverage"] = _min_metric(
+                process_bucket["min_node_coverage"],
+                item.get("alignment_node_coverage"),
+            )
+
+            if bool(item.get("alignment_is_ok", True)):
+                aggregate["alignment"]["ok"] += 1
+            else:
+                aggregate["alignment"]["failed"] += 1
+                process_bucket["alignment_failed"] += 1
+                failures = item.get("alignment_failures", [])
+                if not isinstance(failures, list) or not failures:
+                    failures = [str(item.get("alignment_reason") or "alignment_failed")]
+                for failure in failures:
+                    failure_key = str(failure or "alignment_failed")
+                    alignment_failed_reasons[failure_key] += 1
+                    process_bucket["alignment_failed_reasons"][failure_key] += 1
+
+        for item in skipped_details:
+            if not isinstance(item, dict):
+                continue
+            reason = str(item.get("reason") or "unknown")
+            skip_reasons[reason] += 1
+
+    aggregate["quality"]["reasons"] = _counter_dict(quality_reasons)
+    aggregate["alignment"]["failed_reasons"] = _counter_dict(alignment_failed_reasons)
+    aggregate["skips"]["reasons"] = _counter_dict(skip_reasons)
+    aggregate["by_process_version"] = {
+        key: {
+            "runs_seen": int(value["runs_seen"]),
+            "usable_for_training": int(value["usable_for_training"]),
+            "not_usable_for_training": int(value["not_usable_for_training"]),
+            "alignment_failed": int(value["alignment_failed"]),
+            "quality_reasons": _counter_dict(value["quality_reasons"]),
+            "alignment_failed_reasons": _counter_dict(value["alignment_failed_reasons"]),
+            "min_event_match_ratio": value["min_event_match_ratio"],
+            "min_unique_activity_coverage": value["min_unique_activity_coverage"],
+            "min_node_coverage": value["min_node_coverage"],
+        }
+        for key, value in sorted(by_process_version.items())
+    }
+    return aggregate
 
 
 def _parse_iso_utc(value: str) -> datetime:
@@ -289,6 +482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "runs_total": len(points),
         "runs_completed": len([item for item in runs if item.get("status") in {"ok", "planned"}]),
         "dry_run": bool(args.dry_run),
+        "aggregate": _build_backfill_aggregate(runs),
         "runs": runs,
     }
     summary_out = Path(str(args.summary_out)).resolve() if _normalize_text(args.summary_out) else out_dir / "backfill_summary.json"

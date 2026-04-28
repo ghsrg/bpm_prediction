@@ -125,6 +125,16 @@ configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
 .\.venv\Scripts\python.exe main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
 ```
 
+`backfill_summary.json` includes:
+
+- `runs`: per-as-of run status and summary file path
+- `aggregate.runs`: total/ok/failed/planned run counts
+- `aggregate.versions`: processed/skipped/usable/not-usable version counts
+- `aggregate.quality.reasons`: producer quality gate reason counts
+- `aggregate.alignment`: alignment ok/failed counts and minimum observed ratios
+- `aggregate.skips.reasons`: skipped snapshot reason counts
+- `aggregate.by_process_version`: compact per process-version rollup
+
 ### sync_stats_cli_keys
 
 ```text

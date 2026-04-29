@@ -1145,6 +1145,41 @@ fields:
       group: graph_mapping
       priority: 2
       order: 1
+  mapping.graph_feature_mapping.topology_projection.diagnostics_enabled:
+    path: mapping.graph_feature_mapping.topology_projection.diagnostics_enabled
+    section: mapping
+    label: Projection diagnostics enabled
+    description: Enables post-projection topology alignment diagnostics for structural tensors and allowed_target_mask.
+    affects: Runtime diagnostics, forward stats, and strict projection alignment checks.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 2
+  mapping.graph_feature_mapping.topology_projection.on_fail:
+    path: mapping.graph_feature_mapping.topology_projection.on_fail
+    section: mapping
+    label: Projection alignment on_fail
+    description: Action when post-projection topology alignment cannot be proven.
+    affects: Runtime fail-fast behavior for collapse_for_prediction and structural tensor use.
+    default: warn
+    enum:
+    - warn
+    - raise
+    - disable_struct
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: eopkg
+      group: graph_mapping
+      priority: 2
+      order: 3
   mapping.graph_feature_mapping.stats_quality_gate.enabled:
     path: mapping.graph_feature_mapping.stats_quality_gate.enabled
     section: mapping
@@ -1161,7 +1196,7 @@ fields:
       tab: eopkg
       group: graph_mapping
       priority: 2
-      order: 2
+      order: 4
   mapping.graph_feature_mapping.stats_quality_gate.on_fail:
     path: mapping.graph_feature_mapping.stats_quality_gate.on_fail
     section: mapping

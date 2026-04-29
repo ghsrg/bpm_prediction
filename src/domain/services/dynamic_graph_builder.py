@@ -18,6 +18,10 @@ from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.ports.knowledge_graph_port import IKnowledgeGraphPort
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
+from src.domain.services.topology_projection_alignment import (
+    TopologyProjectionCompiler,
+    TopologyProjectionDiagnostics,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -48,8 +52,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self.on_missing_asof_snapshot = self._resolve_missing_asof_policy(on_missing_asof_snapshot)
         self.stats_quality_gate = self._resolve_quality_gate_config(stats_quality_gate)
         self.topology_gateway_mode = self._resolve_topology_gateway_mode(self.graph_feature_mapping)
+        self.topology_projection_config = self._resolve_topology_projection_config(self.graph_feature_mapping)
         self._quality_warned_keys: set[tuple[str, str, str]] = set()
         self._missing_asof_warned_keys: set[tuple[str, str, str]] = set()
+        self._topology_projection_warned_keys: set[tuple[str, str, str]] = set()
         self.cache_policy = self._resolve_cache_policy(cache_policy)
         self._dto_cache: dict[tuple[str, tuple[str, ...], str | None], ProcessStructureDTO | None] = {}
         self._topology_cache: dict[tuple[Any, ...], Dict[str, Any]] = {}
@@ -137,6 +143,14 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         struct_x = compiled.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
             contract["struct_x"] = struct_x
+        diagnostics = compiled.get("topology_projection_diagnostics")
+        if isinstance(diagnostics, TopologyProjectionDiagnostics):
+            self._attach_topology_projection_summary(contract=contract, diagnostics=diagnostics)
+        elif isinstance(diagnostics, dict):
+            self._attach_topology_projection_summary(
+                contract=contract,
+                diagnostics=TopologyProjectionDiagnostics.from_dict(diagnostics),
+            )
         contract["allowed_target_mask"] = allowed_mask
         return contract
 
@@ -439,6 +453,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
     ) -> tuple[Any, ...]:
         snapshot = self._stats_snapshot_metadata(dto)
         normalized_edges = tuple((str(src).strip(), str(dst).strip()) for src, dst in dto.allowed_edges)
+        normalized_nodes = self._topology_nodes_fingerprint_payload(dto)
         graph_mapping_fingerprint = self._graph_mapping_fingerprint()
         vocab_fingerprint = self._activity_vocab_fingerprint(activity_vocab)
         return (
@@ -450,6 +465,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             vocab_fingerprint,
             graph_mapping_fingerprint,
             normalized_edges,
+            normalized_nodes,
         )
 
     @staticmethod
@@ -457,6 +473,27 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         pairs = sorted((str(key), int(value)) for key, value in activity_vocab.items())
         payload = json.dumps(pairs, ensure_ascii=True, separators=(",", ":"))
         return hashlib.sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+    @staticmethod
+    def _topology_nodes_fingerprint_payload(dto: ProcessStructureDTO) -> tuple[tuple[str, str, str, str, str], ...]:
+        nodes = dto.nodes or []
+        normalized: list[tuple[str, str, str, str, str]] = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id", "")).strip()
+            if not node_id:
+                continue
+            normalized.append(
+                (
+                    node_id,
+                    str(node.get("bpmn_tag", "")).strip(),
+                    str(node.get("type", "")).strip(),
+                    str(node.get("activity_type", "")).strip(),
+                    str(node.get("logical_type", "")).strip(),
+                )
+            )
+        return tuple(sorted(normalized))
 
     def _graph_mapping_fingerprint(self) -> str:
         block = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
@@ -468,6 +505,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "time_policy": self.stats_time_policy,
             "missing_asof_policy": self.on_missing_asof_snapshot,
             "topology_gateway_mode": self.topology_gateway_mode,
+            "topology_projection_config": self.topology_projection_config,
         }
         text = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         return hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()
@@ -485,6 +523,33 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if mode not in {"preserve", "collapse_for_prediction"}:
             return "preserve"
         return mode
+
+    @staticmethod
+    def _resolve_topology_projection_config(graph_feature_mapping: Dict[str, Any]) -> Dict[str, Any]:
+        block = graph_feature_mapping if isinstance(graph_feature_mapping, dict) else {}
+        projection = block.get("topology_projection", {})
+        cfg = dict(projection) if isinstance(projection, dict) else {}
+        raw_diagnostics_enabled = cfg.get("diagnostics_enabled", True)
+        if isinstance(raw_diagnostics_enabled, str):
+            diagnostics_enabled = raw_diagnostics_enabled.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            diagnostics_enabled = bool(raw_diagnostics_enabled)
+        raw_on_fail = str(cfg.get("on_fail", "warn")).strip().lower() or "warn"
+        alias_map = {
+            "warning": "warn",
+            "allow_with_warning": "warn",
+            "ignore_with_warning": "warn",
+            "disabled": "disable_struct",
+            "disable_stats": "disable_struct",
+            "disable": "disable_struct",
+        }
+        on_fail = alias_map.get(raw_on_fail, raw_on_fail)
+        if on_fail not in {"warn", "raise", "disable_struct"}:
+            on_fail = "warn"
+        return {
+            "diagnostics_enabled": diagnostics_enabled,
+            "on_fail": on_fail,
+        }
 
     def _resolve_compiled_topology(
         self,
@@ -524,7 +589,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if not stats_allowed:
             edge_stats = {}
 
-        projected_edge_paths = self._project_allowed_edge_paths_for_prediction(dto)
+        projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
+            dto=dto,
+            activity_vocab=activity_vocab,
+        )
+        projected_edge_paths = projection_result.projected_edge_paths
         for src, dst in projected_edge_paths:
             src_token = str(src).strip()
             dst_token = str(dst).strip()
@@ -570,11 +639,35 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
 
         struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
+        structural_edge_index_max = (
+            int(structural_edge_index.max().item())
+            if isinstance(structural_edge_index, torch.Tensor) and structural_edge_index.numel() > 0
+            else None
+        )
+        struct_x_rows = int(struct_x.size(0)) if isinstance(struct_x, torch.Tensor) and struct_x.dim() >= 1 else None
+        diagnostics = projection_result.diagnostics.with_structural_payload(
+            struct_x_rows=struct_x_rows,
+            structural_edge_index_max=structural_edge_index_max,
+        )
+        if (
+            (not diagnostics.is_aligned)
+            and (
+                self.topology_projection_config.get("on_fail") == "raise"
+                or bool(self.topology_projection_config.get("diagnostics_enabled", True))
+            )
+        ):
+            self._handle_topology_projection_diagnostics(diagnostics=diagnostics)
+        if self.topology_projection_config.get("on_fail") == "disable_struct" and not diagnostics.is_aligned:
+            allowed_masks_by_src = {}
+            structural_edge_index = torch.zeros((2, 0), dtype=torch.long)
+            structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
+            struct_x = None
         compiled = {
             "allowed_masks_by_src": allowed_masks_by_src,
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
             "struct_x": struct_x,
+            "topology_projection_diagnostics": diagnostics,
         }
         if cache_key is not None:
             self._cache_put(
@@ -586,87 +679,71 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             self._save_compiled_topology_to_disk(cache_key=cache_key, compiled=compiled)
         return compiled
 
+    def _handle_topology_projection_diagnostics(self, *, diagnostics: TopologyProjectionDiagnostics) -> None:
+        if diagnostics.is_aligned:
+            return
+        action = str(self.topology_projection_config.get("on_fail", "warn"))
+        reasons = ",".join(diagnostics.failure_reasons) or "unknown"
+        if action == "raise":
+            raise ValueError(
+                "Topology projection alignment failed: "
+                f"gateway_mode={diagnostics.gateway_mode} reasons={reasons} "
+                f"missing_vocab_nodes={diagnostics.missing_vocab_nodes} "
+                f"skipped_edges={diagnostics.skipped_projected_edges} "
+                f"missing_node_metadata={diagnostics.missing_node_metadata}."
+            )
+        key = (diagnostics.gateway_mode, action, reasons)
+        if key in self._topology_projection_warned_keys:
+            return
+        self._topology_projection_warned_keys.add(key)
+        logger.warning(
+            "Topology projection alignment warning: gateway_mode=%s action=%s reasons=%s "
+            "missing_vocab_nodes=%s skipped_edges=%d missing_node_metadata=%s.",
+            diagnostics.gateway_mode,
+            action,
+            reasons,
+            ",".join(diagnostics.missing_vocab_nodes) or "none",
+            len(diagnostics.skipped_projected_edges),
+            bool(diagnostics.missing_node_metadata),
+        )
+
+    @staticmethod
+    def _attach_topology_projection_summary(
+        *,
+        contract: GraphTensorContract,
+        diagnostics: TopologyProjectionDiagnostics,
+    ) -> None:
+        contract["topology_projection_aligned"] = bool(diagnostics.is_aligned)
+        contract["topology_projection_projected_edge_count"] = int(diagnostics.projected_edge_count)
+        contract["topology_projection_source_path_count"] = int(diagnostics.source_path_count)
+        contract["topology_projection_skipped_edge_count"] = int(len(diagnostics.skipped_projected_edges))
+        contract["topology_projection_missing_vocab_count"] = int(len(diagnostics.missing_vocab_nodes))
+        contract["topology_projection_duplicate_label_count"] = int(len(diagnostics.duplicate_activity_labels))
+        contract["topology_projection_missing_node_metadata"] = bool(diagnostics.missing_node_metadata)
+
     def _project_allowed_edge_paths_for_prediction(self, dto: ProcessStructureDTO) -> dict[tuple[str, str], list[list[str]]]:
-        original_paths = {
-            (str(src).strip(), str(dst).strip()): [[str(src).strip(), str(dst).strip()]]
-            for src, dst in dto.allowed_edges
-            if str(src).strip() and str(dst).strip()
+        activity_vocab = {
+            str(node.get("id", "")).strip(): idx
+            for idx, node in enumerate(dto.nodes or [])
+            if isinstance(node, dict) and str(node.get("id", "")).strip()
         }
-        if self.topology_gateway_mode != "collapse_for_prediction":
-            return original_paths
-
-        nodes = dto.nodes or []
-        if not nodes:
-            return original_paths
-
-        node_roles = self._classify_projection_nodes(nodes)
-        outgoing: dict[str, list[str]] = {}
-        for src, dst in dto.allowed_edges:
-            src_token = str(src).strip()
-            dst_token = str(dst).strip()
-            if not src_token or not dst_token:
-                continue
-            outgoing.setdefault(src_token, []).append(dst_token)
-
-        projected: dict[tuple[str, str], list[list[str]]] = {}
-        for src, role in node_roles.items():
-            if role != "prediction":
-                continue
-            for dst, path in self._reachable_prediction_node_paths_through_transparent(
-                source=src,
-                outgoing=outgoing,
-                node_roles=node_roles,
-            ).items():
-                if dst != src:
-                    projected.setdefault((src, dst), []).extend(path)
-
-        if not projected:
-            return original_paths
-        return dict(sorted(projected.items(), key=lambda item: item[0]))
+        if not activity_vocab:
+            activity_vocab = {
+                token: idx
+                for idx, token in enumerate(sorted({str(item).strip() for edge in dto.allowed_edges for item in edge if str(item).strip()}))
+            }
+        return TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
+            dto=dto,
+            activity_vocab=activity_vocab,
+        ).projected_edge_paths
 
     @classmethod
     def _classify_projection_nodes(cls, nodes: list[Dict[str, Any]]) -> dict[str, str]:
-        roles: dict[str, str] = {}
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            node_id = str(node.get("id", "")).strip()
-            if not node_id:
-                continue
-            tags = " ".join(
-                str(node.get(key, "")).strip().lower()
-                for key in ("bpmn_tag", "type", "activity_type", "logical_type")
-            )
-            normalized = tags.replace(" ", "").replace("_", "").replace("-", "")
-            if cls._is_prediction_node_type(normalized):
-                roles[node_id] = "prediction"
-            else:
-                roles[node_id] = "transparent"
-        return roles
+        return TopologyProjectionCompiler.classify_nodes(nodes)
 
     @staticmethod
     def _is_prediction_node_type(normalized_type: str) -> bool:
-        if not normalized_type:
-            return False
-        if "gateway" in normalized_type:
-            return False
-        if "event" in normalized_type:
-            return False
-        return any(
-            token in normalized_type
-            for token in (
-                "task",
-                "userTask".lower(),
-                "servicetask",
-                "scripttask",
-                "manualtask",
-                "businessruletask",
-                "sendtask",
-                "receivetask",
-                "callactivity",
-                "subprocess",
-            )
-        )
+        return TopologyProjectionCompiler.is_prediction_node_type(normalized_type)
 
     @staticmethod
     def _reachable_prediction_node_paths_through_transparent(
@@ -675,20 +752,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         outgoing: dict[str, list[str]],
         node_roles: dict[str, str],
     ) -> dict[str, list[list[str]]]:
-        found: dict[str, list[list[str]]] = {}
-        visited: set[str] = {source}
-        queue: list[tuple[str, list[str]]] = [(node, [source, node]) for node in outgoing.get(source, [])]
-        while queue:
-            current, path = queue.pop(0)
-            if current in visited:
-                continue
-            visited.add(current)
-            role = node_roles.get(current, "prediction")
-            if role == "prediction":
-                found.setdefault(current, []).append(path)
-                continue
-            queue.extend((next_node, [*path, next_node]) for next_node in outgoing.get(current, []))
-        return found
+        return TopologyProjectionCompiler.reachable_prediction_node_paths_through_transparent(
+            source=source,
+            outgoing=outgoing,
+            node_roles=node_roles,
+        )
 
     @staticmethod
     def _projected_edge_weight(
@@ -758,6 +826,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         structural_edge_index = compiled.get("structural_edge_index")
         structural_edge_weight = compiled.get("structural_edge_weight")
         struct_x = compiled.get("struct_x")
+        diagnostics = compiled.get("topology_projection_diagnostics")
         if not isinstance(allowed_masks_by_src, dict):
             return None
         if not isinstance(structural_edge_index, torch.Tensor):
@@ -766,11 +835,14 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             return None
         if struct_x is not None and (not isinstance(struct_x, torch.Tensor)):
             return None
+        if diagnostics is not None and not isinstance(diagnostics, dict):
+            return None
         return {
             "allowed_masks_by_src": allowed_masks_by_src,
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
             "struct_x": struct_x,
+            "topology_projection_diagnostics": diagnostics,
         }
 
     def _save_compiled_topology_to_disk(self, *, cache_key: tuple[Any, ...], compiled: Dict[str, Any]) -> None:
@@ -779,7 +851,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             return
         payload = {
             "schema": int(self._topology_disk_cache_schema),
-            "compiled": compiled,
+            "compiled": self._serializable_compiled_topology(compiled),
         }
         tmp_path = path.with_suffix(".tmp")
         try:
@@ -792,6 +864,14 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     tmp_path.unlink()
             except OSError:
                 pass
+
+    @staticmethod
+    def _serializable_compiled_topology(compiled: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(compiled)
+        diagnostics = payload.get("topology_projection_diagnostics")
+        if isinstance(diagnostics, TopologyProjectionDiagnostics):
+            payload["topology_projection_diagnostics"] = diagnostics.as_dict()
+        return payload
 
     def _is_missing_asof_snapshot(self, *, dto: ProcessStructureDTO, as_of_ts: datetime | None) -> bool:
         if self.stats_time_policy != "strict_asof" or as_of_ts is None:

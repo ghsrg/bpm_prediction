@@ -102,3 +102,24 @@ def test_eopkg_gatv2_falls_back_without_structural_edges(caplog: pytest.LogCaptu
     assert model.last_cross_attn_weights is None
     assert "Structural tensors are missing in contract! Falling back to Baseline forward." in caplog.text
     assert not any(isinstance(param, UninitializedParameter) for param in model.parameters())
+
+
+def test_eopkg_gatv2_rejects_out_of_bounds_structural_edge_index():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=3,
+        struct_hidden_dim=16,
+        cross_attention_heads=4,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": torch.tensor([[0, 4], [1, 2]], dtype=torch.long),
+        "struct_x": torch.randn(3, 5, dtype=torch.float32),
+    }
+
+    with pytest.raises(ValueError, match="Structural edge index is out of bounds"):
+        model(contract)

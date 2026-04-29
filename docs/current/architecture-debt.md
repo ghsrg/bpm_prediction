@@ -13,7 +13,7 @@ historical debt worklogs.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-04-27
+- `last_updated`: 2026-04-29
 
 ---
 
@@ -91,8 +91,8 @@ for dissertation-grade runs. Future work belongs to
 - `status`: active
 - `priority`: P0
 - `adr`: `docs/adr/0007-topology-projection-alignment.md`
-- `current_behavior`: `collapse_for_prediction` exists as topology projection mode
-- `target_state`: post-projection alignment artifact/check before research-grade forward
+- `current_behavior`: projection diagnostics, cache node-metadata fingerprint, strict `on_fail`, forward-stat counters, and EOPKGGATv2 structural index fail-fast are implemented and pytest-verified
+- `target_state`: residual work only if a dedicated run-level JSON artifact beyond forward logs is required
 
 **Description (ukr):**
 
@@ -110,7 +110,58 @@ structural awareness.
 
 **Next direction:**
 
-Add explicit source-to-projected mapping and post-projection alignment checks.
+Use `mapping.graph_feature_mapping.topology_projection.on_fail: raise` for
+research-grade runs. Keep residual work only if a dedicated run-level JSON
+artifact beyond forward logs is required.
+
+---
+
+### duplicate_activity_identity_ambiguity
+
+- `status`: active
+- `priority`: P0
+- `adr`: none
+- `current_behavior`: activity classes are usually keyed by log activity label/name, while BPMN structure can contain multiple distinct nodes with the same label
+- `target_state`: explicit identity model that separates `activity_label` from stable BPMN/log node identity, or strict diagnostics that mark duplicate labels as ambiguous
+
+**Description (ukr):**
+
+Якщо в BPMN є дві різні задачі з однаковою назвою, а в event log є тільки
+`concept:name` / activity label, pipeline бачить їх як один клас у
+`activity_vocab`. BPMN-структура при цьому розрізняє node ids, але target `y`,
+stats і activity-level mask не мають стабільної інформації, яка саме BPMN-нода
+була виконана.
+
+Це не є частиною `parallel target-mask semantics`. Паралельність може зробити
+симптоми помітнішими, але root cause інший: немає однозначної identity mapping
+між log event і BPMN prediction node.
+
+**Impact (ukr):**
+
+Статистика для однакових назв змішується, `allowed_target_mask` може дозволити
+тільки "активність з такою назвою", а не конкретну структурну ноду, і `struct_x`
+може агрегувати сигнали з кількох різних BPMN-позицій. У research-grade
+експериментах це робить структурний сигнал неоднозначним: модель може
+передбачати правильну назву, але не правильну структурну позицію.
+
+**Relationship to other debt:**
+
+- `topology_projection_alignment`: must stay compatible with future
+  node-identity-aware mapping, but should not solve duplicate labels now.
+- `target_mask_parallel_semantics`: should be handled only after activity
+  identity ambiguity is either resolved or explicitly accepted as label-level
+  prediction.
+
+**Next direction:**
+
+Add diagnostics that detect non-injective mapping from BPMN prediction nodes to
+activity labels. Later choose target identity policy:
+
+1. label-level prediction only, where duplicate BPMN nodes are accepted but
+   structural interpretation is limited;
+2. node-level prediction with `bpmn_node_id` / stable activity id in logs;
+3. route-inferred node identity as an explicit heuristic with confidence and
+   audit output.
 
 ---
 

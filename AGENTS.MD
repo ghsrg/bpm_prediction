@@ -250,15 +250,23 @@ Track these as active debt unless superseded by ADR:
 
 3. `topology_projection_alignment`
    - ADR: `docs/adr/0007-topology-projection-alignment.md`
-   - `collapse_for_prediction` can break indexing/alignment with structure.
-   - Alignment must be verified after topology modification.
+   - Projection diagnostics and strict `on_fail` are implemented.
+   - In Codex sandbox, run `.venv\Scripts\python.exe -m pytest ...` with
+     escalated permissions if base interpreter process creation is blocked.
+   - Keep architecture compatible with future node-identity-aware mapping.
 
-4. `cli_composition_root_overgrowth`
+4. `duplicate_activity_identity_ambiguity`
+   - ADR: none yet.
+   - Multiple BPMN prediction nodes can share one log activity label/name.
+   - Treat as separate from topology projection and parallel mask semantics.
+   - Future architecture should support node-identity-aware mapping.
+
+5. `cli_composition_root_overgrowth`
    - ADR: `docs/adr/0008-cli-composition-root-boundary.md`
    - `src/cli.py` is no longer only a thin composition root.
    - Refactoring should be planned, not done opportunistically.
 
-5. `mvp3_reliability_semaphore_not_ready`
+6. `mvp3_reliability_semaphore_not_ready`
    - OOD/Wasserstein calibration, latent artifact pipeline, and
      Green/Yellow/Red action policy are future MVP3 work.
 
@@ -382,10 +390,6 @@ Known Codex sandbox behavior:
 - `.venv\Scripts\python.exe` may delegate to the base interpreter from
   `.venv\pyvenv.cfg`.
 - On this machine, the base interpreter is under:
-
-```text
-C:\Users\korsr\AppData\Local\Programs\Python\Python311\python.exe
-```
 
 - The default sandbox may block process creation for that base interpreter.
 - If the command fails with `Unable to create process using ...Python311...`,

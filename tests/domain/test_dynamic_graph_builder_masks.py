@@ -9,6 +9,7 @@ from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
 import torch
+import pytest
 
 
 def _event(idx: int, activity: str) -> EventRecord:
@@ -215,3 +216,128 @@ def test_dynamic_graph_builder_gateway_collapse_stops_at_next_prediction_node(mo
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
     assert bool(mask[activity_vocab["TaskB"]]) is True
     assert bool(mask[activity_vocab["TaskC"]]) is False
+
+
+def test_dynamic_graph_builder_strict_projection_alignment_raises_on_missing_vocab(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["TaskA"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("TaskA", "Gateway_XOR"), ("Gateway_XOR", "TaskB")],
+            nodes=[
+                {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {
+                    "id": "Gateway_XOR",
+                    "bpmn_tag": "exclusiveGateway",
+                    "type": "exclusiveGateway",
+                    "activity_type": "exclusiveGateway",
+                },
+                {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "TaskA")],
+        target_event=_event(1, "TaskA"),
+    )
+
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        graph_feature_mapping={
+            "topology_projection": {
+                "gateway_mode": "collapse_for_prediction",
+                "on_fail": "raise",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="Topology projection alignment failed"):
+        builder.build_graph(prefix)
+
+
+def test_dynamic_graph_builder_attaches_projection_summary_scalars(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["TaskA", "TaskB"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("TaskA", "Gateway_XOR"), ("Gateway_XOR", "TaskB")],
+            nodes=[
+                {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {
+                    "id": "Gateway_XOR",
+                    "bpmn_tag": "exclusiveGateway",
+                    "type": "exclusiveGateway",
+                    "activity_type": "exclusiveGateway",
+                },
+                {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "TaskA")],
+        target_event=_event(1, "TaskB"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+    ).build_graph(prefix)
+
+    assert contract["topology_projection_aligned"] is True
+    assert contract["topology_projection_projected_edge_count"] == 1
+    assert contract["topology_projection_source_path_count"] == 1
+    assert contract["topology_projection_skipped_edge_count"] == 0
+    assert contract["topology_projection_missing_vocab_count"] == 0
+    assert contract["topology_projection_duplicate_label_count"] == 0
+    assert contract["topology_projection_missing_node_metadata"] is False
+
+
+def test_dynamic_graph_builder_topology_cache_key_changes_when_node_metadata_changes(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["TaskA", "TaskB"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    repository = InMemoryNetworkXRepository()
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+    )
+    gateway_dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("TaskA", "Gateway_XOR"), ("Gateway_XOR", "TaskB")],
+        nodes=[
+            {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            {
+                "id": "Gateway_XOR",
+                "bpmn_tag": "exclusiveGateway",
+                "type": "exclusiveGateway",
+                "activity_type": "exclusiveGateway",
+            },
+            {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+        ],
+    )
+    task_dto = gateway_dto.model_copy(
+        update={
+            "nodes": [
+                {"id": "TaskA", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "Gateway_XOR", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "TaskB", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ]
+        }
+    )
+
+    assert builder._topology_cache_key(dto=gateway_dto, activity_vocab=activity_vocab, stats_allowed=True) != (
+        builder._topology_cache_key(dto=task_dto, activity_vocab=activity_vocab, stats_allowed=True)
+    )

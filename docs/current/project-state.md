@@ -168,6 +168,36 @@ exploratory runs, але не для фінальних висновків.
 
 ---
 
+### topology_projection_alignment
+
+- `adr`: `docs/adr/0007-topology-projection-alignment.md`
+- `config_keys`:
+  - `mapping.graph_feature_mapping.topology_projection.gateway_mode`
+  - `mapping.graph_feature_mapping.topology_projection.diagnostics_enabled`
+  - `mapping.graph_feature_mapping.topology_projection.on_fail`
+- `runtime_logs`: `Forward stats [...] topology_projection_*`
+
+**Description (ukr):**
+
+`collapse_for_prediction` has runtime diagnostics for projected topology:
+alignment flag, projected edges/source paths, skipped edges, missing vocab,
+duplicate labels, and missing node metadata. In train/eval/eval_drift these
+counters are visible in `Forward stats [...]` logs, so agents and users can see
+whether structural mapping was clean.
+
+Recommended research-grade config:
+
+```yaml
+mapping:
+  graph_feature_mapping:
+    topology_projection:
+      gateway_mode: collapse_for_prediction
+      diagnostics_enabled: true
+      on_fail: raise
+```
+
+---
+
 ## Runtime Semantics
 
 ### snapshot_creation_time

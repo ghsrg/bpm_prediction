@@ -81,6 +81,22 @@ def _sample_with_missing_asof(y_value: int, *, snapshot_idx: int, snapshot_epoch
     return payload
 
 
+def _sample_with_projection_summary(y_value: int, *, aligned: bool, skipped_edges: int, missing_vocab: int) -> Data:
+    payload = _sample(
+        y_value=y_value,
+        snapshot_idx=7,
+        snapshot_epoch=float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp()),
+    )
+    payload.topology_projection_aligned = torch.tensor([1 if aligned else 0], dtype=torch.long)
+    payload.topology_projection_projected_edge_count = torch.tensor([3], dtype=torch.long)
+    payload.topology_projection_source_path_count = torch.tensor([4], dtype=torch.long)
+    payload.topology_projection_skipped_edge_count = torch.tensor([skipped_edges], dtype=torch.long)
+    payload.topology_projection_missing_vocab_count = torch.tensor([missing_vocab], dtype=torch.long)
+    payload.topology_projection_duplicate_label_count = torch.tensor([0], dtype=torch.long)
+    payload.topology_projection_missing_node_metadata = torch.tensor([0], dtype=torch.long)
+    return payload
+
+
 def test_trainer_logs_forward_stats_for_train_inference_and_drift(caplog):
     snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
     loader = DataLoader(
@@ -190,6 +206,34 @@ def test_trainer_forward_stats_logs_missing_asof_counters(caplog):
     caplog.set_level(logging.INFO)
     trainer._run_epoch(loader, optimizer=optimizer, training=True)
     assert "missing_asof_snapshot_batches=1 missing_asof_snapshot[true/false]=1/1" in caplog.text
+
+
+def test_trainer_forward_stats_logs_topology_projection_summary(caplog):
+    loader = DataLoader(
+        [
+            _sample_with_projection_summary(0, aligned=True, skipped_edges=0, missing_vocab=0),
+            _sample_with_projection_summary(1, aligned=False, skipped_edges=2, missing_vocab=1),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert "topology_projection_aligned[true/false]=1/1" in caplog.text
+    assert "topology_projection_skipped_edges=2" in caplog.text
+    assert "topology_projection_missing_vocab=1" in caplog.text
 
 
 def test_data_to_contract_uses_first_graph_structural_payload_from_batch():

@@ -1,0 +1,295 @@
+data:
+  dataset_label: loan_v1_v4_simulated
+  dataset_name: loan_v1_v4_simulated
+  log_path: C:\Users\korsr\PycharmProjects\bpm_prediction\outputs\simulation\loan_v1_v4_simulated.xes
+mapping:
+  adapter: xes
+  knowledge_graph:
+    backend: neo4j
+    path: data/knowledge_graph
+    strict_load: true
+    ingest_split: train
+  graph_feature_mapping:
+    enabled: true
+    node_numeric:
+    - name: node_exec_count_v_all
+      metric: exec_count
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_median_v_all
+      metric: duration_median
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_v_all
+      metric: duration_p95
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_v_all
+      metric: loop_density
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_v_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_v_all
+      metric: freshness_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_v_all
+      metric: confidence_score
+      window: all_time
+      scope: version
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_exec_count_p_all
+      metric: exec_count
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_median_p_all
+      metric: duration_median
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_duration_p95_p_all
+      metric: duration_p95
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_loop_density_p_all
+      metric: loop_density
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_parallel_var_p_all
+      metric: parallel_token_variance
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_freshness_p_all
+      metric: freshness_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    - name: node_confidence_p_all
+      metric: confidence_score
+      window: all_time
+      scope: process
+      default: 0.0
+      encoding:
+      - identity
+    edge_weight:
+      metric: transition_probability
+      window: all_time
+      scope: version
+      default: 1.0
+      encoding:
+      - identity
+    stats_quality_gate:
+      enabled: true
+      on_fail: allow_with_warning
+      warn_on_fail: true
+    topology_projection:
+      gateway_mode: collapse_for_prediction
+  xes_adapter:
+    case_id_key: concept:name
+    activity_key: concept:name
+    timestamp_key: time:timestamp
+    resource_key: org:resource
+    lifecycle_key: lifecycle:transition
+    version_key: concept:version
+    start_transitions:
+    - start
+    complete_transitions:
+    - complete
+    pairing_strategy: lifo
+    use_classifier: true
+  features:
+  - name: concept:name
+    role: activity
+    source: event
+    dtype: string
+    fill_na: <UNK>
+    encoding:
+    - embedding
+  - name: org:resource
+    role: resource
+    source: event
+    dtype: string
+    fill_na: UNKNOWN
+    encoding:
+    - embedding
+  - name: time:timestamp
+    role: timestamp
+    source: event
+    dtype: timestamp
+    fill_na: 0.0
+    encoding:
+    - z-score
+    - time2vec_dayofweek
+    - time2vec_hour
+    - time2vec_work_hours
+  - name: duration
+    source: event
+    dtype: float
+    fill_na: 0.0
+    encoding:
+    - z-score
+  - name: time_since_case_start
+    source: event
+    dtype: float
+    fill_na: 0.0
+    encoding:
+    - z-score
+  - name: time_since_previous_event
+    source: event
+    dtype: float
+    fill_na: 0.0
+    encoding:
+    - z-score
+policies:
+  profile: mvp1_default
+  activity_fallback_feature: concept:name
+  zscore_clip:
+    enabled: true
+    min: -3.0
+    max: 3.0
+  time2vec:
+    work_hours:
+      timezone: UTC
+      working_days:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      start_hour: 9
+      end_hour: 18
+model:
+  model_label: GATv2
+  type: EOPKGGATv2
+  hidden_dim: 64
+  struct_encoder_type: GATv2Conv
+  struct_hidden_dim: 64
+  cross_attention_heads: 4
+  dropout: 0.2
+  graph_strategy: sequential_prefix
+  pooling_strategy: global_mean
+  fusion_mode: Attention
+training:
+  batch_size: 128
+  epochs: 50
+  learning_rate: 0.001
+  patience: 20
+  delta: 1e-4
+  device: cpu
+  ece_bins: 10
+  class_weight_cap: 50.0
+  loss_function: cross_entropy
+  show_progress: true
+  tqdm_disable: false
+  tqdm_leave: false
+  retrain: true
+  dataloader_num_workers: 0
+  dataloader_persistent_workers: true
+  dataloader_pin_memory: false
+  dataloader_prefetch_factor: 2
+  mask_guided_apply_in_eval: true
+  mask_guided_hard_threshold: 1.0
+  mask_guided_min_samples_for_hard: 1
+  mask_guided_soft_penalty: 2.0
+  torch_num_interop_threads: 2
+  torch_num_threads: 8
+tracking:
+  enabled: true
+  backend: mlflow
+  uri: file:./mlruns
+  tags:
+    stage: mvp1_cross_dataset
+    model_family: baseline_gnn
+experiment:
+  project: mvp2_6
+  name: S_Att-MN-drift-42
+  mode: eval_drift
+  fraction: 1.0
+  split_strategy: temporal
+  train_ratio: 0.0
+  split_ratio:
+  - 0.7
+  - 0.2
+  - 0.1
+  stats_time_policy: latest
+  on_missing_asof_snapshot: use_base
+  cache_policy: full
+  graph_dataset_cache_policy: full
+  graph_dataset_cache_dir: .cache/graph_datasets
+  graph_dataset_disk_spill_enabled: true
+  cache_dir: .cache/dynamic_graph_builder
+  graph_dataset_shard_size: 20000
+  max_ram_gb: 10
+  structural_mode: true
+  statistic_enabled: false
+  mask_guided_enabled: true
+  retrain: true
+  drift_window_size: 100
+  drift_window_sliding: 10
+  load_checkpoint: checkpoints/S_Att-MN-42_loan_v1_v4_simulated_GATv2_best.pth
+seed: 42
+sync_stats:
+  quality_gate:
+    enabled: true
+    on_fail: write_with_flag
+    warn_on_fail: true
+    zero_dominant_threshold: 0.95
+    min_non_zero_ratio_overall: 0.0
+    min_history_coverage_percent: 0.0
+  alignment_gate:
+    enabled: true
+    profile: safe_normalized
+    candidate_node_fields:
+    - id
+    - name
+    ignore_structural_only_nodes: true
+    strip_classifier_suffix: true
+    normalize_case: true
+    collapse_separators: true
+    fail_on_ambiguity: true
+    warn_on_fail: true
+    min_event_match_ratio: 1.0
+    min_unique_activity_coverage: 1.0
+    min_node_coverage: 0.0
+    on_fail: write_with_flag
+  process_filters:
+  - loan_v1_v4_simulated

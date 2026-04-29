@@ -317,8 +317,13 @@ class EOPKGGATv2(BaseEOPKGModel):
                 self._warned_missing_struct = True
             self.last_cross_attn_weights = None
             return self.classifier(obs_context)
-        if int(structural_edge_index.max().item()) >= node_count:
-            structural_edge_index = structural_edge_index % node_count
+        structural_edge_index_max = int(structural_edge_index.max().item())
+        if structural_edge_index_max >= node_count:
+            raise ValueError(
+                "Structural edge index is out of bounds: "
+                f"max_index={structural_edge_index_max} node_count={node_count} "
+                f"struct_x_shape={tuple(struct_nodes.shape)}."
+            )
         h_norm = self.struct_gnn(struct_nodes, structural_edge_index)
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)

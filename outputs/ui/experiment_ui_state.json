@@ -32,7 +32,7 @@
     "experiment.drift_window_sliding": "10",
     "experiment.graph_dataset_disk_spill_enabled": "true",
     "experiment.graph_dataset_shard_size": "20000",
-    "experiment.load_checkpoint": "",
+    "experiment.load_checkpoint": "checkpoints/S_Att-MN-42_loan_v1_v4_simulated_GATv2_best.pth",
     "experiment.mask_guided_enabled": "true",
     "experiment.max_ram_gb": "10",
     "experiment.retrain": "true",
@@ -160,16 +160,16 @@
     "backfill_step": "monthly",
     "backfill_step_days": "",
     "backfill_to": "",
-    "cache_policy": "off",
+    "cache_policy": "full",
     "config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/experiments/mvp2_5_stage4_2_eopkg_xes_stat.yaml",
     "data_config_path": "C:/Users/korsr/PycharmProjects/bpm_prediction/configs/data/generated_simulate_loan.yaml",
-    "experiment_name": "S_Att-MN-42",
+    "experiment_name": "S_Att-MN-drift-42",
     "extra_args": "",
     "fraction": "1",
-    "gateway_mode": "preserve",
+    "gateway_mode": "collapse_for_prediction",
     "graph_dataset_cache_dir": ".cache/graph_datasets",
     "graph_dataset_cache_policy": "full",
-    "mode": "sync-stats-backfill",
+    "mode": "eval_drift",
     "on_missing_asof_snapshot": "use_base",
     "preset_name": "S_Att-MN-loan",
     "project": "mvp2_6",
@@ -181,6 +181,6 @@
     "split_strategy": "temporal",
     "stats_time_policy": "latest",
     "sync_as_of": "",
-    "train_ratio": "1"
+    "train_ratio": "0"
   }
 }

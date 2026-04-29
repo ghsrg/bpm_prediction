@@ -1000,6 +1000,20 @@ class ModelTrainer:
                 structural_edge_weight = contract.get("structural_edge_weight")
                 if isinstance(structural_edge_weight, torch.Tensor):
                     payload["structural_edge_weight"] = structural_edge_weight
+                for key in (
+                    "topology_projection_aligned",
+                    "topology_projection_projected_edge_count",
+                    "topology_projection_source_path_count",
+                    "topology_projection_skipped_edge_count",
+                    "topology_projection_missing_vocab_count",
+                    "topology_projection_duplicate_label_count",
+                    "topology_projection_missing_node_metadata",
+                ):
+                    value = contract.get(key)
+                    if isinstance(value, bool):
+                        payload[key] = torch.tensor([1 if value else 0], dtype=torch.long)
+                    elif isinstance(value, int):
+                        payload[key] = torch.tensor([int(value)], dtype=torch.long)
                 snapshot_seq_raw = contract.get("stats_snapshot_version_seq")
                 if isinstance(snapshot_seq_raw, (int, float)) and not isinstance(snapshot_seq_raw, bool):
                     snapshot_idx = int(snapshot_seq_raw)
@@ -2118,6 +2132,14 @@ class ModelTrainer:
             "struct_edge_counts": [],
             "snapshot_versions": set(),
             "snapshot_as_of_ts": set(),
+            "topology_projection_aligned_true": 0,
+            "topology_projection_aligned_false": 0,
+            "topology_projection_skipped_edges": 0,
+            "topology_projection_missing_vocab": 0,
+            "topology_projection_duplicate_labels": 0,
+            "topology_projection_missing_node_metadata": 0,
+            "topology_projection_projected_edges": [],
+            "topology_projection_source_paths": [],
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -2210,6 +2232,47 @@ class ModelTrainer:
                 else:
                     bucket["stats_missing_asof_false"] = int(bucket.get("stats_missing_asof_false", 0)) + 1
 
+        projection_aligned_batch = contract.get("topology_projection_aligned_batch")
+        if isinstance(projection_aligned_batch, list):
+            for raw in projection_aligned_batch:
+                if bool(raw):
+                    bucket["topology_projection_aligned_true"] = int(bucket.get("topology_projection_aligned_true", 0)) + 1
+                else:
+                    bucket["topology_projection_aligned_false"] = int(bucket.get("topology_projection_aligned_false", 0)) + 1
+        elif contract.get("topology_projection_aligned") is not None:
+            if bool(contract.get("topology_projection_aligned")):
+                bucket["topology_projection_aligned_true"] = int(bucket.get("topology_projection_aligned_true", 0)) + 1
+            else:
+                bucket["topology_projection_aligned_false"] = int(bucket.get("topology_projection_aligned_false", 0)) + 1
+
+        for contract_key, bucket_key in (
+            ("topology_projection_skipped_edge_count_batch", "topology_projection_skipped_edges"),
+            ("topology_projection_missing_vocab_count_batch", "topology_projection_missing_vocab"),
+            ("topology_projection_duplicate_label_count_batch", "topology_projection_duplicate_labels"),
+            ("topology_projection_missing_node_metadata_batch", "topology_projection_missing_node_metadata"),
+        ):
+            values = contract.get(contract_key)
+            if isinstance(values, list):
+                bucket[bucket_key] = int(bucket.get(bucket_key, 0)) + sum(int(item) for item in values)
+                continue
+            scalar_key = contract_key.removesuffix("_batch")
+            scalar_value = contract.get(scalar_key)
+            if isinstance(scalar_value, (int, bool)) and not isinstance(scalar_value, float):
+                bucket[bucket_key] = int(bucket.get(bucket_key, 0)) + int(scalar_value)
+
+        for contract_key, bucket_key in (
+            ("topology_projection_projected_edge_count_batch", "topology_projection_projected_edges"),
+            ("topology_projection_source_path_count_batch", "topology_projection_source_paths"),
+        ):
+            values = contract.get(contract_key)
+            if isinstance(values, list):
+                bucket.setdefault(bucket_key, []).extend(int(item) for item in values)
+                continue
+            scalar_key = contract_key.removesuffix("_batch")
+            scalar_value = contract.get(scalar_key)
+            if isinstance(scalar_value, int) and not isinstance(scalar_value, bool):
+                bucket.setdefault(bucket_key, []).append(int(scalar_value))
+
     @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
@@ -2246,13 +2309,31 @@ class ModelTrainer:
         stats_missing_asof_false = int(bucket.get("stats_missing_asof_false", 0))
         batches_with_missing_asof = int(bucket.get("batches_with_missing_asof", 0))
         snapshot_meta_batches = int(bucket.get("batches_with_snapshot_meta", 0))
+        topology_projection_aligned_true = int(bucket.get("topology_projection_aligned_true", 0))
+        topology_projection_aligned_false = int(bucket.get("topology_projection_aligned_false", 0))
+        topology_projection_projected_edges = [int(item) for item in bucket.get("topology_projection_projected_edges", [])]
+        topology_projection_source_paths = [int(item) for item in bucket.get("topology_projection_source_paths", [])]
+        projected_avg = (
+            float(sum(topology_projection_projected_edges) / len(topology_projection_projected_edges))
+            if topology_projection_projected_edges
+            else 0.0
+        )
+        source_paths_avg = (
+            float(sum(topology_projection_source_paths) / len(topology_projection_source_paths))
+            if topology_projection_source_paths
+            else 0.0
+        )
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
             "snapshot_meta_batches=%d stats_allowed[true/false]=%d/%d "
             "missing_asof_snapshot_batches=%d missing_asof_snapshot[true/false]=%d/%d "
             "struct_feature_dims=%s struct_rows=%s edge_count[min/avg/max]=%d/%.2f/%d "
-            "snapshot_versions=%s snapshot_as_of_ts=%s",
+            "snapshot_versions=%s snapshot_as_of_ts=%s "
+            "topology_projection_aligned[true/false]=%d/%d "
+            "topology_projection_projected_edges_avg=%.2f topology_projection_source_paths_avg=%.2f "
+            "topology_projection_skipped_edges=%d topology_projection_missing_vocab=%d "
+            "topology_projection_duplicate_labels=%d topology_projection_missing_node_metadata=%d",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -2271,6 +2352,14 @@ class ModelTrainer:
             edge_max,
             self._format_unique_values(set(versions)),
             self._format_unique_values(set(as_of_values)),
+            topology_projection_aligned_true,
+            topology_projection_aligned_false,
+            projected_avg,
+            source_paths_avg,
+            int(bucket.get("topology_projection_skipped_edges", 0)),
+            int(bucket.get("topology_projection_missing_vocab", 0)),
+            int(bucket.get("topology_projection_duplicate_labels", 0)),
+            int(bucket.get("topology_projection_missing_node_metadata", 0)),
         )
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
@@ -2403,6 +2492,29 @@ class ModelTrainer:
                 flags = [bool(item) for item in stats_missing.view(-1).long().cpu().tolist()]
                 if flags:
                     contract["stats_missing_asof_snapshot_batch"] = flags
+        for attr_name, contract_key in (
+            ("topology_projection_aligned", "topology_projection_aligned_batch"),
+            ("topology_projection_missing_node_metadata", "topology_projection_missing_node_metadata_batch"),
+        ):
+            if hasattr(data, attr_name):
+                raw_tensor = getattr(data, attr_name)
+                if isinstance(raw_tensor, torch.Tensor):
+                    flags = [bool(item) for item in raw_tensor.view(-1).long().cpu().tolist()]
+                    if flags:
+                        contract[contract_key] = flags  # type: ignore[typeddict-unknown-key]
+        for attr_name, contract_key in (
+            ("topology_projection_projected_edge_count", "topology_projection_projected_edge_count_batch"),
+            ("topology_projection_source_path_count", "topology_projection_source_path_count_batch"),
+            ("topology_projection_skipped_edge_count", "topology_projection_skipped_edge_count_batch"),
+            ("topology_projection_missing_vocab_count", "topology_projection_missing_vocab_count_batch"),
+            ("topology_projection_duplicate_label_count", "topology_projection_duplicate_label_count_batch"),
+        ):
+            if hasattr(data, attr_name):
+                raw_tensor = getattr(data, attr_name)
+                if isinstance(raw_tensor, torch.Tensor):
+                    values = [int(item) for item in raw_tensor.view(-1).long().cpu().tolist()]
+                    if values:
+                        contract[contract_key] = values  # type: ignore[typeddict-unknown-key]
         return contract
 
     def _log_model_and_system_context(self) -> None:

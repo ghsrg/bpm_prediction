@@ -10,117 +10,6 @@ mapping:
     strict_load: true
     ingest_split: train
   graph_feature_mapping:
-    enabled: true
-    node_numeric:
-    - name: node_exec_count_v_all
-      metric: exec_count
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_duration_median_v_all
-      metric: duration_median
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_duration_p95_v_all
-      metric: duration_p95
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_loop_density_v_all
-      metric: loop_density
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_parallel_var_v_all
-      metric: parallel_token_variance
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_freshness_v_all
-      metric: freshness_score
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_confidence_v_all
-      metric: confidence_score
-      window: all_time
-      scope: version
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_exec_count_p_all
-      metric: exec_count
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_duration_median_p_all
-      metric: duration_median
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_duration_p95_p_all
-      metric: duration_p95
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_loop_density_p_all
-      metric: loop_density
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_parallel_var_p_all
-      metric: parallel_token_variance
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_freshness_p_all
-      metric: freshness_score
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    - name: node_confidence_p_all
-      metric: confidence_score
-      window: all_time
-      scope: process
-      default: 0.0
-      encoding:
-      - identity
-    edge_weight:
-      metric: transition_probability
-      window: all_time
-      scope: version
-      default: 1.0
-      encoding:
-      - identity
-    stats_quality_gate:
-      enabled: true
-      on_fail: allow_with_warning
-      warn_on_fail: true
     topology_projection:
       gateway_mode: collapse_for_prediction
   xes_adapter:
@@ -241,7 +130,7 @@ tracking:
     model_family: baseline_gnn
 experiment:
   project: mvp2_6
-  name: S_Att-MN-drift-42
+  name: S_Att-MNc-drift-42
   mode: eval_drift
   fraction: 1.0
   split_strategy: temporal
@@ -265,7 +154,7 @@ experiment:
   retrain: true
   drift_window_size: 100
   drift_window_sliding: 10
-  load_checkpoint: checkpoints/S_Att-MN-42_loan_v1_v4_simulated_GATv2_best.pth
+  load_checkpoint: checkpoints/S_Att-MNc-42_loan_v1_v4_simulated_GATv2_best.pth
 seed: 42
 sync_stats:
   quality_gate:

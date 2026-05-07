@@ -25,6 +25,7 @@ class GraphTensorContract(TypedDict):
     struct_x: NotRequired[torch.FloatTensor | None]
     structural_edge_index: NotRequired[torch.LongTensor | None]
     structural_edge_weight: NotRequired[torch.FloatTensor | None]
+    struct_node_to_class_index: NotRequired[torch.LongTensor | None]
     version_emb_idx: NotRequired[torch.LongTensor | None]
     allowed_target_mask: NotRequired[torch.BoolTensor | None]
     stats_snapshot_version_seq: NotRequired[int | None]

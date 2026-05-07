@@ -1176,6 +1176,7 @@ class ModelTrainer:
 
             with torch.set_grad_enabled(training):
                 logits = self.model(contract)
+                self._accumulate_logit_contribution_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1315,6 +1316,7 @@ class ModelTrainer:
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 logits = self.model(contract)
+                self._accumulate_logit_contribution_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -2140,6 +2142,11 @@ class ModelTrainer:
             "topology_projection_missing_node_metadata": 0,
             "topology_projection_projected_edges": [],
             "topology_projection_source_paths": [],
+            "observed_logits_abs_sum": 0.0,
+            "observed_logits_count": 0,
+            "structural_logits_abs_sum": 0.0,
+            "structural_logits_abs_max": 0.0,
+            "structural_logits_count": 0,
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -2273,6 +2280,33 @@ class ModelTrainer:
             if isinstance(scalar_value, int) and not isinstance(scalar_value, bool):
                 bucket.setdefault(bucket_key, []).append(int(scalar_value))
 
+    def _accumulate_logit_contribution_stats(self, bucket: Dict[str, Any]) -> None:
+        observed_logits = getattr(self.model, "last_observed_logits", None)
+        structural_logits = getattr(self.model, "last_structural_class_logits", None)
+        if not isinstance(observed_logits, torch.Tensor) or not isinstance(structural_logits, torch.Tensor):
+            return
+        if observed_logits.numel() <= 0 or structural_logits.numel() <= 0:
+            return
+
+        observed_abs = torch.abs(
+            torch.nan_to_num(observed_logits.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+        )
+        structural_abs = torch.abs(
+            torch.nan_to_num(structural_logits.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+        )
+        bucket["observed_logits_abs_sum"] = float(bucket.get("observed_logits_abs_sum", 0.0)) + float(
+            observed_abs.sum().item()
+        )
+        bucket["observed_logits_count"] = int(bucket.get("observed_logits_count", 0)) + int(observed_abs.numel())
+        bucket["structural_logits_abs_sum"] = float(bucket.get("structural_logits_abs_sum", 0.0)) + float(
+            structural_abs.sum().item()
+        )
+        bucket["structural_logits_count"] = int(bucket.get("structural_logits_count", 0)) + int(structural_abs.numel())
+        bucket["structural_logits_abs_max"] = max(
+            float(bucket.get("structural_logits_abs_max", 0.0)),
+            float(structural_abs.max().item()),
+        )
+
     @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
@@ -2323,6 +2357,20 @@ class ModelTrainer:
             if topology_projection_source_paths
             else 0.0
         )
+        observed_logits_count = int(bucket.get("observed_logits_count", 0))
+        structural_logits_count = int(bucket.get("structural_logits_count", 0))
+        observed_logits_mean_abs = (
+            float(bucket.get("observed_logits_abs_sum", 0.0)) / float(observed_logits_count)
+            if observed_logits_count > 0
+            else 0.0
+        )
+        structural_logits_mean_abs = (
+            float(bucket.get("structural_logits_abs_sum", 0.0)) / float(structural_logits_count)
+            if structural_logits_count > 0
+            else 0.0
+        )
+        structural_logits_max_abs = float(bucket.get("structural_logits_abs_max", 0.0))
+        structural_to_observed_logit_ratio = structural_logits_mean_abs / max(observed_logits_mean_abs, 1e-12)
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -2333,7 +2381,9 @@ class ModelTrainer:
             "topology_projection_aligned[true/false]=%d/%d "
             "topology_projection_projected_edges_avg=%.2f topology_projection_source_paths_avg=%.2f "
             "topology_projection_skipped_edges=%d topology_projection_missing_vocab=%d "
-            "topology_projection_duplicate_labels=%d topology_projection_missing_node_metadata=%d",
+            "topology_projection_duplicate_labels=%d topology_projection_missing_node_metadata=%d "
+            "observed_logits_mean_abs=%.6f structural_logits_mean_abs=%.6f "
+            "structural_logits_max_abs=%.6f structural_to_observed_logit_ratio=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -2360,7 +2410,20 @@ class ModelTrainer:
             int(bucket.get("topology_projection_missing_vocab", 0)),
             int(bucket.get("topology_projection_duplicate_labels", 0)),
             int(bucket.get("topology_projection_missing_node_metadata", 0)),
+            observed_logits_mean_abs,
+            structural_logits_mean_abs,
+            structural_logits_max_abs,
+            structural_to_observed_logit_ratio,
         )
+        metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
+        if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
+            self.tracker.log_metric(f"{metric_prefix}_observed_logits_mean_abs", observed_logits_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_structural_logits_mean_abs", structural_logits_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_structural_logits_max_abs", structural_logits_max_abs)
+            self.tracker.log_metric(
+                f"{metric_prefix}_structural_to_observed_logit_ratio",
+                structural_to_observed_logit_ratio,
+            )
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
         snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)
@@ -2387,7 +2450,7 @@ class ModelTrainer:
         self,
         data: Data,
         batch_tensor: torch.Tensor,
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         """Select structural payload for forward; use first graph payload on batched input."""
         self._warn_if_mixed_snapshot_versions(data)
 
@@ -2410,7 +2473,13 @@ class ModelTrainer:
                     if hasattr(first, "structural_edge_weight") and isinstance(first.structural_edge_weight, torch.Tensor)
                     else None
                 )
-                return struct_x, structural_edge_index, structural_edge_weight
+                struct_node_to_class_index = (
+                    first.struct_node_to_class_index
+                    if hasattr(first, "struct_node_to_class_index")
+                    and isinstance(first.struct_node_to_class_index, torch.Tensor)
+                    else None
+                )
+                return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
         struct_x = data.struct_x if hasattr(data, "struct_x") and isinstance(data.struct_x, torch.Tensor) else None
         structural_edge_index = (
@@ -2423,6 +2492,11 @@ class ModelTrainer:
             if hasattr(data, "structural_edge_weight") and isinstance(data.structural_edge_weight, torch.Tensor)
             else None
         )
+        struct_node_to_class_index = (
+            data.struct_node_to_class_index
+            if hasattr(data, "struct_node_to_class_index") and isinstance(data.struct_node_to_class_index, torch.Tensor)
+            else None
+        )
 
         if isinstance(struct_x, torch.Tensor):
             graph_count = int(batch_tensor.max().item()) + 1 if batch_tensor.numel() > 0 else int(data.y.view(-1).shape[0])
@@ -2430,7 +2504,7 @@ class ModelTrainer:
                 cls_rows = int(struct_x.size(0)) // graph_count
                 struct_x = struct_x.view(graph_count, cls_rows, int(struct_x.size(1)))[0]
 
-        return struct_x, structural_edge_index, structural_edge_weight
+        return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
@@ -2452,9 +2526,11 @@ class ModelTrainer:
             mask = data.allowed_target_mask
             if isinstance(mask, torch.Tensor):
                 contract["allowed_target_mask"] = mask.bool()
-        struct_x, structural_edge_index, structural_edge_weight = self._select_structural_payload_for_forward(
-            data,
-            batch_tensor,
+        struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index = (
+            self._select_structural_payload_for_forward(
+                data,
+                batch_tensor,
+            )
         )
         if isinstance(struct_x, torch.Tensor):
             contract["struct_x"] = struct_x.float()
@@ -2462,6 +2538,8 @@ class ModelTrainer:
             contract["structural_edge_index"] = structural_edge_index
         if isinstance(structural_edge_weight, torch.Tensor):
             contract["structural_edge_weight"] = structural_edge_weight
+        if isinstance(struct_node_to_class_index, torch.Tensor):
+            contract["struct_node_to_class_index"] = struct_node_to_class_index.long()
         if hasattr(data, "stats_snapshot_version_idx"):
             snapshot_version_idx = data.stats_snapshot_version_idx
             if isinstance(snapshot_version_idx, torch.Tensor):

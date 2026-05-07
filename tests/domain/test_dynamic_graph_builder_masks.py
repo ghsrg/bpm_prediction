@@ -58,11 +58,14 @@ def test_dynamic_graph_builder_builds_allowed_mask_for_known_version(mock_featur
     assert mask is not None
     assert "structural_edge_index" in contract
     assert "structural_edge_weight" in contract
+    assert "struct_node_to_class_index" in contract
     assert contract["structural_edge_index"].dtype == torch.long
     assert contract["structural_edge_weight"].dtype == torch.float32
+    assert contract["struct_node_to_class_index"].dtype == torch.long
     assert int(contract["structural_edge_index"].shape[0]) == 2
     assert int(contract["structural_edge_weight"].shape[0]) == int(contract["structural_edge_index"].shape[1])
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert torch.equal(contract["struct_node_to_class_index"], torch.arange(len(activity_vocab), dtype=torch.long))
     assert mask.dtype == torch.bool
     assert int(mask.shape[0]) == len(activity_vocab)
     assert bool(mask[activity_vocab["End"]]) is True

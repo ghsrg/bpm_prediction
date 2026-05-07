@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict
+from typing import Any, Dict, Mapping
 
 import torch
 from torch import nn
@@ -211,17 +211,29 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.cross_attention_heads = int(cross_attention_heads)
         raw_fusion_mode = str(fusion_mode or "attention").strip().lower()
         alias_map = {
-            "attention": "attention",
-            "concat": "concat",
+            "attention": "class_mean_attention",
+            "classmeanattention": "class_mean_attention",
+            "class_mean_attention": "class_mean_attention",
+            "concat": "class_mean_concat",
+            "classmeanconcat": "class_mean_concat",
+            "class_mean_concat": "class_mean_concat",
             # Backward compatibility aliases.
-            "concat_mlp": "attention",
-            "struct_pool_concat": "concat",
+            "concat_mlp": "class_mean_attention",
+            "struct_pool_concat": "class_mean_concat",
+            "classawareadditive": "class_aware_structural_scoring",
+            "class_aware_additive": "class_aware_structural_scoring",
+            "classawareattention": "class_aware_structural_scoring",
+            "class_aware_attention": "class_aware_structural_scoring",
+            "classawarestructuralscoring": "class_aware_structural_scoring",
+            "class_aware_structural_scoring": "class_aware_structural_scoring",
+            "class_aware": "class_aware_structural_scoring",
+            "candidate_scoring": "class_aware_structural_scoring",
         }
         self.fusion_mode = alias_map.get(raw_fusion_mode, raw_fusion_mode)
-        if self.fusion_mode not in {"attention", "concat"}:
+        if self.fusion_mode not in {"class_mean_attention", "class_mean_concat", "class_aware_structural_scoring"}:
             raise ValueError(
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
-                "Available: ['Attention', 'Concat']"
+                "Available: ['ClassMeanAttention', 'ClassMeanConcat', 'ClassAwareStructuralScoring']"
             )
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
@@ -240,8 +252,16 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.attn_to_struct = (
             nn.Identity() if self.struct_hidden_dim == hidden_dim else nn.Linear(hidden_dim, self.struct_hidden_dim)
         )
+        self.struct_query_proj = (
+            nn.Identity() if hidden_dim == self.struct_hidden_dim else nn.Linear(hidden_dim, self.struct_hidden_dim)
+        )
+        self.struct_key_proj = nn.Identity()
+        self.structural_logit_scale = nn.Parameter(torch.tensor(0.1, dtype=torch.float32))
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
+        self.last_observed_logits: torch.Tensor | None = None
+        self.last_structural_node_logits: torch.Tensor | None = None
+        self.last_structural_class_logits: torch.Tensor | None = None
 
     def _build_struct_encoder(self, dropout: float) -> nn.Module:
         if self.struct_encoder_type == "GATv2Conv":
@@ -259,28 +279,97 @@ class EOPKGGATv2(BaseEOPKGModel):
             "Available: ['GATv2Conv', 'GCNConv']"
         )
 
-    def _build_struct_node_features(self, contract: GraphTensorContract, device: torch.device) -> torch.Tensor:
+    def _build_struct_node_features(
+        self,
+        contract: GraphTensorContract,
+        device: torch.device,
+        *,
+        num_struct_nodes: int | None = None,
+    ) -> torch.Tensor:
         struct_x = contract.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
             struct_x = struct_x.to(device=device, dtype=torch.float32)
             if struct_x.dim() == 1:
                 struct_x = struct_x.unsqueeze(-1)
-            if struct_x.size(0) != self.num_classes:
-                logger.warning(
-                    "struct_x node count mismatch (got=%d expected=%d). Falling back to structural embeddings.",
-                    int(struct_x.size(0)),
-                    self.num_classes,
+            if num_struct_nodes is not None and int(struct_x.size(0)) != int(num_struct_nodes):
+                raise ValueError(
+                    "struct_x row count must match structural node count: "
+                    f"struct_x_rows={int(struct_x.size(0))} num_struct_nodes={int(num_struct_nodes)}."
                 )
-            else:
-                if struct_x.size(1) != self.struct_hidden_dim:
-                    in_dim = int(struct_x.size(1))
-                    if self.struct_input_proj is None or int(self.struct_input_proj.in_features) != in_dim:
-                        self.struct_input_proj = nn.Linear(in_dim, self.struct_hidden_dim).to(device)
-                    return self.struct_input_proj(struct_x)
-                return struct_x
+            if struct_x.size(1) != self.struct_hidden_dim:
+                in_dim = int(struct_x.size(1))
+                if self.struct_input_proj is None or int(self.struct_input_proj.in_features) != in_dim:
+                    self.struct_input_proj = nn.Linear(in_dim, self.struct_hidden_dim).to(device)
+                return self.struct_input_proj(struct_x)
+            return struct_x
+
+        if num_struct_nodes is not None and int(num_struct_nodes) != self.num_classes:
+            raise ValueError(
+                "struct_x is required when structural node count differs from output_dim: "
+                f"num_struct_nodes={int(num_struct_nodes)} output_dim={self.num_classes}."
+            )
 
         indices = torch.arange(self.num_classes, device=device, dtype=torch.long)
         return self.struct_node_emb(indices)
+
+    def _resolve_struct_node_to_class_index(
+        self,
+        *,
+        contract: Mapping[str, Any],
+        num_struct_nodes: int,
+        num_classes: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        node_to_class = contract.get("struct_node_to_class_index")
+        if node_to_class is None:
+            if int(num_struct_nodes) == int(num_classes):
+                return torch.arange(num_classes, dtype=torch.long, device=device)
+            raise ValueError(
+                "ClassAwareStructuralScoring requires struct_node_to_class_index "
+                f"when num_struct_nodes={num_struct_nodes} differs from num_classes={num_classes}."
+            )
+
+        node_to_class = node_to_class.to(device=device, dtype=torch.long).reshape(-1)
+        if int(node_to_class.numel()) != int(num_struct_nodes):
+            raise ValueError("struct_node_to_class_index length must match the number of structural nodes.")
+        if torch.any(node_to_class >= int(num_classes)):
+            raise ValueError("struct_node_to_class_index contains class ids outside output_dim.")
+        if torch.any(node_to_class < -1):
+            raise ValueError("struct_node_to_class_index may contain -1 or non-negative class ids only.")
+        return node_to_class
+
+    def _class_aware_structural_logits(
+        self,
+        *,
+        obs_context: torch.Tensor,
+        h_node: torch.Tensor,
+        node_to_class: torch.Tensor,
+        num_classes: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        query = self.struct_query_proj(obs_context)
+        keys = self.struct_key_proj(h_node)
+        query = torch.nn.functional.normalize(query, p=2, dim=1, eps=1e-12)
+        keys = torch.nn.functional.normalize(keys, p=2, dim=1, eps=1e-12)
+        node_logits = torch.matmul(query, keys.transpose(0, 1))
+        class_logits = torch.full(
+            (query.size(0), int(num_classes)),
+            fill_value=torch.finfo(node_logits.dtype).min,
+            dtype=node_logits.dtype,
+            device=node_logits.device,
+        )
+        for class_idx in range(int(num_classes)):
+            node_mask = node_to_class == class_idx
+            if torch.any(node_mask):
+                class_logits[:, class_idx] = torch.logsumexp(node_logits[:, node_mask], dim=1)
+        class_logits = torch.where(torch.isfinite(class_logits), class_logits, torch.zeros_like(class_logits))
+        scale = torch.clamp(self.structural_logit_scale, min=0.0, max=10.0)
+        return node_logits * scale, class_logits * scale
+
+    def _clear_structural_diagnostics(self) -> None:
+        self.last_cross_attn_weights = None
+        self.last_observed_logits = None
+        self.last_structural_node_logits = None
+        self.last_structural_class_logits = None
 
     def _forward_local(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x, edge_index)
@@ -297,7 +386,7 @@ class EOPKGGATv2(BaseEOPKGModel):
         obs_context = self._pool_nodes(node_hidden, batch)
         batch_size = int(obs_context.shape[0])
         if not self.structural_mode:
-            self.last_cross_attn_weights = None
+            self._clear_structural_diagnostics()
             return self.classifier(obs_context)
 
         structural_edge_index = contract.get("structural_edge_index")
@@ -305,19 +394,44 @@ class EOPKGGATv2(BaseEOPKGModel):
             if not self._warned_missing_struct:
                 logger.warning("Structural tensors are missing in contract! Falling back to Baseline forward.")
                 self._warned_missing_struct = True
-            self.last_cross_attn_weights = None
+            self._clear_structural_diagnostics()
             return self.classifier(obs_context)
 
         structural_edge_index = structural_edge_index.to(device=obs_context.device, dtype=torch.long)
-        struct_nodes = self._build_struct_node_features(contract, device=obs_context.device)
+        structural_edge_index_max = int(structural_edge_index.max().item())
+        raw_struct_x = contract.get("struct_x")
+        if isinstance(raw_struct_x, torch.Tensor):
+            raw_struct_x_rows = int(raw_struct_x.size(0)) if raw_struct_x.dim() > 0 else 0
+            if structural_edge_index_max >= raw_struct_x_rows:
+                raise ValueError(
+                    "Structural edge index is out of bounds: "
+                    f"max_index={structural_edge_index_max} node_count={raw_struct_x_rows} "
+                    f"struct_x_shape={tuple(raw_struct_x.shape)}."
+                )
+        elif self.fusion_mode != "class_aware_structural_scoring" and structural_edge_index_max >= self.num_classes:
+            raise ValueError(
+                "Structural edge index is out of bounds: "
+                f"max_index={structural_edge_index_max} node_count={self.num_classes} "
+                "struct_x_shape=None."
+            )
+        if isinstance(raw_struct_x, torch.Tensor):
+            num_struct_nodes = int(raw_struct_x.size(0)) if raw_struct_x.dim() > 0 else 0
+        elif structural_edge_index_max < self.num_classes:
+            num_struct_nodes = self.num_classes
+        else:
+            num_struct_nodes = int(structural_edge_index.max().item()) + 1 if structural_edge_index.numel() > 0 else None
+        struct_nodes = self._build_struct_node_features(
+            contract,
+            device=obs_context.device,
+            num_struct_nodes=num_struct_nodes,
+        )
         node_count = int(struct_nodes.size(0))
         if node_count <= 0:
             if not self._warned_missing_struct:
                 logger.warning("Structural node tensor is empty. Falling back to Baseline forward.")
                 self._warned_missing_struct = True
-            self.last_cross_attn_weights = None
+            self._clear_structural_diagnostics()
             return self.classifier(obs_context)
-        structural_edge_index_max = int(structural_edge_index.max().item())
         if structural_edge_index_max >= node_count:
             raise ValueError(
                 "Structural edge index is out of bounds: "
@@ -328,10 +442,30 @@ class EOPKGGATv2(BaseEOPKGModel):
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)
 
-        if self.fusion_mode == "concat":
+        if self.fusion_mode == "class_aware_structural_scoring":
+            observed_logits = self.classifier(obs_context)
+            node_to_class = self._resolve_struct_node_to_class_index(
+                contract=contract,
+                num_struct_nodes=h_norm.size(0),
+                num_classes=observed_logits.size(1),
+                device=h_norm.device,
+            )
+            structural_node_logits, structural_class_logits = self._class_aware_structural_logits(
+                obs_context=obs_context,
+                h_node=h_norm,
+                node_to_class=node_to_class,
+                num_classes=observed_logits.size(1),
+            )
+            self.last_cross_attn_weights = None
+            self.last_observed_logits = observed_logits.detach()
+            self.last_structural_node_logits = structural_node_logits.detach()
+            self.last_structural_class_logits = structural_class_logits.detach()
+            return observed_logits + structural_class_logits
+
+        if self.fusion_mode == "class_mean_concat":
             # Structural context is a pooled summary of structural node states.
             context_struct = h_norm.mean(dim=0, keepdim=True).expand(batch_size, -1)
-            self.last_cross_attn_weights = None
+            self._clear_structural_diagnostics()
         else:
             query = obs_context.unsqueeze(1)  # [B, 1, hidden_dim]
             kv = self.struct_to_attn(h_norm).unsqueeze(0).expand(batch_size, -1, -1)  # [B, C, hidden_dim]
@@ -343,6 +477,9 @@ class EOPKGGATv2(BaseEOPKGModel):
                 average_attn_weights=False,
             )
             self.last_cross_attn_weights = attn_weights.detach()
+            self.last_observed_logits = None
+            self.last_structural_node_logits = None
+            self.last_structural_class_logits = None
             context_struct = self.attn_to_struct(attn_output.squeeze(1))  # [B, struct_hidden_dim]
         fused = self.fusion(torch.cat([obs_context, context_struct], dim=1))
         return self.classifier(fused)

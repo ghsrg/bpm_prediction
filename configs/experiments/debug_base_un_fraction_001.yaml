@@ -1,0 +1,45 @@
+include:
+  - "../data/generated_simulate_loan.yaml"
+  - "../model/gatv2_baseline.yaml"
+
+data:
+  dataset_label: "loan_v1_v4_simulated"
+  dataset_name: "loan_v1_v4_simulated"
+
+experiment:
+  project: "bpm_prediction_mvp2_5_debug"
+  name: "debug_base_un_fraction_001"
+  mode: "train"
+  fraction: 0.01
+  split_strategy: "temporal"
+  train_ratio: 0.25
+  split_ratio: [0.25, 0.25, 0.5]
+  stats_time_policy: "strict_asof"
+  on_missing_asof_snapshot: "use_base"
+  cache_policy: "off"
+  graph_dataset_cache_policy: "off"
+  structural_mode: false
+  statistic_enabled: false
+  mask_guided_enabled: false
+
+mapping:
+  adapter: "xes"
+  knowledge_graph:
+    backend: "neo4j"
+    strict_load: true
+    ingest_split: "train"
+  graph_feature_mapping:
+    topology_projection:
+      gateway_mode: "collapse_for_prediction"
+      diagnostics_enabled: true
+      on_fail: "warn"
+
+model:
+  pooling_strategy: "last_node"
+
+training:
+  epochs: 10
+  patience: 5
+  retrain: true
+
+seed: 42

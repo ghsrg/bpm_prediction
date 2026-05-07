@@ -140,6 +140,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         # Reuse cached structural tensors across prefixes to avoid per-prefix RAM duplication.
         contract["structural_edge_index"] = compiled["structural_edge_index"]
         contract["structural_edge_weight"] = compiled["structural_edge_weight"]
+        struct_node_to_class_index = compiled.get("struct_node_to_class_index")
+        if isinstance(struct_node_to_class_index, torch.Tensor):
+            contract["struct_node_to_class_index"] = struct_node_to_class_index
         struct_x = compiled.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
             contract["struct_x"] = struct_x
@@ -638,6 +641,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             structural_edge_index = torch.zeros((2, 0), dtype=torch.long)
             structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
 
+        struct_node_to_class_index = torch.arange(num_classes, dtype=torch.long)
         struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
         structural_edge_index_max = (
             int(structural_edge_index.max().item())
@@ -661,11 +665,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             allowed_masks_by_src = {}
             structural_edge_index = torch.zeros((2, 0), dtype=torch.long)
             structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
+            struct_node_to_class_index = torch.arange(num_classes, dtype=torch.long)
             struct_x = None
         compiled = {
             "allowed_masks_by_src": allowed_masks_by_src,
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
+            "struct_node_to_class_index": struct_node_to_class_index,
             "struct_x": struct_x,
             "topology_projection_diagnostics": diagnostics,
         }
@@ -825,6 +831,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         allowed_masks_by_src = compiled.get("allowed_masks_by_src")
         structural_edge_index = compiled.get("structural_edge_index")
         structural_edge_weight = compiled.get("structural_edge_weight")
+        struct_node_to_class_index = compiled.get("struct_node_to_class_index")
         struct_x = compiled.get("struct_x")
         diagnostics = compiled.get("topology_projection_diagnostics")
         if not isinstance(allowed_masks_by_src, dict):
@@ -832,6 +839,8 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if not isinstance(structural_edge_index, torch.Tensor):
             return None
         if not isinstance(structural_edge_weight, torch.Tensor):
+            return None
+        if not isinstance(struct_node_to_class_index, torch.Tensor):
             return None
         if struct_x is not None and (not isinstance(struct_x, torch.Tensor)):
             return None
@@ -841,6 +850,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "allowed_masks_by_src": allowed_masks_by_src,
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
+            "struct_node_to_class_index": struct_node_to_class_index,
             "struct_x": struct_x,
             "topology_projection_diagnostics": diagnostics,
         }

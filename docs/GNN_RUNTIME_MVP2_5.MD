@@ -63,7 +63,7 @@ flowchart LR
 1. `PrefixPolicy` defines target event (`target_event`) for each prefix.
 2. `FeatureEncoder` converts event features to split node tensors (`x_cat`, `x_num`).
 3. `BaselineGraphBuilder` builds observed graph tensors (`edge_index`, `edge_type`, `y`, `batch`).
-4. `DynamicGraphBuilder` optionally injects structural tensors (`allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`, `struct_x`).
+4. `DynamicGraphBuilder` optionally injects structural tensors (`allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`, `struct_node_to_class_index`, `struct_x`).
 5. `ModelTrainer` maps contract to PyG `Data` and back to forward contract.
 
 ## 4. Target Generation Rule (`y`)
@@ -109,7 +109,8 @@ sequenceDiagram
 1. `allowed_target_mask: BoolTensor [C]` per sample, `[B, C]` in batch
 2. `structural_edge_index: LongTensor [2, E_struct]`
 3. `structural_edge_weight: FloatTensor [E_struct]`
-4. `struct_x: FloatTensor [C, F_struct]` (stats-backed structural node features)
+4. `struct_node_to_class_index: LongTensor [|V|]`, where `-1` means non-target structural node
+5. `struct_x: FloatTensor [|V|, F_struct]` (stats-backed structural node features)
 
 ### 5.3 Snapshot metadata tensors
 1. `stats_snapshot_version_seq: int | None`
@@ -163,8 +164,10 @@ flowchart TD
 Dual-encoder model with configurable structural ablation:
 1. observed branch is GATv2-based and uses the same high-level pattern as BaselineGATv2 (`embed + concat + 2 x GATv2 + pool + classifier`),
 2. structural branch uses `struct_x` (when present) or class embeddings, then structural GNN,
-3. cross-attention fuses observed context with structural node representations,
-4. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
+3. `model.fusion_mode=ClassMeanAttention` keeps the previous cross-attention path and compresses structural nodes into one context vector,
+4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
+5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
+6. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
 
 Conceptual view:
 ```mermaid
@@ -226,7 +229,31 @@ flowchart LR
     C1 --> L1[logits]
 ```
 
-### 6.4 EOPKGGCN
+### 6.4 ClassAwareStructuralScoring Fusion
+
+`ClassAwareStructuralScoring` computes structural representations at structural
+node level, scores each structural node against the observed prefix context, and
+then projects node scores to activity classes:
+
+```text
+node_score_v = score(obs_context, h_node_v)
+struct_score_j = logsumexp({node_score_v | struct_node_to_class_index[v] = j})
+logit_j = observed_logit_j + gamma * struct_score_j
+```
+
+This is not classical attention. It does not reduce structural nodes into one
+context vector. It creates node-level structural scores and aggregates them into
+one score per candidate class. `struct_node_to_class_index=-1` is used for
+gateways, events, and other non-target nodes: they affect predictions through
+message passing but do not receive a direct class logit.
+
+The structural scale `gamma` is initialized conservatively at `0.1`. Trainer
+forward diagnostics log `observed_logits_mean_abs`,
+`structural_logits_mean_abs`, `structural_logits_max_abs`, and
+`structural_to_observed_logit_ratio` to show whether the structural branch is
+silent, useful, or dominating the observed branch.
+
+### 6.5 EOPKGGCN
 Compatibility EOPKG variant:
 1. observed branch with GCN encoder,
 2. structural summary context from structural tensors,

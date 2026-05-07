@@ -33,8 +33,10 @@ def _base_contract() -> dict:
     }
 
 
-def _struct_edge_index() -> torch.Tensor:
-    return torch.tensor([[0, 1, 2, 3], [1, 2, 3, 0]], dtype=torch.long)
+def _struct_edge_index(num_nodes: int = 7) -> torch.Tensor:
+    src = torch.arange(num_nodes, dtype=torch.long)
+    dst = torch.roll(src, shifts=-1)
+    return torch.stack([src, dst], dim=0)
 
 
 def test_eopkg_gatv2_dual_encoder_returns_attention_weights():
@@ -123,3 +125,134 @@ def test_eopkg_gatv2_rejects_out_of_bounds_structural_edge_index():
 
     with pytest.raises(ValueError, match="Structural edge index is out of bounds"):
         model(contract)
+
+
+def test_eopkg_gatv2_class_aware_structural_scoring_returns_per_class_structural_logits():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        struct_hidden_dim=16,
+        cross_attention_heads=4,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="ClassAwareStructuralScoring",
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(),
+        "struct_node_to_class_index": torch.arange(7, dtype=torch.long),
+    }
+
+    logits = model(contract)
+
+    assert tuple(logits.shape) == (1, 7)
+    assert model.last_cross_attn_weights is None
+    assert model.last_observed_logits is not None
+    assert tuple(model.last_observed_logits.shape) == (1, 7)
+    assert model.last_structural_node_logits is not None
+    assert tuple(model.last_structural_node_logits.shape) == (1, 7)
+    assert model.last_structural_class_logits is not None
+    assert tuple(model.last_structural_class_logits.shape) == (1, 7)
+    assert not any(isinstance(param, UninitializedParameter) for param in model.parameters())
+
+
+def test_eopkg_gatv2_class_aware_structural_scoring_projects_nodes_to_classes():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=3,
+        struct_hidden_dim=16,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="ClassAwareStructuralScoring",
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(num_nodes=6),
+        "struct_x": torch.randn(6, 5, dtype=torch.float32),
+        "struct_node_to_class_index": torch.tensor([0, 1, 1, 2, -1, 2], dtype=torch.long),
+    }
+
+    logits = model(contract)
+
+    assert tuple(logits.shape) == (1, 3)
+    assert model.last_cross_attn_weights is None
+    assert model.last_structural_node_logits is not None
+    assert tuple(model.last_structural_node_logits.shape) == (1, 6)
+    assert model.last_structural_class_logits is not None
+    assert tuple(model.last_structural_class_logits.shape) == (1, 3)
+
+
+def test_eopkg_gatv2_class_aware_structural_scoring_requires_node_to_class_mapping():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=3,
+        struct_hidden_dim=16,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="ClassAwareStructuralScoring",
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(num_nodes=6),
+        "struct_x": torch.randn(6, 5, dtype=torch.float32),
+    }
+
+    with pytest.raises(ValueError, match="struct_node_to_class_index"):
+        model(contract)
+
+
+def test_eopkg_gatv2_class_aware_structural_scoring_falls_back_without_structural_edges(
+    caplog: pytest.LogCaptureFixture,
+):
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        struct_hidden_dim=16,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="ClassAwareStructuralScoring",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        logits = model(_base_contract())
+
+    assert tuple(logits.shape) == (1, 7)
+    assert model.last_cross_attn_weights is None
+    assert model.last_observed_logits is None
+    assert model.last_structural_node_logits is None
+    assert model.last_structural_class_logits is None
+    assert "Structural tensors are missing in contract! Falling back to Baseline forward." in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("raw_fusion_mode", "expected"),
+    [
+        ("Attention", "class_mean_attention"),
+        ("Concat", "class_mean_concat"),
+        ("struct_pool_concat", "class_mean_concat"),
+        ("ClassAwareAdditive", "class_aware_structural_scoring"),
+        ("ClassAwareAttention", "class_aware_structural_scoring"),
+        ("ClassAwareStructuralScoring", "class_aware_structural_scoring"),
+    ],
+)
+def test_eopkg_gatv2_normalizes_fusion_mode_aliases(raw_fusion_mode: str, expected: str):
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        struct_hidden_dim=16,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode=raw_fusion_mode,
+    )
+
+    assert model.fusion_mode == expected

@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-04-27
+- `last_updated`: 2026-05-06
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -109,7 +109,11 @@ config-driven mapping у `struct_x`.
 
 Підтримуються baseline GNN і EOPKG-моделі. EOPKG runtime може використовувати
 `allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`,
-`struct_x` і snapshot telemetry.
+`struct_node_to_class_index`, `struct_x` і snapshot telemetry. Для
+`EOPKGGATv2` доступні backward-compatible `ClassMeanAttention` /
+`ClassMeanConcat` і новий `ClassAwareStructuralScoring`, який додає
+node-level structural logits, агреговані у class logits через
+`struct_node_to_class_index`.
 
 ### graph_dataset_cache_and_spill
 

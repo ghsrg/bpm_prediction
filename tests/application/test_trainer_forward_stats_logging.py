@@ -58,6 +58,31 @@ class _NaNLogitModel(nn.Module):
         return logits + (self.dummy * 0.0)
 
 
+class _ClassAwareDiagnosticModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.last_observed_logits: torch.Tensor | None = None
+        self.last_structural_class_logits: torch.Tensor | None = None
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        observed = torch.tensor([[2.0, -2.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        structural = torch.tensor([[0.25, -0.75]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        self.last_observed_logits = observed.detach()
+        self.last_structural_class_logits = structural.detach()
+        return observed + structural + (self.dummy * 0.0)
+
+
+class _RecordingTracker:
+    def __init__(self) -> None:
+        self.metrics: list[tuple[str, float, int | None]] = []
+
+    def log_metric(self, key: str, value: float, step: int | None = None) -> None:
+        self.metrics.append((key, float(value), step))
+
+
 def _sample(y_value: int, *, snapshot_idx: int, snapshot_epoch: float) -> Data:
     return Data(
         x_cat=torch.zeros((1, 0), dtype=torch.long),
@@ -236,6 +261,43 @@ def test_trainer_forward_stats_logs_topology_projection_summary(caplog):
     assert "topology_projection_missing_vocab=1" in caplog.text
 
 
+def test_trainer_logs_class_aware_structural_logit_contribution_metrics(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    tracker = _RecordingTracker()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_ClassAwareDiagnosticModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+        tracker=tracker,
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert "observed_logits_mean_abs=2.000000" in caplog.text
+    assert "structural_logits_mean_abs=0.500000" in caplog.text
+    assert "structural_logits_max_abs=0.750000" in caplog.text
+    assert "structural_to_observed_logit_ratio=0.250000" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "train_observed_logits_mean_abs" in metric_names
+    assert "train_structural_logits_mean_abs" in metric_names
+    assert "train_structural_logits_max_abs" in metric_names
+    assert "train_structural_to_observed_logit_ratio" in metric_names
+
+
 def test_data_to_contract_uses_first_graph_structural_payload_from_batch():
     snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
     sample_a = Data(
@@ -248,6 +310,7 @@ def test_data_to_contract_uses_first_graph_structural_payload_from_batch():
         struct_x=torch.tensor([[1.0], [2.0], [3.0]], dtype=torch.float32),
         structural_edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
         structural_edge_weight=torch.tensor([0.2, 0.8], dtype=torch.float32),
+        struct_node_to_class_index=torch.tensor([0, 1, 2], dtype=torch.long),
         stats_snapshot_version_idx=torch.tensor([10], dtype=torch.long),
         stats_snapshot_as_of_epoch=torch.tensor([snapshot_epoch], dtype=torch.float64),
     )
@@ -261,6 +324,7 @@ def test_data_to_contract_uses_first_graph_structural_payload_from_batch():
         struct_x=torch.tensor([[9.0], [9.0], [9.0]], dtype=torch.float32),
         structural_edge_index=torch.tensor([[0], [2]], dtype=torch.long),
         structural_edge_weight=torch.tensor([1.0], dtype=torch.float32),
+        struct_node_to_class_index=torch.tensor([2, 1, 0], dtype=torch.long),
         stats_snapshot_version_idx=torch.tensor([10], dtype=torch.long),
         stats_snapshot_as_of_epoch=torch.tensor([snapshot_epoch], dtype=torch.float64),
     )
@@ -284,6 +348,8 @@ def test_data_to_contract_uses_first_graph_structural_payload_from_batch():
     assert torch.equal(contract["structural_edge_index"], sample_a.structural_edge_index)
     assert isinstance(contract.get("structural_edge_weight"), torch.Tensor)
     assert torch.allclose(contract["structural_edge_weight"], sample_a.structural_edge_weight)
+    assert isinstance(contract.get("struct_node_to_class_index"), torch.Tensor)
+    assert torch.equal(contract["struct_node_to_class_index"], sample_a.struct_node_to_class_index)
 
 
 def test_data_to_contract_warns_when_batch_has_mixed_snapshot_versions():

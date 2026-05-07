@@ -1458,12 +1458,13 @@ fields:
     path: model.fusion_mode
     section: model
     label: 'Модель: Fusion mode'
-    description: Fusion strategy for EOPKGGATv2 structural + observed contexts.
+    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits.
     affects: How structural context is combined with observed branch in EOPKG mode.
-    default: Attention
+    default: ClassMeanAttention
     enum:
-    - Attention
-    - Concat
+    - ClassMeanAttention
+    - ClassMeanConcat
+    - ClassAwareStructuralScoring
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
@@ -1476,10 +1477,11 @@ fields:
     path: model.dropout
     section: model
     label: 'Модель: Dropout'
-    description: Model architecture/hyperparameter.
-    affects: Capacity, compute footprint, and generalization behavior.
-    default: ''
-    enum: []
+    description: Currently only sequential_prefix is implemented; prefix events are represented as a sequential event graph.
+    affects: Prefix graph construction strategy for model input.
+    default: sequential_prefix
+    enum:
+    - sequential_prefix
     required_in_modes: []
     required_when: {}
     ui:
@@ -1567,14 +1569,17 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+      readonly: true
   model.struct_hidden_dim:
     path: model.struct_hidden_dim
     section: model
     label: 'Модель: Struct прихований розмірність'
-    description: Model architecture/hyperparameter.
-    affects: Capacity, compute footprint, and generalization behavior.
-    default: ''
-    enum: []
+    description: global_mean pools all prefix node embeddings; last_node uses the final prefix node embedding as the process state.
+    affects: How observed prefix node embeddings are pooled before classification.
+    default: global_mean
+    enum:
+    - global_mean
+    - last_node
     required_in_modes: []
     required_when: {}
     ui:

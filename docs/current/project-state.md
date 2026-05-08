@@ -115,11 +115,13 @@ config-driven mapping у `struct_x`.
 node-level structural logits, агреговані у class logits через
 `struct_node_to_class_index`.
 
-Current `ClassAwareStructuralScoring` uses a bilinear prefix-to-structure
-scorer with a structural prior, late node-to-class `LogSumExp` pooling,
-per-sample LayerNorm, and observed-logit scale alignment. Trainer can add a
-set-aware structural auxiliary loss via `training.structural_aux_loss_enabled`
-so the structural branch receives a direct gradient signal.
+Current `ClassAwareStructuralScoring` uses structural identity embeddings
+enriched by `model.structural_stats_beta * stats_projection(struct_x)`, then a
+bilinear prefix-to-structure scorer with a structural prior, late node-to-class
+`LogSumExp` pooling, per-sample LayerNorm, and observed-logit scale alignment.
+Trainer can add a set-aware structural auxiliary loss via
+`training.structural_aux_loss_enabled` so the structural branch receives a
+direct gradient signal.
 
 ### graph_dataset_cache_and_spill
 

@@ -163,7 +163,7 @@ flowchart TD
 ### 6.3 EOPKGGATv2
 Dual-encoder model with configurable structural ablation:
 1. observed branch is GATv2-based and uses the same high-level pattern as BaselineGATv2 (`embed + concat + 2 x GATv2 + pool + classifier`),
-2. structural branch uses `struct_x` (when present) or class embeddings, then structural GNN,
+2. structural branch uses structural identity embeddings enriched by `struct_x` statistics when present, then structural GNN,
 3. `model.fusion_mode=ClassMeanAttention` keeps the previous cross-attention path and compresses structural nodes into one context vector,
 4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
 5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
@@ -204,16 +204,18 @@ flowchart LR
     subgraph STR[Structural branch]
         S0{struct_x present}
         S1[struct_x]
-        S2[Class embedding table]
-        S3[Input projection when needed]
-        S4[Structural GNN GATv2Conv or GCNConv]
+        S2[Structural identity embedding]
+        S3[Stats projection]
+        S4[LayerNorm identity plus beta stats]
+        S6[Structural GNN GATv2Conv or GCNConv]
         S5[ReLU and Dropout]
         S0 -->|yes| S1
-        S0 -->|no| S2
+        S0 -->|always| S2
         S1 --> S3
-        S2 --> S3
+        S2 --> S4
         S3 --> S4
-        S4 --> S5
+        S4 --> S6
+        S6 --> S5
     end
 
     M0{structural_mode}
@@ -236,6 +238,11 @@ node level, scores each structural node against the observed prefix context, and
 then projects node scores to activity classes:
 
 ```text
+identity_v = Embedding(class_or_node_identity_v)
+stats_v = W_stats struct_x_v
+h0_v = LayerNorm(identity_v + beta * stats_v)
+h_node_v = StructuralGNN(h0_v)
+
 q_i = W_q obs_context_i
 k_v = W_k h_node_v
 
@@ -255,7 +262,10 @@ message passing but do not receive a direct class logit.
 
 Default `model.structural_score_mode=bilinear_with_prior`. The previous
 cosine-style scorer remains available as `model.structural_score_mode=cosine`
-for ablations. The structural scale `gamma` is initialized conservatively via
+for ablations. `struct_x` is additive enrichment, not a replacement for
+structural identity. `model.structural_stats_beta` controls beta in
+`identity + beta * stats_projection(struct_x)` and defaults to `0.1`.
+The structural scale `gamma` is initialized conservatively via
 `model.structural_logit_scale_init=0.1` and clamped by
 `model.structural_logit_scale_max`.
 

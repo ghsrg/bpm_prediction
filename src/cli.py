@@ -244,6 +244,7 @@ def _build_model_factory_kwargs(
         "structural_logit_scale_max": float(model_cfg.get("structural_logit_scale_max", 2.0)),
         "structural_observed_scale_min": float(model_cfg.get("structural_observed_scale_min", 1.0)),
         "structural_observed_scale_max": float(model_cfg.get("structural_observed_scale_max", 10.0)),
+        "structural_stats_beta": float(model_cfg.get("structural_stats_beta", 0.1)),
     }
 
 

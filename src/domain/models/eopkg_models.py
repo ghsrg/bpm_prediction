@@ -201,6 +201,7 @@ class EOPKGGATv2(BaseEOPKGModel):
         structural_logit_scale_max: float = 2.0,
         structural_observed_scale_min: float = 1.0,
         structural_observed_scale_max: float = 10.0,
+        structural_stats_beta: float = 0.1,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -249,11 +250,14 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.structural_logit_scale_max = float(structural_logit_scale_max)
         self.structural_observed_scale_min = float(structural_observed_scale_min)
         self.structural_observed_scale_max = float(structural_observed_scale_max)
+        self.structural_stats_beta = float(structural_stats_beta)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
         self.struct_node_emb = nn.Embedding(self.num_classes, self.struct_hidden_dim)
+        self.struct_non_target_emb = nn.Parameter(torch.zeros(self.struct_hidden_dim, dtype=torch.float32))
         self.struct_input_proj: nn.Linear | None = None
+        self.struct_input_norm = nn.LayerNorm(self.struct_hidden_dim)
         self.struct_gnn = self._build_struct_encoder(dropout=dropout)
         self.struct_to_attn = (
             nn.Identity() if self.struct_hidden_dim == hidden_dim else nn.Linear(self.struct_hidden_dim, hidden_dim)
@@ -299,6 +303,34 @@ class EOPKGGATv2(BaseEOPKGModel):
             "Available: ['GATv2Conv', 'GCNConv']"
         )
 
+    def _build_struct_identity_features(
+        self,
+        contract: Mapping[str, Any],
+        *,
+        device: torch.device,
+        num_struct_nodes: int,
+    ) -> torch.Tensor:
+        node_count = int(num_struct_nodes)
+        node_to_class = contract.get("struct_node_to_class_index")
+        if isinstance(node_to_class, torch.Tensor) and int(node_to_class.numel()) == node_count:
+            node_to_class = node_to_class.to(device=device, dtype=torch.long).reshape(-1)
+            safe_class_ids = torch.clamp(node_to_class, min=0, max=max(self.num_classes - 1, 0))
+            identity = self.struct_node_emb(safe_class_ids)
+            non_target_mask = node_to_class < 0
+            if torch.any(non_target_mask):
+                identity = identity.clone()
+                identity[non_target_mask] = self.struct_non_target_emb.to(device=device, dtype=identity.dtype)
+            return identity
+
+        node_ids = torch.arange(node_count, device=device, dtype=torch.long)
+        safe_class_ids = torch.clamp(node_ids, max=max(self.num_classes - 1, 0))
+        identity = self.struct_node_emb(safe_class_ids)
+        overflow_mask = node_ids >= self.num_classes
+        if torch.any(overflow_mask):
+            identity = identity.clone()
+            identity[overflow_mask] = self.struct_non_target_emb.to(device=device, dtype=identity.dtype)
+        return identity
+
     def _build_struct_node_features(
         self,
         contract: GraphTensorContract,
@@ -316,12 +348,21 @@ class EOPKGGATv2(BaseEOPKGModel):
                     "struct_x row count must match structural node count: "
                     f"struct_x_rows={int(struct_x.size(0))} num_struct_nodes={int(num_struct_nodes)}."
                 )
+            node_count = int(num_struct_nodes) if num_struct_nodes is not None else int(struct_x.size(0))
             if struct_x.size(1) != self.struct_hidden_dim:
                 in_dim = int(struct_x.size(1))
                 if self.struct_input_proj is None or int(self.struct_input_proj.in_features) != in_dim:
                     self.struct_input_proj = nn.Linear(in_dim, self.struct_hidden_dim).to(device)
-                return self.struct_input_proj(struct_x)
-            return struct_x
+                stats_features = self.struct_input_proj(struct_x)
+            else:
+                stats_features = struct_x
+            identity_features = self._build_struct_identity_features(
+                contract,
+                device=device,
+                num_struct_nodes=node_count,
+            )
+            beta = float(self.structural_stats_beta)
+            return self.struct_input_norm(identity_features + beta * stats_features)
 
         if num_struct_nodes is not None and int(num_struct_nodes) != self.num_classes:
             raise ValueError(

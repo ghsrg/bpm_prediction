@@ -158,6 +158,34 @@ def test_eopkg_gatv2_class_aware_structural_scoring_returns_per_class_structural
     assert not any(isinstance(param, UninitializedParameter) for param in model.parameters())
 
 
+def test_eopkg_gatv2_scales_structural_logits_against_observed_logits():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=8,
+        output_dim=3,
+        dropout=0.0,
+        structural_mode=True,
+        fusion_mode="ClassAwareStructuralScoring",
+        structural_logit_scale_init=0.1,
+        structural_observed_scale_min=1.0,
+        structural_observed_scale_max=10.0,
+    )
+    raw = torch.tensor([[-1.0, 0.0, 1.0]], dtype=torch.float32)
+    observed = torch.tensor([[20.0, -10.0, 0.0]], dtype=torch.float32)
+
+    scaled, normalized, observed_scale = model._scale_structural_class_logits(
+        raw_class_logits=raw,
+        observed_logits=observed,
+    )
+
+    assert observed_scale.shape == torch.Size([1, 1])
+    assert float(observed_scale.item()) == pytest.approx(10.0, abs=1e-6)
+    assert torch.allclose(normalized.mean(dim=1), torch.zeros(1), atol=1e-6)
+    assert torch.allclose(normalized.std(dim=1, unbiased=False), torch.ones(1), atol=1e-6)
+    assert float(scaled.abs().mean().item()) == pytest.approx(float(normalized.abs().mean().item()), rel=1e-5)
+
+
 def test_eopkg_gatv2_class_aware_structural_scoring_projects_nodes_to_classes():
     model = create_model(
         model_type="EOPKGGATv2",
@@ -184,6 +212,61 @@ def test_eopkg_gatv2_class_aware_structural_scoring_projects_nodes_to_classes():
     assert tuple(model.last_structural_node_logits.shape) == (1, 6)
     assert model.last_structural_class_logits is not None
     assert tuple(model.last_structural_class_logits.shape) == (1, 3)
+
+
+def test_eopkg_gatv2_class_aware_bilinear_plus_prior_exposes_raw_and_normalized_diagnostics():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=8,
+        output_dim=4,
+        dropout=0.0,
+        structural_mode=True,
+        fusion_mode="ClassAwareStructuralScoring",
+        structural_score_mode="bilinear_with_prior",
+        structural_logit_scale_init=0.1,
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(num_nodes=6),
+        "struct_x": torch.randn(6, 3, dtype=torch.float32),
+        "struct_node_to_class_index": torch.tensor([0, 1, 1, 2, 3, -1], dtype=torch.long),
+    }
+
+    logits = model(contract)
+
+    assert logits.shape == torch.Size([1, 4])
+    assert isinstance(model.last_structural_raw_class_logits, torch.Tensor)
+    assert isinstance(model.last_structural_normalized_class_logits, torch.Tensor)
+    assert isinstance(model.last_structural_observed_scale, torch.Tensor)
+    assert model.last_structural_raw_class_logits.shape == torch.Size([1, 4])
+    assert model.last_structural_normalized_class_logits.shape == torch.Size([1, 4])
+    assert model.last_structural_observed_scale.shape == torch.Size([1, 1])
+
+
+def test_eopkg_gatv2_class_aware_structural_logits_keep_gradient_for_auxiliary_loss():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=8,
+        output_dim=4,
+        dropout=0.0,
+        structural_mode=True,
+        fusion_mode="ClassAwareStructuralScoring",
+        structural_score_mode="bilinear_with_prior",
+        structural_logit_scale_init=0.1,
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(num_nodes=6),
+        "struct_x": torch.randn(6, 3, dtype=torch.float32),
+        "struct_node_to_class_index": torch.tensor([0, 1, 1, 2, 3, -1], dtype=torch.long),
+    }
+
+    model(contract)
+
+    assert isinstance(model.last_structural_class_logits, torch.Tensor)
+    assert model.last_structural_class_logits.requires_grad
 
 
 def test_eopkg_gatv2_class_aware_structural_scoring_requires_node_to_class_mapping():

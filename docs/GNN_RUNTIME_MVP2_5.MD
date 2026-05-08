@@ -236,9 +236,15 @@ node level, scores each structural node against the observed prefix context, and
 then projects node scores to activity classes:
 
 ```text
-node_score_v = score(obs_context, h_node_v)
-struct_score_j = logsumexp({node_score_v | struct_node_to_class_index[v] = j})
-logit_j = observed_logit_j + gamma * struct_score_j
+q_i = W_q obs_context_i
+k_v = W_k h_node_v
+
+node_score(i, v) = q_i^T W_bilinear k_v + W_prior h_node_v
+raw_struct_class(i, j) = logsumexp({node_score(i, v) | struct_node_to_class_index[v] = j})
+norm_struct(i, :) = LayerNorm(raw_struct_class(i, :))
+obs_scale(i) = clamp(mean(abs(observed_logits_i)).detach(), min, max)
+structural_logits(i, :) = gamma * obs_scale(i) * norm_struct(i, :)
+final_logits = observed_logits + structural_logits
 ```
 
 This is not classical attention. It does not reduce structural nodes into one
@@ -247,8 +253,13 @@ one score per candidate class. `struct_node_to_class_index=-1` is used for
 gateways, events, and other non-target nodes: they affect predictions through
 message passing but do not receive a direct class logit.
 
-The structural scale `gamma` is initialized conservatively at `0.1`. Trainer
-forward diagnostics log `observed_logits_mean_abs`,
+Default `model.structural_score_mode=bilinear_with_prior`. The previous
+cosine-style scorer remains available as `model.structural_score_mode=cosine`
+for ablations. The structural scale `gamma` is initialized conservatively via
+`model.structural_logit_scale_init=0.1` and clamped by
+`model.structural_logit_scale_max`.
+
+Trainer forward diagnostics log `observed_logits_mean_abs`,
 `structural_logits_mean_abs`, `structural_logits_max_abs`, and
 `structural_to_observed_logit_ratio` to show whether the structural branch is
 silent, useful, or dominating the observed branch.
@@ -281,17 +292,30 @@ flowchart LR
 4. Hard versus soft decision uses mask reliability:
    - if `target_in_mask_rate` meets threshold, policy may be hard,
    - otherwise policy stays soft.
+5. `ClassAwareStructuralScoring` may add an auxiliary structural loss:
+   - `training.structural_aux_loss_enabled`: enables the auxiliary objective,
+   - `training.structural_aux_loss_weight`: set-aware CE over allowed target candidates,
+   - `training.structural_aux_exact_loss_weight`: small exact CE component.
+6. Auxiliary structural loss uses `last_structural_class_logits` before mask
+   policy application. The set-aware component treats every `allowed_target_mask`
+   candidate as valid and always includes the exact target, which keeps the loss
+   compatible with parallel or ambiguous target regions.
 
 ```mermaid
 flowchart LR
     CONTRACT[GraphTensorContract batch] --> MODEL[Model forward]
     MODEL --> LOGITS_RAW[raw logits]
+    MODEL --> STRUCT_LOGITS[structural class logits]
     CONTRACT --> MASK[allowed_target_mask optional]
     MASK --> POLICY[mask_guided policy off soft hard]
     LOGITS_RAW --> POLICY
     POLICY --> LOGITS_EFF[effective logits]
     CONTRACT --> Y[y]
     LOGITS_EFF --> LOSS[cross entropy]
+    STRUCT_LOGITS --> AUX[structural auxiliary loss]
+    MASK --> AUX
+    Y --> AUX
+    AUX --> LOSS
     Y --> LOSS
     LOGITS_EFF --> PRED[predictions]
     PRED --> METRICS[accuracy f1 ece]

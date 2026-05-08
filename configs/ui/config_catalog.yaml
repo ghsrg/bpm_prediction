@@ -1473,6 +1473,93 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  model.structural_score_mode:
+    path: model.structural_score_mode
+    section: model
+    label: 'Model: Structural score mode'
+    description: Scoring function used by ClassAwareStructuralScoring before node-to-class late pooling.
+    affects: Per-class structural logit signal for topology-aware ranking.
+    default: bilinear_with_prior
+    enum:
+    - bilinear_with_prior
+    - cosine
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1001
+  model.structural_logit_scale_init:
+    path: model.structural_logit_scale_init
+    section: model
+    label: 'Model: Structural logit scale init'
+    description: Initial gamma multiplier for normalized structural logits.
+    affects: Protects observed logits from structural over-dominance at training start.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1002
+  model.structural_logit_scale_max:
+    path: model.structural_logit_scale_max
+    section: model
+    label: 'Model: Structural logit scale max'
+    description: Upper clamp for learned structural logit gamma.
+    affects: Prevents the structural branch from dominating observed logits.
+    default: 2.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1003
+  model.structural_observed_scale_min:
+    path: model.structural_observed_scale_min
+    section: model
+    label: 'Model: Structural observed scale min'
+    description: Lower clamp for detached observed-logit magnitude used to scale structural logits.
+    affects: Keeps normalized structural logits numerically meaningful when observed logits are small.
+    default: 1.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1004
+  model.structural_observed_scale_max:
+    path: model.structural_observed_scale_max
+    section: model
+    label: 'Model: Structural observed scale max'
+    description: Upper clamp for detached observed-logit magnitude used to scale structural logits.
+    affects: Keeps structural-logit scale aligned without inheriting extreme observed-logit magnitudes.
+    default: 10.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1005
   model.dropout:
     path: model.dropout
     section: model
@@ -2423,6 +2510,56 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  training.structural_aux_loss_enabled:
+    path: training.structural_aux_loss_enabled
+    section: training
+    label: 'Training: Structural auxiliary loss enabled'
+    description: Enable auxiliary loss on class-aware structural logits.
+    affects: Gives the structural branch a direct training signal instead of relying only on fused logits.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1001
+  training.structural_aux_loss_weight:
+    path: training.structural_aux_loss_weight
+    section: training
+    label: 'Training: Structural auxiliary set loss weight'
+    description: Weight for set-aware CE over allowed target candidates using structural logits.
+    affects: Strength of topology-compatible structural learning signal.
+    default: 0.05
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.structural_aux_loss_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1002
+  training.structural_aux_exact_loss_weight:
+    path: training.structural_aux_exact_loss_weight
+    section: training
+    label: 'Training: Structural auxiliary exact loss weight'
+    description: Small exact CE component for structural logits.
+    affects: Keeps strict target pressure while set-aware loss handles parallel allowed candidates.
+    default: 0.01
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.structural_aux_loss_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1003
   training.patience:
     path: training.patience
     section: training

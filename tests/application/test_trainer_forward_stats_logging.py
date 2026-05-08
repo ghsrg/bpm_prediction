@@ -59,17 +59,30 @@ class _NaNLogitModel(nn.Module):
 
 
 class _ClassAwareDiagnosticModel(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, output_dim: int = 2) -> None:
         super().__init__()
         self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.output_dim = int(output_dim)
         self.last_observed_logits: torch.Tensor | None = None
         self.last_structural_class_logits: torch.Tensor | None = None
 
     def forward(self, contract):
         batch = contract["batch"]
         num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
-        observed = torch.tensor([[2.0, -2.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
-        structural = torch.tensor([[0.25, -0.75]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        if self.output_dim == 2:
+            observed_base = torch.tensor([[2.0, -2.0]], dtype=torch.float32, device=batch.device)
+            structural_base = torch.tensor([[0.25, -0.75]], dtype=torch.float32, device=batch.device)
+        else:
+            observed_base = torch.zeros((1, self.output_dim), dtype=torch.float32, device=batch.device)
+            structural_base = torch.linspace(
+                -0.5,
+                0.5,
+                steps=self.output_dim,
+                dtype=torch.float32,
+                device=batch.device,
+            ).view(1, -1)
+        observed = observed_base.repeat(num_graphs, 1)
+        structural = structural_base.repeat(num_graphs, 1)
         self.last_observed_logits = observed.detach()
         self.last_structural_class_logits = structural.detach()
         return observed + structural + (self.dummy * 0.0)
@@ -97,6 +110,28 @@ def _sample(y_value: int, *, snapshot_idx: int, snapshot_epoch: float) -> Data:
         stats_snapshot_version_idx=torch.tensor([snapshot_idx], dtype=torch.long),
         stats_snapshot_as_of_epoch=torch.tensor([snapshot_epoch], dtype=torch.float64),
     )
+
+
+def _make_trainer(
+    *,
+    model: nn.Module,
+    config_overrides: dict | None = None,
+    tracker: _RecordingTracker | None = None,
+) -> ModelTrainer:
+    config = {"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True}
+    if config_overrides:
+        config.update(config_overrides)
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config=config,
+        tracker=tracker,
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    return trainer
 
 
 def _sample_with_missing_asof(y_value: int, *, snapshot_idx: int, snapshot_epoch: float, missing_asof: bool) -> Data:
@@ -296,6 +331,73 @@ def test_trainer_logs_class_aware_structural_logit_contribution_metrics(caplog):
     assert "train_structural_logits_mean_abs" in metric_names
     assert "train_structural_logits_max_abs" in metric_names
     assert "train_structural_to_observed_logit_ratio" in metric_names
+
+
+def test_structural_set_loss_rewards_any_allowed_target_candidate():
+    trainer = _make_trainer(model=_ClassAwareDiagnosticModel(output_dim=3))
+    structural_logits = torch.tensor([[0.0, 5.0, -5.0]], dtype=torch.float32)
+    targets = torch.tensor([2], dtype=torch.long)
+    allowed_mask = torch.tensor([[False, True, True]], dtype=torch.bool)
+
+    set_loss = trainer._compute_structural_set_loss(
+        structural_logits=structural_logits,
+        targets=targets,
+        allowed_target_mask=allowed_mask,
+    )
+    exact_loss = torch.nn.functional.cross_entropy(structural_logits, targets)
+
+    assert float(set_loss.item()) < 0.01
+    assert float(exact_loss.item()) > 9.0
+
+
+def test_trainer_parses_structural_aux_loss_enabled_string_false():
+    trainer = _make_trainer(
+        model=_ClassAwareDiagnosticModel(output_dim=3),
+        config_overrides={"structural_aux_loss_enabled": "false"},
+    )
+
+    assert trainer.structural_aux_loss_enabled is False
+
+
+def test_trainer_adds_and_logs_structural_auxiliary_loss(caplog):
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(
+        model=_ClassAwareDiagnosticModel(output_dim=3),
+        config_overrides={
+            "structural_aux_loss_enabled": True,
+            "structural_aux_loss_weight": 0.05,
+            "structural_aux_exact_loss_weight": 0.01,
+        },
+        tracker=tracker,
+    )
+    loader = [
+        Data(
+            x_cat=torch.zeros((2, 0), dtype=torch.long),
+            x_num=torch.zeros((2, 1), dtype=torch.float32),
+            edge_index=torch.tensor([[0], [1]], dtype=torch.long),
+            edge_type=torch.zeros(1, dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            batch=torch.zeros(2, dtype=torch.long),
+            allowed_target_mask=torch.tensor([[False, True, True]], dtype=torch.bool),
+        )
+    ]
+
+    with caplog.at_level(logging.INFO):
+        trainer._run_epoch(
+            loader,
+            optimizer=None,
+            training=False,
+            epoch_index=1,
+            total_epochs=1,
+        )
+
+    assert "structural_aux_set_loss=" in caplog.text
+    assert "structural_aux_exact_loss=" in caplog.text
+    assert "structural_aux_total_loss=" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "validation_structural_aux_set_loss" in metric_names
+    assert "validation_structural_aux_exact_loss" in metric_names
+    assert "validation_structural_aux_total_loss" in metric_names
 
 
 def test_data_to_contract_uses_first_graph_structural_payload_from_batch():

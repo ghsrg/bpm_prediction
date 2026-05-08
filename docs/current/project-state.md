@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-06
+- `last_updated`: 2026-05-07
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -114,6 +114,12 @@ config-driven mapping у `struct_x`.
 `ClassMeanConcat` і новий `ClassAwareStructuralScoring`, який додає
 node-level structural logits, агреговані у class logits через
 `struct_node_to_class_index`.
+
+Current `ClassAwareStructuralScoring` uses a bilinear prefix-to-structure
+scorer with a structural prior, late node-to-class `LogSumExp` pooling,
+per-sample LayerNorm, and observed-logit scale alignment. Trainer can add a
+set-aware structural auxiliary loss via `training.structural_aux_loss_enabled`
+so the structural branch receives a direct gradient signal.
 
 ### graph_dataset_cache_and_spill
 

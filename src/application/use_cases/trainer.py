@@ -24,6 +24,7 @@ import psutil
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, top_k_accuracy_score
 from torch import nn
+import torch.nn.functional as F
 from torch.nn.parameter import UninitializedParameter
 from torch.optim import Adam
 from torch_geometric.data import Data
@@ -42,6 +43,19 @@ from src.infrastructure.runtime.progress_events import ProgressReporter, emit_pr
 
 
 logger = logging.getLogger(__name__)
+
+
+def _as_bool(raw: Any, *, default: bool = False) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return bool(default)
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
 
 
 @dataclass
@@ -207,6 +221,9 @@ class ModelTrainer:
         self.mask_guided_hard_threshold = float(config.get("mask_guided_hard_threshold", 1.0))
         self.mask_guided_soft_penalty = float(config.get("mask_guided_soft_penalty", 2.0))
         self.mask_guided_min_samples_for_hard = max(1, int(config.get("mask_guided_min_samples_for_hard", 1)))
+        self.structural_aux_loss_enabled = _as_bool(config.get("structural_aux_loss_enabled"), default=False)
+        self.structural_aux_loss_weight = float(config.get("structural_aux_loss_weight", 0.05))
+        self.structural_aux_exact_loss_weight = float(config.get("structural_aux_exact_loss_weight", 0.01))
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -1126,6 +1143,24 @@ class ModelTrainer:
             kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
         return DataLoader(source, **kwargs)
 
+    def _compute_structural_set_loss(
+        self,
+        *,
+        structural_logits: torch.Tensor,
+        targets: torch.Tensor,
+        allowed_target_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if not isinstance(allowed_target_mask, torch.Tensor):
+            return F.cross_entropy(structural_logits, targets)
+
+        valid_mask = allowed_target_mask.to(device=structural_logits.device, dtype=torch.bool).clone()
+        target_index = targets.view(-1, 1).to(device=structural_logits.device)
+        valid_mask.scatter_(1, target_index, True)
+        log_probs = F.log_softmax(structural_logits, dim=1)
+        masked_log_probs = log_probs.masked_fill(~valid_mask, torch.finfo(log_probs.dtype).min)
+        set_log_prob = torch.logsumexp(masked_log_probs, dim=1)
+        return -set_log_prob.mean()
+
     def _run_epoch(
         self,
         loader: Iterable[Data],
@@ -1203,6 +1238,45 @@ class ModelTrainer:
                     policy=mask_policy,
                 )
                 loss = self.criterion(effective_logits, targets)
+                structural_aux_set_loss: torch.Tensor | None = None
+                structural_aux_exact_loss: torch.Tensor | None = None
+                structural_logits = getattr(self.model, "last_structural_class_logits", None)
+                if (
+                    self.structural_aux_loss_enabled
+                    and isinstance(structural_logits, torch.Tensor)
+                    and structural_logits.shape == effective_logits.shape
+                ):
+                    structural_aux_set_loss = self._compute_structural_set_loss(
+                        structural_logits=structural_logits,
+                        targets=targets,
+                        allowed_target_mask=allowed_mask,
+                    )
+                    structural_aux_exact_loss = F.cross_entropy(structural_logits, targets)
+                    loss = (
+                        loss
+                        + (self.structural_aux_loss_weight * structural_aux_set_loss)
+                        + (self.structural_aux_exact_loss_weight * structural_aux_exact_loss)
+                    )
+                    forward_stats["structural_aux_set_loss_sum"] = float(
+                        forward_stats.get("structural_aux_set_loss_sum", 0.0)
+                    ) + float(structural_aux_set_loss.detach().cpu().item())
+                    forward_stats["structural_aux_exact_loss_sum"] = float(
+                        forward_stats.get("structural_aux_exact_loss_sum", 0.0)
+                    ) + float(structural_aux_exact_loss.detach().cpu().item())
+                    forward_stats["structural_aux_total_loss_sum"] = float(
+                        forward_stats.get("structural_aux_total_loss_sum", 0.0)
+                    ) + float(
+                        (
+                            (self.structural_aux_loss_weight * structural_aux_set_loss)
+                            + (self.structural_aux_exact_loss_weight * structural_aux_exact_loss)
+                        )
+                        .detach()
+                        .cpu()
+                        .item()
+                    )
+                    forward_stats["structural_aux_loss_batches"] = int(
+                        forward_stats.get("structural_aux_loss_batches", 0)
+                    ) + 1
                 skip_optimizer_step = False
                 if not self._is_finite_tensor(loss):
                     non_finite_loss_batches += 1
@@ -2147,6 +2221,10 @@ class ModelTrainer:
             "structural_logits_abs_sum": 0.0,
             "structural_logits_abs_max": 0.0,
             "structural_logits_count": 0,
+            "structural_aux_set_loss_sum": 0.0,
+            "structural_aux_exact_loss_sum": 0.0,
+            "structural_aux_total_loss_sum": 0.0,
+            "structural_aux_loss_batches": 0,
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -2371,6 +2449,22 @@ class ModelTrainer:
         )
         structural_logits_max_abs = float(bucket.get("structural_logits_abs_max", 0.0))
         structural_to_observed_logit_ratio = structural_logits_mean_abs / max(observed_logits_mean_abs, 1e-12)
+        structural_aux_loss_batches = int(bucket.get("structural_aux_loss_batches", 0))
+        structural_aux_set_loss = (
+            float(bucket.get("structural_aux_set_loss_sum", 0.0)) / float(structural_aux_loss_batches)
+            if structural_aux_loss_batches > 0
+            else 0.0
+        )
+        structural_aux_exact_loss = (
+            float(bucket.get("structural_aux_exact_loss_sum", 0.0)) / float(structural_aux_loss_batches)
+            if structural_aux_loss_batches > 0
+            else 0.0
+        )
+        structural_aux_total_loss = (
+            float(bucket.get("structural_aux_total_loss_sum", 0.0)) / float(structural_aux_loss_batches)
+            if structural_aux_loss_batches > 0
+            else 0.0
+        )
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -2383,7 +2477,8 @@ class ModelTrainer:
             "topology_projection_skipped_edges=%d topology_projection_missing_vocab=%d "
             "topology_projection_duplicate_labels=%d topology_projection_missing_node_metadata=%d "
             "observed_logits_mean_abs=%.6f structural_logits_mean_abs=%.6f "
-            "structural_logits_max_abs=%.6f structural_to_observed_logit_ratio=%.6f",
+            "structural_logits_max_abs=%.6f structural_to_observed_logit_ratio=%.6f "
+            "structural_aux_set_loss=%.6f structural_aux_exact_loss=%.6f structural_aux_total_loss=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -2414,6 +2509,9 @@ class ModelTrainer:
             structural_logits_mean_abs,
             structural_logits_max_abs,
             structural_to_observed_logit_ratio,
+            structural_aux_set_loss,
+            structural_aux_exact_loss,
+            structural_aux_total_loss,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -2424,6 +2522,10 @@ class ModelTrainer:
                 f"{metric_prefix}_structural_to_observed_logit_ratio",
                 structural_to_observed_logit_ratio,
             )
+        if self.tracker is not None and structural_aux_loss_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_structural_aux_set_loss", structural_aux_set_loss)
+            self.tracker.log_metric(f"{metric_prefix}_structural_aux_exact_loss", structural_aux_exact_loss)
+            self.tracker.log_metric(f"{metric_prefix}_structural_aux_total_loss", structural_aux_total_loss)
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
         snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)

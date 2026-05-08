@@ -196,6 +196,11 @@ class EOPKGGATv2(BaseEOPKGModel):
         struct_hidden_dim: int | None = None,
         cross_attention_heads: int = 4,
         fusion_mode: str = "concat_mlp",
+        structural_score_mode: str = "bilinear_with_prior",
+        structural_logit_scale_init: float = 0.1,
+        structural_logit_scale_max: float = 2.0,
+        structural_observed_scale_min: float = 1.0,
+        structural_observed_scale_max: float = 10.0,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -235,6 +240,15 @@ class EOPKGGATv2(BaseEOPKGModel):
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
                 "Available: ['ClassMeanAttention', 'ClassMeanConcat', 'ClassAwareStructuralScoring']"
             )
+        self.structural_score_mode = str(structural_score_mode or "bilinear_with_prior").strip().lower()
+        if self.structural_score_mode not in {"bilinear_with_prior", "cosine"}:
+            raise ValueError(
+                "Unsupported model.structural_score_mode "
+                f"'{self.structural_score_mode}'. Available: ['bilinear_with_prior', 'cosine']"
+            )
+        self.structural_logit_scale_max = float(structural_logit_scale_max)
+        self.structural_observed_scale_min = float(structural_observed_scale_min)
+        self.structural_observed_scale_max = float(structural_observed_scale_max)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
@@ -256,11 +270,17 @@ class EOPKGGATv2(BaseEOPKGModel):
             nn.Identity() if hidden_dim == self.struct_hidden_dim else nn.Linear(hidden_dim, self.struct_hidden_dim)
         )
         self.struct_key_proj = nn.Identity()
-        self.structural_logit_scale = nn.Parameter(torch.tensor(0.1, dtype=torch.float32))
+        self.structural_logit_scale = nn.Parameter(torch.tensor(float(structural_logit_scale_init), dtype=torch.float32))
+        self.structural_class_norm = nn.LayerNorm(output_dim, elementwise_affine=False)
+        self.struct_bilinear = nn.Bilinear(self.struct_hidden_dim, self.struct_hidden_dim, 1, bias=False)
+        self.struct_prior_head = nn.Linear(self.struct_hidden_dim, 1)
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
         self.last_observed_logits: torch.Tensor | None = None
         self.last_structural_node_logits: torch.Tensor | None = None
+        self.last_structural_raw_class_logits: torch.Tensor | None = None
+        self.last_structural_normalized_class_logits: torch.Tensor | None = None
+        self.last_structural_observed_scale: torch.Tensor | None = None
         self.last_structural_class_logits: torch.Tensor | None = None
 
     def _build_struct_encoder(self, dropout: float) -> nn.Module:
@@ -338,6 +358,27 @@ class EOPKGGATv2(BaseEOPKGModel):
             raise ValueError("struct_node_to_class_index may contain -1 or non-negative class ids only.")
         return node_to_class
 
+    def _scale_structural_class_logits(
+        self,
+        *,
+        raw_class_logits: torch.Tensor,
+        observed_logits: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        normalized = self.structural_class_norm(raw_class_logits)
+        observed_scale = observed_logits.detach().abs().mean(dim=1, keepdim=True)
+        observed_scale = torch.clamp(
+            observed_scale,
+            min=float(self.structural_observed_scale_min),
+            max=float(self.structural_observed_scale_max),
+        )
+        gamma = torch.clamp(
+            self.structural_logit_scale,
+            min=0.0,
+            max=float(self.structural_logit_scale_max),
+        )
+        scaled = normalized * observed_scale * gamma
+        return scaled, normalized, observed_scale
+
     def _class_aware_structural_logits(
         self,
         *,
@@ -345,13 +386,21 @@ class EOPKGGATv2(BaseEOPKGModel):
         h_node: torch.Tensor,
         node_to_class: torch.Tensor,
         num_classes: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        observed_logits: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         query = self.struct_query_proj(obs_context)
         keys = self.struct_key_proj(h_node)
-        query = torch.nn.functional.normalize(query, p=2, dim=1, eps=1e-12)
-        keys = torch.nn.functional.normalize(keys, p=2, dim=1, eps=1e-12)
-        node_logits = torch.matmul(query, keys.transpose(0, 1))
-        class_logits = torch.full(
+        if self.structural_score_mode == "cosine":
+            query_norm = torch.nn.functional.normalize(query, p=2, dim=1, eps=1e-12)
+            keys_norm = torch.nn.functional.normalize(keys, p=2, dim=1, eps=1e-12)
+            node_logits = torch.matmul(query_norm, keys_norm.transpose(0, 1))
+        else:
+            expanded_query = query.unsqueeze(1).expand(-1, keys.size(0), -1)
+            expanded_keys = keys.unsqueeze(0).expand(query.size(0), -1, -1)
+            bilinear_scores = self.struct_bilinear(expanded_query, expanded_keys).squeeze(-1)
+            prior_scores = self.struct_prior_head(keys).transpose(0, 1)
+            node_logits = bilinear_scores + prior_scores
+        raw_class_logits = torch.full(
             (query.size(0), int(num_classes)),
             fill_value=torch.finfo(node_logits.dtype).min,
             dtype=node_logits.dtype,
@@ -360,15 +409,25 @@ class EOPKGGATv2(BaseEOPKGModel):
         for class_idx in range(int(num_classes)):
             node_mask = node_to_class == class_idx
             if torch.any(node_mask):
-                class_logits[:, class_idx] = torch.logsumexp(node_logits[:, node_mask], dim=1)
-        class_logits = torch.where(torch.isfinite(class_logits), class_logits, torch.zeros_like(class_logits))
-        scale = torch.clamp(self.structural_logit_scale, min=0.0, max=10.0)
-        return node_logits * scale, class_logits * scale
+                raw_class_logits[:, class_idx] = torch.logsumexp(node_logits[:, node_mask], dim=1)
+        raw_class_logits = torch.where(
+            torch.isfinite(raw_class_logits),
+            raw_class_logits,
+            torch.zeros_like(raw_class_logits),
+        )
+        scaled_class_logits, normalized_class_logits, observed_scale = self._scale_structural_class_logits(
+            raw_class_logits=raw_class_logits,
+            observed_logits=observed_logits,
+        )
+        return node_logits, raw_class_logits, normalized_class_logits, observed_scale, scaled_class_logits
 
     def _clear_structural_diagnostics(self) -> None:
         self.last_cross_attn_weights = None
         self.last_observed_logits = None
         self.last_structural_node_logits = None
+        self.last_structural_raw_class_logits = None
+        self.last_structural_normalized_class_logits = None
+        self.last_structural_observed_scale = None
         self.last_structural_class_logits = None
 
     def _forward_local(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
@@ -450,16 +509,26 @@ class EOPKGGATv2(BaseEOPKGModel):
                 num_classes=observed_logits.size(1),
                 device=h_norm.device,
             )
-            structural_node_logits, structural_class_logits = self._class_aware_structural_logits(
+            (
+                structural_node_logits,
+                structural_raw_class_logits,
+                structural_normalized_class_logits,
+                structural_observed_scale,
+                structural_class_logits,
+            ) = self._class_aware_structural_logits(
                 obs_context=obs_context,
                 h_node=h_norm,
                 node_to_class=node_to_class,
                 num_classes=observed_logits.size(1),
+                observed_logits=observed_logits,
             )
             self.last_cross_attn_weights = None
-            self.last_observed_logits = observed_logits.detach()
-            self.last_structural_node_logits = structural_node_logits.detach()
-            self.last_structural_class_logits = structural_class_logits.detach()
+            self.last_observed_logits = observed_logits
+            self.last_structural_node_logits = structural_node_logits
+            self.last_structural_raw_class_logits = structural_raw_class_logits
+            self.last_structural_normalized_class_logits = structural_normalized_class_logits
+            self.last_structural_observed_scale = structural_observed_scale
+            self.last_structural_class_logits = structural_class_logits
             return observed_logits + structural_class_logits
 
         if self.fusion_mode == "class_mean_concat":
@@ -479,6 +548,9 @@ class EOPKGGATv2(BaseEOPKGModel):
             self.last_cross_attn_weights = attn_weights.detach()
             self.last_observed_logits = None
             self.last_structural_node_logits = None
+            self.last_structural_raw_class_logits = None
+            self.last_structural_normalized_class_logits = None
+            self.last_structural_observed_scale = None
             self.last_structural_class_logits = None
             context_struct = self.attn_to_struct(attn_output.squeeze(1))  # [B, struct_hidden_dim]
         fused = self.fusion(torch.cat([obs_context, context_struct], dim=1))

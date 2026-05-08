@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.cli import (
     _apply_experiment_switch_overrides,
+    _build_model_factory_kwargs,
     _build_mlflow_params,
     _derive_last_checkpoint_path,
     _flatten_config_dict,
@@ -108,3 +109,34 @@ def test_apply_experiment_switch_overrides_maps_convenience_flags():
     assert patched["mapping"]["graph_feature_mapping"]["enabled"] is True
     assert patched["training"]["mask_guided_enabled"] is True
     assert patched["training"]["retrain"] is True
+
+
+def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGGATv2",
+            "hidden_dim": 32,
+            "dropout": 0.1,
+            "pooling_strategy": "last_node",
+            "structural_mode": True,
+            "struct_encoder_type": "GATv2Conv",
+            "struct_hidden_dim": 16,
+            "cross_attention_heads": 2,
+            "fusion_mode": "ClassAwareStructuralScoring",
+            "structural_score_mode": "bilinear_with_prior",
+            "structural_logit_scale_init": 0.1,
+            "structural_logit_scale_max": 2.0,
+            "structural_observed_scale_min": 1.0,
+            "structural_observed_scale_max": 10.0,
+        },
+        feature_layout={"categorical": {}, "numeric": []},
+        output_dim=7,
+    )
+
+    assert kwargs["model_type"] == "EOPKGGATv2"
+    assert kwargs["fusion_mode"] == "ClassAwareStructuralScoring"
+    assert kwargs["structural_score_mode"] == "bilinear_with_prior"
+    assert kwargs["structural_logit_scale_init"] == 0.1
+    assert kwargs["structural_logit_scale_max"] == 2.0
+    assert kwargs["structural_observed_scale_min"] == 1.0
+    assert kwargs["structural_observed_scale_max"] == 10.0

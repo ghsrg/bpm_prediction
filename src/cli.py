@@ -219,6 +219,34 @@ def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]
     return config
 
 
+def _build_model_factory_kwargs(
+    *,
+    model_cfg: Dict[str, Any],
+    feature_layout: Any,
+    output_dim: int,
+) -> Dict[str, Any]:
+    """Build model factory kwargs from YAML model config."""
+    hidden_dim = int(model_cfg.get("hidden_dim", 64))
+    return {
+        "model_type": str(model_cfg.get("type", model_cfg.get("model_type", "BaselineGCN"))),
+        "feature_layout": feature_layout,
+        "hidden_dim": hidden_dim,
+        "output_dim": int(output_dim),
+        "dropout": float(model_cfg.get("dropout", 0.2)),
+        "pooling_strategy": str(model_cfg.get("pooling_strategy", "global_mean")).strip().lower(),
+        "structural_mode": model_cfg.get("structural_mode", True),
+        "struct_encoder_type": str(model_cfg.get("struct_encoder_type", "GATv2Conv")),
+        "struct_hidden_dim": int(model_cfg.get("struct_hidden_dim", hidden_dim)),
+        "cross_attention_heads": int(model_cfg.get("cross_attention_heads", 4)),
+        "fusion_mode": str(model_cfg.get("fusion_mode", "Attention")),
+        "structural_score_mode": str(model_cfg.get("structural_score_mode", "bilinear_with_prior")),
+        "structural_logit_scale_init": float(model_cfg.get("structural_logit_scale_init", 0.1)),
+        "structural_logit_scale_max": float(model_cfg.get("structural_logit_scale_max", 2.0)),
+        "structural_observed_scale_min": float(model_cfg.get("structural_observed_scale_min", 1.0)),
+        "structural_observed_scale_max": float(model_cfg.get("structural_observed_scale_max", 10.0)),
+    }
+
+
 def _derive_last_checkpoint_path(checkpoint_path: str) -> str:
     """Derive companion last-checkpoint path from effective checkpoint path."""
     path = Path(str(checkpoint_path).strip())
@@ -2129,26 +2157,16 @@ def main() -> None:
         logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))
 
     # input_dim = Р±Р°Р·РѕРІС– one-hot + С‡Р°СЃРѕРІС– С„С–С‡С– + typed extra-С„С–С‡С– (СѓР·РіРѕРґР¶РµРЅРѕ Р· graph_builder).
-    hidden_dim = int(model_cfg.get("hidden_dim", 64))
     output_dim = len(activity_vocab)
-    dropout = float(model_cfg.get("dropout", 0.2))
-    pooling_strategy = str(model_cfg.get("pooling_strategy", "global_mean")).strip().lower()
     feature_layout = prepared["feature_layout"]
 
-    model_type = str(model_cfg.get("type", model_cfg.get("model_type", "BaselineGCN")))
-    model = create_model(
-        model_type=model_type,
+    model_kwargs = _build_model_factory_kwargs(
+        model_cfg=model_cfg,
         feature_layout=feature_layout,
-        hidden_dim=hidden_dim,
         output_dim=output_dim,
-        dropout=dropout,
-        pooling_strategy=pooling_strategy,
-        structural_mode=model_cfg.get("structural_mode", True),
-        struct_encoder_type=str(model_cfg.get("struct_encoder_type", "GATv2Conv")),
-        struct_hidden_dim=int(model_cfg.get("struct_hidden_dim", hidden_dim)),
-        cross_attention_heads=int(model_cfg.get("cross_attention_heads", 4)),
-        fusion_mode=str(model_cfg.get("fusion_mode", "Attention")),
     )
+    model_type = str(model_kwargs["model_type"])
+    model = create_model(**model_kwargs)
     logger.info("Initialized model via factory: type=%s", model_type)
 
     device = torch.device(str(training_cfg.get("device", "cpu")))

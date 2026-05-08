@@ -10495,7 +10495,7 @@
     }
   },
   "S_Str-USc-loan": {
-    "last_saved_at": "2026-05-08T09:43:43.224220+00:00",
+    "last_saved_at": "2026-05-08T15:48:48.672666+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -10523,7 +10523,7 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
@@ -10571,7 +10571,7 @@
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score, log1p]\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score, log1p]\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score]\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding: [z-score]\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding: [z-score, log1p]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding: [identity]\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score, log1p]\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score, log1p]\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: last_30d\n  scope: version\n  default: 0.0\n  encoding: [z-score]\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding: [z-score]\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding: [z-score, log1p]\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding: [identity]\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -10625,9 +10625,10 @@
         "model.structural_observed_scale_max": "10.0",
         "model.structural_observed_scale_min": "1.0",
         "model.structural_score_mode": "bilinear_with_prior",
+        "model.structural_stats_beta": "0.2",
         "model.type": "EOPKGGATv2"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.alignment_gate.candidate_node_fields": "- id",
         "sync_stats.alignment_gate.collapse_separators": "false",

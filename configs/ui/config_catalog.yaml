@@ -1560,6 +1560,23 @@ fields:
       group: advanced
       priority: 100
       order: 1005
+  model.structural_stats_beta:
+    path: model.structural_stats_beta
+    section: model
+    label: 'Model: Structural stats beta'
+    description: Fixed beta multiplier for additive stats projection in structural node features.
+    affects: Controls how strongly struct_x statistics enrich structural identity embeddings before structural GNN message passing.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: ClassAwareStructuralScoring
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1006
   model.dropout:
     path: model.dropout
     section: model

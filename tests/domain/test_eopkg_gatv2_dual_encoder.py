@@ -86,6 +86,75 @@ def test_eopkg_gatv2_accepts_struct_x_float_and_projects_if_needed():
     assert not any(isinstance(param, UninitializedParameter) for param in model.parameters())
 
 
+def test_eopkg_gatv2_composes_struct_x_with_identity_embedding_using_beta():
+    torch.manual_seed(7)
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        struct_hidden_dim=12,
+        cross_attention_heads=4,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        structural_stats_beta=0.0,
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(),
+        "struct_x": torch.randn(7, 5, dtype=torch.float32),
+    }
+
+    identity_only = model._build_struct_node_features(
+        {},
+        device=torch.device("cpu"),
+        num_struct_nodes=7,
+    )
+    with_stats_disabled = model._build_struct_node_features(
+        contract,
+        device=torch.device("cpu"),
+        num_struct_nodes=7,
+    )
+
+    assert torch.allclose(with_stats_disabled, model.struct_input_norm(identity_only), atol=1e-6)
+
+    model.structural_stats_beta = 0.5
+    with_stats_enabled = model._build_struct_node_features(
+        contract,
+        device=torch.device("cpu"),
+        num_struct_nodes=7,
+    )
+
+    assert not torch.allclose(with_stats_enabled, model.struct_input_norm(identity_only), atol=1e-6)
+
+
+def test_eopkg_gatv2_struct_x_supports_more_structural_nodes_than_classes():
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_layout(),
+        hidden_dim=16,
+        output_dim=3,
+        struct_hidden_dim=8,
+        cross_attention_heads=4,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        structural_stats_beta=0.1,
+    )
+    contract = {
+        **_base_contract(),
+        "structural_edge_index": _struct_edge_index(num_nodes=6),
+        "struct_x": torch.randn(6, 4, dtype=torch.float32),
+    }
+
+    struct_nodes = model._build_struct_node_features(
+        contract,
+        device=torch.device("cpu"),
+        num_struct_nodes=6,
+    )
+
+    assert struct_nodes.shape == torch.Size([6, 8])
+
+
 def test_eopkg_gatv2_falls_back_without_structural_edges(caplog: pytest.LogCaptureFixture):
     model = create_model(
         model_type="EOPKGGATv2",

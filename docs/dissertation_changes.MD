@@ -42,3 +42,37 @@ final_logits = observed_logits + structural_logits
   teaching the structural branch, not as a replacement for the main CE loss;
 - separate results for `ClassMeanAttention`, `ClassMeanConcat`, and
   `ClassAwareStructuralScoring`.
+
+---
+
+## 2026-05-08 - Additive Stats Enrichment for Structural Node Features
+
+- `topic`: structure-aware GNN input semantics
+- `impact`: critical
+- `files`:
+  - `src/domain/models/eopkg_models.py`
+  - `docs/GNN_RUNTIME_MVP2_5.MD`
+
+**Note (ukr):**
+
+У дисертації треба підкреслити, що статистичні ознаки `struct_x` більше не
+замінюють structural identity embedding. Вони додаються як контрольоване
+збагачення перед structural GNN:
+
+```text
+h0_v = LayerNorm(identity_v + beta * stats_projection(struct_x_v))
+```
+
+Це важливо для інтерпретації експериментів: topology identity залишається
+основним структурним носієм, а runtime/process statistics є додатковим
+сигналом. Параметр `model.structural_stats_beta` треба описати як ablation
+control для сили статистичного внеску.
+
+**Do not forget:**
+
+- порівняти `beta=0.0`, `0.1`, `0.3`, `1.0`;
+- окремо інтерпретувати `structural_stats_beta` і `structural_logit_scale`:
+  перший масштабує stats input до structural GNN, другий масштабує structural
+  logits після class-aware scoring;
+- у Scopus/дисертаційному тексті не називати це просто "statistics enabled",
+  а формулювати як "additive statistical enrichment of topology identity".

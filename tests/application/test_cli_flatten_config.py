@@ -128,6 +128,7 @@ def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_conf
             "structural_logit_scale_max": 2.0,
             "structural_observed_scale_min": 1.0,
             "structural_observed_scale_max": 10.0,
+            "structural_stats_beta": 0.3,
         },
         feature_layout={"categorical": {}, "numeric": []},
         output_dim=7,
@@ -140,3 +141,4 @@ def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_conf
     assert kwargs["structural_logit_scale_max"] == 2.0
     assert kwargs["structural_observed_scale_min"] == 1.0
     assert kwargs["structural_observed_scale_max"] == 10.0
+    assert kwargs["structural_stats_beta"] == 0.3

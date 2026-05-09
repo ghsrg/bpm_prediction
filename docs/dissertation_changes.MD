@@ -76,3 +76,71 @@ control для сили статистичного внеску.
   logits після class-aware scoring;
 - у Scopus/дисертаційному тексті не називати це просто "statistics enabled",
   а формулювати як "additive statistical enrichment of topology identity".
+
+---
+
+## 2026-05-09 - Structural Signal Negative Transfer Under Drift
+
+- `topic`: empirical validity of structure-aware drift generalization
+- `impact`: critical
+- `status`: preliminary finding
+- `scenario`: Train v1, drift test v1-v4
+- `runs_to_reference`:
+  - `8a1c0991022a45ccb3e02d45c6c29de8` - aggressive structure/statistics run
+
+**Note (ukr):**
+
+Проміжний висновок: сама наявність BPMN/topology structure у GNN не гарантує
+кращої узагальнюваності при structural drift. У сценарії `Train: v1 -> Drift
+test: v1, v2, v3, v4` агресивно підсилена structural branch показала negative
+transfer: при переході на `v2` baseline і помірна структура падали приблизно з
+`0.85` до `0.55-0.60`, а підсилена структура падала сильніше - приблизно до
+`0.49`. На `v3` і `v4` картина схожа або трохи гірша.
+
+Це означає, що structural signal у поточному вигляді може вчитися як
+version-specific prior для `v1`, а не як version-invariant process reasoning.
+Сильне збільшення `structural_stats_beta`, `structural_logit_scale` і
+`structural_aux_loss_weight` доводить, що структура бере участь у logits і loss,
+але не доводить її корисність для drift generalization. Навпаки, занадто
+сильний structural prior може погіршити перенесення на нову версію процесу.
+
+Водночас це не означає, що структура "не працює" у всіх сенсах. Попередні
+запуски показували, що structural conditioning може зменшувати OOS/invalid
+behavior, покращувати узгодженість прогнозу з allowed topology/mask, підвищувати
+`target_in_mask_rate` / `pred_in_mask_rate` або пов'язані confidence/calibration
+показники. Тобто структура може робити модель більш process-consistent, навіть
+якщо strict next-activity F1 на unseen версіях не зростає або погіршується.
+
+**Interpretation for dissertation:**
+
+- `structure-aware` не можна подавати як автоматичне покращення predictive
+  monitoring under drift;
+- потрібна окрема methodology для навчання, валідації та інтерпретації
+  structural signal;
+- треба розрізняти `structural participation` і `structural usefulness`:
+  перше видно через `structural_to_observed_logit_ratio` та aux loss, друге -
+  через стабільність strict-F1 на unseen versions;
+- треба окремо розрізняти `strict predictive accuracy` і
+  `process-consistency`: структура може покращувати OOS/mask/confidence
+  behavior без приросту exact next-activity F1;
+- агресивні structural parameters корисні як stress test, але не як основний
+  research-grade режим;
+- ключове питання для наступного етапу: як навчити structural branch не
+  підганятися під одну train topology, а переносити стабільні закономірності
+  між версіями процесу.
+
+**Do not forget:**
+
+- описати цей результат як мотивацію для validity conditions перед drift
+  analysis;
+- порівняти `Train v1 -> Test v1-v4` і `Train v1,v2 -> Test v1-v4`;
+- окремо зробити baseline, moderate structure, aggressive structure,
+  structure+stats, structure+stats+mask;
+- у таблицях показувати не лише absolute F1, а й degradation від seen version:
+  `F1(v1) - F1(vk)` або relative degradation;
+- додати окремі таблиці/графіки для OOS, `target_in_mask_rate`,
+  `pred_in_mask_rate`, confidence/calibration metrics і mask-cardinality groups;
+- не робити висновок "структура не працює взагалі"; коректніше:
+  "naive or over-amplified structural conditioning is insufficient and may
+  introduce negative transfer under structural drift, while still improving
+  process-consistency and out-of-structure behavior".

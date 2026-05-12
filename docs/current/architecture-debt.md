@@ -13,7 +13,7 @@ historical debt worklogs.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-04-29
+- `last_updated`: 2026-05-12
 
 ---
 
@@ -28,6 +28,72 @@ historical debt worklogs.
 ---
 
 ## P0 Research-Grade Debt
+
+### stats_backed_structural_payload_caching
+
+- `status`: active
+- `priority`: P0
+- `adr`: none
+- `current_behavior`: stats-backed drift runs can duplicate snapshot DTO payloads and structural tensors across many prefix graphs
+- `target_state`: snapshot DTO payloads and structural tensors are shared or deduplicated per resolved `(process_version, as_of_snapshot)` identity
+
+**Description (ukr):**
+
+У режимі `eval_drift` з `structural_mode=true` та `statistic_enabled=true`
+багато prefix graphs можуть резолвитись в один і той самий stats snapshot, але
+runtime все одно може повторно матеріалізувати важкі snapshot DTO payloads або
+тримати їх у cache за занадто дрібним ключем exact `as_of_ts`.
+
+Після цього кожен prefix graph також може нести власну копію structural payload:
+`struct_x`, `structural_edge_index`, `structural_edge_weight`,
+`struct_node_to_class_index` та snapshot metadata. Для одного
+`process_version` і одного resolved `as_of_snapshot` цей payload часто
+однаковий для великої кількості prefix graphs.
+
+На повному drift-запуску це створює непропорційне навантаження на Neo4j,
+Neo4j driver, RAM/virtual memory під час побудови test graphs і запису shards.
+`graph_dataset_disk_spill` частково допомагає, але не усуває дублювання:
+до flush/serialization у пам'яті все одно може накопичуватися багато об'єктів з
+повторюваними DTO та structural tensors.
+
+**Observed evidence (ukr):**
+
+Проблема проявилась для `S_Str-USc-drift-loan` на повному
+`loan_v1_v4_simulated` dataset: `Base-UN-drift`, `S_Str-UNc-drift` і
+`S_Str-USc-loan` проходили, а комбінація full `eval_drift` + structure + stats
+завершилась системним low virtual memory. Windows Event Log показав, що
+`python.exe` спожив приблизно 32.8 GB virtual memory перед падінням.
+
+**Impact (ukr):**
+
+Stats-backed structural drift experiments можуть бути нестабільними або
+непрохідними на повному dataset, навіть якщо логіка моделі й mapping правильні.
+Це блокує надійне порівняння структурної статистики в dissertation-grade
+drift-запусках без ручного зменшення `graph_dataset_shard_size`, `fraction` або
+інших runtime-обмежень.
+
+**Next direction:**
+
+Implement this as one debt with two stages:
+
+1. snapshot-aware DTO/stats payload cache: resolve heavy stats payloads by
+   snapshot identity instead of exact prefix `as_of_ts`;
+2. structural payload deduplication: introduce a shared structural payload
+   registry/cache keyed by `(process_version, as_of_snapshot,
+   topology_projection_fingerprint, stats_mapping_fingerprint)`.
+
+Prefix graphs should store only a lightweight payload reference, or the
+loader/collate path should attach the shared payload at batch time.
+
+Keep this compatible with `snapshot_homogeneous_batching`: batching should not
+mix incompatible payload identities unless the research profile explicitly
+allows it.
+
+Implementation plan:
+
+`docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Plan_2026-05-12.MD`
+
+---
 
 ### snapshot_homogeneous_batching
 

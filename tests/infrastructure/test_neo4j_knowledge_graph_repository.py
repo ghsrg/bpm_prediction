@@ -418,3 +418,92 @@ def test_get_process_structure_asof_marks_missing_snapshot_when_no_rows():
     assert loaded.metadata is not None
     assert loaded.metadata.get("asof_snapshot_found") is False
     assert loaded.metadata.get("asof_resolution") == "missing_snapshot_fallback_base"
+
+
+def test_neo4j_snapshot_timeline_query_does_not_load_heavy_payloads():
+    repo = _build_repo()
+    captured = []
+
+    def _fake_read(self, *, operation, query, params):
+        captured.append((operation, query, params))
+        if operation == "load_stats_timeline_with_proc_def":
+            return [
+                {
+                    "knowledge_version": "k000001",
+                    "as_of_ts": "2026-03-01T00:00:00Z",
+                    "kv_seq": 1,
+                }
+            ]
+        return []
+
+    repo._run_read = MethodType(_fake_read, repo)
+    row = repo._lookup_stats_snapshot_identity(
+        process_name="loan_v1_v4_simulated",
+        tenant_id="default",
+        version_key="v1",
+        proc_def_id="loan_v1",
+        as_of_utc=datetime(2026, 3, 2, tzinfo=timezone.utc),
+    )
+
+    assert row is not None
+    timeline_query = next(query for operation, query, _ in captured if operation == "load_stats_timeline_with_proc_def")
+    assert "node_stats_json" not in timeline_query
+    assert "edge_stats_json" not in timeline_query
+    assert "gnn_features_json" not in timeline_query
+    assert "stats_diagnostics_json" not in timeline_query
+
+
+def test_get_process_structure_asof_loads_payload_once_for_same_resolved_snapshot():
+    repo = _build_repo()
+    base_dto = ProcessStructureDTO(
+        version="v1",
+        proc_def_id="PROC_DEF_1",
+        allowed_edges=[("A", "B")],
+        metadata={"base": "yes"},
+    )
+    repo.get_process_structure = MethodType(
+        lambda self, version, process_name=None: base_dto.model_copy(deep=True),
+        repo,
+    )
+    operations = []
+
+    def _fake_read(self, *, operation, query, params):
+        operations.append(operation)
+        if operation == "load_stats_timeline_with_proc_def":
+            return [
+                {"knowledge_version": "k000010", "as_of_ts": "2026-03-01T00:00:00Z", "kv_seq": 10}
+            ]
+        if operation == "load_stats_snapshot_payload":
+            return [
+                {
+                    "knowledge_version": "k000010",
+                    "as_of_ts": "2026-03-01T00:00:00Z",
+                    "node_stats_json": '{"windows":{"all_time":{"version":{"exec_count":{"A":1}}}}}',
+                    "edge_stats_json": "{}",
+                    "gnn_features_json": "{}",
+                    "stats_diagnostics_json": "{}",
+                    "metadata_json": '{"snapshot_meta":"ok"}',
+                }
+            ]
+        return []
+
+    repo._run_read = MethodType(_fake_read, repo)
+
+    first = repo.get_process_structure_as_of(
+        "v1",
+        process_name="loan_v1_v4_simulated",
+        as_of_ts=datetime(2026, 3, 2, tzinfo=timezone.utc),
+    )
+    second = repo.get_process_structure_as_of(
+        "v1",
+        process_name="loan_v1_v4_simulated",
+        as_of_ts=datetime(2026, 3, 3, tzinfo=timezone.utc),
+    )
+
+    assert first is not None
+    assert second is not None
+    assert operations.count("load_stats_timeline_with_proc_def") == 1
+    assert operations.count("load_stats_snapshot_payload") == 1
+    diagnostics = repo.cache_diagnostics()
+    assert diagnostics["snapshot_timeline_cache_hits"] >= 1
+    assert diagnostics["snapshot_payload_cache_hits"] >= 1

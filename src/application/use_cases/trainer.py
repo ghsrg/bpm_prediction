@@ -122,6 +122,25 @@ class ShardedGraphDataset(Dataset[Data]):
         row = self._shards[shard_idx]
         shard_path = self.entry_dir / str(row["path"])
         loaded = torch.load(shard_path, map_location="cpu")
+        if isinstance(loaded, dict) and loaded.get("format") == "dedup_structural_payloads":
+            graphs = loaded.get("graphs", [])
+            registry = loaded.get("structural_payloads", {})
+            if not isinstance(graphs, list) or not isinstance(registry, dict):
+                raise ValueError(f"Invalid deduplicated shard payload for {shard_path}.")
+            hydrated: List[Data] = []
+            for graph in graphs:
+                if not isinstance(graph, Data):
+                    raise ValueError(f"Invalid graph item in {shard_path}.")
+                key = getattr(graph, "structural_payload_key", None)
+                payload = registry.get(str(key)) if key is not None else None
+                if isinstance(payload, dict):
+                    for name, tensor in payload.items():
+                        if isinstance(tensor, torch.Tensor):
+                            setattr(graph, name, tensor)
+                    if hasattr(graph, "structural_payload_key"):
+                        delattr(graph, "structural_payload_key")
+                hydrated.append(graph)
+            loaded = hydrated
         if not isinstance(loaded, list):
             raise ValueError(f"Invalid shard payload type for {shard_path}.")
         self._cached_shards[shard_idx] = loaded

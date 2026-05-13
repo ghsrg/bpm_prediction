@@ -144,3 +144,38 @@ behavior, покращувати узгодженість прогнозу з al
   "naive or over-amplified structural conditioning is insufficient and may
   introduce negative transfer under structural drift, while still improving
   process-consistency and out-of-structure behavior".
+
+---
+
+## 2026-05-12 - Runtime Validity for Stats-Backed Structural Drift
+
+- `topic`: experiment validity and runtime reliability
+- `impact`: important
+- `status`: implemented runtime guard; full drift validation pending
+- `related_debt`: `stats_backed_structural_payload_caching`
+
+**Note (ukr):**
+
+Для dissertation-grade drift experiments зі `structural_mode=true` та
+`statistic_enabled=true` важливо зафіксувати не лише метрики моделі, а й умову
+валідності runtime: stats snapshots і structural payloads не повинні
+матеріалізуватись заново для кожного prefix graph. Інакше експеримент може
+падати через Neo4j/driver/RAM pressure, а відсутність результату буде
+інфраструктурним bias, не властивістю моделі.
+
+Після зміни runtime використовує:
+
+- lightweight Neo4j snapshot timeline lookup;
+- heavy stats payload cache by resolved snapshot identity;
+- deduplicated sharded structural payloads by `structural_payload_key`;
+- diagnostics `GRAPH_DATASET_STRUCT_PAYLOADS`.
+
+**Do not forget:**
+
+- у методології згадати, що full drift experiments перевірялись на runtime
+  feasibility та snapshot-aware stats caching;
+- для фінальних запусків перевіряти, що `GRAPH_DATASET_STRUCT_PAYLOADS`
+  показує кількість structural payloads значно меншу за кількість prefix graphs;
+- не змішувати runtime validity з model quality: ця зміна не повинна сама по
+  собі покращувати F1, вона прибирає інфраструктурне обмеження для коректного
+  вимірювання.

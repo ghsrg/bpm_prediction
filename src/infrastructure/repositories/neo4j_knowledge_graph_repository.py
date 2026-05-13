@@ -54,10 +54,27 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         self._database = str(database).strip() or "neo4j"
         self._base_structure_cache: dict[tuple[str, str], ProcessStructureDTO] = {}
         self._snapshot_timeline_cache: dict[tuple[str, str, str, str, bool], list[dict[str, Any]]] = {}
+        self._snapshot_payload_cache: dict[tuple[str, str, str, str, str], dict[str, Any] | None] = {}
+        self._snapshot_payload_cache_max_entries = 512
+        self._diagnostics: dict[str, int] = {
+            "snapshot_timeline_loads": 0,
+            "snapshot_timeline_cache_hits": 0,
+            "snapshot_payload_loads": 0,
+            "snapshot_payload_cache_hits": 0,
+        }
 
     def close(self) -> None:
         if hasattr(self._driver, "close"):
             self._driver.close()
+
+    def cache_diagnostics(self) -> dict[str, int]:
+        return dict(self._diagnostics)
+
+    @staticmethod
+    def _bounded_cache_put(cache: dict[Any, Any], key: Any, value: Any, *, max_entries: int) -> None:
+        cache[key] = value
+        while len(cache) > max_entries:
+            cache.pop(next(iter(cache)))
 
     def __del__(self) -> None:  # pragma: no cover - defensive cleanup only
         try:
@@ -485,15 +502,23 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         )
         as_of_utc = self._to_utc(as_of_ts)
         rows: list[dict[str, Any]] = []
-        timeline_row = self._lookup_stats_snapshot_row(
+        identity_row = self._lookup_stats_snapshot_identity(
             process_name=resolved_process_name,
             tenant_id=tenant_id,
             version_key=version_key,
             proc_def_id=proc_def_id,
             as_of_utc=as_of_utc,
         )
-        if timeline_row is not None:
-            rows = [timeline_row]
+        if identity_row is not None:
+            row = self._load_stats_snapshot_payload(
+                process_name=resolved_process_name,
+                tenant_id=tenant_id,
+                version_key=version_key,
+                proc_def_id=proc_def_id,
+                identity_row=identity_row,
+            )
+            if row is not None:
+                rows = [row]
 
         if not rows and as_of_utc is not None:
             rows = self._run_read(
@@ -1101,8 +1126,10 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         cache_key = (process_name, tenant_id, version_key, proc_def_id, bool(with_proc_def))
         cached = self._snapshot_timeline_cache.get(cache_key)
         if isinstance(cached, list):
+            self._diagnostics["snapshot_timeline_cache_hits"] += 1
             return list(cached)
 
+        self._diagnostics["snapshot_timeline_loads"] += 1
         if with_proc_def:
             rows = self._run_read(
                 operation="load_stats_timeline_with_proc_def",
@@ -1116,11 +1143,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                 RETURN
                   ss.knowledge_version AS knowledge_version,
                   toString(ss.as_of_ts) AS as_of_ts,
-                  ss.node_stats_json AS node_stats_json,
-                  ss.edge_stats_json AS edge_stats_json,
-                  ss.gnn_features_json AS gnn_features_json,
-                  ss.stats_diagnostics_json AS stats_diagnostics_json,
-                  ss.metadata_json AS metadata_json
+                  ss.kv_seq AS kv_seq
                 ORDER BY ss.as_of_ts ASC, ss.kv_seq ASC
                 """,
                 params={
@@ -1142,11 +1165,7 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                 RETURN
                   ss.knowledge_version AS knowledge_version,
                   toString(ss.as_of_ts) AS as_of_ts,
-                  ss.node_stats_json AS node_stats_json,
-                  ss.edge_stats_json AS edge_stats_json,
-                  ss.gnn_features_json AS gnn_features_json,
-                  ss.stats_diagnostics_json AS stats_diagnostics_json,
-                  ss.metadata_json AS metadata_json
+                  ss.kv_seq AS kv_seq
                 ORDER BY ss.as_of_ts ASC, ss.kv_seq ASC
                 """,
                 params={
@@ -1165,11 +1184,12 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
                 continue
             payload = dict(row)
             payload["_as_of_epoch"] = float(epoch)
+            payload["_with_proc_def"] = bool(with_proc_def)
             timeline.append(payload)
         self._snapshot_timeline_cache[cache_key] = list(timeline)
         return list(timeline)
 
-    def _lookup_stats_snapshot_row(
+    def _lookup_stats_snapshot_identity(
         self,
         *,
         process_name: str,
@@ -1204,6 +1224,118 @@ class Neo4jKnowledgeGraphRepository(IKnowledgeGraphPort):
         if idx < 0:
             return None
         return dict(timeline[idx])
+
+    def _lookup_stats_snapshot_row(
+        self,
+        *,
+        process_name: str,
+        tenant_id: str,
+        version_key: str,
+        proc_def_id: str,
+        as_of_utc: datetime | None,
+    ) -> dict[str, Any] | None:
+        identity = self._lookup_stats_snapshot_identity(
+            process_name=process_name,
+            tenant_id=tenant_id,
+            version_key=version_key,
+            proc_def_id=proc_def_id,
+            as_of_utc=as_of_utc,
+        )
+        if identity is None:
+            return None
+        return self._load_stats_snapshot_payload(
+            process_name=process_name,
+            tenant_id=tenant_id,
+            version_key=version_key,
+            proc_def_id=proc_def_id,
+            identity_row=identity,
+        )
+
+    def _load_stats_snapshot_payload(
+        self,
+        *,
+        process_name: str,
+        tenant_id: str,
+        version_key: str,
+        proc_def_id: str,
+        identity_row: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        knowledge_version = self._optional_text(identity_row.get("knowledge_version"))
+        if knowledge_version is None:
+            return None
+        with_proc_def = bool(identity_row.get("_with_proc_def", True))
+        proc_def_cache_key = proc_def_id if with_proc_def else "__no_proc_def__"
+        cache_key = (process_name, tenant_id, version_key, proc_def_cache_key, knowledge_version)
+        if cache_key in self._snapshot_payload_cache:
+            self._diagnostics["snapshot_payload_cache_hits"] += 1
+            cached = self._snapshot_payload_cache[cache_key]
+            return dict(cached) if isinstance(cached, dict) else None
+
+        self._diagnostics["snapshot_payload_loads"] += 1
+        if with_proc_def:
+            rows = self._run_read(
+                operation="load_stats_snapshot_payload",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  proc_def_id: $proc_def_id,
+                  knowledge_version: $knowledge_version
+                })
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                LIMIT 1
+                """,
+                params={
+                    "process_name": process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "proc_def_id": proc_def_id,
+                    "knowledge_version": knowledge_version,
+                },
+            )
+        else:
+            rows = self._run_read(
+                operation="load_stats_snapshot_payload_no_proc_def",
+                query="""
+                MATCH (ss:StatsSnapshot {
+                  process_name: $process_name,
+                  tenant_id: $tenant_id,
+                  version_key: $version_key,
+                  knowledge_version: $knowledge_version
+                })
+                RETURN
+                  ss.knowledge_version AS knowledge_version,
+                  toString(ss.as_of_ts) AS as_of_ts,
+                  ss.node_stats_json AS node_stats_json,
+                  ss.edge_stats_json AS edge_stats_json,
+                  ss.gnn_features_json AS gnn_features_json,
+                  ss.stats_diagnostics_json AS stats_diagnostics_json,
+                  ss.metadata_json AS metadata_json
+                LIMIT 1
+                """,
+                params={
+                    "process_name": process_name,
+                    "tenant_id": tenant_id,
+                    "version_key": version_key,
+                    "knowledge_version": knowledge_version,
+                },
+            )
+        payload = dict(rows[0]) if rows else None
+        self._bounded_cache_put(
+            self._snapshot_payload_cache,
+            cache_key,
+            payload,
+            max_entries=self._snapshot_payload_cache_max_entries,
+        )
+        return dict(payload) if isinstance(payload, dict) else None
 
     @staticmethod
     def _normalize_version(version: str) -> str:

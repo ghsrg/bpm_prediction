@@ -34,8 +34,8 @@ historical debt worklogs.
 - `status`: active
 - `priority`: P0
 - `adr`: none
-- `current_behavior`: stats-backed drift runs can duplicate snapshot DTO payloads and structural tensors across many prefix graphs
-- `target_state`: snapshot DTO payloads and structural tensors are shared or deduplicated per resolved `(process_version, as_of_snapshot)` identity
+- `current_behavior`: snapshot-aware stats payload cache and deduplicated shard payload format are implemented; full real drift validation is still pending
+- `target_state`: full `S_Str-USc-drift-loan` validation confirms no Neo4j defunct connection and no system-wide virtual-memory exhaustion
 
 **Description (ukr):**
 
@@ -92,6 +92,10 @@ allows it.
 Implementation plan:
 
 `docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Plan_2026-05-12.MD`
+
+Implementation report:
+
+`docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Report_2026-05-12.MD`
 
 ---
 

@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-04-27
+Updated: 2026-05-12
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -337,6 +337,36 @@ flowchart LR
 1. Baseline path must remain valid when all structural tensors are absent.
 2. EOPKG path must degrade safely to observed-only forward when structural tensors are absent.
 3. Optional tensor fields must never break MVP1-compatible execution.
+
+## 8.1 Stats-Backed Structural Payload Caching
+
+Full drift runs with `statistic_enabled=true` use snapshot-aware stats payload
+loading and deduplicated sharded structural payloads.
+
+Repository behavior:
+
+1. Neo4j snapshot timelines are loaded as lightweight identity rows.
+2. Heavy snapshot JSON payloads are loaded by resolved snapshot identity.
+3. `cache_diagnostics()` exposes timeline and payload load/cache-hit counters.
+
+Graph dataset behavior:
+
+1. Sharded graph cache files may use `format=dedup_structural_payloads`.
+2. Per-prefix `Data` objects store `structural_payload_key`.
+3. `struct_x`, `structural_edge_index`, `structural_edge_weight`, and
+   `struct_node_to_class_index` are stored once per shard payload key.
+4. CLI diagnostics and `ShardedGraphDataset` rehydrate structural tensors when
+   iterating or loading samples.
+5. Legacy `list[Data]` shard files remain supported.
+
+Runtime diagnostics:
+
+```text
+GRAPH_DATASET_STRUCT_PAYLOADS split=<split> graphs=<n> shards=<n> structural_payloads=<n>
+```
+
+For healthy stats-backed drift runs, `structural_payloads` should be bounded by
+resolved version/snapshot diversity rather than by prefix graph count.
 
 ## 9. Current Batch Snapshot Limitation
 

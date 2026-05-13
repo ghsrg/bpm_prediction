@@ -67,6 +67,29 @@ class SplitData:
     test: List[RawTrace]
 
 
+@dataclass
+class DriftInferenceRecords:
+    """Compact per-prefix inference records for drift-window aggregation."""
+
+    trace_idx: np.ndarray
+    y_true: np.ndarray
+    y_pred: np.ndarray
+    confidence: np.ndarray
+    correct: np.ndarray
+    top3_hit: np.ndarray
+    oos_flags: np.ndarray
+    target_in_mask_flags: np.ndarray
+    pred_in_mask_flags: np.ndarray
+    strict_error_but_allowed_flags: np.ndarray
+    mask_cardinality: np.ndarray
+    hybrid_correct_flags: np.ndarray
+    hybrid_set_nll: np.ndarray
+    ambiguous_flags: np.ndarray
+    prefix_lengths: np.ndarray
+    version_labels: List[str]
+    inference_ms_per_graph: float
+
+
 class ShardedGraphDataset(Dataset[Data]):
     """Lazy on-disk dataset backed by shard files produced by CLI graph cache."""
 
@@ -373,6 +396,7 @@ class ModelTrainer:
                 drift_traces=prepared_traces,
                 best_epoch=best_epoch,
                 best_val_loss=best_val_loss,
+                prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
             )
             pipeline_reporter.done(message=f"Pipeline completed mode={self.mode}", current=1, total=1)
             return result
@@ -492,9 +516,22 @@ class ModelTrainer:
             "mode": self.mode,
         }
 
-    def _run_eval_drift(self, split_data: SplitData, drift_traces: Sequence[RawTrace], best_epoch: int, best_val_loss: float) -> Dict[str, Any]:
+    def _run_eval_drift(
+        self,
+        split_data: SplitData,
+        drift_traces: Sequence[RawTrace],
+        best_epoch: int,
+        best_val_loss: float,
+        prebuilt_test_dataset: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """Run eval_drift scenario over chronologically sorted windows."""
-        drift_metrics = self._evaluate_drift_windows(drift_traces)
+        drift_metrics = self._evaluate_drift_windows_from_prebuilt_dataset(
+            traces=drift_traces,
+            prebuilt_test_dataset=prebuilt_test_dataset,
+        )
+        if drift_metrics is None:
+            logger.info("Drift evaluation path: legacy_raw_trace_windows")
+            drift_metrics = self._evaluate_drift_windows(drift_traces)
         self._log_topology_metrics_and_artifacts()
         logger.info("Eval drift windows completed: windows=%d", len(drift_metrics))
         return {
@@ -1744,6 +1781,340 @@ class ModelTrainer:
         metrics["legacy_test_weighted_f1"] = float(metrics["strict_test_weighted_f1"])
         return metrics
 
+    def _collect_drift_inference_records(self, loader: Iterable[Data]) -> DriftInferenceRecords:
+        """Run one non-shuffled drift inference pass and keep compact sample-level records."""
+        self.model.eval()
+        self._logged_mask_debug = False
+        self._logged_oos_math = False
+        all_trace_idx: List[int] = []
+        all_true: List[int] = []
+        all_pred: List[int] = []
+        all_confidence: List[float] = []
+        all_correct: List[float] = []
+        all_top3_hit: List[float] = []
+        all_oos_flags: List[float] = []
+        all_target_in_mask_flags: List[float] = []
+        all_pred_in_mask_flags: List[float] = []
+        all_strict_error_but_allowed_flags: List[float] = []
+        all_mask_cardinality: List[float] = []
+        all_hybrid_correct_flags: List[float] = []
+        all_hybrid_set_nll: List[float] = []
+        all_ambiguous_flags: List[float] = []
+        all_lengths: List[int] = []
+        all_versions: List[str] = []
+        inference_graphs = 0
+        inference_started = perf_counter()
+        forward_stats = self._new_forward_stats_accumulator()
+        contract_sanitized_batches = 0
+        logits_sanitized_batches = 0
+        probs_sanitized_batches = 0
+
+        with torch.no_grad():
+            iterator = tqdm(loader, desc="Drift one-pass inference", leave=self.tqdm_leave, disable=self._is_tqdm_disabled())
+            for data in iterator:
+                if not hasattr(data, "trace_idx"):
+                    raise ValueError("prebuilt drift dataset is missing required trace_idx metadata")
+                data = data.to(self.device)
+                contract = self._data_to_contract(data)
+                if self._sanitize_contract_numeric_tensors(contract):
+                    contract_sanitized_batches += 1
+                self._accumulate_forward_stats(forward_stats, contract)
+                if self.device.type == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                logits = self.model(contract)
+                self._accumulate_logit_contribution_stats(forward_stats)
+                if not self._is_finite_tensor(logits):
+                    logits_sanitized_batches += 1
+                    logger.warning(
+                        "Numeric guard [eval_drift_one_pass]: non-finite logits detected. Applying nan_to_num."
+                    )
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
+                if self.device.type == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+
+                target_tensor = data.y.view(-1).long()
+                allowed_mask = self._normalize_allowed_mask(
+                    contract.get("allowed_target_mask"),
+                    expected_rows=int(target_tensor.shape[0]),
+                )
+                mask_policy = self._resolve_mask_guided_policy(
+                    training=False,
+                    batch_target_in_mask_rate=None,
+                    batch_samples=int(target_tensor.shape[0]),
+                )
+                logits = self._apply_mask_guided_logits(
+                    logits=logits,
+                    allowed_mask=allowed_mask,
+                    policy=mask_policy,
+                )
+                probs = torch.softmax(logits, dim=1)
+                if not self._is_finite_tensor(probs):
+                    probs_sanitized_batches += 1
+                    probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
+                    if probs.dim() == 2 and probs.size(1) > 0:
+                        row_sum = probs.sum(dim=1, keepdim=True)
+                        safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
+                        probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
+
+                batch_size = int(target_tensor.shape[0])
+                pred_tensor = torch.argmax(probs, dim=1).long()
+                confidence_tensor = torch.max(probs, dim=1).values
+                correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                top_k = min(3, int(probs.shape[1])) if probs.dim() == 2 else 1
+                topk = torch.topk(probs, k=top_k, dim=1).indices
+                top3_hit = (topk == target_tensor.to(topk.device).unsqueeze(1)).any(dim=1).float()
+
+                batch_oos = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_target_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
+                batch_hybrid_correct = correct_tensor
+                row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                batch_hybrid_set_nll = -torch.log(
+                    probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
+                )
+                batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
+
+                if isinstance(allowed_mask, torch.Tensor):
+                    if allowed_mask.dim() == 1:
+                        allowed_mask = allowed_mask.unsqueeze(0)
+                    row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                    pred_in_mask = allowed_mask[row_ids, pred_tensor].bool()
+                    target_in_mask = allowed_mask[row_ids, target_tensor.to(pred_tensor.device)].bool()
+                    strict_error_but_allowed = (pred_tensor != target_tensor.to(pred_tensor.device)) & pred_in_mask
+                    mask_cardinality = allowed_mask.sum(dim=1).float()
+                    oos_flags = (~pred_in_mask).float()
+                    ambiguous_mask = mask_cardinality > 1.0
+                    set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
+                    set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
+                    target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
+                    selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
+                    batch_hybrid_set_nll = -torch.log(selected_prob_mass)
+                    batch_hybrid_correct = torch.where(
+                        ambiguous_mask,
+                        pred_in_mask.float(),
+                        correct_tensor,
+                    )
+                    batch_ambiguous = ambiguous_mask.float()
+
+                    batch_oos = oos_flags.detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_target_in_mask = target_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_pred_in_mask = pred_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    batch_strict_error_but_allowed = (
+                        strict_error_but_allowed.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    )
+                    batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
+
+                all_trace_idx.extend(data.trace_idx.view(-1).long().detach().cpu().tolist())
+                all_true.extend(target_tensor.detach().cpu().tolist())
+                all_pred.extend(pred_tensor.detach().cpu().tolist())
+                all_confidence.extend(confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                all_correct.extend(correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                all_top3_hit.extend(top3_hit.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                all_oos_flags.extend(batch_oos.tolist())
+                all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
+                all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
+                all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
+                all_mask_cardinality.extend(batch_mask_cardinality.tolist())
+                all_hybrid_correct_flags.extend(
+                    batch_hybrid_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_hybrid_set_nll.extend(
+                    batch_hybrid_set_nll.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_ambiguous_flags.extend(batch_ambiguous.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+
+                if hasattr(data, "prefix_len"):
+                    all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
+                else:
+                    graph_lengths = torch.bincount(data.batch.view(-1).long(), minlength=batch_size)
+                    all_lengths.extend(graph_lengths.long().cpu().tolist())
+
+                if hasattr(data, "process_version_idx"):
+                    version_indices = data.process_version_idx.view(-1).long().cpu().tolist()
+                    for idx in version_indices:
+                        all_versions.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
+
+                inference_graphs += int(batch_size)
+
+        total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
+        inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
+        if contract_sanitized_batches > 0 or logits_sanitized_batches > 0 or probs_sanitized_batches > 0:
+            logger.info(
+                "Numeric guard [eval_drift_one_pass]: contract_sanitized_batches=%d "
+                "logits_sanitized_batches=%d probs_sanitized_batches=%d",
+                contract_sanitized_batches,
+                logits_sanitized_batches,
+                probs_sanitized_batches,
+            )
+        self._log_forward_stats_summary("eval_drift_one_pass", forward_stats)
+
+        return DriftInferenceRecords(
+            trace_idx=np.asarray(all_trace_idx, dtype=np.int64),
+            y_true=np.asarray(all_true, dtype=np.int64),
+            y_pred=np.asarray(all_pred, dtype=np.int64),
+            confidence=np.asarray(all_confidence, dtype=np.float32),
+            correct=np.asarray(all_correct, dtype=np.float32),
+            top3_hit=np.asarray(all_top3_hit, dtype=np.float32),
+            oos_flags=np.asarray(all_oos_flags, dtype=np.float32),
+            target_in_mask_flags=np.asarray(all_target_in_mask_flags, dtype=np.float32),
+            pred_in_mask_flags=np.asarray(all_pred_in_mask_flags, dtype=np.float32),
+            strict_error_but_allowed_flags=np.asarray(all_strict_error_but_allowed_flags, dtype=np.float32),
+            mask_cardinality=np.asarray(all_mask_cardinality, dtype=np.float32),
+            hybrid_correct_flags=np.asarray(all_hybrid_correct_flags, dtype=np.float32),
+            hybrid_set_nll=np.asarray(all_hybrid_set_nll, dtype=np.float32),
+            ambiguous_flags=np.asarray(all_ambiguous_flags, dtype=np.float32),
+            prefix_lengths=np.asarray(all_lengths, dtype=np.int64),
+            version_labels=all_versions,
+            inference_ms_per_graph=inference_ms_per_graph,
+        )
+
+    def _compute_test_metrics_from_records(self, records: DriftInferenceRecords, idxs: np.ndarray) -> Dict[str, Any]:
+        """Compute test/eval metrics for a subset of compact drift inference records."""
+        idxs = np.asarray(idxs, dtype=np.int64)
+        if idxs.size == 0:
+            return {
+                "test_accuracy": 0.0,
+                "test_macro_f1": 0.0,
+                "test_weighted_f1": 0.0,
+                "test_set_nll": 0.0,
+                "test_top3_accuracy": 0.0,
+                "test_ece": 0.0,
+                "strict_test_accuracy": 0.0,
+                "strict_test_macro_f1": 0.0,
+                "strict_test_weighted_f1": 0.0,
+                "test_oos": None,
+                "test_target_in_mask_rate": None,
+                "test_pred_in_mask_rate": None,
+                "test_strict_error_but_allowed_rate": None,
+                "test_ambiguous_prefix_rate": None,
+                "test_set_hit_rate_ambiguous": None,
+                "test_accuracy_deterministic": None,
+                "test_mask_coverage": 0.0,
+                "test_precision_macro": 0.0,
+                "test_recall_macro": 0.0,
+                "test_inference_time_ms_per_graph": float(records.inference_ms_per_graph),
+            }
+
+        y_true = records.y_true[idxs]
+        y_pred = records.y_pred[idxs]
+        confidence = records.confidence[idxs]
+        correct = records.correct[idxs]
+        top3_hit = records.top3_hit[idxs]
+        hybrid_correct_flags = records.hybrid_correct_flags[idxs]
+        hybrid_set_nll = records.hybrid_set_nll[idxs]
+        ambiguous_flags = records.ambiguous_flags[idxs]
+        pred_in_mask_flags_raw = records.pred_in_mask_flags[idxs]
+        oos_flags = records.oos_flags[idxs]
+        target_in_mask_flags = records.target_in_mask_flags[idxs]
+        pred_in_mask_flags = records.pred_in_mask_flags[idxs]
+        strict_error_but_allowed_flags = records.strict_error_but_allowed_flags[idxs]
+        mask_cardinality = records.mask_cardinality[idxs]
+        prefix_lengths = records.prefix_lengths[idxs] if records.prefix_lengths.shape[0] >= int(np.max(idxs)) + 1 else None
+        versions = [records.version_labels[int(idx)] for idx in idxs if int(idx) < len(records.version_labels)]
+
+        strict_accuracy = float(accuracy_score(y_true, y_pred))
+        strict_macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
+        strict_weighted_f1 = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
+        strict_precision_macro = float(precision_score(y_true, y_pred, average="macro", zero_division=0))
+        strict_recall_macro = float(recall_score(y_true, y_pred, average="macro", zero_division=0))
+
+        y_true_hybrid = np.asarray(y_true, dtype=np.int64).copy()
+        if int(ambiguous_flags.shape[0]) == int(y_true_hybrid.shape[0]) and int(pred_in_mask_flags_raw.shape[0]) == int(
+            y_true_hybrid.shape[0]
+        ):
+            override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
+            if override_idxs.size > 0:
+                y_true_hybrid[override_idxs] = y_pred[override_idxs]
+
+        hybrid_accuracy = self._nanmean_or_none(hybrid_correct_flags)
+        if hybrid_accuracy is None:
+            hybrid_accuracy = strict_accuracy
+
+        metrics = {
+            "test_accuracy": float(hybrid_accuracy),
+            "test_macro_f1": float(f1_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "test_weighted_f1": float(f1_score(y_true_hybrid, y_pred, average="weighted", zero_division=0)),
+            "test_set_nll": float(self._nanmean_or_none(hybrid_set_nll) or 0.0),
+            "test_top3_accuracy": float(self._nanmean_or_none(top3_hit) or 0.0),
+            "test_ece": float(self._expected_calibration_error_from_confidence(confidence, correct)),
+            "test_oos": self._nanmean_or_none(oos_flags),
+            "test_precision_macro": float(precision_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "test_recall_macro": float(recall_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
+            "strict_test_accuracy": strict_accuracy,
+            "strict_test_macro_f1": strict_macro_f1,
+            "strict_test_weighted_f1": strict_weighted_f1,
+            "strict_test_precision_macro": strict_precision_macro,
+            "strict_test_recall_macro": strict_recall_macro,
+            "test_inference_time_ms_per_graph": float(records.inference_ms_per_graph),
+        }
+        metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
+        metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)
+        metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
+
+        ambiguous_prefix_rate: float | None = None
+        test_set_hit_rate_ambiguous: float | None = None
+        test_accuracy_deterministic: float | None = None
+        if int(mask_cardinality.shape[0]) == int(y_true.shape[0]):
+            finite_mask_cardinality = np.isfinite(mask_cardinality)
+            if bool(np.any(finite_mask_cardinality)):
+                ambiguous_prefix_rate = float(np.mean(mask_cardinality[finite_mask_cardinality] > 1.0))
+                metrics["test_mask_coverage"] = float(np.mean(finite_mask_cardinality.astype(np.float32)))
+                ambiguous_idxs = np.where((mask_cardinality > 1.0) & finite_mask_cardinality)[0]
+                if ambiguous_idxs.size > 0:
+                    value = self._nanmean_or_none(pred_in_mask_flags[ambiguous_idxs])
+                    if value is not None:
+                        test_set_hit_rate_ambiguous = float(value)
+                deterministic_idxs = np.where((mask_cardinality == 1.0) & finite_mask_cardinality)[0]
+                if deterministic_idxs.size > 0:
+                    value = self._nanmean_or_none(hybrid_correct_flags[deterministic_idxs])
+                    if value is not None:
+                        test_accuracy_deterministic = float(value)
+            else:
+                metrics["test_mask_coverage"] = 0.0
+        else:
+            metrics["test_mask_coverage"] = 0.0
+
+        metrics["test_ambiguous_prefix_rate"] = ambiguous_prefix_rate
+        metrics["test_set_hit_rate_ambiguous"] = test_set_hit_rate_ambiguous
+        metrics["test_accuracy_deterministic"] = test_accuracy_deterministic
+
+        metrics.update(
+            self._compute_sliced_metrics(
+                y_true=y_true_hybrid,
+                y_pred=y_pred,
+                oos_flags=oos_flags,
+                target_in_mask_flags=target_in_mask_flags,
+                pred_in_mask_flags=pred_in_mask_flags,
+                strict_error_but_allowed_flags=strict_error_but_allowed_flags,
+                mask_cardinality=mask_cardinality,
+                prefix_lengths=prefix_lengths,
+                versions=versions if len(versions) == int(y_true.shape[0]) else None,
+                metric_prefix="",
+                emit_mask_metrics=True,
+            )
+        )
+        metrics.update(
+            self._compute_sliced_metrics(
+                y_true=y_true,
+                y_pred=y_pred,
+                oos_flags=oos_flags,
+                target_in_mask_flags=target_in_mask_flags,
+                pred_in_mask_flags=pred_in_mask_flags,
+                strict_error_but_allowed_flags=strict_error_but_allowed_flags,
+                mask_cardinality=mask_cardinality,
+                prefix_lengths=prefix_lengths,
+                versions=versions if len(versions) == int(y_true.shape[0]) else None,
+                metric_prefix="strict_",
+                emit_mask_metrics=False,
+            )
+        )
+        metrics["legacy_test_accuracy"] = float(metrics["strict_test_accuracy"])
+        metrics["legacy_test_macro_f1"] = float(metrics["strict_test_macro_f1"])
+        metrics["legacy_test_weighted_f1"] = float(metrics["strict_test_weighted_f1"])
+        return metrics
+
     @staticmethod
     def _is_finite_tensor(value: Any) -> bool:
         if not isinstance(value, torch.Tensor):
@@ -1896,6 +2267,195 @@ class ModelTrainer:
         emit_progress_event(stage="eval_drift.windows", status="done", message="Drift evaluation completed", current=total_windows, total=total_windows)
 
         return drift_results
+
+    def _prebuilt_dataset_has_trace_idx(self, dataset: Optional[Any]) -> bool:
+        """Return True when a prebuilt graph dataset can support one-pass drift windows."""
+        if dataset is None:
+            return False
+        try:
+            if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
+                lazy_dataset = ShardedGraphDataset.from_payload(
+                    dataset,
+                    max_cached_shards=self.sharded_dataset_cached_shards,
+                )
+                return len(lazy_dataset) > 0 and hasattr(lazy_dataset[0], "trace_idx")
+            if isinstance(dataset, Sequence) and not isinstance(dataset, (str, bytes, dict)):
+                if len(dataset) <= 0:
+                    return False
+                first = dataset[0]
+                return isinstance(first, Data) and hasattr(first, "trace_idx")
+        except Exception as exc:
+            logger.warning("Unable to inspect prebuilt drift dataset trace metadata: %s", exc)
+            return False
+        return False
+
+    def _evaluate_drift_windows_from_prebuilt_dataset(
+        self,
+        traces: Sequence[RawTrace],
+        prebuilt_test_dataset: Optional[Any],
+    ) -> Optional[List[Dict[str, float]]]:
+        """Evaluate drift windows from one streaming pass over prebuilt graph data."""
+        if not self._prebuilt_dataset_has_trace_idx(prebuilt_test_dataset):
+            return None
+        if self.drift_window_size <= 0:
+            raise ValueError("drift_window_size must be positive.")
+
+        logger.info("Drift evaluation path: one_pass_prebuilt_dataset")
+        loader = self._build_loader_from_dataset(prebuilt_test_dataset, shuffle=False)
+        records = self._collect_drift_inference_records(loader)
+        max_trace_idx = int(np.max(records.trace_idx)) if records.trace_idx.size > 0 else -1
+        unique_traces = int(np.unique(records.trace_idx).shape[0]) if records.trace_idx.size > 0 else 0
+        logger.info(
+            "Drift one-pass records: samples=%d traces=%d max_trace_idx=%d",
+            int(records.y_true.shape[0]),
+            unique_traces,
+            max_trace_idx,
+        )
+
+        resolved_windows = self._resolve_drift_window_record_indices(records, traces)
+        total_windows = len(resolved_windows)
+        logger.info(
+            "Drift windows prepared: size=%d, step=%d, keep_short_tail=false, windows=%d",
+            self.drift_window_size,
+            self._resolve_drift_step(),
+            total_windows,
+        )
+        emit_progress_event(
+            stage="eval_drift.windows",
+            status="start",
+            message="Evaluating drift windows",
+            current=0,
+            total=total_windows,
+        )
+
+        drift_results: List[Dict[str, float]] = []
+        iterator = tqdm(
+            resolved_windows,
+            desc="Eval drift",
+            leave=self.tqdm_leave,
+            disable=self._is_tqdm_disabled(),
+        )
+        for window_idx, (start, idxs, start_ts, end_ts) in enumerate(iterator):
+            metrics = self._compute_test_metrics_from_records(records, idxs)
+            macro_f1 = float(metrics.get("test_macro_f1", 0.0))
+            strict_macro_f1 = float(metrics.get("strict_test_macro_f1", 0.0))
+            ece = float(metrics.get("test_ece", 0.0))
+            window_oos = metrics.get("test_oos")
+            window_target_in_mask = metrics.get("test_target_in_mask_rate")
+            window_pred_in_mask = metrics.get("test_pred_in_mask_rate")
+            window_strict_error_but_allowed = metrics.get("test_strict_error_but_allowed_rate")
+            window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
+            window_set_nll = metrics.get("test_set_nll")
+
+            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
+
+            if self.tracker is not None:
+                self.tracker.log_metric("drift_window_macro_f1", macro_f1, step=window_idx)
+                self.tracker.log_metric("drift_window_strict_macro_f1", strict_macro_f1, step=window_idx)
+                self.tracker.log_metric("drift_window_test_ece", ece, step=window_idx)
+                if window_set_nll is not None:
+                    self.tracker.log_metric("drift_window_test_set_nll", float(window_set_nll), step=window_idx)
+                if window_oos is not None:
+                    self.tracker.log_metric("drift_window_test_oos", float(window_oos), step=window_idx)
+                if window_target_in_mask is not None:
+                    self.tracker.log_metric("drift_window_target_in_mask_rate", float(window_target_in_mask), step=window_idx)
+                if window_pred_in_mask is not None:
+                    self.tracker.log_metric("drift_window_pred_in_mask_rate", float(window_pred_in_mask), step=window_idx)
+                if window_strict_error_but_allowed is not None:
+                    self.tracker.log_metric(
+                        "drift_window_strict_error_but_allowed_rate",
+                        float(window_strict_error_but_allowed),
+                        step=window_idx,
+                    )
+                if window_ambiguous_prefix is not None:
+                    self.tracker.log_metric(
+                        "drift_window_ambiguous_prefix_rate",
+                        float(window_ambiguous_prefix),
+                        step=window_idx,
+                    )
+
+            window_trace_count = max(0, int(idxs.shape[0]))
+            window_end_trace = int(start)
+            if window_trace_count > 0:
+                trace_values = records.trace_idx[idxs]
+                window_end_trace = int(np.max(trace_values))
+
+            drift_results.append(
+                {
+                    "window_index": float(window_idx),
+                    "window_start_trace": float(start),
+                    "window_end_trace": float(window_end_trace),
+                    "window_start_ts": float(start_ts),
+                    "window_end_ts": float(end_ts),
+                    "window_macro_f1": macro_f1,
+                    "window_strict_macro_f1": strict_macro_f1,
+                    "window_test_ece": ece,
+                    "window_test_set_nll": float(window_set_nll) if window_set_nll is not None else float("nan"),
+                    "window_test_oos": float(window_oos) if window_oos is not None else float("nan"),
+                    "window_target_in_mask_rate": (
+                        float(window_target_in_mask) if window_target_in_mask is not None else float("nan")
+                    ),
+                    "window_pred_in_mask_rate": (
+                        float(window_pred_in_mask) if window_pred_in_mask is not None else float("nan")
+                    ),
+                    "window_strict_error_but_allowed_rate": (
+                        float(window_strict_error_but_allowed)
+                        if window_strict_error_but_allowed is not None
+                        else float("nan")
+                    ),
+                    "window_ambiguous_prefix_rate": (
+                        float(window_ambiguous_prefix) if window_ambiguous_prefix is not None else float("nan")
+                    ),
+                }
+            )
+
+            if self.tracker is not None:
+                self.tracker.log_metric("drift_window_start_ts", float(start_ts), step=window_idx)
+                self.tracker.log_metric("drift_window_end_ts", float(end_ts), step=window_idx)
+
+            emit_progress_event(
+                stage="eval_drift.windows",
+                status="update",
+                message=f"Window {window_idx + 1}/{total_windows}",
+                current=int(window_idx + 1),
+                total=total_windows,
+                payload={
+                    "macro_f1": float(macro_f1),
+                    "strict_macro_f1": float(strict_macro_f1),
+                    "ece": float(ece),
+                    "target_in_mask_rate": float(window_target_in_mask) if window_target_in_mask is not None else None,
+                    "pred_in_mask_rate": float(window_pred_in_mask) if window_pred_in_mask is not None else None,
+                },
+            )
+
+        emit_progress_event(
+            stage="eval_drift.windows",
+            status="done",
+            message="Drift evaluation completed",
+            current=total_windows,
+            total=total_windows,
+        )
+        return drift_results
+
+    def _resolve_drift_window_record_indices(
+        self,
+        records: DriftInferenceRecords,
+        traces: Sequence[RawTrace],
+    ) -> List[Tuple[int, np.ndarray, float, float]]:
+        """Resolve trace windows to compact inference-record indexes."""
+        windows = self._generate_drift_windows(traces)
+        resolved: List[Tuple[int, np.ndarray, float, float]] = []
+        for start, window_traces in windows:
+            start_trace_idx = int(start)
+            end_trace_idx = int(start + len(window_traces) - 1)
+            idxs = np.where(
+                (records.trace_idx >= start_trace_idx)
+                & (records.trace_idx <= end_trace_idx)
+            )[0]
+            start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
+            end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
+            resolved.append((int(start), idxs.astype(np.int64, copy=False), start_ts, end_ts))
+        return resolved
 
     def _generate_drift_windows(self, traces: Sequence[RawTrace]) -> List[Tuple[int, List[RawTrace]]]:
         """Generate chronological drift windows and drop short tail windows."""
@@ -2168,10 +2728,17 @@ class ModelTrainer:
         confidences = np.max(y_prob, axis=1)
         predictions = np.argmax(y_prob, axis=1)
         correctness = (predictions == y_true).astype(float)
+        return self._expected_calibration_error_from_confidence(confidences, correctness)
 
+    def _expected_calibration_error_from_confidence(self, confidences: np.ndarray, correctness: np.ndarray) -> float:
+        """Compute ECE from compact confidence/correctness arrays."""
+        confidences = np.asarray(confidences, dtype=float)
+        correctness = np.asarray(correctness, dtype=float)
         bin_edges = np.linspace(0.0, 1.0, self.num_ece_bins + 1)
         ece = 0.0
-        total = len(y_true)
+        total = int(confidences.shape[0])
+        if total <= 0:
+            return 0.0
         for idx in range(self.num_ece_bins):
             lower = bin_edges[idx]
             upper = bin_edges[idx + 1]

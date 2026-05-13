@@ -34,8 +34,8 @@ historical debt worklogs.
 - `status`: active
 - `priority`: P0
 - `adr`: none
-- `current_behavior`: snapshot-aware stats payload cache and deduplicated shard payload format are implemented; full real drift validation is still pending
-- `target_state`: full `S_Str-USc-drift-loan` validation confirms no Neo4j defunct connection and no system-wide virtual-memory exhaustion
+- `current_behavior`: snapshot-aware stats payload cache, deduplicated shard payload format, and one-pass prebuilt drift-window evaluation are implemented; full real drift validation is still pending
+- `target_state`: full `S_Str-USc-drift-loan` validation confirms no Neo4j defunct connection, no system-wide virtual-memory exhaustion, and no repeated graph rebuild during drift-window evaluation
 
 **Description (ukr):**
 
@@ -96,6 +96,14 @@ Implementation plan:
 Implementation report:
 
 `docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Report_2026-05-12.MD`
+
+Follow-up one-pass drift plan:
+
+`docs/worklogs/MVP2_5_One_Pass_Drift_Window_Evaluation_Plan_2026-05-13.MD`
+
+Follow-up one-pass drift report:
+
+`docs/worklogs/MVP2_5_One_Pass_Drift_Window_Evaluation_Report_2026-05-13.MD`
 
 ---
 

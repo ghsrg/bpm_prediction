@@ -286,3 +286,36 @@ def test_build_graph_dataset_sharded_logs_without_name_error(mock_feature_config
 
     assert payload["graphs"] == 1
     assert payload["shards"]
+
+
+def test_build_graph_dataset_sharded_attaches_trace_metadata(mock_feature_configs, tmp_path: Path):
+    traces = [
+        _trace("c1", "v1", ["A", "B"]),
+        _trace("c2", "v1", ["A", "C"]),
+    ]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_builder = BaselineGraphBuilder(feature_encoder=encoder)
+
+    payload = _build_graph_dataset_sharded(
+        traces=traces,
+        prefix_policy=PrefixPolicy(),
+        graph_builder=graph_builder,  # type: ignore[arg-type]
+        version_to_idx={},
+        stats_snapshot_version_to_idx={},
+        show_progress=False,
+        tqdm_disable=True,
+        desc="Build test graphs",
+        progress_stage="test.build_graph",
+        entry_dir=tmp_path / "entry",
+        split_key="test",
+        shard_size=1,
+        max_ram_bytes=None,
+    )
+
+    items = list(_iter_graphs_from_dataset_payload(payload))
+
+    assert items
+    assert {int(item.trace_idx.view(-1)[0].item()) for item in items} == {0, 1}
+    assert all(hasattr(item, "prefix_idx") for item in items)
+    assert all(hasattr(item, "trace_start_ts") for item in items)
+    assert all(hasattr(item, "trace_end_ts") for item in items)

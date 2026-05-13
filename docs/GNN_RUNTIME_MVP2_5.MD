@@ -368,6 +368,37 @@ GRAPH_DATASET_STRUCT_PAYLOADS split=<split> graphs=<n> shards=<n> structural_pay
 For healthy stats-backed drift runs, `structural_payloads` should be bounded by
 resolved version/snapshot diversity rather than by prefix graph count.
 
+## 8.2 One-Pass Drift Window Evaluation
+
+Optimized `eval_drift` uses prebuilt test graph datasets when every graph sample
+contains trace metadata:
+
+1. `trace_idx`
+2. `prefix_idx`
+3. `trace_start_ts`
+4. `trace_end_ts`
+
+The trainer runs one non-shuffled inference pass over the full test graph
+dataset, stores compact per-sample records, then aggregates drift-window metrics
+from those records. It must not retain full `N x C` probability matrices for
+drift windows. Store scalar values such as `confidence`, `correct`, `top3_hit`,
+mask flags, `hybrid_set_nll`, prefix length, and version label.
+
+Expected runtime log:
+
+```text
+Drift evaluation path: one_pass_prebuilt_dataset
+Drift one-pass records: samples=<n> traces=<n> max_trace_idx=<n>
+```
+
+Fallback behavior:
+
+```text
+Drift evaluation path: legacy_raw_trace_windows
+```
+
+Fallback is used for old graph caches or non-prebuilt runs without `trace_idx`.
+
 ## 9. Current Batch Snapshot Limitation
 
 Stage 4.2 uses transitional Option-A behavior for structural payload selection:

@@ -179,3 +179,36 @@ behavior, покращувати узгодженість прогнозу з al
 - не змішувати runtime validity з model quality: ця зміна не повинна сама по
   собі покращувати F1, вона прибирає інфраструктурне обмеження для коректного
   вимірювання.
+
+---
+
+## 2026-05-13 - One-Pass Drift Window Evaluation
+
+- `topic`: experiment validity and drift runtime scalability
+- `impact`: important
+- `status`: implemented; full drift rerun pending
+- `related_debt`: `stats_backed_structural_payload_caching`
+
+**Note (ukr):**
+
+Для dissertation-grade `eval_drift` важливо, щоб drift-window оцінка не
+перебудовувала графи та статистично-збагачену структуру для кожного sliding
+window. Інакше runtime overhead залежить від кількості вікон і може стати
+інфраструктурним bias: експеримент не завершується або займає непропорційно
+багато часу саме для structure+stats режимів.
+
+Після зміни `eval_drift` може виконувати один inference pass по prebuilt
+`test_dataset`, зберігати компактні per-sample records і агрегувати
+drift-window metrics без повторного graph build та без повторного forward по
+overlapping windows.
+
+**Do not forget:**
+
+- у методології згадати, що drift windows рахуються з фіксованого prebuilt
+  graph dataset, а не через повторну побудову графів;
+- для великих логів не зберігати повний `N x C` probability tensor; достатньо
+  scalar records (`confidence`, `correct`, `top3_hit`, mask flags, set NLL);
+- при повторенні експериментів перевіряти лог
+  `Drift evaluation path: one_pass_prebuilt_dataset`;
+- старі graph cache entries без `trace_idx` треба перебудувати, бо вони
+  підуть у fallback `legacy_raw_trace_windows`.

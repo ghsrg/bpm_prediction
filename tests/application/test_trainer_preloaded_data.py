@@ -6,7 +6,7 @@ from typing import Iterator
 import torch
 from torch_geometric.data import Data
 
-from src.application.use_cases.trainer import ModelTrainer, SplitData
+from src.application.use_cases.trainer import ModelTrainer, ShardedGraphDataset, SplitData
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.models.baseline_gcn import BaselineGCN
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
@@ -183,3 +183,39 @@ def test_trainer_accepts_sharded_preloaded_dataset(mock_feature_configs, mock_ra
     result = trainer.run()
     assert result["mode"] == "train"
     assert isinstance(captured["prebuilt_datasets"]["train"], dict)
+
+
+def test_sharded_graph_dataset_rehydrates_deduplicated_structural_payload(tmp_path: Path):
+    entry_dir = tmp_path / "entry"
+    shard_dir = entry_dir / "test_shards"
+    shard_dir.mkdir(parents=True)
+    graph = Data(y=torch.tensor([1], dtype=torch.long))
+    graph.structural_payload_key = "payload-a"
+    payload = {
+        "schema": 2,
+        "format": "dedup_structural_payloads",
+        "graphs": [graph],
+        "structural_payloads": {
+            "payload-a": {
+                "struct_x": torch.tensor([[1.0], [2.0]], dtype=torch.float32),
+                "structural_edge_index": torch.tensor([[0], [1]], dtype=torch.long),
+                "structural_edge_weight": torch.tensor([0.5], dtype=torch.float32),
+                "struct_node_to_class_index": torch.tensor([0, 1], dtype=torch.long),
+            }
+        },
+    }
+    torch.save(payload, shard_dir / "test_00001.pt")
+    dataset = ShardedGraphDataset.from_payload(
+        {
+            "kind": "sharded_cache_split",
+            "entry_dir": str(entry_dir),
+            "split": "test",
+            "graphs": 1,
+            "shards": [{"path": "test_shards/test_00001.pt", "count": 1}],
+        }
+    )
+
+    item = dataset[0]
+    assert torch.equal(item.struct_x, torch.tensor([[1.0], [2.0]], dtype=torch.float32))
+    assert torch.equal(item.structural_edge_index, torch.tensor([[0], [1]], dtype=torch.long))
+    assert not hasattr(item, "structural_payload_key")

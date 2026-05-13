@@ -25,6 +25,8 @@ import torch
 from torch_geometric.data import Data
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 from src.adapters.ingestion.camunda_trace_adapter import CamundaTraceAdapter
 from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.ports.xes_adapter_port import IXESAdapter
@@ -47,6 +49,7 @@ from src.infrastructure.runtime.progress_events import ProgressReporter, emit_pr
 GRAPH_DATASET_CACHE_SCHEMA = 2
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
+GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -707,6 +710,15 @@ def _iter_graphs_from_dataset_payload(payload: Any) -> Iterator[Data]:
                 loaded = torch.load(shard_path, map_location="cpu")
             except Exception:
                 continue
+            if isinstance(loaded, dict) and loaded.get("format") == GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL:
+                graphs = loaded.get("graphs", [])
+                registry = loaded.get("structural_payloads", {})
+                if not isinstance(graphs, list) or not isinstance(registry, dict):
+                    continue
+                for item in graphs:
+                    if isinstance(item, Data):
+                        yield _attach_structural_payload(item, registry)
+                continue
             if not isinstance(loaded, list):
                 continue
             for item in loaded:
@@ -718,6 +730,75 @@ def _iter_graphs_from_dataset_payload(payload: Any) -> Iterator[Data]:
         for item in payload:
             if isinstance(item, Data):
                 yield item
+
+
+def _tensor_digest(tensor: torch.Tensor | None) -> str:
+    if not isinstance(tensor, torch.Tensor):
+        return "none"
+    cpu = tensor.detach().cpu().contiguous()
+    payload = {
+        "shape": list(cpu.shape),
+        "dtype": str(cpu.dtype),
+        "bytes": cpu.numpy().tobytes().hex(),
+    }
+    text = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _structural_payload_key_from_data(data: Data) -> str:
+    names = (
+        "struct_x",
+        "structural_edge_index",
+        "structural_edge_weight",
+        "struct_node_to_class_index",
+    )
+    parts: list[str] = []
+    for name in names:
+        tensor = getattr(data, name, None)
+        if isinstance(tensor, torch.Tensor):
+            parts.append(f"{name}:{id(tensor)}")
+    snapshot_idx = getattr(data, "stats_snapshot_version_idx", None)
+    if isinstance(snapshot_idx, torch.Tensor):
+        parts.append(f"stats_snapshot_version_idx:{id(snapshot_idx)}")
+    return "|".join(parts) if parts else "no_structural_payload"
+
+
+def _strip_structural_payload(
+    data: Data,
+    registry: dict[str, dict[str, torch.Tensor]],
+) -> tuple[Data, dict[str, dict[str, torch.Tensor]]]:
+    names = ("struct_x", "structural_edge_index", "structural_edge_weight", "struct_node_to_class_index")
+    has_payload = any(isinstance(getattr(data, name, None), torch.Tensor) for name in names)
+    if not has_payload:
+        return data, registry
+    key = _structural_payload_key_from_data(data)
+    if key not in registry:
+        registry[key] = {
+            name: getattr(data, name).detach().cpu()
+            for name in names
+            if isinstance(getattr(data, name, None), torch.Tensor)
+        }
+    stripped = data.clone()
+    for name in names:
+        if hasattr(stripped, name):
+            delattr(stripped, name)
+    stripped.structural_payload_key = key
+    return stripped, registry
+
+
+def _attach_structural_payload(data: Data, registry: dict[str, Any]) -> Data:
+    key = getattr(data, "structural_payload_key", None)
+    if key is None:
+        return data
+    payload = registry.get(str(key))
+    if not isinstance(payload, dict):
+        return data
+    for name, tensor in payload.items():
+        if isinstance(tensor, torch.Tensor):
+            setattr(data, name, tensor)
+    if hasattr(data, "structural_payload_key"):
+        delattr(data, "structural_payload_key")
+    return data
 
 
 def _tensor_scale_diagnostics(
@@ -963,6 +1044,11 @@ def _save_graph_dataset_cache_sharded(
             "validation_graphs": int(val_split.get("graphs", 0)),
             "test_graphs": int(test_split.get("graphs", 0)),
         },
+        "structural_payloads": {
+            "train": sum(int(row.get("structural_payloads", 0)) for row in train_split.get("shards", [])),
+            "validation": sum(int(row.get("structural_payloads", 0)) for row in val_split.get("shards", [])),
+            "test": sum(int(row.get("structural_payloads", 0)) for row in test_split.get("shards", [])),
+        },
         "splits": {
             "train": {
                 "graphs": int(train_split.get("graphs", 0)),
@@ -1043,12 +1129,24 @@ def _build_graph_dataset_sharded(
         shard_name = f"{split_key}_{shard_idx:05d}.pt"
         shard_path = split_dir / shard_name
         tmp_path = shard_path.with_suffix(".pt.tmp")
-        torch.save(buffer, tmp_path)
+        stripped_buffer: list[Data] = []
+        structural_payloads: dict[str, dict[str, torch.Tensor]] = {}
+        for item in buffer:
+            stripped, structural_payloads = _strip_structural_payload(item, structural_payloads)
+            stripped_buffer.append(stripped)
+        shard_payload = {
+            "schema": 2,
+            "format": GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL,
+            "graphs": stripped_buffer,
+            "structural_payloads": structural_payloads,
+        }
+        torch.save(shard_payload, tmp_path)
         tmp_path.replace(shard_path)
         shard_rows.append(
             {
                 "path": str(shard_path.relative_to(entry_dir).as_posix()),
                 "count": int(len(buffer)),
+                "structural_payloads": int(len(structural_payloads)),
             }
         )
         buffer.clear()
@@ -1165,6 +1263,14 @@ def _build_graph_dataset_sharded(
     _flush_buffer(force=True)
     dataset_payload["graphs"] = int(total_graphs)
     dataset_payload["shards"] = shard_rows
+    structural_payload_count = sum(int(row.get("structural_payloads", 0)) for row in shard_rows)
+    logger.info(
+        "GRAPH_DATASET_STRUCT_PAYLOADS split=%s graphs=%d shards=%d structural_payloads=%d",
+        split_key,
+        int(total_graphs),
+        int(len(shard_rows)),
+        int(structural_payload_count),
+    )
     reporter.done(
         message=f"{desc} completed",
         current=total_traces,

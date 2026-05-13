@@ -6,12 +6,18 @@ import torch
 from torch_geometric.data import Data
 
 from src.cli import (
+    _build_graph_dataset_sharded,
     _graph_dataset_cache_fingerprint,
     _iter_graphs_from_dataset_payload,
     _load_graph_dataset_cache,
     _save_graph_dataset_cache,
     _save_graph_dataset_cache_sharded,
+    _strip_structural_payload,
+    _structural_payload_key_from_data,
 )
+from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
+from src.domain.services.feature_encoder import FeatureEncoder
+from src.domain.services.prefix_policy import PrefixPolicy
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
 
@@ -174,3 +180,109 @@ def test_graph_dataset_cache_sharded_roundtrip(tmp_path: Path):
     train_items = list(_iter_graphs_from_dataset_payload(loaded["train_dataset"]))
     assert len(train_items) == 1
     assert int(train_items[0].y.view(-1)[0].item()) == 1
+
+
+def test_sharded_cache_deduplicates_structural_payloads(tmp_path: Path):
+    _ = tmp_path
+    shared_struct_x = torch.tensor([[1.0], [2.0]], dtype=torch.float32)
+    shared_edge_index = torch.tensor([[0], [1]], dtype=torch.long)
+    shared_edge_weight = torch.tensor([0.5], dtype=torch.float32)
+    shared_node_to_class = torch.tensor([0, 1], dtype=torch.long)
+
+    graph_a = Data(y=torch.tensor([1]), struct_x=shared_struct_x, structural_edge_index=shared_edge_index)
+    graph_a.structural_edge_weight = shared_edge_weight
+    graph_a.struct_node_to_class_index = shared_node_to_class
+    graph_b = Data(y=torch.tensor([1]), struct_x=shared_struct_x, structural_edge_index=shared_edge_index)
+    graph_b.structural_edge_weight = shared_edge_weight
+    graph_b.struct_node_to_class_index = shared_node_to_class
+
+    payload_key = _structural_payload_key_from_data(graph_a)
+    stripped_a, payloads = _strip_structural_payload(graph_a, {})
+    stripped_b, payloads = _strip_structural_payload(graph_b, payloads)
+
+    assert payload_key in payloads
+    assert len(payloads) == 1
+    assert not hasattr(stripped_a, "struct_x")
+    assert not hasattr(stripped_b, "struct_x")
+    assert getattr(stripped_a, "structural_payload_key") == payload_key
+
+
+def test_structural_payload_key_is_identity_based_not_tensor_content(monkeypatch):
+    shared_struct_x = torch.tensor([[1.0], [2.0]], dtype=torch.float32)
+    graph = Data(y=torch.tensor([1]), struct_x=shared_struct_x)
+
+    def _raise_if_content_digest_is_used(tensor):
+        _ = tensor
+        raise AssertionError("content tensor digest should not be used for sharded structural payload key")
+
+    monkeypatch.setattr("src.cli._tensor_digest", _raise_if_content_digest_is_used)
+
+    key = _structural_payload_key_from_data(graph)
+
+    assert str(id(shared_struct_x)) in key
+
+
+def test_iter_graphs_rehydrates_deduplicated_structural_payload(tmp_path: Path):
+    entry_dir = tmp_path / "entry"
+    shard_dir = entry_dir / "test_shards"
+    shard_dir.mkdir(parents=True)
+    graph = Data(y=torch.tensor([1], dtype=torch.long))
+    graph.structural_payload_key = "payload-a"
+    torch.save(
+        {
+            "schema": 2,
+            "format": "dedup_structural_payloads",
+            "graphs": [graph],
+            "structural_payloads": {
+                "payload-a": {
+                    "struct_x": torch.tensor([[1.0], [2.0]], dtype=torch.float32),
+                    "structural_edge_index": torch.tensor([[0], [1]], dtype=torch.long),
+                    "structural_edge_weight": torch.tensor([0.5], dtype=torch.float32),
+                    "struct_node_to_class_index": torch.tensor([0, 1], dtype=torch.long),
+                }
+            },
+        },
+        shard_dir / "test_00001.pt",
+    )
+
+    items = list(
+        _iter_graphs_from_dataset_payload(
+            {
+                "kind": "sharded_cache_split",
+                "entry_dir": str(entry_dir),
+                "split": "test",
+                "graphs": 1,
+                "shards": [{"path": "test_shards/test_00001.pt", "count": 1}],
+            }
+        )
+    )
+
+    assert len(items) == 1
+    assert torch.equal(items[0].struct_x, torch.tensor([[1.0], [2.0]], dtype=torch.float32))
+    assert torch.equal(items[0].structural_edge_index, torch.tensor([[0], [1]], dtype=torch.long))
+    assert not hasattr(items[0], "structural_payload_key")
+
+
+def test_build_graph_dataset_sharded_logs_without_name_error(mock_feature_configs, tmp_path: Path):
+    traces = [_trace("c1", "v1", ["A", "B"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_builder = BaselineGraphBuilder(feature_encoder=encoder)
+
+    payload = _build_graph_dataset_sharded(
+        traces=traces,
+        prefix_policy=PrefixPolicy(),
+        graph_builder=graph_builder,  # type: ignore[arg-type]
+        version_to_idx={},
+        stats_snapshot_version_to_idx={},
+        show_progress=False,
+        tqdm_disable=True,
+        desc="Build test graphs",
+        progress_stage="test.build_graph",
+        entry_dir=tmp_path / "entry",
+        split_key="test",
+        shard_size=1,
+        max_ram_bytes=None,
+    )
+
+    assert payload["graphs"] == 1
+    assert payload["shards"]

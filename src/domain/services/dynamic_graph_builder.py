@@ -57,12 +57,27 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._missing_asof_warned_keys: set[tuple[str, str, str]] = set()
         self._topology_projection_warned_keys: set[tuple[str, str, str]] = set()
         self.cache_policy = self._resolve_cache_policy(cache_policy)
-        self._dto_cache: dict[tuple[str, tuple[str, ...], str | None], ProcessStructureDTO | None] = {}
+        self._dto_cache: dict[tuple[Any, ...], ProcessStructureDTO | None] = {}
         self._topology_cache: dict[tuple[Any, ...], Dict[str, Any]] = {}
+        self._cache_diagnostics: dict[str, int] = {
+            "dto_cache_hits": 0,
+            "dto_cache_misses": 0,
+            "topology_cache_hits": 0,
+            "topology_cache_misses": 0,
+        }
+        self._resolved_snapshot_identities: set[tuple[str, str, str | None, str | None]] = set()
         self._dto_cache_max_entries = 32768
         self._topology_cache_max_entries = 512
         self._topology_disk_cache_schema = 1
         self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
+
+    def cache_diagnostics(self) -> dict[str, int]:
+        return {
+            **{key: int(value) for key, value in self._cache_diagnostics.items()},
+            "dto_cache_entries": int(len(self._dto_cache)),
+            "topology_cache_entries": int(len(self._topology_cache)),
+            "unique_snapshot_identities": int(len(self._resolved_snapshot_identities)),
+        }
 
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
@@ -384,15 +399,18 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         as_of_ts: datetime | None,
         candidate_versions: list[str],
     ) -> ProcessStructureDTO | None:
-        cache_key: tuple[str, tuple[str, ...], str | None] | None = None
-        if self.cache_policy in {"dto", "full"}:
+        cache_key: tuple[Any, ...] | None = None
+        cache_strict_asof_dto = not (self.stats_time_policy == "strict_asof" and isinstance(as_of_ts, datetime))
+        if self.cache_policy in {"dto", "full"} and cache_strict_asof_dto:
             cache_key = (
                 self.process_name or "__auto__",
                 tuple(str(item).strip() for item in candidate_versions),
                 as_of_ts.isoformat() if isinstance(as_of_ts, datetime) else None,
             )
             if cache_key in self._dto_cache:
+                self._cache_diagnostics["dto_cache_hits"] += 1
                 return self._dto_cache[cache_key]
+        self._cache_diagnostics["dto_cache_misses"] += 1
 
         for candidate in candidate_versions:
             if hasattr(self.knowledge_port, "get_process_structure_as_of") and as_of_ts is not None:
@@ -408,6 +426,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     process_name=self.process_name,
                 )
             if dto is not None:
+                self._track_snapshot_identity(dto)
                 if cache_key is not None:
                     self._cache_put(
                         cache=self._dto_cache,
@@ -424,6 +443,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     # Legacy compatibility for repositories where version-only lookup is still used.
                     dto = self.knowledge_port.get_process_structure(candidate)
                 if dto is not None:
+                    self._track_snapshot_identity(dto)
                     if cache_key is not None:
                         self._cache_put(
                             cache=self._dto_cache,
@@ -440,6 +460,17 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 max_entries=self._dto_cache_max_entries,
             )
         return None
+
+    def _track_snapshot_identity(self, dto: ProcessStructureDTO) -> None:
+        snapshot = self._stats_snapshot_metadata(dto)
+        self._resolved_snapshot_identities.add(
+            (
+                self.process_name or "__auto__",
+                str(dto.version),
+                self._clean_optional_text(snapshot.get("knowledge_version")) or None,
+                self._clean_optional_text(snapshot.get("as_of_ts")) or None,
+            )
+        )
 
     @staticmethod
     def _cache_put(cache: Dict[Any, Any], key: Any, value: Any, *, max_entries: int) -> None:
@@ -570,9 +601,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
             cached = self._topology_cache.get(cache_key)
             if isinstance(cached, dict):
+                self._cache_diagnostics["topology_cache_hits"] += 1
                 return cached
             cached_disk = self._load_compiled_topology_from_disk(cache_key)
             if isinstance(cached_disk, dict):
+                self._cache_diagnostics["topology_cache_hits"] += 1
                 self._cache_put(
                     cache=self._topology_cache,
                     key=cache_key,
@@ -580,6 +613,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     max_entries=self._topology_cache_max_entries,
                 )
                 return cached_disk
+            self._cache_diagnostics["topology_cache_misses"] += 1
 
         num_classes = len(activity_vocab)
         allowed_masks_by_src: Dict[int, torch.Tensor] = {}

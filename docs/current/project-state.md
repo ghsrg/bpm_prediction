@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-07
+- `last_updated`: 2026-05-12
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -123,6 +123,13 @@ Trainer can add a set-aware structural auxiliary loss via
 `training.structural_aux_loss_enabled` so the structural branch receives a
 direct gradient signal.
 
+Stats-backed structural drift runtime now uses snapshot-aware Neo4j stats
+payload caching and deduplicated structural payload shards. Heavy stats payloads
+are loaded by resolved snapshot identity instead of repeatedly loading full JSON
+payloads for every exact prefix `as_of_ts`. Sharded graph cache files can store
+one structural payload per repeated `structural_payload_key` and rehydrate it at
+load time.
+
 ### graph_dataset_cache_and_spill
 
 - `status`: implemented
@@ -140,6 +147,12 @@ Train/eval runtime має disk-cache для побудованих graph dataset
 sharded disk spill для великих запусків. Якщо spill увімкнено, runtime примусово
 потребує cache write mode. `max_ram_gb` є soft RSS guard: при перевищенні ліміту
 буфер графів flushиться у shards.
+
+For stats-backed structural runs, sharded cache uses a deduplicated shard
+payload format: per-prefix `Data` objects store `structural_payload_key`, while
+`struct_x`, `structural_edge_index`, `structural_edge_weight`, and
+`struct_node_to_class_index` are stored once per shard payload key and reattached
+by CLI diagnostics and `ShardedGraphDataset`.
 
 ---
 

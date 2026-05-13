@@ -185,6 +185,80 @@ def test_trainer_accepts_sharded_preloaded_dataset(mock_feature_configs, mock_ra
     assert isinstance(captured["prebuilt_datasets"]["train"], dict)
 
 
+def test_eval_drift_receives_prebuilt_test_dataset(mock_feature_configs, mock_raw_trace, tmp_path: Path):
+    traces = [mock_raw_trace, mock_raw_trace]
+    prefix_policy = PrefixPolicy()
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_builder = BaselineGraphBuilder(feature_encoder=encoder)
+    graph_dataset = [
+        Data(
+            x_cat=torch.zeros((1, 1), dtype=torch.long),
+            x_num=torch.zeros((1, 1), dtype=torch.float32),
+            edge_index=torch.empty((2, 0), dtype=torch.long),
+            edge_type=torch.empty((0,), dtype=torch.long),
+            y=torch.tensor([1], dtype=torch.long),
+            num_nodes=1,
+            trace_idx=torch.tensor([0], dtype=torch.long),
+        )
+    ]
+
+    model = BaselineGCN(
+        feature_layout=encoder.feature_layout,
+        hidden_dim=8,
+        output_dim=len(encoder.categorical_vocabs[encoder.activity_feature_name]),
+        dropout=0.0,
+    )
+    trainer = ModelTrainer(
+        xes_adapter=_FailOnReadAdapter(),
+        prefix_policy=prefix_policy,
+        graph_builder=graph_builder,
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "epochs": 1,
+            "batch_size": 2,
+            "learning_rate": 0.001,
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "checkpoint_dir": str(tmp_path),
+            "experiment_config": {
+                "name": "pytest_eval_drift_preloaded",
+                "mode": "eval_drift",
+                "fraction": 1.0,
+                "split_strategy": "temporal",
+                "train_ratio": 0.0,
+                "split_ratio": [0.0, 0.0, 1.0],
+            },
+        },
+        prepared_data={
+            "prepared_traces": traces,
+            "train_traces": [],
+            "val_traces": [],
+            "test_traces": traces,
+            "train_dataset": [],
+            "val_dataset": [],
+            "test_dataset": graph_dataset,
+            "idx_to_version": {0: "v1"},
+        },
+    )
+
+    captured = {}
+
+    def _fake_run_eval_drift(**kwargs):
+        captured["prebuilt_test_dataset"] = kwargs.get("prebuilt_test_dataset")
+        return {"mode": "eval_drift", "drift_metrics": []}
+
+    trainer._run_eval_drift = _fake_run_eval_drift  # type: ignore[method-assign]
+    trainer._prepare_checkpoint_state = lambda is_eval_mode: (None, 0, float("inf"), 0)  # type: ignore[assignment]
+
+    result = trainer.run()
+
+    assert result["mode"] == "eval_drift"
+    assert captured["prebuilt_test_dataset"] is not None
+    assert captured["prebuilt_test_dataset"][0] is graph_dataset[0]
+
+
 def test_sharded_graph_dataset_rehydrates_deduplicated_structural_payload(tmp_path: Path):
     entry_dir = tmp_path / "entry"
     shard_dir = entry_dir / "test_shards"

@@ -46,7 +46,7 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
-GRAPH_DATASET_CACHE_SCHEMA = 2
+GRAPH_DATASET_CACHE_SCHEMA = 3
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
@@ -1153,6 +1153,9 @@ def _build_graph_dataset_sharded(
         gc.collect()
 
     for idx, trace in enumerate(iterator, start=1):
+        trace_index = int(idx - 1)
+        trace_start_ts = float(trace.events[0].timestamp) if trace.events else 0.0
+        trace_end_ts = float(trace.events[-1].timestamp) if trace.events else trace_start_ts
         prefix_slices = prefix_policy.generate_slices(trace)
         trace_slice_total = int(len(prefix_slices))
         if trace_slice_total <= 0:
@@ -1178,6 +1181,10 @@ def _build_graph_dataset_sharded(
                 "num_nodes": int(contract["num_nodes"]),
                 "prefix_len": torch.tensor([prefix_len], dtype=torch.long),
                 "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
+                "trace_idx": torch.tensor([trace_index], dtype=torch.long),
+                "prefix_idx": torch.tensor([int(slice_idx - 1)], dtype=torch.long),
+                "trace_start_ts": torch.tensor([trace_start_ts], dtype=torch.float64),
+                "trace_end_ts": torch.tensor([trace_end_ts], dtype=torch.float64),
             }
             allowed_mask = contract.get("allowed_target_mask")
             if isinstance(allowed_mask, torch.Tensor):
@@ -1309,6 +1316,9 @@ def _build_graph_dataset(
         disable=(not show_progress) or tqdm_disable or structured_progress,
     )
     for idx, trace in enumerate(iterator, start=1):
+        trace_index = int(idx - 1)
+        trace_start_ts = float(trace.events[0].timestamp) if trace.events else 0.0
+        trace_end_ts = float(trace.events[-1].timestamp) if trace.events else trace_start_ts
         prefix_slices = prefix_policy.generate_slices(trace)
         trace_slice_total = int(len(prefix_slices))
         if trace_slice_total <= 0:
@@ -1335,6 +1345,10 @@ def _build_graph_dataset(
                 "num_nodes": int(contract["num_nodes"]),
                 "prefix_len": torch.tensor([prefix_len], dtype=torch.long),
                 "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
+                "trace_idx": torch.tensor([trace_index], dtype=torch.long),
+                "prefix_idx": torch.tensor([int(slice_idx - 1)], dtype=torch.long),
+                "trace_start_ts": torch.tensor([trace_start_ts], dtype=torch.float64),
+                "trace_end_ts": torch.tensor([trace_end_ts], dtype=torch.float64),
             }
             allowed_mask = contract.get("allowed_target_mask")
             if isinstance(allowed_mask, torch.Tensor):

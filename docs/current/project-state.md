@@ -130,6 +130,11 @@ payloads for every exact prefix `as_of_ts`. Sharded graph cache files can store
 one structural payload per repeated `structural_payload_key` and rehydrate it at
 load time.
 
+`eval_drift` can use one-pass prebuilt test dataset evaluation when graph
+samples carry `trace_idx` metadata. Drift-window metrics are aggregated from
+compact per-sample inference records instead of rebuilding graph windows or
+re-running model forward for every overlapping window.
+
 ### graph_dataset_cache_and_spill
 
 - `status`: implemented
@@ -153,6 +158,10 @@ payload format: per-prefix `Data` objects store `structural_payload_key`, while
 `struct_x`, `structural_edge_index`, `structural_edge_weight`, and
 `struct_node_to_class_index` are stored once per shard payload key and reattached
 by CLI diagnostics and `ShardedGraphDataset`.
+
+Graph dataset cache schema `3` adds drift metadata to each graph sample:
+`trace_idx`, `prefix_idx`, `trace_start_ts`, and `trace_end_ts`. Old cache
+entries without this metadata fall back to legacy raw-trace drift evaluation.
 
 ---
 

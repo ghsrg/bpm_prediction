@@ -1,6 +1,6 @@
 ﻿# DATA_MODEL_MVP2_5.MD
 
-Updated: 2026-03-21
+Updated: 2026-05-13
 Status: ACTIVE (Stage 4.2 contract sync)
 
 ## 1. Purpose
@@ -144,13 +144,14 @@ Optional fields used by EOPKG path:
 3. `allowed_target_mask: torch.BoolTensor | None`
 4. `struct_node_to_class_index: torch.LongTensor | None`
 5. `struct_x: torch.FloatTensor | None`
-6. `stats_snapshot_version_seq: int | None`
-7. `stats_snapshot_as_of_epoch: float | None`
-8. `stats_allowed: bool | None`
-9. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
-10. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
-11. `stats_missing_asof_snapshot: bool | None` (strict_asof fallback marker)
-12. `stats_missing_asof_snapshot_batch: list[bool] | None` (batch logging/diagnostics)
+6. `struct_prefix_state_x: torch.FloatTensor | None`
+7. `stats_snapshot_version_seq: int | None`
+8. `stats_snapshot_as_of_epoch: float | None`
+9. `stats_allowed: bool | None`
+10. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
+11. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
+12. `stats_missing_asof_snapshot: bool | None` (strict_asof fallback marker)
+13. `stats_missing_asof_snapshot_batch: list[bool] | None` (batch logging/diagnostics)
 
 Current Stage 4.2 semantics:
 1. `struct_x` is built from `metadata.stats_index` mapping.
@@ -161,6 +162,7 @@ Current Stage 4.2 semantics:
 6. Forward diagnostics may report `stats_snapshot_versions=none` when no eligible as-of snapshot is resolved for the prefix timestamp.
 7. Forward diagnostics include `missing_asof_snapshot_batches` and `missing_asof_snapshot[true/false]` counters.
 8. `struct_node_to_class_index` maps structural nodes to activity-vocabulary classes. Value `-1` means gateway/event/non-target node.
+9. `struct_prefix_state_x` is emitted for `TopologyStateEncoder` and has shape `[|V|, 6]` per graph, `[B, |V|, 6]` after batching. Feature order: executed count log1p, was executed, is last event, last position norm, recency norm, active-after-complete flag.
 
 ## 6. Quarantine Contract (BPMN parser)
 
@@ -207,6 +209,7 @@ classDiagram
       +LongTensor edge_index
       +LongTensor y
       +FloatTensor struct_x
+      +FloatTensor struct_prefix_state_x
       +LongTensor structural_edge_index
       +FloatTensor structural_edge_weight
       +LongTensor struct_node_to_class_index

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import logging
 from typing import Any, Dict, Mapping
 
@@ -202,6 +203,11 @@ class EOPKGGATv2(BaseEOPKGModel):
         structural_observed_scale_min: float = 1.0,
         structural_observed_scale_max: float = 10.0,
         structural_stats_beta: float = 0.1,
+        topology_state_beta: float = 0.5,
+        topology_state_beta_max: float = 2.0,
+        topology_state_gate_init_bias: float = -2.0,
+        topology_state_class_pooling: str = "logmeanexp",
+        topology_state_dropout: float | None = None,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -234,12 +240,23 @@ class EOPKGGATv2(BaseEOPKGModel):
             "class_aware_structural_scoring": "class_aware_structural_scoring",
             "class_aware": "class_aware_structural_scoring",
             "candidate_scoring": "class_aware_structural_scoring",
+            "topologystateencoder": "topology_state_encoder",
+            "topology_state_encoder": "topology_state_encoder",
+            "topology_state": "topology_state_encoder",
+            "earlytopologystateencoder": "topology_state_encoder",
         }
         self.fusion_mode = alias_map.get(raw_fusion_mode, raw_fusion_mode)
-        if self.fusion_mode not in {"class_mean_attention", "class_mean_concat", "class_aware_structural_scoring"}:
+        allowed_fusion_modes = {
+            "class_mean_attention",
+            "class_mean_concat",
+            "class_aware_structural_scoring",
+            "topology_state_encoder",
+        }
+        if self.fusion_mode not in allowed_fusion_modes:
             raise ValueError(
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
-                "Available: ['ClassMeanAttention', 'ClassMeanConcat', 'ClassAwareStructuralScoring']"
+                "Available: ['ClassMeanAttention', 'ClassMeanConcat', "
+                "'ClassAwareStructuralScoring', 'TopologyStateEncoder']"
             )
         self.structural_score_mode = str(structural_score_mode or "bilinear_with_prior").strip().lower()
         if self.structural_score_mode not in {"bilinear_with_prior", "cosine"}:
@@ -251,6 +268,17 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.structural_observed_scale_min = float(structural_observed_scale_min)
         self.structural_observed_scale_max = float(structural_observed_scale_max)
         self.structural_stats_beta = float(structural_stats_beta)
+        self.topology_state_beta = float(topology_state_beta)
+        self.topology_state_beta_max = float(topology_state_beta_max)
+        self.topology_state_gate_init_bias = float(topology_state_gate_init_bias)
+        self.topology_state_class_pooling = str(topology_state_class_pooling or "logmeanexp").strip().lower()
+        if self.topology_state_class_pooling not in {"logmeanexp", "mean", "max", "logsumexp"}:
+            raise ValueError(
+                "Unsupported model.topology_state_class_pooling "
+                f"'{self.topology_state_class_pooling}'. "
+                "Available: ['logmeanexp', 'mean', 'max', 'logsumexp']"
+            )
+        self.topology_state_dropout_p = float(dropout if topology_state_dropout is None else topology_state_dropout)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
@@ -278,6 +306,11 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.structural_class_norm = nn.LayerNorm(output_dim, elementwise_affine=False)
         self.struct_bilinear = nn.Bilinear(self.struct_hidden_dim, self.struct_hidden_dim, 1, bias=False)
         self.struct_prior_head = nn.Linear(self.struct_hidden_dim, 1)
+        self.topology_state_proj = nn.Linear(6, self.struct_hidden_dim)
+        self.topology_state_gate_proj = nn.Linear(6, self.struct_hidden_dim)
+        self.topology_state_norm = nn.LayerNorm(self.struct_hidden_dim)
+        self.topology_state_dropout = nn.Dropout(p=self.topology_state_dropout_p)
+        self.topology_state_node_head = nn.Linear(self.struct_hidden_dim, 1)
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
         self.last_observed_logits: torch.Tensor | None = None
@@ -286,6 +319,16 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_structural_normalized_class_logits: torch.Tensor | None = None
         self.last_structural_observed_scale: torch.Tensor | None = None
         self.last_structural_class_logits: torch.Tensor | None = None
+        self.last_topology_state_node_logits: torch.Tensor | None = None
+        self.last_topology_state_class_logits: torch.Tensor | None = None
+        self.last_topology_state_prefix_x: torch.Tensor | None = None
+        self.last_topology_state_prefix_mean_abs: torch.Tensor | None = None
+        self.last_topology_state_prefix_max_abs: torch.Tensor | None = None
+        self.last_topology_state_entropy: torch.Tensor | None = None
+        self.last_topology_state_mean_class_cardinality: torch.Tensor | None = None
+        self.last_topology_state_max_class_cardinality: torch.Tensor | None = None
+        self.last_topology_state_gate_mean: torch.Tensor | None = None
+        self.last_topology_state_gate_max: torch.Tensor | None = None
 
     def _build_struct_encoder(self, dropout: float) -> nn.Module:
         if self.struct_encoder_type == "GATv2Conv":
@@ -470,6 +513,137 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_structural_normalized_class_logits = None
         self.last_structural_observed_scale = None
         self.last_structural_class_logits = None
+        self.last_topology_state_node_logits = None
+        self.last_topology_state_class_logits = None
+        self.last_topology_state_prefix_x = None
+        self.last_topology_state_prefix_mean_abs = None
+        self.last_topology_state_prefix_max_abs = None
+        self.last_topology_state_entropy = None
+        self.last_topology_state_mean_class_cardinality = None
+        self.last_topology_state_max_class_cardinality = None
+        self.last_topology_state_gate_mean = None
+        self.last_topology_state_gate_max = None
+
+    def _build_topology_state_input(
+        self,
+        *,
+        base_struct: torch.Tensor,
+        prefix_state_x: torch.Tensor,
+    ) -> torch.Tensor:
+        if prefix_state_x.dim() == 2:
+            prefix_state_x = prefix_state_x.unsqueeze(0)
+        if prefix_state_x.dim() != 3:
+            raise ValueError("TopologyStateEncoder requires struct_prefix_state_x with shape [V, F] or [B, V, F].")
+        prefix_state_x = prefix_state_x.to(device=base_struct.device, dtype=torch.float32)
+        if int(prefix_state_x.size(1)) != int(base_struct.size(0)):
+            raise ValueError(
+                "struct_prefix_state_x row count must match structural node count: "
+                f"prefix_rows={int(prefix_state_x.size(1))} num_struct_nodes={int(base_struct.size(0))}."
+            )
+        in_dim = int(prefix_state_x.size(2))
+        if in_dim != int(self.topology_state_proj.in_features):
+            raise ValueError(
+                "TopologyStateEncoder requires struct_prefix_state_x feature dimension 6: "
+                f"got={in_dim}."
+            )
+        prefix_features = self.topology_state_dropout(self.topology_state_proj(prefix_state_x))
+        gate = torch.sigmoid(self.topology_state_gate_proj(prefix_state_x) + float(self.topology_state_gate_init_bias))
+        beta = max(0.0, min(float(self.topology_state_beta), float(self.topology_state_beta_max)))
+        h0 = self.topology_state_norm(base_struct.unsqueeze(0) + float(beta) * gate * prefix_features)
+        self.last_topology_state_prefix_x = prefix_state_x.detach()
+        self.last_topology_state_prefix_mean_abs = prefix_state_x.detach().abs().mean()
+        self.last_topology_state_prefix_max_abs = prefix_state_x.detach().abs().max()
+        self.last_topology_state_gate_mean = gate.detach().mean()
+        self.last_topology_state_gate_max = gate.detach().max()
+        return h0
+
+    def _run_topology_state_gnn(self, h0: torch.Tensor, structural_edge_index: torch.Tensor) -> torch.Tensor:
+        batch_size, node_count, dim = int(h0.size(0)), int(h0.size(1)), int(h0.size(2))
+        flat = h0.reshape(batch_size * node_count, dim)
+        if structural_edge_index.numel() == 0:
+            return flat.reshape(batch_size, node_count, dim)
+        edge_index = structural_edge_index.to(device=h0.device, dtype=torch.long)
+        offsets = (torch.arange(batch_size, device=h0.device, dtype=torch.long) * node_count).view(batch_size, 1, 1)
+        batched_edge_index = (edge_index.unsqueeze(0) + offsets).permute(1, 0, 2).reshape(2, -1)
+        h = self.struct_gnn(flat, batched_edge_index)
+        h = self.activation(h)
+        h = self.dropout(h)
+        return h.reshape(batch_size, node_count, self.struct_hidden_dim)
+
+    def _pool_topology_node_logits(
+        self,
+        *,
+        node_logits: torch.Tensor,
+        node_to_class: torch.Tensor,
+        num_classes: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        class_logits = torch.zeros(
+            (int(node_logits.size(0)), int(num_classes)),
+            dtype=node_logits.dtype,
+            device=node_logits.device,
+        )
+        valid = node_to_class >= 0
+        cardinalities = torch.bincount(
+            node_to_class[valid].to(dtype=torch.long),
+            minlength=int(num_classes),
+        ).to(device=node_logits.device, dtype=torch.float32)
+        for class_idx in range(int(num_classes)):
+            node_mask = node_to_class == class_idx
+            if not torch.any(node_mask):
+                continue
+            values = node_logits[:, node_mask]
+            if self.topology_state_class_pooling == "logmeanexp":
+                class_logits[:, class_idx] = torch.logsumexp(values, dim=1) - math.log(int(values.size(1)))
+            elif self.topology_state_class_pooling == "mean":
+                class_logits[:, class_idx] = values.mean(dim=1)
+            elif self.topology_state_class_pooling == "max":
+                class_logits[:, class_idx] = values.max(dim=1).values
+            elif self.topology_state_class_pooling == "logsumexp":
+                class_logits[:, class_idx] = torch.logsumexp(values, dim=1)
+        return class_logits, cardinalities
+
+    def _forward_topology_state(
+        self,
+        *,
+        contract: GraphTensorContract,
+        structural_edge_index: torch.Tensor,
+        struct_nodes: torch.Tensor,
+        node_to_class: torch.Tensor,
+    ) -> torch.Tensor:
+        prefix_state_x = contract.get("struct_prefix_state_x")
+        if not isinstance(prefix_state_x, torch.Tensor):
+            raise ValueError("TopologyStateEncoder requires struct_prefix_state_x.")
+        h0 = self._build_topology_state_input(
+            base_struct=struct_nodes,
+            prefix_state_x=prefix_state_x,
+        )
+        h_topology = self._run_topology_state_gnn(h0, structural_edge_index)
+        node_logits = self.topology_state_node_head(h_topology).squeeze(-1)
+        class_logits, cardinalities = self._pool_topology_node_logits(
+            node_logits=node_logits,
+            node_to_class=node_to_class.to(device=node_logits.device, dtype=torch.long),
+            num_classes=self.num_classes,
+        )
+        probs = torch.softmax(class_logits, dim=1)
+        entropy = -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=1).mean()
+        self.last_cross_attn_weights = None
+        self.last_observed_logits = None
+        self.last_structural_node_logits = None
+        self.last_structural_raw_class_logits = None
+        self.last_structural_normalized_class_logits = None
+        self.last_structural_observed_scale = None
+        self.last_structural_class_logits = None
+        self.last_topology_state_node_logits = node_logits
+        self.last_topology_state_class_logits = class_logits
+        self.last_topology_state_entropy = entropy.detach()
+        nonzero_cardinalities = cardinalities[cardinalities > 0]
+        if nonzero_cardinalities.numel() > 0:
+            self.last_topology_state_mean_class_cardinality = nonzero_cardinalities.mean().detach()
+            self.last_topology_state_max_class_cardinality = nonzero_cardinalities.max().detach()
+        else:
+            self.last_topology_state_mean_class_cardinality = cardinalities.new_tensor(0.0)
+            self.last_topology_state_max_class_cardinality = cardinalities.new_tensor(0.0)
+        return class_logits
 
     def _forward_local(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x, edge_index)
@@ -508,7 +682,10 @@ class EOPKGGATv2(BaseEOPKGModel):
                     f"max_index={structural_edge_index_max} node_count={raw_struct_x_rows} "
                     f"struct_x_shape={tuple(raw_struct_x.shape)}."
                 )
-        elif self.fusion_mode != "class_aware_structural_scoring" and structural_edge_index_max >= self.num_classes:
+        elif (
+            self.fusion_mode not in {"class_aware_structural_scoring", "topology_state_encoder"}
+            and structural_edge_index_max >= self.num_classes
+        ):
             raise ValueError(
                 "Structural edge index is out of bounds: "
                 f"max_index={structural_edge_index_max} node_count={self.num_classes} "
@@ -538,6 +715,20 @@ class EOPKGGATv2(BaseEOPKGModel):
                 f"max_index={structural_edge_index_max} node_count={node_count} "
                 f"struct_x_shape={tuple(struct_nodes.shape)}."
             )
+        if self.fusion_mode == "topology_state_encoder":
+            node_to_class = self._resolve_struct_node_to_class_index(
+                contract=contract,
+                num_struct_nodes=struct_nodes.size(0),
+                num_classes=self.num_classes,
+                device=struct_nodes.device,
+            )
+            return self._forward_topology_state(
+                contract=contract,
+                structural_edge_index=structural_edge_index,
+                struct_nodes=struct_nodes,
+                node_to_class=node_to_class,
+            )
+
         h_norm = self.struct_gnn(struct_nodes, structural_edge_index)
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)

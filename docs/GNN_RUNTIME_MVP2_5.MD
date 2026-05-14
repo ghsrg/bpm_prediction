@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-05-12
+Updated: 2026-05-13
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -63,7 +63,7 @@ flowchart LR
 1. `PrefixPolicy` defines target event (`target_event`) for each prefix.
 2. `FeatureEncoder` converts event features to split node tensors (`x_cat`, `x_num`).
 3. `BaselineGraphBuilder` builds observed graph tensors (`edge_index`, `edge_type`, `y`, `batch`).
-4. `DynamicGraphBuilder` optionally injects structural tensors (`allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`, `struct_node_to_class_index`, `struct_x`).
+4. `DynamicGraphBuilder` optionally injects structural tensors (`allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`, `struct_node_to_class_index`, `struct_x`, `struct_prefix_state_x`).
 5. `ModelTrainer` maps contract to PyG `Data` and back to forward contract.
 
 ## 4. Target Generation Rule (`y`)
@@ -111,6 +111,7 @@ sequenceDiagram
 3. `structural_edge_weight: FloatTensor [E_struct]`
 4. `struct_node_to_class_index: LongTensor [|V|]`, where `-1` means non-target structural node
 5. `struct_x: FloatTensor [|V|, F_struct]` (stats-backed structural node features)
+6. `struct_prefix_state_x: FloatTensor [|V|, 6]` per sample, `[B, |V|, 6]` in batch, used by `TopologyStateEncoder`
 
 ### 5.3 Snapshot metadata tensors
 1. `stats_snapshot_version_seq: int | None`
@@ -167,7 +168,8 @@ Dual-encoder model with configurable structural ablation:
 3. `model.fusion_mode=ClassMeanAttention` keeps the previous cross-attention path and compresses structural nodes into one context vector,
 4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
 5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
-6. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
+6. `model.fusion_mode=TopologyStateEncoder` runs an experimental early topology-state path where prefix-state features are projected onto structural nodes before the structural GNN,
+7. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
 
 Conceptual view:
 ```mermaid
@@ -274,7 +276,54 @@ Trainer forward diagnostics log `observed_logits_mean_abs`,
 `structural_to_observed_logit_ratio` to show whether the structural branch is
 silent, useful, or dominating the observed branch.
 
-### 6.5 EOPKGGCN
+### 6.5 TopologyStateEncoder Fusion
+
+`TopologyStateEncoder` is an experimental early/input-level fusion mode. It is
+enabled only when `experiment.structural_mode=true` and
+`model.fusion_mode=TopologyStateEncoder`. If `experiment.structural_mode=false`,
+the model keeps the observed-only path regardless of this fusion setting.
+
+The graph builder emits `struct_prefix_state_x` for every structural node. The
+current fixed feature order is:
+
+1. `prefix_executed_count_log1p`
+2. `prefix_was_executed`
+3. `prefix_is_last_event`
+4. `prefix_last_position_norm`
+5. `prefix_recency_norm`
+6. `prefix_is_active_after_complete`
+
+Runtime formula:
+
+```text
+base_v = structural_identity_v + structural_stats_beta * stats_projection(struct_x_v)
+prefix_v = W_prefix struct_prefix_state_x_v
+gate_v = sigmoid(W_gate struct_prefix_state_x_v + topology_state_gate_init_bias)
+h0_v = LayerNorm(base_v + beta * gate_v * prefix_v)
+h_topology_v = StructuralGNN(h0_v, structural_edge_index)
+node_logit_v = W_node h_topology_v
+class_logit_j = pool({node_logit_v | struct_node_to_class_index[v] = j})
+```
+
+Default class pooling is `model.topology_state_class_pooling=logmeanexp`, which
+uses `logsumexp(values) - log(cardinality)` to avoid inflating a class solely
+because it has more duplicate structural nodes. `mean`, `max`, and `logsumexp`
+remain available for ablations.
+
+Diagnostics logged by trainer:
+
+1. `topology_state_prefix_mean_abs`
+2. `topology_state_prefix_max_abs`
+3. `topology_state_entropy`
+4. `topology_state_mean_class_cardinality`
+5. `topology_state_max_class_cardinality`
+6. `topology_state_gate_mean`
+7. `topology_state_gate_max`
+
+This mode is an ablation for early structural fusion and structural overfitting
+analysis. It is not the canonical final drift-generalization mechanism.
+
+### 6.6 EOPKGGCN
 Compatibility EOPKG variant:
 1. observed branch with GCN encoder,
 2. structural summary context from structural tensors,

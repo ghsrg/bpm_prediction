@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-12
+- `last_updated`: 2026-05-13
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -115,6 +115,13 @@ config-driven mapping у `struct_x`.
 node-level structural logits, агреговані у class logits через
 `struct_node_to_class_index`.
 
+`TopologyStateEncoder` is available as an experimental `model.fusion_mode` for
+early/input-level structural fusion. It consumes `struct_prefix_state_x`
+(`[B, |V|, 6]` after batching) and projects prefix execution state onto
+structural nodes before the structural GNN. This mode is intended as an
+ablation for fusion-level and structural-overfitting analysis, not as the
+canonical final drift-generalization mechanism.
+
 Current `ClassAwareStructuralScoring` uses structural identity embeddings
 enriched by `model.structural_stats_beta * stats_projection(struct_x)`, then a
 bilinear prefix-to-structure scorer with a structural prior, late node-to-class
@@ -159,9 +166,10 @@ payload format: per-prefix `Data` objects store `structural_payload_key`, while
 `struct_node_to_class_index` are stored once per shard payload key and reattached
 by CLI diagnostics and `ShardedGraphDataset`.
 
-Graph dataset cache schema `3` adds drift metadata to each graph sample:
-`trace_idx`, `prefix_idx`, `trace_start_ts`, and `trace_end_ts`. Old cache
-entries without this metadata fall back to legacy raw-trace drift evaluation.
+Graph dataset cache schema `4` includes drift metadata and the optional
+`struct_prefix_state_x` contract field. Old cache entries without `trace_idx`
+fall back to legacy raw-trace drift evaluation; cache entries without
+`struct_prefix_state_x` cannot run `model.fusion_mode=TopologyStateEncoder`.
 
 ---
 

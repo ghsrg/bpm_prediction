@@ -66,7 +66,7 @@ def test_eopkg_forward_with_structural_tensors(model_type: str):
     assert tuple(logits.shape) == (1, 7)
 
 
-@pytest.mark.parametrize("fusion_mode", ["Attention", "Concat", "concat_mlp", "struct_pool_concat"])
+@pytest.mark.parametrize("fusion_mode", ["Attention", "Concat", "concat_mlp", "struct_pool_concat", "TopologyStateEncoder"])
 def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
     model = create_model(
         model_type="EOPKGGATv2",
@@ -77,7 +77,12 @@ def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
         pooling_strategy="global_mean",
         fusion_mode=fusion_mode,
     )
-    logits = model(_contract(with_struct=True))
+    contract = _contract(with_struct=True)
+    if fusion_mode == "TopologyStateEncoder":
+        contract["struct_x"] = torch.randn(4, 3, dtype=torch.float32)
+        contract["struct_node_to_class_index"] = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+        contract["struct_prefix_state_x"] = torch.randn(1, 4, 6, dtype=torch.float32)
+    logits = model(contract)
     assert isinstance(logits, torch.Tensor)
     assert tuple(logits.shape) == (1, 7)
 

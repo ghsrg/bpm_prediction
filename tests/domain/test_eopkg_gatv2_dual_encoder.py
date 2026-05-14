@@ -393,6 +393,9 @@ def test_eopkg_gatv2_class_aware_structural_scoring_falls_back_without_structura
         ("ClassAwareAdditive", "class_aware_structural_scoring"),
         ("ClassAwareAttention", "class_aware_structural_scoring"),
         ("ClassAwareStructuralScoring", "class_aware_structural_scoring"),
+        ("TopologyStateEncoder", "topology_state_encoder"),
+        ("topology_state", "topology_state_encoder"),
+        ("EarlyTopologyStateEncoder", "topology_state_encoder"),
     ],
 )
 def test_eopkg_gatv2_normalizes_fusion_mode_aliases(raw_fusion_mode: str, expected: str):

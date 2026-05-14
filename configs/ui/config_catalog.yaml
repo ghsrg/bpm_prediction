@@ -1458,13 +1458,14 @@ fields:
     path: model.fusion_mode
     section: model
     label: 'Модель: Fusion mode'
-    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits.
+    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing.
     affects: How structural context is combined with observed branch in EOPKG mode.
     default: ClassMeanAttention
     enum:
     - ClassMeanAttention
     - ClassMeanConcat
     - ClassAwareStructuralScoring
+    - TopologyStateEncoder
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
@@ -1577,6 +1578,95 @@ fields:
       group: advanced
       priority: 100
       order: 1006
+  model.topology_state_beta:
+    path: model.topology_state_beta
+    section: model
+    label: 'Model: Topology-state beta'
+    description: Scales gated observed prefix-state projection before topology message passing in TopologyStateEncoder.
+    affects: Strength of early observed-state injection into EOPKG topology.
+    default: 0.5
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1007
+  model.topology_state_beta_max:
+    path: model.topology_state_beta_max
+    section: model
+    label: 'Model: Topology-state beta max'
+    description: Forward-time upper clamp for topology_state_beta.
+    affects: Prevents over-amplification of prefix-state injection.
+    default: 2.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1008
+  model.topology_state_gate_init_bias:
+    path: model.topology_state_gate_init_bias
+    section: model
+    label: 'Model: Topology-state gate init bias'
+    description: Initial bias for sigmoid gate over prefix-state projection.
+    affects: Controls whether early topology-state fusion starts conservative or aggressive.
+    default: -2.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1009
+  model.topology_state_class_pooling:
+    path: model.topology_state_class_pooling
+    section: model
+    label: 'Model: Topology-state class pooling'
+    description: Node-to-class pooling for TopologyStateEncoder; logmeanexp is cardinality-normalized and is the default.
+    affects: Duplicate activity cardinality bias and calibration.
+    default: logmeanexp
+    enum:
+    - logmeanexp
+    - mean
+    - max
+    - logsumexp
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1010
+  model.topology_state_dropout:
+    path: model.topology_state_dropout
+    section: model
+    label: 'Model: Topology-state dropout'
+    description: Dropout applied to prefix-state projection in TopologyStateEncoder.
+    affects: Regularization of early topology-state fusion.
+    default: 0.2
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1011
   model.dropout:
     path: model.dropout
     section: model

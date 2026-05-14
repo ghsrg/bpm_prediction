@@ -1067,6 +1067,9 @@ class ModelTrainer:
                 struct_x = contract.get("struct_x")
                 if isinstance(struct_x, torch.Tensor):
                     payload["struct_x"] = struct_x
+                struct_prefix_state_x = contract.get("struct_prefix_state_x")
+                if isinstance(struct_prefix_state_x, torch.Tensor):
+                    payload["struct_prefix_state_x"] = struct_prefix_state_x
                 structural_edge_index = contract.get("structural_edge_index")
                 if isinstance(structural_edge_index, torch.Tensor):
                     payload["structural_edge_index"] = structural_edge_index
@@ -1268,6 +1271,7 @@ class ModelTrainer:
             with torch.set_grad_enabled(training):
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
+                self._accumulate_topology_state_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1447,6 +1451,7 @@ class ModelTrainer:
                     torch.cuda.synchronize()
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
+                self._accumulate_topology_state_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1823,6 +1828,7 @@ class ModelTrainer:
                     torch.cuda.synchronize()
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
+                self._accumulate_topology_state_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -2811,6 +2817,14 @@ class ModelTrainer:
             "structural_aux_exact_loss_sum": 0.0,
             "structural_aux_total_loss_sum": 0.0,
             "structural_aux_loss_batches": 0,
+            "topology_state_prefix_mean_abs_sum": 0.0,
+            "topology_state_prefix_max_abs": 0.0,
+            "topology_state_entropy_sum": 0.0,
+            "topology_state_mean_class_cardinality_sum": 0.0,
+            "topology_state_max_class_cardinality": 0.0,
+            "topology_state_gate_mean_sum": 0.0,
+            "topology_state_gate_max": 0.0,
+            "topology_state_diag_batches": 0,
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -2972,6 +2986,76 @@ class ModelTrainer:
         )
 
     @staticmethod
+    def _diagnostic_scalar(value: Any) -> float | None:
+        if not isinstance(value, torch.Tensor):
+            return None
+        if value.numel() <= 0:
+            return None
+        scalar = float(torch.nan_to_num(value.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6).mean().item())
+        if not math.isfinite(scalar):
+            return None
+        return scalar
+
+    def _accumulate_topology_state_stats(self, bucket: Dict[str, Any]) -> None:
+        diagnostics = {
+            "prefix_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_prefix_mean_abs", None)
+            ),
+            "prefix_max_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_prefix_max_abs", None)
+            ),
+            "entropy": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_entropy", None)
+            ),
+            "mean_class_cardinality": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_mean_class_cardinality", None)
+            ),
+            "max_class_cardinality": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_max_class_cardinality", None)
+            ),
+            "gate_mean": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_gate_mean", None)
+            ),
+            "gate_max": self._diagnostic_scalar(
+                getattr(self.model, "last_topology_state_gate_max", None)
+            ),
+        }
+        if not any(value is not None for value in diagnostics.values()):
+            return
+        bucket["topology_state_diag_batches"] = int(bucket.get("topology_state_diag_batches", 0)) + 1
+        if diagnostics["prefix_mean_abs"] is not None:
+            bucket["topology_state_prefix_mean_abs_sum"] = float(
+                bucket.get("topology_state_prefix_mean_abs_sum", 0.0)
+            ) + float(diagnostics["prefix_mean_abs"])
+        if diagnostics["prefix_max_abs"] is not None:
+            bucket["topology_state_prefix_max_abs"] = max(
+                float(bucket.get("topology_state_prefix_max_abs", 0.0)),
+                float(diagnostics["prefix_max_abs"]),
+            )
+        if diagnostics["entropy"] is not None:
+            bucket["topology_state_entropy_sum"] = float(bucket.get("topology_state_entropy_sum", 0.0)) + float(
+                diagnostics["entropy"]
+            )
+        if diagnostics["mean_class_cardinality"] is not None:
+            bucket["topology_state_mean_class_cardinality_sum"] = float(
+                bucket.get("topology_state_mean_class_cardinality_sum", 0.0)
+            ) + float(diagnostics["mean_class_cardinality"])
+        if diagnostics["max_class_cardinality"] is not None:
+            bucket["topology_state_max_class_cardinality"] = max(
+                float(bucket.get("topology_state_max_class_cardinality", 0.0)),
+                float(diagnostics["max_class_cardinality"]),
+            )
+        if diagnostics["gate_mean"] is not None:
+            bucket["topology_state_gate_mean_sum"] = float(bucket.get("topology_state_gate_mean_sum", 0.0)) + float(
+                diagnostics["gate_mean"]
+            )
+        if diagnostics["gate_max"] is not None:
+            bucket["topology_state_gate_max"] = max(
+                float(bucket.get("topology_state_gate_max", 0.0)),
+                float(diagnostics["gate_max"]),
+            )
+
+    @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
             return "none"
@@ -3051,6 +3135,30 @@ class ModelTrainer:
             if structural_aux_loss_batches > 0
             else 0.0
         )
+        topology_state_diag_batches = int(bucket.get("topology_state_diag_batches", 0))
+        topology_state_prefix_mean_abs = (
+            float(bucket.get("topology_state_prefix_mean_abs_sum", 0.0)) / float(topology_state_diag_batches)
+            if topology_state_diag_batches > 0
+            else 0.0
+        )
+        topology_state_prefix_max_abs = float(bucket.get("topology_state_prefix_max_abs", 0.0))
+        topology_state_entropy = (
+            float(bucket.get("topology_state_entropy_sum", 0.0)) / float(topology_state_diag_batches)
+            if topology_state_diag_batches > 0
+            else 0.0
+        )
+        topology_state_mean_class_cardinality = (
+            float(bucket.get("topology_state_mean_class_cardinality_sum", 0.0)) / float(topology_state_diag_batches)
+            if topology_state_diag_batches > 0
+            else 0.0
+        )
+        topology_state_max_class_cardinality = float(bucket.get("topology_state_max_class_cardinality", 0.0))
+        topology_state_gate_mean = (
+            float(bucket.get("topology_state_gate_mean_sum", 0.0)) / float(topology_state_diag_batches)
+            if topology_state_diag_batches > 0
+            else 0.0
+        )
+        topology_state_gate_max = float(bucket.get("topology_state_gate_max", 0.0))
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -3064,7 +3172,11 @@ class ModelTrainer:
             "topology_projection_duplicate_labels=%d topology_projection_missing_node_metadata=%d "
             "observed_logits_mean_abs=%.6f structural_logits_mean_abs=%.6f "
             "structural_logits_max_abs=%.6f structural_to_observed_logit_ratio=%.6f "
-            "structural_aux_set_loss=%.6f structural_aux_exact_loss=%.6f structural_aux_total_loss=%.6f",
+            "structural_aux_set_loss=%.6f structural_aux_exact_loss=%.6f structural_aux_total_loss=%.6f "
+            "topology_state_prefix_mean_abs=%.6f topology_state_prefix_max_abs=%.6f "
+            "topology_state_entropy=%.6f topology_state_mean_class_cardinality=%.6f "
+            "topology_state_max_class_cardinality=%.6f topology_state_gate_mean=%.6f "
+            "topology_state_gate_max=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -3098,6 +3210,13 @@ class ModelTrainer:
             structural_aux_set_loss,
             structural_aux_exact_loss,
             structural_aux_total_loss,
+            topology_state_prefix_mean_abs,
+            topology_state_prefix_max_abs,
+            topology_state_entropy,
+            topology_state_mean_class_cardinality,
+            topology_state_max_class_cardinality,
+            topology_state_gate_mean,
+            topology_state_gate_max,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -3112,6 +3231,20 @@ class ModelTrainer:
             self.tracker.log_metric(f"{metric_prefix}_structural_aux_set_loss", structural_aux_set_loss)
             self.tracker.log_metric(f"{metric_prefix}_structural_aux_exact_loss", structural_aux_exact_loss)
             self.tracker.log_metric(f"{metric_prefix}_structural_aux_total_loss", structural_aux_total_loss)
+        if self.tracker is not None and topology_state_diag_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_topology_state_prefix_mean_abs", topology_state_prefix_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_topology_state_prefix_max_abs", topology_state_prefix_max_abs)
+            self.tracker.log_metric(f"{metric_prefix}_topology_state_entropy", topology_state_entropy)
+            self.tracker.log_metric(
+                f"{metric_prefix}_topology_state_mean_class_cardinality",
+                topology_state_mean_class_cardinality,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_topology_state_max_class_cardinality",
+                topology_state_max_class_cardinality,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_mean", topology_state_gate_mean)
+            self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_max", topology_state_gate_max)
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
         snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)
@@ -3194,6 +3327,55 @@ class ModelTrainer:
 
         return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
+    def _select_struct_prefix_state_for_forward(
+        self,
+        data: Data,
+        *,
+        graph_count: int,
+        struct_node_count: int | None,
+    ) -> torch.Tensor | None:
+        """Return per-graph topology prefix state as [B, V, F]."""
+        to_data_list = getattr(data, "to_data_list", None)
+        if callable(to_data_list):
+            try:
+                data_list = list(to_data_list())
+            except Exception:
+                data_list = []
+            prefix_states: list[torch.Tensor] = []
+            for item in data_list:
+                value = (
+                    item.struct_prefix_state_x
+                    if hasattr(item, "struct_prefix_state_x") and isinstance(item.struct_prefix_state_x, torch.Tensor)
+                    else None
+                )
+                if value is None:
+                    continue
+                prefix_states.append(value.float())
+            if prefix_states:
+                first_shape = tuple(prefix_states[0].shape)
+                if any(tuple(value.shape) != first_shape for value in prefix_states):
+                    raise ValueError("struct_prefix_state_x shapes must match within one batch.")
+                stacked = torch.stack(prefix_states, dim=0)
+                return stacked
+
+        raw = data.struct_prefix_state_x if hasattr(data, "struct_prefix_state_x") and isinstance(data.struct_prefix_state_x, torch.Tensor) else None
+        if raw is None:
+            return None
+        raw = raw.float()
+        if raw.dim() == 3:
+            return raw
+        if raw.dim() != 2:
+            raise ValueError("struct_prefix_state_x must have shape [V, F] or [B, V, F].")
+        if graph_count <= 1:
+            return raw.unsqueeze(0)
+        if struct_node_count is None or struct_node_count <= 0:
+            raise ValueError("struct_node_to_class_index is required to reshape batched struct_prefix_state_x.")
+        if int(raw.size(0)) != int(graph_count) * int(struct_node_count):
+            raise ValueError(
+                "Batched struct_prefix_state_x row count must equal graph_count * structural_node_count."
+            )
+        return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
+
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
         edge_type = data.edge_type if hasattr(data, "edge_type") else torch.zeros(data.edge_index.shape[1], dtype=torch.long)
@@ -3228,6 +3410,19 @@ class ModelTrainer:
             contract["structural_edge_weight"] = structural_edge_weight
         if isinstance(struct_node_to_class_index, torch.Tensor):
             contract["struct_node_to_class_index"] = struct_node_to_class_index.long()
+        graph_count = int(batch_tensor.max().item()) + 1 if batch_tensor.numel() > 0 else int(data.y.view(-1).shape[0])
+        struct_node_count = (
+            int(struct_node_to_class_index.numel())
+            if isinstance(struct_node_to_class_index, torch.Tensor)
+            else (int(struct_x.size(0)) if isinstance(struct_x, torch.Tensor) and struct_x.dim() >= 1 else None)
+        )
+        struct_prefix_state_x = self._select_struct_prefix_state_for_forward(
+            data,
+            graph_count=graph_count,
+            struct_node_count=struct_node_count,
+        )
+        if isinstance(struct_prefix_state_x, torch.Tensor):
+            contract["struct_prefix_state_x"] = struct_prefix_state_x.float()
         if hasattr(data, "stats_snapshot_version_idx"):
             snapshot_version_idx = data.stats_snapshot_version_idx
             if isinstance(snapshot_version_idx, torch.Tensor):

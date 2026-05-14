@@ -6,6 +6,7 @@ import torch
 from torch_geometric.data import Data
 
 from src.cli import (
+    _build_graph_dataset,
     _build_graph_dataset_sharded,
     _graph_dataset_cache_fingerprint,
     _iter_graphs_from_dataset_payload,
@@ -319,3 +320,81 @@ def test_build_graph_dataset_sharded_attaches_trace_metadata(mock_feature_config
     assert all(hasattr(item, "prefix_idx") for item in items)
     assert all(hasattr(item, "trace_start_ts") for item in items)
     assert all(hasattr(item, "trace_end_ts") for item in items)
+
+
+class _TopologyStateContractBuilder:
+    def build_graph(self, prefix_slice):
+        _ = prefix_slice
+        return {
+            "x_cat": torch.zeros((1, 0), dtype=torch.long),
+            "x_num": torch.zeros((1, 1), dtype=torch.float32),
+            "edge_index": torch.zeros((2, 0), dtype=torch.long),
+            "edge_type": torch.zeros((0,), dtype=torch.long),
+            "y": torch.tensor([1], dtype=torch.long),
+            "num_nodes": 1,
+            "struct_x": torch.tensor([[0.0], [0.0]], dtype=torch.float32),
+            "structural_edge_index": torch.tensor([[0], [1]], dtype=torch.long),
+            "structural_edge_weight": torch.tensor([1.0], dtype=torch.float32),
+            "struct_node_to_class_index": torch.tensor([0, 1], dtype=torch.long),
+            "struct_prefix_state_x": torch.tensor(
+                [
+                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    [1.0, 1.0, 1.0, 0.5, 0.0, 0.0],
+                ],
+                dtype=torch.float32,
+            ),
+        }
+
+
+def test_build_graph_dataset_sharded_preserves_topology_state_prefix_tensor(tmp_path: Path):
+    traces = [_trace("c1", "v1", ["A", "B"])]
+
+    payload = _build_graph_dataset_sharded(
+        traces=traces,
+        prefix_policy=PrefixPolicy(),
+        graph_builder=_TopologyStateContractBuilder(),  # type: ignore[arg-type]
+        version_to_idx={},
+        stats_snapshot_version_to_idx={},
+        show_progress=False,
+        tqdm_disable=True,
+        desc="Build test graphs",
+        progress_stage="test.build_graph",
+        entry_dir=tmp_path / "entry",
+        split_key="test",
+        shard_size=1,
+        max_ram_bytes=None,
+    )
+
+    items = list(_iter_graphs_from_dataset_payload(payload))
+
+    assert len(items) == 1
+    assert torch.equal(items[0].struct_node_to_class_index, torch.tensor([0, 1], dtype=torch.long))
+    assert torch.equal(
+        items[0].struct_prefix_state_x,
+        torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [1.0, 1.0, 1.0, 0.5, 0.0, 0.0],
+            ],
+            dtype=torch.float32,
+        ),
+    )
+
+
+def test_build_graph_dataset_preserves_topology_state_prefix_tensor():
+    traces = [_trace("c1", "v1", ["A", "B"])]
+
+    items = _build_graph_dataset(
+        traces=traces,
+        prefix_policy=PrefixPolicy(),
+        graph_builder=_TopologyStateContractBuilder(),  # type: ignore[arg-type]
+        version_to_idx={},
+        stats_snapshot_version_to_idx={},
+        show_progress=False,
+        tqdm_disable=True,
+        desc="Build test graphs",
+    )
+
+    assert len(items) == 1
+    assert torch.equal(items[0].struct_node_to_class_index, torch.tensor([0, 1], dtype=torch.long))
+    assert items[0].struct_prefix_state_x.shape == torch.Size([2, 6])

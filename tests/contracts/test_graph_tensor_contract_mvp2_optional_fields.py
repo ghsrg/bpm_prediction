@@ -31,6 +31,10 @@ def test_mvp2_optional_contract_fields_do_not_break_mvp1_model_forward():
         "structural_edge_index": torch.tensor([[0], [1]], dtype=torch.long),
         "structural_edge_weight": torch.tensor([1.0], dtype=torch.float32),
         "struct_node_to_class_index": torch.tensor([0, 2], dtype=torch.long),
+        "struct_prefix_state_x": torch.tensor(
+            [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0, 1.0, 0.0]],
+            dtype=torch.float32,
+        ),
         "version_emb_idx": torch.tensor([0], dtype=torch.long),
         "allowed_target_mask": torch.tensor([[True, False, True]], dtype=torch.bool),
     }
@@ -46,4 +50,6 @@ def test_mvp2_optional_contract_fields_do_not_break_mvp1_model_forward():
     assert tuple(logits_extended.shape) == (1, 3)
     assert extended_contract["struct_x"].dtype == torch.float32
     assert extended_contract["struct_node_to_class_index"].dtype == torch.long
+    assert extended_contract["struct_prefix_state_x"].dtype == torch.float32
+    assert extended_contract["struct_prefix_state_x"].shape == torch.Size([2, 6])
     assert extended_contract["allowed_target_mask"].dtype == torch.bool

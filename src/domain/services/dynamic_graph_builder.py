@@ -158,6 +158,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         struct_node_to_class_index = compiled.get("struct_node_to_class_index")
         if isinstance(struct_node_to_class_index, torch.Tensor):
             contract["struct_node_to_class_index"] = struct_node_to_class_index
+            contract["struct_prefix_state_x"] = self._build_struct_prefix_state_x(
+                prefix=prefix,
+                activity_vocab=activity_vocab,
+                struct_node_to_class_index=struct_node_to_class_index,
+            )
         struct_x = compiled.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
             contract["struct_x"] = struct_x
@@ -171,6 +176,77 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
         contract["allowed_target_mask"] = allowed_mask
         return contract
+
+    def _build_struct_prefix_state_x(
+        self,
+        *,
+        prefix: PrefixSlice,
+        activity_vocab: Dict[str, int],
+        struct_node_to_class_index: torch.Tensor,
+    ) -> torch.Tensor:
+        """Project observed prefix state onto structural node rows."""
+        node_to_class = struct_node_to_class_index.reshape(-1).to(dtype=torch.long)
+        state = torch.zeros((int(node_to_class.numel()), 6), dtype=torch.float32)
+        prefix_length = int(len(prefix.prefix_events))
+        if prefix_length <= 0:
+            return state
+
+        target_feature = self.feature_encoder.activity_feature_name
+        counts_by_class: dict[int, int] = {}
+        last_pos_by_class: dict[int, int] = {}
+        for pos, event in enumerate(prefix.prefix_events):
+            token = str(
+                self.feature_encoder.resolve_event_feature(
+                    event_extra=event.extra,
+                    feature_name=target_feature,
+                    default=event.activity_id,
+                )
+            )
+            class_idx = activity_vocab.get(token)
+            if class_idx is None:
+                class_idx = activity_vocab.get(token.strip())
+            if class_idx is None:
+                continue
+            class_idx_int = int(class_idx)
+            counts_by_class[class_idx_int] = counts_by_class.get(class_idx_int, 0) + 1
+            last_pos_by_class[class_idx_int] = int(pos)
+
+        last_event = prefix.prefix_events[-1]
+        last_token = str(
+            self.feature_encoder.resolve_event_feature(
+                event_extra=last_event.extra,
+                feature_name=target_feature,
+                default=last_event.activity_id,
+            )
+        )
+        last_class_idx = activity_vocab.get(last_token)
+        if last_class_idx is None:
+            last_class_idx = activity_vocab.get(last_token.strip())
+
+        active_class_indices: set[int] = set()
+        for token in self._extract_active_candidates(last_event.extra):
+            active_idx = activity_vocab.get(token)
+            if active_idx is None:
+                active_idx = activity_vocab.get(str(token).strip())
+            if active_idx is not None:
+                active_class_indices.add(int(active_idx))
+
+        for row_idx, class_idx in enumerate(node_to_class.tolist()):
+            if class_idx < 0:
+                continue
+            count = int(counts_by_class.get(int(class_idx), 0))
+            last_pos = last_pos_by_class.get(int(class_idx))
+            if count > 0:
+                state[row_idx, 0] = float(math.log1p(count))
+                state[row_idx, 1] = 1.0
+            if last_class_idx is not None and int(class_idx) == int(last_class_idx):
+                state[row_idx, 2] = 1.0
+            if last_pos is not None:
+                state[row_idx, 3] = float((int(last_pos) + 1) / prefix_length)
+                state[row_idx, 4] = float(1.0 / (1.0 + (prefix_length - 1 - int(last_pos))))
+            if int(class_idx) in active_class_indices:
+                state[row_idx, 5] = 1.0
+        return state
 
     @staticmethod
     def _extract_active_candidates(event_extra: Any) -> set[str]:

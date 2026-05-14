@@ -4,6 +4,47 @@ Short checklist of project changes that should be reflected in the dissertation.
 
 ---
 
+## 2026-05-13 - Early TopologyStateEncoder Fusion Ablation
+
+- `topic`: fusion level for structure-aware predictive monitoring
+- `impact`: critical for methodology
+- `status`: implemented experimental ablation
+- `related_runtime`: `model.fusion_mode=TopologyStateEncoder`
+
+**Note (ukr):**
+
+Додано окремий early/input-level fusion режим `TopologyStateEncoder`. На
+відміну від `ClassAwareStructuralScoring`, який додає structural logits після
+observed encoder, цей режим переносить стан prefix безпосередньо на structural
+nodes перед structural GNN:
+
+```text
+h0_v = LayerNorm(base_struct_v + beta * gate(prefix_state_v) * W_prefix(prefix_state_v))
+class_logit_j = pool({W_node StructuralGNN(h0)_v | struct_node_to_class_index[v] = j})
+```
+
+Це треба описувати не як фінальне рішення drift generalization, а як ablation
+для перевірки рівня злиття: чи є користь, коли observed prefix state входить у
+структурний encoder раніше, до class logits. Важливо прямо зазначити ризик:
+жорсткий `structural_edge_index` може створювати structural overfitting до
+train topology і negative transfer при переході на нову версію процесу.
+
+**Do not forget:**
+
+- порівняти `ClassAwareStructuralScoring` vs `TopologyStateEncoder` як
+  logit-level fusion vs early/input-level fusion;
+- не робити висновок, що early fusion автоматично є SOTA рішенням для drift;
+- показати diagnostics: `topology_state_entropy`, `topology_state_gate_mean`,
+  `topology_state_gate_max`, `topology_state_mean_class_cardinality`,
+  `topology_state_max_class_cardinality`;
+- пояснити `logmeanexp` pooling як захист від inflation для duplicate
+  activity nodes;
+- якщо early fusion погіршує unseen versions, це підтримує тезу про потребу
+  окремої methodology для структурного перенесення, а не спростовує користь
+  BPMN/topology як джерела сигналу.
+
+---
+
 ## 2026-05-07 - Class-Aware Structural Scoring Fusion
 
 - `topic`: structure-aware GNN fusion semantics

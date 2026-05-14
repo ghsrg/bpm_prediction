@@ -46,7 +46,7 @@ from src.infrastructure.repositories.knowledge_graph_repository_factory import (
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
-GRAPH_DATASET_CACHE_SCHEMA = 3
+GRAPH_DATASET_CACHE_SCHEMA = 4
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
@@ -248,6 +248,11 @@ def _build_model_factory_kwargs(
         "structural_observed_scale_min": float(model_cfg.get("structural_observed_scale_min", 1.0)),
         "structural_observed_scale_max": float(model_cfg.get("structural_observed_scale_max", 10.0)),
         "structural_stats_beta": float(model_cfg.get("structural_stats_beta", 0.1)),
+        "topology_state_beta": float(model_cfg.get("topology_state_beta", 0.5)),
+        "topology_state_beta_max": float(model_cfg.get("topology_state_beta_max", 2.0)),
+        "topology_state_gate_init_bias": float(model_cfg.get("topology_state_gate_init_bias", -2.0)),
+        "topology_state_class_pooling": str(model_cfg.get("topology_state_class_pooling", "logmeanexp")),
+        "topology_state_dropout": float(model_cfg.get("topology_state_dropout", model_cfg.get("dropout", 0.2))),
     }
 
 
@@ -1200,6 +1205,12 @@ def _build_graph_dataset_sharded(
             structural_edge_weight = contract.get("structural_edge_weight")
             if isinstance(structural_edge_weight, torch.Tensor):
                 payload["structural_edge_weight"] = structural_edge_weight
+            struct_node_to_class_index = contract.get("struct_node_to_class_index")
+            if isinstance(struct_node_to_class_index, torch.Tensor):
+                payload["struct_node_to_class_index"] = struct_node_to_class_index
+            struct_prefix_state_x = contract.get("struct_prefix_state_x")
+            if isinstance(struct_prefix_state_x, torch.Tensor):
+                payload["struct_prefix_state_x"] = struct_prefix_state_x
             stats_allowed = contract.get("stats_allowed")
             if isinstance(stats_allowed, bool):
                 payload["stats_allowed"] = torch.tensor([1 if stats_allowed else 0], dtype=torch.long)
@@ -1364,6 +1375,12 @@ def _build_graph_dataset(
             structural_edge_weight = contract.get("structural_edge_weight")
             if isinstance(structural_edge_weight, torch.Tensor):
                 payload["structural_edge_weight"] = structural_edge_weight
+            struct_node_to_class_index = contract.get("struct_node_to_class_index")
+            if isinstance(struct_node_to_class_index, torch.Tensor):
+                payload["struct_node_to_class_index"] = struct_node_to_class_index
+            struct_prefix_state_x = contract.get("struct_prefix_state_x")
+            if isinstance(struct_prefix_state_x, torch.Tensor):
+                payload["struct_prefix_state_x"] = struct_prefix_state_x
             stats_allowed = contract.get("stats_allowed")
             if isinstance(stats_allowed, bool):
                 payload["stats_allowed"] = torch.tensor([1 if stats_allowed else 0], dtype=torch.long)

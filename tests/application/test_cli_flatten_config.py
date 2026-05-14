@@ -129,6 +129,11 @@ def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_conf
             "structural_observed_scale_min": 1.0,
             "structural_observed_scale_max": 10.0,
             "structural_stats_beta": 0.3,
+            "topology_state_beta": 0.5,
+            "topology_state_beta_max": 2.0,
+            "topology_state_gate_init_bias": -2.0,
+            "topology_state_class_pooling": "logmeanexp",
+            "topology_state_dropout": 0.0,
         },
         feature_layout={"categorical": {}, "numeric": []},
         output_dim=7,
@@ -142,3 +147,8 @@ def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_conf
     assert kwargs["structural_observed_scale_min"] == 1.0
     assert kwargs["structural_observed_scale_max"] == 10.0
     assert kwargs["structural_stats_beta"] == 0.3
+    assert kwargs["topology_state_beta"] == 0.5
+    assert kwargs["topology_state_beta_max"] == 2.0
+    assert kwargs["topology_state_gate_init_bias"] == -2.0
+    assert kwargs["topology_state_class_pooling"] == "logmeanexp"
+    assert kwargs["topology_state_dropout"] == 0.0

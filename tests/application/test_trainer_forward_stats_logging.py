@@ -88,6 +88,32 @@ class _ClassAwareDiagnosticModel(nn.Module):
         return observed + structural + (self.dummy * 0.0)
 
 
+class _TopologyStateDiagnosticModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.last_topology_state_prefix_mean_abs: torch.Tensor | None = None
+        self.last_topology_state_prefix_max_abs: torch.Tensor | None = None
+        self.last_topology_state_entropy: torch.Tensor | None = None
+        self.last_topology_state_mean_class_cardinality: torch.Tensor | None = None
+        self.last_topology_state_max_class_cardinality: torch.Tensor | None = None
+        self.last_topology_state_gate_mean: torch.Tensor | None = None
+        self.last_topology_state_gate_max: torch.Tensor | None = None
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        self.last_topology_state_prefix_mean_abs = torch.tensor(0.25, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_prefix_max_abs = torch.tensor(1.5, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_entropy = torch.tensor(0.75, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_mean_class_cardinality = torch.tensor(1.25, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_max_class_cardinality = torch.tensor(2.0, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_gate_mean = torch.tensor(0.1, dtype=torch.float32, device=batch.device)
+        self.last_topology_state_gate_max = torch.tensor(0.2, dtype=torch.float32, device=batch.device)
+        logits = torch.tensor([[1.0, -1.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        return logits + (self.dummy * 0.0)
+
+
 class _RecordingTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[str, float, int | None]] = []
@@ -331,6 +357,35 @@ def test_trainer_logs_class_aware_structural_logit_contribution_metrics(caplog):
     assert "train_structural_logits_mean_abs" in metric_names
     assert "train_structural_logits_max_abs" in metric_names
     assert "train_structural_to_observed_logit_ratio" in metric_names
+
+
+def test_trainer_logs_topology_state_diagnostics(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(model=_TopologyStateDiagnosticModel(), tracker=tracker)
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert "topology_state_prefix_mean_abs=0.250000" in caplog.text
+    assert "topology_state_prefix_max_abs=1.500000" in caplog.text
+    assert "topology_state_entropy=0.750000" in caplog.text
+    assert "topology_state_mean_class_cardinality=1.250000" in caplog.text
+    assert "topology_state_max_class_cardinality=2.000000" in caplog.text
+    assert "topology_state_gate_mean=0.100000" in caplog.text
+    assert "topology_state_gate_max=0.200000" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "train_topology_state_entropy" in metric_names
+    assert "train_topology_state_gate_mean" in metric_names
 
 
 def test_structural_set_loss_rewards_any_allowed_target_candidate():

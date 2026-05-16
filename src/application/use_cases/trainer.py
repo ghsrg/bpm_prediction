@@ -1272,6 +1272,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
@@ -1453,6 +1454,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
@@ -1831,6 +1833,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
@@ -2828,6 +2831,13 @@ class ModelTrainer:
             "topology_state_gate_mean_sum": 0.0,
             "topology_state_gate_max": 0.0,
             "topology_state_diag_batches": 0,
+            "topology_graph_context_abs_sum": 0.0,
+            "topology_graph_context_abs_max": 0.0,
+            "topology_graph_context_count": 0,
+            "topology_graph_logits_abs_sum": 0.0,
+            "topology_graph_logits_count": 0,
+            "topology_graph_entropy_sum": 0.0,
+            "topology_graph_diag_batches": 0,
             "observed_context_abs_sum": 0.0,
             "observed_context_count": 0,
             "structural_prior_context_abs_sum": 0.0,
@@ -3065,6 +3075,42 @@ class ModelTrainer:
                 float(diagnostics["gate_max"]),
             )
 
+    def _accumulate_topology_graph_stats(self, bucket: Dict[str, Any]) -> None:
+        context = getattr(self.model, "last_topology_graph_context", None)
+        logits = getattr(self.model, "last_topology_graph_logits", None)
+        entropy = self._diagnostic_scalar(getattr(self.model, "last_topology_graph_entropy", None))
+        if not isinstance(context, torch.Tensor) and not isinstance(logits, torch.Tensor) and entropy is None:
+            return
+        bucket["topology_graph_diag_batches"] = int(bucket.get("topology_graph_diag_batches", 0)) + 1
+        if isinstance(context, torch.Tensor):
+            safe_context = torch.abs(
+                torch.nan_to_num(context.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+            )
+            bucket["topology_graph_context_abs_sum"] = float(
+                bucket.get("topology_graph_context_abs_sum", 0.0)
+            ) + float(safe_context.sum().item())
+            bucket["topology_graph_context_count"] = int(bucket.get("topology_graph_context_count", 0)) + int(
+                safe_context.numel()
+            )
+            bucket["topology_graph_context_abs_max"] = max(
+                float(bucket.get("topology_graph_context_abs_max", 0.0)),
+                float(safe_context.max().item()),
+            )
+        if isinstance(logits, torch.Tensor):
+            safe_logits = torch.abs(
+                torch.nan_to_num(logits.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+            )
+            bucket["topology_graph_logits_abs_sum"] = float(
+                bucket.get("topology_graph_logits_abs_sum", 0.0)
+            ) + float(safe_logits.sum().item())
+            bucket["topology_graph_logits_count"] = int(bucket.get("topology_graph_logits_count", 0)) + int(
+                safe_logits.numel()
+            )
+        if entropy is not None:
+            bucket["topology_graph_entropy_sum"] = float(
+                bucket.get("topology_graph_entropy_sum", 0.0)
+            ) + float(entropy)
+
     def _accumulate_structural_prior_stats(self, bucket: Dict[str, Any]) -> None:
         observed_context = getattr(self.model, "last_observed_context", None)
         struct_context = getattr(self.model, "last_structural_prior_context", None)
@@ -3205,6 +3251,25 @@ class ModelTrainer:
             else 0.0
         )
         topology_state_gate_max = float(bucket.get("topology_state_gate_max", 0.0))
+        topology_graph_context_count = int(bucket.get("topology_graph_context_count", 0))
+        topology_graph_logits_count = int(bucket.get("topology_graph_logits_count", 0))
+        topology_graph_diag_batches = int(bucket.get("topology_graph_diag_batches", 0))
+        topology_graph_context_mean_abs = (
+            float(bucket.get("topology_graph_context_abs_sum", 0.0)) / float(topology_graph_context_count)
+            if topology_graph_context_count > 0
+            else 0.0
+        )
+        topology_graph_context_max_abs = float(bucket.get("topology_graph_context_abs_max", 0.0))
+        topology_graph_logits_mean_abs = (
+            float(bucket.get("topology_graph_logits_abs_sum", 0.0)) / float(topology_graph_logits_count)
+            if topology_graph_logits_count > 0
+            else 0.0
+        )
+        topology_graph_entropy = (
+            float(bucket.get("topology_graph_entropy_sum", 0.0)) / float(topology_graph_diag_batches)
+            if topology_graph_diag_batches > 0
+            else 0.0
+        )
         observed_context_count = int(bucket.get("observed_context_count", 0))
         structural_prior_context_count = int(bucket.get("structural_prior_context_count", 0))
         observed_context_mean_abs = (
@@ -3246,6 +3311,8 @@ class ModelTrainer:
             "topology_state_entropy=%.6f topology_state_mean_class_cardinality=%.6f "
             "topology_state_max_class_cardinality=%.6f topology_state_gate_mean=%.6f "
             "topology_state_gate_max=%.6f "
+            "topology_graph_context_mean_abs=%.6f topology_graph_context_max_abs=%.6f "
+            "topology_graph_logits_mean_abs=%.6f topology_graph_entropy=%.6f "
             "observed_context_mean_abs=%.6f structural_prior_context_mean_abs=%.6f "
             "structural_prior_to_observed_context_ratio=%.6f "
             "structural_prior_gate_mean=%.6f structural_prior_gate_max=%.6f",
@@ -3289,6 +3356,10 @@ class ModelTrainer:
             topology_state_max_class_cardinality,
             topology_state_gate_mean,
             topology_state_gate_max,
+            topology_graph_context_mean_abs,
+            topology_graph_context_max_abs,
+            topology_graph_logits_mean_abs,
+            topology_graph_entropy,
             observed_context_mean_abs,
             structural_prior_context_mean_abs,
             structural_prior_to_observed_context_ratio,
@@ -3322,6 +3393,20 @@ class ModelTrainer:
             )
             self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_mean", topology_state_gate_mean)
             self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_max", topology_state_gate_max)
+        if self.tracker is not None and topology_graph_diag_batches > 0:
+            self.tracker.log_metric(
+                f"{metric_prefix}_topology_graph_context_mean_abs",
+                topology_graph_context_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_topology_graph_context_max_abs",
+                topology_graph_context_max_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_topology_graph_logits_mean_abs",
+                topology_graph_logits_mean_abs,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_topology_graph_entropy", topology_graph_entropy)
         if self.tracker is not None and observed_context_count > 0 and structural_prior_context_count > 0:
             self.tracker.log_metric(f"{metric_prefix}_observed_context_mean_abs", observed_context_mean_abs)
             self.tracker.log_metric(

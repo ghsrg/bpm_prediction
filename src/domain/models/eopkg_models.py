@@ -207,6 +207,7 @@ class EOPKGGATv2(BaseEOPKGModel):
         topology_state_beta_max: float = 2.0,
         topology_state_gate_init_bias: float = -2.0,
         topology_state_class_pooling: str = "logmeanexp",
+        topology_graph_pooling: str = "mean",
         topology_state_dropout: float | None = None,
         structural_prior_pooling: str = "mean",
         structural_prior_fusion: str = "concat",
@@ -247,6 +248,11 @@ class EOPKGGATv2(BaseEOPKGModel):
             "topology_state_encoder": "topology_state_encoder",
             "topology_state": "topology_state_encoder",
             "earlytopologystateencoder": "topology_state_encoder",
+            "topologystategraphencoder": "topology_state_graph_encoder",
+            "topology_state_graph_encoder": "topology_state_graph_encoder",
+            "topologygraphencoder": "topology_state_graph_encoder",
+            "topology_graph_encoder": "topology_state_graph_encoder",
+            "structuralgraphencoder": "topology_state_graph_encoder",
             "structuralpriorencoder": "structural_prior_encoder",
             "structural_prior_encoder": "structural_prior_encoder",
             "structuralprior": "structural_prior_encoder",
@@ -260,6 +266,7 @@ class EOPKGGATv2(BaseEOPKGModel):
             "class_mean_concat",
             "class_aware_structural_scoring",
             "topology_state_encoder",
+            "topology_state_graph_encoder",
             "structural_prior_encoder",
         }
         if self.fusion_mode not in allowed_fusion_modes:
@@ -267,7 +274,7 @@ class EOPKGGATv2(BaseEOPKGModel):
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
                 "Available: ['ClassMeanAttention', 'ClassMeanConcat', "
                 "'ClassAwareStructuralScoring', 'TopologyStateEncoder', "
-                "'StructuralPriorEncoder']"
+                "'TopologyStateGraphEncoder', 'StructuralPriorEncoder']"
             )
         self.structural_score_mode = str(structural_score_mode or "bilinear_with_prior").strip().lower()
         if self.structural_score_mode not in {"bilinear_with_prior", "cosine"}:
@@ -288,6 +295,12 @@ class EOPKGGATv2(BaseEOPKGModel):
                 "Unsupported model.topology_state_class_pooling "
                 f"'{self.topology_state_class_pooling}'. "
                 "Available: ['logmeanexp', 'mean', 'max', 'logsumexp']"
+            )
+        self.topology_graph_pooling = str(topology_graph_pooling or "mean").strip().lower()
+        if self.topology_graph_pooling not in {"mean"}:
+            raise ValueError(
+                "Unsupported model.topology_graph_pooling "
+                f"'{self.topology_graph_pooling}'. Available: ['mean']"
             )
         self.topology_state_dropout_p = float(dropout if topology_state_dropout is None else topology_state_dropout)
         self.structural_prior_pooling = str(structural_prior_pooling or "mean").strip().lower()
@@ -355,6 +368,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_topology_state_max_class_cardinality: torch.Tensor | None = None
         self.last_topology_state_gate_mean: torch.Tensor | None = None
         self.last_topology_state_gate_max: torch.Tensor | None = None
+        self.last_topology_graph_context: torch.Tensor | None = None
+        self.last_topology_graph_logits: torch.Tensor | None = None
+        self.last_topology_graph_entropy: torch.Tensor | None = None
         self.last_observed_context: torch.Tensor | None = None
         self.last_structural_prior_context: torch.Tensor | None = None
         self.last_structural_prior_gate: torch.Tensor | None = None
@@ -552,6 +568,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_topology_state_max_class_cardinality = None
         self.last_topology_state_gate_mean = None
         self.last_topology_state_gate_max = None
+        self.last_topology_graph_context = None
+        self.last_topology_graph_logits = None
+        self.last_topology_graph_entropy = None
         self.last_observed_context = None
         self.last_structural_prior_context = None
         self.last_structural_prior_gate = None
@@ -588,6 +607,14 @@ class EOPKGGATv2(BaseEOPKGModel):
 
         fused = self.fusion(fused_input)
         return self.classifier(fused)
+
+    @staticmethod
+    def _resolve_contract_device(contract: Mapping[str, Any]) -> torch.device:
+        for key in ("x_num", "x_cat", "struct_x", "struct_prefix_state_x", "structural_edge_index"):
+            value = contract.get(key)
+            if isinstance(value, torch.Tensor):
+                return value.device
+        return torch.device("cpu")
 
     def _build_topology_state_input(
         self,
@@ -634,6 +661,14 @@ class EOPKGGATv2(BaseEOPKGModel):
         h = self.activation(h)
         h = self.dropout(h)
         return h.reshape(batch_size, node_count, self.struct_hidden_dim)
+
+    def _pool_topology_graph_context(self, h_topology: torch.Tensor) -> torch.Tensor:
+        if self.topology_graph_pooling == "mean":
+            return h_topology.mean(dim=1)
+        raise ValueError(
+            "Unsupported model.topology_graph_pooling "
+            f"'{self.topology_graph_pooling}'. Available: ['mean']"
+        )
 
     def _pool_topology_node_logits(
         self,
@@ -710,6 +745,87 @@ class EOPKGGATv2(BaseEOPKGModel):
             self.last_topology_state_max_class_cardinality = cardinalities.new_tensor(0.0)
         return class_logits
 
+    def _forward_topology_state_graph(
+        self,
+        *,
+        contract: GraphTensorContract,
+        structural_edge_index: torch.Tensor,
+        struct_nodes: torch.Tensor,
+    ) -> torch.Tensor:
+        prefix_state_x = contract.get("struct_prefix_state_x")
+        if not isinstance(prefix_state_x, torch.Tensor):
+            raise ValueError("TopologyStateGraphEncoder requires struct_prefix_state_x.")
+        h0 = self._build_topology_state_input(
+            base_struct=struct_nodes,
+            prefix_state_x=prefix_state_x,
+        )
+        h_topology = self._run_topology_state_gnn(h0, structural_edge_index)
+        graph_context = self._pool_topology_graph_context(h_topology)
+        zero_obs = graph_context.new_zeros((int(graph_context.size(0)), self.hidden_dim))
+        fused = self.fusion(torch.cat([zero_obs, graph_context], dim=1))
+        logits = self.classifier(fused)
+        probs = torch.softmax(logits, dim=1)
+        entropy = -(probs * torch.log(probs.clamp_min(1e-12))).sum(dim=1).mean()
+
+        self.last_cross_attn_weights = None
+        self.last_observed_logits = None
+        self.last_structural_node_logits = None
+        self.last_structural_raw_class_logits = None
+        self.last_structural_normalized_class_logits = None
+        self.last_structural_observed_scale = None
+        self.last_structural_class_logits = None
+        self.last_topology_state_node_logits = None
+        self.last_topology_state_class_logits = None
+        self.last_topology_state_entropy = None
+        self.last_topology_state_mean_class_cardinality = None
+        self.last_topology_state_max_class_cardinality = None
+        self.last_observed_context = None
+        self.last_structural_prior_context = None
+        self.last_structural_prior_gate = None
+        self.last_topology_graph_context = graph_context.detach()
+        self.last_topology_graph_logits = logits.detach()
+        self.last_topology_graph_entropy = entropy.detach()
+        return logits
+
+    def _prepare_structural_nodes(
+        self,
+        *,
+        contract: GraphTensorContract,
+        structural_edge_index: torch.Tensor,
+        device: torch.device,
+    ) -> torch.Tensor:
+        structural_edge_index_max = int(structural_edge_index.max().item())
+        raw_struct_x = contract.get("struct_x")
+        if isinstance(raw_struct_x, torch.Tensor):
+            raw_struct_x_rows = int(raw_struct_x.size(0)) if raw_struct_x.dim() > 0 else 0
+            if structural_edge_index_max >= raw_struct_x_rows:
+                raise ValueError(
+                    "Structural edge index is out of bounds: "
+                    f"max_index={structural_edge_index_max} node_count={raw_struct_x_rows} "
+                    f"struct_x_shape={tuple(raw_struct_x.shape)}."
+                )
+            num_struct_nodes = raw_struct_x_rows
+        elif structural_edge_index_max < self.num_classes:
+            num_struct_nodes = self.num_classes
+        else:
+            num_struct_nodes = structural_edge_index_max + 1
+
+        struct_nodes = self._build_struct_node_features(
+            contract,
+            device=device,
+            num_struct_nodes=num_struct_nodes,
+        )
+        node_count = int(struct_nodes.size(0))
+        if node_count <= 0:
+            raise ValueError("Structural node tensor is empty.")
+        if structural_edge_index_max >= node_count:
+            raise ValueError(
+                "Structural edge index is out of bounds: "
+                f"max_index={structural_edge_index_max} node_count={node_count} "
+                f"struct_x_shape={tuple(struct_nodes.shape)}."
+            )
+        return struct_nodes
+
     def _forward_local(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x, edge_index)
         x = self.activation(x)
@@ -720,6 +836,23 @@ class EOPKGGATv2(BaseEOPKGModel):
         return x
 
     def forward(self, contract: GraphTensorContract) -> torch.Tensor:
+        if self.structural_mode and self.fusion_mode == "topology_state_graph_encoder":
+            structural_edge_index = contract.get("structural_edge_index")
+            if structural_edge_index is None or structural_edge_index.numel() == 0:
+                raise ValueError("TopologyStateGraphEncoder requires structural_edge_index.")
+            device = self._resolve_contract_device(contract)
+            structural_edge_index = structural_edge_index.to(device=device, dtype=torch.long)
+            struct_nodes = self._prepare_structural_nodes(
+                contract=contract,
+                structural_edge_index=structural_edge_index,
+                device=device,
+            )
+            return self._forward_topology_state_graph(
+                contract=contract,
+                structural_edge_index=structural_edge_index,
+                struct_nodes=struct_nodes,
+            )
+
         x, edge_index, batch = self._encode_input(contract)
         node_hidden = self._forward_local(x, edge_index)
         obs_context = self._pool_nodes(node_hidden, batch)
@@ -737,35 +870,10 @@ class EOPKGGATv2(BaseEOPKGModel):
             return self.classifier(obs_context)
 
         structural_edge_index = structural_edge_index.to(device=obs_context.device, dtype=torch.long)
-        structural_edge_index_max = int(structural_edge_index.max().item())
-        raw_struct_x = contract.get("struct_x")
-        if isinstance(raw_struct_x, torch.Tensor):
-            raw_struct_x_rows = int(raw_struct_x.size(0)) if raw_struct_x.dim() > 0 else 0
-            if structural_edge_index_max >= raw_struct_x_rows:
-                raise ValueError(
-                    "Structural edge index is out of bounds: "
-                    f"max_index={structural_edge_index_max} node_count={raw_struct_x_rows} "
-                    f"struct_x_shape={tuple(raw_struct_x.shape)}."
-                )
-        elif (
-            self.fusion_mode not in {"class_aware_structural_scoring", "topology_state_encoder"}
-            and structural_edge_index_max >= self.num_classes
-        ):
-            raise ValueError(
-                "Structural edge index is out of bounds: "
-                f"max_index={structural_edge_index_max} node_count={self.num_classes} "
-                "struct_x_shape=None."
-            )
-        if isinstance(raw_struct_x, torch.Tensor):
-            num_struct_nodes = int(raw_struct_x.size(0)) if raw_struct_x.dim() > 0 else 0
-        elif structural_edge_index_max < self.num_classes:
-            num_struct_nodes = self.num_classes
-        else:
-            num_struct_nodes = int(structural_edge_index.max().item()) + 1 if structural_edge_index.numel() > 0 else None
-        struct_nodes = self._build_struct_node_features(
-            contract,
+        struct_nodes = self._prepare_structural_nodes(
+            contract=contract,
+            structural_edge_index=structural_edge_index,
             device=obs_context.device,
-            num_struct_nodes=num_struct_nodes,
         )
         node_count = int(struct_nodes.size(0))
         if node_count <= 0:
@@ -774,12 +882,6 @@ class EOPKGGATv2(BaseEOPKGModel):
                 self._warned_missing_struct = True
             self._clear_structural_diagnostics()
             return self.classifier(obs_context)
-        if structural_edge_index_max >= node_count:
-            raise ValueError(
-                "Structural edge index is out of bounds: "
-                f"max_index={structural_edge_index_max} node_count={node_count} "
-                f"struct_x_shape={tuple(struct_nodes.shape)}."
-            )
         if self.fusion_mode == "topology_state_encoder":
             node_to_class = self._resolve_struct_node_to_class_index(
                 contract=contract,

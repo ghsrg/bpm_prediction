@@ -68,7 +68,15 @@ def test_eopkg_forward_with_structural_tensors(model_type: str):
 
 @pytest.mark.parametrize(
     "fusion_mode",
-    ["Attention", "Concat", "concat_mlp", "struct_pool_concat", "TopologyStateEncoder", "StructuralPriorEncoder"],
+    [
+        "Attention",
+        "Concat",
+        "concat_mlp",
+        "struct_pool_concat",
+        "TopologyStateEncoder",
+        "TopologyStateGraphEncoder",
+        "StructuralPriorEncoder",
+    ],
 )
 def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
     model = create_model(
@@ -81,7 +89,7 @@ def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
         fusion_mode=fusion_mode,
     )
     contract = _contract(with_struct=True)
-    if fusion_mode == "TopologyStateEncoder":
+    if fusion_mode in {"TopologyStateEncoder", "TopologyStateGraphEncoder"}:
         contract["struct_x"] = torch.randn(4, 3, dtype=torch.float32)
         contract["struct_node_to_class_index"] = torch.tensor([0, 1, 2, 3], dtype=torch.long)
         contract["struct_prefix_state_x"] = torch.randn(1, 4, 6, dtype=torch.float32)

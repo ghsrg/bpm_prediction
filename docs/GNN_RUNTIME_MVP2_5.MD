@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-05-13
+Updated: 2026-05-16
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -169,8 +169,9 @@ Dual-encoder model with configurable structural ablation:
 4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
 5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
 6. `model.fusion_mode=TopologyStateEncoder` runs an experimental early topology-state path where prefix-state features are projected onto structural nodes before the structural GNN,
-7. `model.fusion_mode=StructuralPriorEncoder` runs an etalon-like representation-level structural baseline where pooled structural context is fused with observed context before the classifier,
-8. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
+7. `model.fusion_mode=TopologyStateGraphEncoder` runs an etalon/article-like structural graph baseline where prefix-state features are projected onto topology nodes, topology message passing is performed, and a graph-level topology context is classified,
+8. `model.fusion_mode=StructuralPriorEncoder` runs an etalon-like representation-level structural baseline where pooled structural context is fused with observed context before the classifier,
+9. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
 
 Conceptual view:
 ```mermaid
@@ -324,7 +325,42 @@ Diagnostics logged by trainer:
 This mode is an ablation for early structural fusion and structural overfitting
 analysis. It is not the canonical final drift-generalization mechanism.
 
-### 6.6 StructuralPriorEncoder Fusion
+### 6.6 TopologyStateGraphEncoder Fusion
+
+`TopologyStateGraphEncoder` is a structural graph encoder baseline. It uses the
+same `struct_prefix_state_x` tensor as `TopologyStateEncoder`, but it does not
+emit node logits and does not perform node-to-class pooling. Instead, it
+classifies a graph-level topology context after structural message passing.
+
+Runtime formula:
+
+```text
+base_v = structural_identity_v + structural_stats_beta * stats_projection(struct_x_v)
+prefix_v = W_prefix struct_prefix_state_x_v
+gate_v = sigmoid(W_gate struct_prefix_state_x_v + topology_state_gate_init_bias)
+h0_v = LayerNorm(base_v + beta * gate_v * prefix_v)
+h_topology_v = StructuralGNN(h0_v, structural_edge_index)
+graph_context = mean_v(h_topology_v)
+logits = Classifier(Fusion([0 || graph_context]))
+```
+
+This mode is closest to the old etalon/article-style GNN baseline: structure is
+the graph on which node state is propagated before graph-level classification.
+It should be used to test whether topology helps same-version predictive
+monitoring before drawing conclusions about structural drift transfer.
+
+Diagnostics logged by trainer:
+
+1. `topology_state_prefix_mean_abs`
+2. `topology_state_prefix_max_abs`
+3. `topology_state_gate_mean`
+4. `topology_state_gate_max`
+5. `topology_graph_context_mean_abs`
+6. `topology_graph_context_max_abs`
+7. `topology_graph_logits_mean_abs`
+8. `topology_graph_entropy`
+
+### 6.7 StructuralPriorEncoder Fusion
 
 `StructuralPriorEncoder` is an etalon-like representation-level structural
 fusion mode. It keeps the observed prefix encoder as the primary path, computes
@@ -373,7 +409,7 @@ Trainer diagnostics:
 4. `structural_prior_gate_mean`
 5. `structural_prior_gate_max`
 
-### 6.7 EOPKGGCN
+### 6.8 EOPKGGCN
 Compatibility EOPKG variant:
 1. observed branch with GCN encoder,
 2. structural summary context from structural tensors,

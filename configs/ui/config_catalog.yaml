@@ -1458,7 +1458,7 @@ fields:
     path: model.fusion_mode
     section: model
     label: 'Модель: Fusion mode'
-    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing; StructuralPriorEncoder uses etalon-like representation-level fusion with observed context plus pooled structural context before classifier.
+    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing and pools node logits to classes; TopologyStateGraphEncoder projects observed prefix state onto topology nodes, performs topology message passing, then classifies a graph-level topology context; StructuralPriorEncoder uses etalon-like representation-level fusion with observed context plus pooled structural context before classifier.
     affects: How structural context is combined with observed branch in EOPKG mode.
     default: ClassMeanAttention
     enum:
@@ -1466,6 +1466,7 @@ fields:
     - ClassMeanConcat
     - ClassAwareStructuralScoring
     - TopologyStateEncoder
+    - TopologyStateGraphEncoder
     - StructuralPriorEncoder
     required_in_modes: []
     required_when:
@@ -1583,14 +1584,13 @@ fields:
     path: model.topology_state_beta
     section: model
     label: 'Model: Topology-state beta'
-    description: Scales gated observed prefix-state projection before topology message passing in TopologyStateEncoder.
+    description: Scales gated observed prefix-state projection before topology message passing in TopologyStateEncoder and TopologyStateGraphEncoder.
     affects: Strength of early observed-state injection into EOPKG topology.
     default: 0.5
     enum: []
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
-      model.fusion_mode: TopologyStateEncoder
     ui:
       tab: model
       group: advanced
@@ -1607,7 +1607,6 @@ fields:
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
-      model.fusion_mode: TopologyStateEncoder
     ui:
       tab: model
       group: advanced
@@ -1624,7 +1623,6 @@ fields:
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
-      model.fusion_mode: TopologyStateEncoder
     ui:
       tab: model
       group: advanced
@@ -1655,19 +1653,36 @@ fields:
     path: model.topology_state_dropout
     section: model
     label: 'Model: Topology-state dropout'
-    description: Dropout applied to prefix-state projection in TopologyStateEncoder.
+    description: Dropout applied to prefix-state projection in TopologyStateEncoder and TopologyStateGraphEncoder.
     affects: Regularization of early topology-state fusion.
     default: 0.2
     enum: []
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
-      model.fusion_mode: TopologyStateEncoder
     ui:
       tab: model
       group: advanced
       priority: 100
       order: 1011
+  model.topology_graph_pooling:
+    path: model.topology_graph_pooling
+    section: model
+    label: 'Model: Topology graph pooling'
+    description: Graph-level pooling strategy for TopologyStateGraphEncoder; mean mirrors etalon/article-style global_mean_pool.
+    affects: How structural node states become one graph-level topology context before classification.
+    default: mean
+    enum:
+    - mean
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: TopologyStateGraphEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1012
   model.structural_prior_pooling:
     path: model.structural_prior_pooling
     section: model
@@ -1685,7 +1700,7 @@ fields:
       tab: model
       group: advanced
       priority: 100
-      order: 1012
+      order: 1013
   model.structural_prior_fusion:
     path: model.structural_prior_fusion
     section: model
@@ -1704,7 +1719,7 @@ fields:
       tab: model
       group: advanced
       priority: 100
-      order: 1013
+      order: 1014
   model.structural_prior_gate_init_bias:
     path: model.structural_prior_gate_init_bias
     section: model
@@ -1722,7 +1737,7 @@ fields:
       tab: model
       group: advanced
       priority: 100
-      order: 1014
+      order: 1015
   model.dropout:
     path: model.dropout
     section: model

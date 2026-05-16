@@ -253,6 +253,9 @@ def _build_model_factory_kwargs(
         "topology_state_gate_init_bias": float(model_cfg.get("topology_state_gate_init_bias", -2.0)),
         "topology_state_class_pooling": str(model_cfg.get("topology_state_class_pooling", "logmeanexp")),
         "topology_state_dropout": float(model_cfg.get("topology_state_dropout", model_cfg.get("dropout", 0.2))),
+        "structural_prior_pooling": str(model_cfg.get("structural_prior_pooling", "mean")),
+        "structural_prior_fusion": str(model_cfg.get("structural_prior_fusion", "concat")),
+        "structural_prior_gate_init_bias": float(model_cfg.get("structural_prior_gate_init_bias", -1.0)),
     }
 
 

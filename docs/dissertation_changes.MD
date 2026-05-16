@@ -253,3 +253,39 @@ overlapping windows.
   `Drift evaluation path: one_pass_prebuilt_dataset`;
 - старі graph cache entries без `trace_idx` треба перебудувати, бо вони
   підуть у fallback `legacy_raw_trace_windows`.
+---
+
+## 2026-05-14 - StructuralPriorEncoder Baseline
+
+- `topic`: structure as representation-level prior
+- `impact`: important
+- `status`: implemented baseline mode
+- `related_runtime`: `model.fusion_mode=StructuralPriorEncoder`
+
+**Note (ukr):**
+
+Додано etalon-like baseline, у якому структура процесу використовується як
+representation-level prior перед classifier, а не як mask, не як окремий
+structural-logit scorer і не як topology-only predictor. Це важливо для
+дисертації, бо дозволяє розділити два питання:
+
+1. чи структура корисна для прогнозування наступної активності в межах
+   узгодженої/відомої версії процесу;
+2. чи переноситься ця користь між версіями процесу під structural drift.
+
+Режим `structural_prior_fusion=concat` є найближчою аналогією до старого
+`etalon`: observed graph context і structural graph context зливаються перед
+classification head. Режим `gated_concat` є стабілізованою абляцією, де модель
+навчається, скільки structural context пропускати.
+
+**Do not forget:**
+
+- у методології окремо назвати цей режим clean structural baseline;
+- не змішувати його висновки з `ClassAwareStructuralScoring`, бо там структура
+  впливає на ranking класів через logits;
+- порівнювати `Base-UN`, `StructuralPriorEncoder/concat`,
+  `StructuralPriorEncoder/gated_concat`, а вже потім drift transfer;
+- при аналізі показувати `observed_context_mean_abs`,
+  `structural_prior_context_mean_abs`,
+  `structural_prior_to_observed_context_ratio`,
+  `structural_prior_gate_mean`, `structural_prior_gate_max`.

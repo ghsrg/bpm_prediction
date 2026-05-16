@@ -208,6 +208,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         topology_state_gate_init_bias: float = -2.0,
         topology_state_class_pooling: str = "logmeanexp",
         topology_state_dropout: float | None = None,
+        structural_prior_pooling: str = "mean",
+        structural_prior_fusion: str = "concat",
+        structural_prior_gate_init_bias: float = -1.0,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -244,6 +247,12 @@ class EOPKGGATv2(BaseEOPKGModel):
             "topology_state_encoder": "topology_state_encoder",
             "topology_state": "topology_state_encoder",
             "earlytopologystateencoder": "topology_state_encoder",
+            "structuralpriorencoder": "structural_prior_encoder",
+            "structural_prior_encoder": "structural_prior_encoder",
+            "structuralprior": "structural_prior_encoder",
+            "structural_prior": "structural_prior_encoder",
+            "bpmnstructuralprior": "structural_prior_encoder",
+            "bpmn_structural_prior": "structural_prior_encoder",
         }
         self.fusion_mode = alias_map.get(raw_fusion_mode, raw_fusion_mode)
         allowed_fusion_modes = {
@@ -251,12 +260,14 @@ class EOPKGGATv2(BaseEOPKGModel):
             "class_mean_concat",
             "class_aware_structural_scoring",
             "topology_state_encoder",
+            "structural_prior_encoder",
         }
         if self.fusion_mode not in allowed_fusion_modes:
             raise ValueError(
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
                 "Available: ['ClassMeanAttention', 'ClassMeanConcat', "
-                "'ClassAwareStructuralScoring', 'TopologyStateEncoder']"
+                "'ClassAwareStructuralScoring', 'TopologyStateEncoder', "
+                "'StructuralPriorEncoder']"
             )
         self.structural_score_mode = str(structural_score_mode or "bilinear_with_prior").strip().lower()
         if self.structural_score_mode not in {"bilinear_with_prior", "cosine"}:
@@ -279,6 +290,19 @@ class EOPKGGATv2(BaseEOPKGModel):
                 "Available: ['logmeanexp', 'mean', 'max', 'logsumexp']"
             )
         self.topology_state_dropout_p = float(dropout if topology_state_dropout is None else topology_state_dropout)
+        self.structural_prior_pooling = str(structural_prior_pooling or "mean").strip().lower()
+        if self.structural_prior_pooling not in {"mean"}:
+            raise ValueError(
+                "Unsupported model.structural_prior_pooling "
+                f"'{self.structural_prior_pooling}'. Available: ['mean']"
+            )
+        self.structural_prior_fusion = str(structural_prior_fusion or "concat").strip().lower()
+        if self.structural_prior_fusion not in {"concat", "gated_concat"}:
+            raise ValueError(
+                "Unsupported model.structural_prior_fusion "
+                f"'{self.structural_prior_fusion}'. Available: ['concat', 'gated_concat']"
+            )
+        self.structural_prior_gate_init_bias = float(structural_prior_gate_init_bias)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
@@ -311,6 +335,8 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.topology_state_norm = nn.LayerNorm(self.struct_hidden_dim)
         self.topology_state_dropout = nn.Dropout(p=self.topology_state_dropout_p)
         self.topology_state_node_head = nn.Linear(self.struct_hidden_dim, 1)
+        self.structural_prior_gate = nn.Linear(hidden_dim + self.struct_hidden_dim, self.struct_hidden_dim)
+        nn.init.constant_(self.structural_prior_gate.bias, self.structural_prior_gate_init_bias)
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
         self.last_observed_logits: torch.Tensor | None = None
@@ -329,6 +355,9 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_topology_state_max_class_cardinality: torch.Tensor | None = None
         self.last_topology_state_gate_mean: torch.Tensor | None = None
         self.last_topology_state_gate_max: torch.Tensor | None = None
+        self.last_observed_context: torch.Tensor | None = None
+        self.last_structural_prior_context: torch.Tensor | None = None
+        self.last_structural_prior_gate: torch.Tensor | None = None
 
     def _build_struct_encoder(self, dropout: float) -> nn.Module:
         if self.struct_encoder_type == "GATv2Conv":
@@ -523,6 +552,42 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_topology_state_max_class_cardinality = None
         self.last_topology_state_gate_mean = None
         self.last_topology_state_gate_max = None
+        self.last_observed_context = None
+        self.last_structural_prior_context = None
+        self.last_structural_prior_gate = None
+
+    def _pool_structural_prior_context(self, h_struct: torch.Tensor, *, batch_size: int) -> torch.Tensor:
+        if self.structural_prior_pooling == "mean":
+            return h_struct.mean(dim=0, keepdim=True).expand(int(batch_size), -1)
+        raise ValueError(
+            "Unsupported model.structural_prior_pooling "
+            f"'{self.structural_prior_pooling}'. Available: ['mean']"
+        )
+
+    def _forward_structural_prior(self, *, obs_context: torch.Tensor, h_struct: torch.Tensor) -> torch.Tensor:
+        context_struct = self._pool_structural_prior_context(
+            h_struct,
+            batch_size=int(obs_context.size(0)),
+        )
+        self.last_observed_context = obs_context.detach()
+        self.last_structural_prior_context = context_struct.detach()
+        self.last_structural_prior_gate = None
+
+        if self.structural_prior_fusion == "concat":
+            fused_input = torch.cat([obs_context, context_struct], dim=1)
+        elif self.structural_prior_fusion == "gated_concat":
+            gate_input = torch.cat([obs_context, context_struct], dim=1)
+            gate = torch.sigmoid(self.structural_prior_gate(gate_input))
+            self.last_structural_prior_gate = gate.detach()
+            fused_input = torch.cat([obs_context, gate * context_struct], dim=1)
+        else:
+            raise ValueError(
+                "Unsupported model.structural_prior_fusion "
+                f"'{self.structural_prior_fusion}'. Available: ['concat', 'gated_concat']"
+            )
+
+        fused = self.fusion(fused_input)
+        return self.classifier(fused)
 
     def _build_topology_state_input(
         self,
@@ -732,6 +797,16 @@ class EOPKGGATv2(BaseEOPKGModel):
         h_norm = self.struct_gnn(struct_nodes, structural_edge_index)
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)
+
+        if self.fusion_mode == "structural_prior_encoder":
+            self.last_cross_attn_weights = None
+            self.last_observed_logits = None
+            self.last_structural_node_logits = None
+            self.last_structural_raw_class_logits = None
+            self.last_structural_normalized_class_logits = None
+            self.last_structural_observed_scale = None
+            self.last_structural_class_logits = None
+            return self._forward_structural_prior(obs_context=obs_context, h_struct=h_norm)
 
         if self.fusion_mode == "class_aware_structural_scoring":
             observed_logits = self.classifier(obs_context)

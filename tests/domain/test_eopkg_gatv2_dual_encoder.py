@@ -396,6 +396,10 @@ def test_eopkg_gatv2_class_aware_structural_scoring_falls_back_without_structura
         ("TopologyStateEncoder", "topology_state_encoder"),
         ("topology_state", "topology_state_encoder"),
         ("EarlyTopologyStateEncoder", "topology_state_encoder"),
+        ("StructuralPriorEncoder", "structural_prior_encoder"),
+        ("structural_prior_encoder", "structural_prior_encoder"),
+        ("StructuralPrior", "structural_prior_encoder"),
+        ("BPMNStructuralPrior", "structural_prior_encoder"),
     ],
 )
 def test_eopkg_gatv2_normalizes_fusion_mode_aliases(raw_fusion_mode: str, expected: str):
@@ -411,3 +415,33 @@ def test_eopkg_gatv2_normalizes_fusion_mode_aliases(raw_fusion_mode: str, expect
     )
 
     assert model.fusion_mode == expected
+
+
+def test_eopkg_gatv2_rejects_unknown_structural_prior_fusion():
+    with pytest.raises(ValueError, match="Unsupported model.structural_prior_fusion"):
+        create_model(
+            model_type="EOPKGGATv2",
+            feature_layout=_layout(),
+            hidden_dim=16,
+            output_dim=7,
+            struct_hidden_dim=16,
+            dropout=0.0,
+            pooling_strategy="global_mean",
+            fusion_mode="StructuralPriorEncoder",
+            structural_prior_fusion="bad_mode",
+        )
+
+
+def test_eopkg_gatv2_rejects_unknown_structural_prior_pooling():
+    with pytest.raises(ValueError, match="Unsupported model.structural_prior_pooling"):
+        create_model(
+            model_type="EOPKGGATv2",
+            feature_layout=_layout(),
+            hidden_dim=16,
+            output_dim=7,
+            struct_hidden_dim=16,
+            dropout=0.0,
+            pooling_strategy="global_mean",
+            fusion_mode="StructuralPriorEncoder",
+            structural_prior_pooling="attention",
+        )

@@ -1272,6 +1272,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1452,6 +1453,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1829,6 +1831,7 @@ class ModelTrainer:
                 logits = self.model(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
+                self._accumulate_structural_prior_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -2825,6 +2828,13 @@ class ModelTrainer:
             "topology_state_gate_mean_sum": 0.0,
             "topology_state_gate_max": 0.0,
             "topology_state_diag_batches": 0,
+            "observed_context_abs_sum": 0.0,
+            "observed_context_count": 0,
+            "structural_prior_context_abs_sum": 0.0,
+            "structural_prior_context_count": 0,
+            "structural_prior_gate_sum": 0.0,
+            "structural_prior_gate_count": 0,
+            "structural_prior_gate_max": 0.0,
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -3055,6 +3065,42 @@ class ModelTrainer:
                 float(diagnostics["gate_max"]),
             )
 
+    def _accumulate_structural_prior_stats(self, bucket: Dict[str, Any]) -> None:
+        observed_context = getattr(self.model, "last_observed_context", None)
+        struct_context = getattr(self.model, "last_structural_prior_context", None)
+        gate = getattr(self.model, "last_structural_prior_gate", None)
+        if isinstance(observed_context, torch.Tensor) and isinstance(struct_context, torch.Tensor):
+            observed_abs = torch.abs(
+                torch.nan_to_num(observed_context.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+            )
+            struct_abs = torch.abs(
+                torch.nan_to_num(struct_context.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+            )
+            bucket["observed_context_abs_sum"] = float(bucket.get("observed_context_abs_sum", 0.0)) + float(
+                observed_abs.sum().item()
+            )
+            bucket["observed_context_count"] = int(bucket.get("observed_context_count", 0)) + int(
+                observed_abs.numel()
+            )
+            bucket["structural_prior_context_abs_sum"] = float(
+                bucket.get("structural_prior_context_abs_sum", 0.0)
+            ) + float(struct_abs.sum().item())
+            bucket["structural_prior_context_count"] = int(
+                bucket.get("structural_prior_context_count", 0)
+            ) + int(struct_abs.numel())
+        if isinstance(gate, torch.Tensor):
+            gate_safe = torch.nan_to_num(gate.detach().float(), nan=0.0, posinf=1.0, neginf=0.0)
+            bucket["structural_prior_gate_sum"] = float(bucket.get("structural_prior_gate_sum", 0.0)) + float(
+                gate_safe.sum().item()
+            )
+            bucket["structural_prior_gate_count"] = int(bucket.get("structural_prior_gate_count", 0)) + int(
+                gate_safe.numel()
+            )
+            bucket["structural_prior_gate_max"] = max(
+                float(bucket.get("structural_prior_gate_max", 0.0)),
+                float(gate_safe.max().item()),
+            )
+
     @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
@@ -3159,6 +3205,29 @@ class ModelTrainer:
             else 0.0
         )
         topology_state_gate_max = float(bucket.get("topology_state_gate_max", 0.0))
+        observed_context_count = int(bucket.get("observed_context_count", 0))
+        structural_prior_context_count = int(bucket.get("structural_prior_context_count", 0))
+        observed_context_mean_abs = (
+            float(bucket.get("observed_context_abs_sum", 0.0)) / float(observed_context_count)
+            if observed_context_count > 0
+            else 0.0
+        )
+        structural_prior_context_mean_abs = (
+            float(bucket.get("structural_prior_context_abs_sum", 0.0)) / float(structural_prior_context_count)
+            if structural_prior_context_count > 0
+            else 0.0
+        )
+        structural_prior_to_observed_context_ratio = structural_prior_context_mean_abs / max(
+            observed_context_mean_abs,
+            1e-12,
+        )
+        structural_prior_gate_count = int(bucket.get("structural_prior_gate_count", 0))
+        structural_prior_gate_mean = (
+            float(bucket.get("structural_prior_gate_sum", 0.0)) / float(structural_prior_gate_count)
+            if structural_prior_gate_count > 0
+            else 0.0
+        )
+        structural_prior_gate_max = float(bucket.get("structural_prior_gate_max", 0.0))
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -3176,7 +3245,10 @@ class ModelTrainer:
             "topology_state_prefix_mean_abs=%.6f topology_state_prefix_max_abs=%.6f "
             "topology_state_entropy=%.6f topology_state_mean_class_cardinality=%.6f "
             "topology_state_max_class_cardinality=%.6f topology_state_gate_mean=%.6f "
-            "topology_state_gate_max=%.6f",
+            "topology_state_gate_max=%.6f "
+            "observed_context_mean_abs=%.6f structural_prior_context_mean_abs=%.6f "
+            "structural_prior_to_observed_context_ratio=%.6f "
+            "structural_prior_gate_mean=%.6f structural_prior_gate_max=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -3217,6 +3289,11 @@ class ModelTrainer:
             topology_state_max_class_cardinality,
             topology_state_gate_mean,
             topology_state_gate_max,
+            observed_context_mean_abs,
+            structural_prior_context_mean_abs,
+            structural_prior_to_observed_context_ratio,
+            structural_prior_gate_mean,
+            structural_prior_gate_max,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -3245,6 +3322,19 @@ class ModelTrainer:
             )
             self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_mean", topology_state_gate_mean)
             self.tracker.log_metric(f"{metric_prefix}_topology_state_gate_max", topology_state_gate_max)
+        if self.tracker is not None and observed_context_count > 0 and structural_prior_context_count > 0:
+            self.tracker.log_metric(f"{metric_prefix}_observed_context_mean_abs", observed_context_mean_abs)
+            self.tracker.log_metric(
+                f"{metric_prefix}_structural_prior_context_mean_abs",
+                structural_prior_context_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_structural_prior_to_observed_context_ratio",
+                structural_prior_to_observed_context_ratio,
+            )
+            if structural_prior_gate_count > 0:
+                self.tracker.log_metric(f"{metric_prefix}_structural_prior_gate_mean", structural_prior_gate_mean)
+                self.tracker.log_metric(f"{metric_prefix}_structural_prior_gate_max", structural_prior_gate_max)
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
         snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)

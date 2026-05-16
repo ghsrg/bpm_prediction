@@ -169,7 +169,8 @@ Dual-encoder model with configurable structural ablation:
 4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
 5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
 6. `model.fusion_mode=TopologyStateEncoder` runs an experimental early topology-state path where prefix-state features are projected onto structural nodes before the structural GNN,
-7. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
+7. `model.fusion_mode=StructuralPriorEncoder` runs an etalon-like representation-level structural baseline where pooled structural context is fused with observed context before the classifier,
+8. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
 
 Conceptual view:
 ```mermaid
@@ -323,7 +324,56 @@ Diagnostics logged by trainer:
 This mode is an ablation for early structural fusion and structural overfitting
 analysis. It is not the canonical final drift-generalization mechanism.
 
-### 6.6 EOPKGGCN
+### 6.6 StructuralPriorEncoder Fusion
+
+`StructuralPriorEncoder` is an etalon-like representation-level structural
+fusion mode. It keeps the observed prefix encoder as the primary path, computes
+a pooled structural context from EOPKG/BPMN tensors, and fuses both contexts
+before the classifier.
+
+It differs from:
+
+1. `ClassMeanConcat`: legacy mean structural context without explicit
+   structural-prior diagnostics.
+2. `ClassAwareStructuralScoring`: late structural class-logit additive scoring.
+3. `TopologyStateEncoder`: topology-state branch that directly emits class
+   logits and clears observed-logit diagnostics.
+
+Runtime formula for `model.structural_prior_fusion=concat`:
+
+```text
+obs_context_i = ObservedGNN(prefix_i)
+h_struct_v = StructuralGNN(h0_v, structural_edge_index)
+struct_context = mean_v(h_struct_v)
+logits_i = Classifier(Fusion([obs_context_i || struct_context]))
+```
+
+Runtime formula for `model.structural_prior_fusion=gated_concat`:
+
+```text
+gate_i = sigmoid(W_gate([obs_context_i || struct_context]) + b)
+logits_i = Classifier(Fusion([obs_context_i || gate_i * struct_context]))
+```
+
+Current supported pooling:
+
+```yaml
+model.structural_prior_pooling: mean
+```
+
+`mean` mirrors the old etalon `global_mean_pool` behavior. The mode is intended
+as the clean structural baseline for testing whether structure improves
+same-version prediction before testing transfer between process versions.
+
+Trainer diagnostics:
+
+1. `observed_context_mean_abs`
+2. `structural_prior_context_mean_abs`
+3. `structural_prior_to_observed_context_ratio`
+4. `structural_prior_gate_mean`
+5. `structural_prior_gate_max`
+
+### 6.7 EOPKGGCN
 Compatibility EOPKG variant:
 1. observed branch with GCN encoder,
 2. structural summary context from structural tensors,

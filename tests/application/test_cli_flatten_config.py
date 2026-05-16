@@ -172,3 +172,19 @@ def test_build_model_factory_kwargs_passes_structural_prior_config():
     assert kwargs["structural_prior_pooling"] == "mean"
     assert kwargs["structural_prior_fusion"] == "gated_concat"
     assert kwargs["structural_prior_gate_init_bias"] == -1.5
+
+
+def test_build_model_factory_kwargs_passes_topology_graph_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGGATv2",
+            "hidden_dim": 16,
+            "fusion_mode": "TopologyStateGraphEncoder",
+            "topology_graph_pooling": "mean",
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["fusion_mode"] == "TopologyStateGraphEncoder"
+    assert kwargs["topology_graph_pooling"] == "mean"

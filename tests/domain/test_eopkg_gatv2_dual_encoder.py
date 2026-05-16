@@ -396,6 +396,11 @@ def test_eopkg_gatv2_class_aware_structural_scoring_falls_back_without_structura
         ("TopologyStateEncoder", "topology_state_encoder"),
         ("topology_state", "topology_state_encoder"),
         ("EarlyTopologyStateEncoder", "topology_state_encoder"),
+        ("TopologyStateGraphEncoder", "topology_state_graph_encoder"),
+        ("topology_state_graph_encoder", "topology_state_graph_encoder"),
+        ("TopologyGraphEncoder", "topology_state_graph_encoder"),
+        ("topology_graph_encoder", "topology_state_graph_encoder"),
+        ("StructuralGraphEncoder", "topology_state_graph_encoder"),
         ("StructuralPriorEncoder", "structural_prior_encoder"),
         ("structural_prior_encoder", "structural_prior_encoder"),
         ("StructuralPrior", "structural_prior_encoder"),
@@ -444,4 +449,19 @@ def test_eopkg_gatv2_rejects_unknown_structural_prior_pooling():
             pooling_strategy="global_mean",
             fusion_mode="StructuralPriorEncoder",
             structural_prior_pooling="attention",
+        )
+
+
+def test_eopkg_gatv2_rejects_unknown_topology_graph_pooling():
+    with pytest.raises(ValueError, match="Unsupported model.topology_graph_pooling"):
+        create_model(
+            model_type="EOPKGGATv2",
+            feature_layout=_layout(),
+            hidden_dim=16,
+            output_dim=7,
+            struct_hidden_dim=16,
+            dropout=0.0,
+            pooling_strategy="global_mean",
+            fusion_mode="TopologyStateGraphEncoder",
+            topology_graph_pooling="attention",
         )

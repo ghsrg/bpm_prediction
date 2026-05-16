@@ -114,6 +114,25 @@ class _TopologyStateDiagnosticModel(nn.Module):
         return logits + (self.dummy * 0.0)
 
 
+class _TopologyGraphDiagnosticModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.last_topology_graph_context: torch.Tensor | None = None
+        self.last_topology_graph_logits: torch.Tensor | None = None
+        self.last_topology_graph_entropy: torch.Tensor | None = None
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        context = torch.tensor([[0.5, -0.25]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        logits = torch.tensor([[1.0, -1.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        self.last_topology_graph_context = context.detach()
+        self.last_topology_graph_logits = logits.detach()
+        self.last_topology_graph_entropy = torch.tensor(0.75, dtype=torch.float32, device=batch.device)
+        return logits + (self.dummy * 0.0)
+
+
 class _StructuralPriorDiagnosticModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -407,6 +426,32 @@ def test_trainer_logs_topology_state_diagnostics(caplog):
     metric_names = {key for key, _, _ in tracker.metrics}
     assert "train_topology_state_entropy" in metric_names
     assert "train_topology_state_gate_mean" in metric_names
+
+
+def test_trainer_logs_topology_graph_diagnostics(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(model=_TopologyGraphDiagnosticModel(), tracker=tracker)
+
+    caplog.set_level(logging.INFO)
+    trainer._evaluate_test(loader, stage_label="inference")
+
+    assert "topology_graph_context_mean_abs=0.375000" in caplog.text
+    assert "topology_graph_context_max_abs=0.500000" in caplog.text
+    assert "topology_graph_logits_mean_abs=1.000000" in caplog.text
+    assert "topology_graph_entropy=0.750000" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "inference_topology_graph_context_mean_abs" in metric_names
+    assert "inference_topology_graph_logits_mean_abs" in metric_names
+    assert "inference_topology_graph_entropy" in metric_names
 
 
 def test_trainer_logs_structural_prior_diagnostics(caplog):

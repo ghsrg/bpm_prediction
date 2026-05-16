@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-14
+- `last_updated`: 2026-05-16
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -148,6 +148,14 @@ mean-pools the structural GNN node states into `struct_context`, and fuses
 `[obs_context || struct_context]` before the classifier. It supports
 `model.structural_prior_fusion=concat` and `gated_concat`; trainer diagnostics
 log context scale and gate metrics.
+
+`TopologyStateGraphEncoder` is available as an experimental
+`model.fusion_mode` for `EOPKGGATv2`. It consumes `struct_prefix_state_x`,
+projects observed prefix state onto structural nodes, runs structural message
+passing over `structural_edge_index`, mean-pools the topology node states into
+a graph-level context, and classifies that structural graph context. This mode
+is the etalon/article-like structural graph baseline for same-version topology
+usefulness checks, not the final drift-transfer mechanism.
 
 ### graph_dataset_cache_and_spill
 

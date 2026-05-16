@@ -4,6 +4,36 @@ Short checklist of project changes that should be reflected in the dissertation.
 
 ---
 
+## 2026-05-16 - TopologyStateGraphEncoder Structural Graph Baseline
+
+- `topic`: etalon/article-like structural graph baseline
+- `impact`: critical for methodology
+- `status`: implemented experimental baseline
+- `related_runtime`: `model.fusion_mode=TopologyStateGraphEncoder`
+
+**Note (ukr):**
+
+Додано окремий baseline, де BPMN/EOPKG topology є самим графом прогнозування:
+стан префікса проектується на structural nodes, далі виконується structural
+GNN message passing і graph-level readout. Це ближче до старого `etalon`, ніж
+`StructuralPriorEncoder`, бо структура не стискається у mean context після
+observed encoder, а бере участь у message passing до класифікації.
+
+**Do not forget:**
+
+- порівнювати `Base-UN`, `StructuralPriorEncoder`, `TopologyStateEncoder`,
+  `TopologyStateGraphEncoder`, `ClassAwareStructuralScoring`;
+- спочатку перевірити same-version користь структури, і лише після цього
+  аналізувати transfer між версіями;
+- не називати цей режим final drift solution: hard `structural_edge_index`
+  може давати structural overfitting;
+- показувати diagnostics `topology_graph_context_mean_abs`,
+  `topology_graph_logits_mean_abs`, `topology_graph_entropy`;
+- old graph caches without `struct_prefix_state_x` must be rebuilt before this
+  mode can run.
+
+---
+
 ## 2026-05-13 - Early TopologyStateEncoder Fusion Ablation
 
 - `topic`: fusion level for structure-aware predictive monitoring

@@ -1458,7 +1458,7 @@ fields:
     path: model.fusion_mode
     section: model
     label: 'Модель: Fusion mode'
-    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing.
+    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing; StructuralPriorEncoder uses etalon-like representation-level fusion with observed context plus pooled structural context before classifier.
     affects: How structural context is combined with observed branch in EOPKG mode.
     default: ClassMeanAttention
     enum:
@@ -1466,6 +1466,7 @@ fields:
     - ClassMeanConcat
     - ClassAwareStructuralScoring
     - TopologyStateEncoder
+    - StructuralPriorEncoder
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
@@ -1667,6 +1668,61 @@ fields:
       group: advanced
       priority: 100
       order: 1011
+  model.structural_prior_pooling:
+    path: model.structural_prior_pooling
+    section: model
+    label: 'Model: Structural prior pooling'
+    description: Pooling strategy for structural node embeddings in StructuralPriorEncoder; mean mirrors etalon global_mean_pool.
+    affects: How BPMN/EOPKG node states become one structural context vector before classifier fusion.
+    default: mean
+    enum:
+    - mean
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructuralPriorEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1012
+  model.structural_prior_fusion:
+    path: model.structural_prior_fusion
+    section: model
+    label: 'Model: Structural prior fusion'
+    description: Fusion operator for observed context and pooled structural context in StructuralPriorEncoder.
+    affects: concat is the direct etalon-like baseline; gated_concat learns how strongly to pass structural context.
+    default: concat
+    enum:
+    - concat
+    - gated_concat
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructuralPriorEncoder
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1013
+  model.structural_prior_gate_init_bias:
+    path: model.structural_prior_gate_init_bias
+    section: model
+    label: 'Model: Structural prior gate init bias'
+    description: Initial sigmoid gate bias for gated_concat; negative values start with conservative structural influence.
+    affects: Initial strength of structural context in gated StructuralPriorEncoder.
+    default: -1.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructuralPriorEncoder
+      model.structural_prior_fusion: gated_concat
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1014
   model.dropout:
     path: model.dropout
     section: model

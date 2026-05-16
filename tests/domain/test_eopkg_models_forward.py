@@ -66,7 +66,10 @@ def test_eopkg_forward_with_structural_tensors(model_type: str):
     assert tuple(logits.shape) == (1, 7)
 
 
-@pytest.mark.parametrize("fusion_mode", ["Attention", "Concat", "concat_mlp", "struct_pool_concat", "TopologyStateEncoder"])
+@pytest.mark.parametrize(
+    "fusion_mode",
+    ["Attention", "Concat", "concat_mlp", "struct_pool_concat", "TopologyStateEncoder", "StructuralPriorEncoder"],
+)
 def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
     model = create_model(
         model_type="EOPKGGATv2",
@@ -85,6 +88,59 @@ def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):
     logits = model(contract)
     assert isinstance(logits, torch.Tensor)
     assert tuple(logits.shape) == (1, 7)
+
+
+def test_eopkggatv2_structural_prior_encoder_concat_uses_observed_and_structural_context():
+    torch.manual_seed(7)
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_feature_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="StructuralPriorEncoder",
+        structural_prior_fusion="concat",
+        structural_prior_pooling="mean",
+    )
+    model.eval()
+
+    contract = _contract(with_struct=True)
+    with torch.no_grad():
+        logits = model(contract)
+
+    assert tuple(logits.shape) == (1, 7)
+    assert model.last_observed_context is not None
+    assert model.last_structural_prior_context is not None
+    assert model.last_structural_prior_gate is None
+    assert model.last_observed_logits is None
+    assert model.last_structural_class_logits is None
+
+
+def test_eopkggatv2_structural_prior_encoder_gated_concat_logs_gate():
+    torch.manual_seed(11)
+    model = create_model(
+        model_type="EOPKGGATv2",
+        feature_layout=_feature_layout(),
+        hidden_dim=16,
+        output_dim=7,
+        dropout=0.0,
+        pooling_strategy="global_mean",
+        fusion_mode="StructuralPriorEncoder",
+        structural_prior_fusion="gated_concat",
+        structural_prior_pooling="mean",
+        structural_prior_gate_init_bias=-1.0,
+    )
+    model.eval()
+
+    with torch.no_grad():
+        logits = model(_contract(with_struct=True))
+
+    assert tuple(logits.shape) == (1, 7)
+    assert model.last_structural_prior_gate is not None
+    assert model.last_structural_prior_gate.shape == torch.Size([1, 16])
+    assert torch.all(model.last_structural_prior_gate >= 0.0)
+    assert torch.all(model.last_structural_prior_gate <= 1.0)
 
 
 @pytest.mark.parametrize("model_type", ["EOPKGGCN", "EOPKGGATv2"])

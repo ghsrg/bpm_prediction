@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-13
+- `last_updated`: 2026-05-14
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -141,6 +141,13 @@ load time.
 samples carry `trace_idx` metadata. Drift-window metrics are aggregated from
 compact per-sample inference records instead of rebuilding graph windows or
 re-running model forward for every overlapping window.
+
+`StructuralPriorEncoder` is available as an etalon-like `model.fusion_mode`
+for `EOPKGGATv2`. It keeps the observed prefix encoder as the primary path,
+mean-pools the structural GNN node states into `struct_context`, and fuses
+`[obs_context || struct_context]` before the classifier. It supports
+`model.structural_prior_fusion=concat` and `gated_concat`; trainer diagnostics
+log context scale and gate metrics.
 
 ### graph_dataset_cache_and_spill
 

@@ -114,6 +114,27 @@ class _TopologyStateDiagnosticModel(nn.Module):
         return logits + (self.dummy * 0.0)
 
 
+class _StructuralPriorDiagnosticModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.last_observed_context: torch.Tensor | None = None
+        self.last_structural_prior_context: torch.Tensor | None = None
+        self.last_structural_prior_gate: torch.Tensor | None = None
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        observed = torch.tensor([[2.0, -2.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        structural = torch.tensor([[0.5, -0.5]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        gate = torch.tensor([[0.25, 0.75]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        self.last_observed_context = observed.detach()
+        self.last_structural_prior_context = structural.detach()
+        self.last_structural_prior_gate = gate.detach()
+        logits = torch.tensor([[1.0, -1.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        return logits + (self.dummy * 0.0)
+
+
 class _RecordingTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[str, float, int | None]] = []
@@ -386,6 +407,36 @@ def test_trainer_logs_topology_state_diagnostics(caplog):
     metric_names = {key for key, _, _ in tracker.metrics}
     assert "train_topology_state_entropy" in metric_names
     assert "train_topology_state_gate_mean" in metric_names
+
+
+def test_trainer_logs_structural_prior_diagnostics(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(model=_StructuralPriorDiagnosticModel(), tracker=tracker)
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert "observed_context_mean_abs=2.000000" in caplog.text
+    assert "structural_prior_context_mean_abs=0.500000" in caplog.text
+    assert "structural_prior_to_observed_context_ratio=0.250000" in caplog.text
+    assert "structural_prior_gate_mean=0.500000" in caplog.text
+    assert "structural_prior_gate_max=0.750000" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "train_observed_context_mean_abs" in metric_names
+    assert "train_structural_prior_context_mean_abs" in metric_names
+    assert "train_structural_prior_to_observed_context_ratio" in metric_names
+    assert "train_structural_prior_gate_mean" in metric_names
+    assert "train_structural_prior_gate_max" in metric_names
 
 
 def test_structural_set_loss_rewards_any_allowed_target_candidate():

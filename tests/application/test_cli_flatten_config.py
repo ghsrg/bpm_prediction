@@ -152,3 +152,23 @@ def test_build_model_factory_kwargs_forwards_class_aware_structural_scoring_conf
     assert kwargs["topology_state_gate_init_bias"] == -2.0
     assert kwargs["topology_state_class_pooling"] == "logmeanexp"
     assert kwargs["topology_state_dropout"] == 0.0
+
+
+def test_build_model_factory_kwargs_passes_structural_prior_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGGATv2",
+            "hidden_dim": 16,
+            "fusion_mode": "StructuralPriorEncoder",
+            "structural_prior_pooling": "mean",
+            "structural_prior_fusion": "gated_concat",
+            "structural_prior_gate_init_bias": -1.5,
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["fusion_mode"] == "StructuralPriorEncoder"
+    assert kwargs["structural_prior_pooling"] == "mean"
+    assert kwargs["structural_prior_fusion"] == "gated_concat"
+    assert kwargs["structural_prior_gate_init_bias"] == -1.5

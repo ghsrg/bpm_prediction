@@ -259,11 +259,11 @@ tracking:
     model_family: baseline_gnn
 experiment:
   project: mvp2_6
-  name: Base-UNcTSG-drift-42
-  mode: train
+  name: Base-UNcTSG-drift-drift-42
+  mode: eval_drift
   fraction: 1.0
   split_strategy: temporal
-  train_ratio: 0.25
+  train_ratio: 0.0
   split_ratio:
   - 0.7
   - 0.2
@@ -283,6 +283,7 @@ experiment:
   retrain: true
   drift_window_size: 100
   drift_window_sliding: 10
+  load_checkpoint: checkpoints/Base-UNcTSG-drift-42_loan_v1_v4_simulated_GATv2_best.pth
 seed: 42
 sync_stats:
   quality_gate:

@@ -162,84 +162,322 @@ flowchart TD
 ```
 
 ### 6.3 EOPKGGATv2
-Dual-encoder model with configurable structural ablation:
-1. observed branch is GATv2-based and uses the same high-level pattern as BaselineGATv2 (`embed + concat + 2 x GATv2 + pool + classifier`),
-2. structural branch uses structural identity embeddings enriched by `struct_x` statistics when present, then structural GNN,
-3. `model.fusion_mode=ClassMeanAttention` keeps the previous cross-attention path and compresses structural nodes into one context vector,
-4. `model.fusion_mode=ClassMeanConcat` keeps the previous mean structural context path,
-5. `model.fusion_mode=ClassAwareStructuralScoring` adds prefix-conditioned structural class logits to observed logits,
-6. `model.fusion_mode=TopologyStateEncoder` runs an experimental early topology-state path where prefix-state features are projected onto structural nodes before the structural GNN,
-7. `model.fusion_mode=TopologyStateGraphEncoder` runs an etalon/article-like structural graph baseline where prefix-state features are projected onto topology nodes, topology message passing is performed, and a graph-level topology context is classified,
-8. `model.fusion_mode=StructuralPriorEncoder` runs an etalon-like representation-level structural baseline where pooled structural context is fused with observed context before the classifier,
-9. `model.structural_mode=false` disables structural branch and runs observed-only path inside the same EOPKG class.
+`EOPKGGATv2` is the configurable EOPKG model family. It has one shared
+observed prefix encoder and several structural fusion modes. The most important
+runtime switch is `experiment.structural_mode`:
 
-Conceptual view:
+1. `structural_mode=false`: the model ignores all structural tensors and runs
+   the observed-only path, even if `model.fusion_mode` is set.
+2. `structural_mode=true`: the model consumes structural tensors and applies
+   the selected `model.fusion_mode`.
+
+**Опис (ukr):** у цьому розділі однакові блоки на схемах мають однаковий
+колір. Це дозволяє швидко побачити, що саме змінюється між режимами: місце
+інтеграції структури, форма structural signal та те, чи залишається observed
+encoder активним.
+
+#### 6.3.1 Diagram Legend
+
 ```mermaid
 flowchart LR
-    X[Observed inputs] --> OBS[Observed encoder]
-    OBS --> HOBS[Observed context]
-    SM{structural_mode}
-    HOBS --> SM
-    SM -->|false| CLS0[Classifier]
-    CLS0 --> LOGITS0[logits]
-    SM -->|true| STR[Structural branch]
-    STR --> ATTN[Cross-attention]
-    HOBS --> ATTN
-    ATTN --> FUSE[Fusion]
-    HOBS --> FUSE
-    FUSE --> CLS1[Classifier]
-    CLS1 --> LOGITS1[logits]
+    C["Common block"]:::common --> V["Mode-specific fusion block"]:::variable
+    V --> O["Output logits / metrics"]:::output
+    D["Disabled / bypassed path"]:::disabled
+    R["Research risk / diagnostic point"]:::risk
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+    classDef disabled fill:#F3F4F6,stroke:#9CA3AF,color:#111;
+    classDef risk fill:#FFE4E6,stroke:#B91C1C,color:#111;
 ```
 
-Detailed runtime view:
+#### 6.3.2 Shared Structural Switch
+
+**Опис (ukr):** `fusion_mode` має значення лише тоді, коли
+`experiment.structural_mode=true`. Якщо `structural_mode=false`, усі режими
+стають observed-only baseline всередині того самого класу `EOPKGGATv2`.
+
+```mermaid
+flowchart TD
+    CFG["experiment.structural_mode"]:::variable
+    CFG -->|false| OBSONLY["Observed-only path"]:::common
+    OBSONLY --> OBSLOGITS["Classifier -> logits"]:::output
+
+    CFG -->|true| PAYLOAD["Structural payload available"]:::common
+    PAYLOAD --> MODE{"model.fusion_mode"}:::variable
+    MODE --> CMA["ClassMeanAttention"]:::variable
+    MODE --> CMC["ClassMeanConcat"]:::variable
+    MODE --> CASS["ClassAwareStructuralScoring"]:::variable
+    MODE --> TSE["TopologyStateEncoder"]:::variable
+    MODE --> TSG["TopologyStateGraphEncoder"]:::variable
+    MODE --> SPE["StructuralPriorEncoder"]:::variable
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+#### 6.3.3 Fusion Mode Comparison
+
+Backward-compatible aliases are normalized before runtime selection:
+`Attention -> ClassMeanAttention`, `Concat -> ClassMeanConcat`,
+`struct_pool_concat -> ClassMeanConcat`, and
+`ClassAwareAdditive -> ClassAwareStructuralScoring`.
+
+| `fusion_mode` | `structural_mode=false` | `structural_mode=true` | Де діє структура | Основна відмінність |
+|---|---|---|---|---|
+| `ClassMeanAttention` | observed-only | observed encoder + structural GNN + cross-attention | representation before classifier | структура стискається в один attended context |
+| `ClassMeanConcat` / `struct_pool_concat` | observed-only | observed encoder + mean structural context | representation before classifier | найпростіший mean-pooled structural context |
+| `ClassAwareStructuralScoring` | observed-only | observed logits + structural class logits | logits / class ranking | структура напряму додає score для кожного класу |
+| `TopologyStateEncoder` | observed-only | topology node state -> node logits -> class pooling | early topology-state path | observed IG branch вимкнено; prefix state переноситься на ноди структури |
+| `TopologyStateGraphEncoder` | observed-only | topology node state -> graph context -> classifier | pure structural graph path | etalon/article-like structural graph baseline |
+| `StructuralPriorEncoder` | observed-only | observed encoder + pooled structural prior | representation before classifier | структура як global prior до observed context |
+
+**Коментар (ukr):** `ClassMeanAttention`, `ClassMeanConcat` і
+`StructuralPriorEncoder` зберігають observed encoder як основну гілку.
+`ClassAwareStructuralScoring` також зберігає observed encoder, але додає
+структуру вже на рівні логітів. `TopologyStateEncoder` і
+`TopologyStateGraphEncoder` є topology-state ablations: при
+`structural_mode=true` вони перевіряють, що дає сама структура з prefix-state
+ознаками, без повноцінного observed IG encoder.
+
+#### 6.3.4 Common Observed-Only Path
+
+**Опис (ukr):** ця схема однакова для всіх `fusion_mode`, якщо
+`experiment.structural_mode=false`.
+
 ```mermaid
 flowchart LR
-    subgraph OBS[Observed branch]
-        O1[x_cat] --> O2[Embedding lookup]
-        O3[x_num] --> O4[Concat]
-        O2 --> O4
-        O4 --> O5[GATv2Conv layer 1 heads 4]
-        O5 --> O6[ReLU and Dropout]
-        O6 --> O7[GATv2Conv layer 2 heads 1]
-        O7 --> O8[ReLU and Dropout]
-        O8 --> O9[Pool global_mean or last_node]
-    end
+    XCAT["x_cat"]:::common --> EMB["Embedding lookup"]:::common
+    XNUM["x_num"]:::common --> CAT["Concat observed features"]:::common
+    EMB --> CAT
+    CAT --> G1["Observed GATv2 layer 1"]:::common
+    G1 --> G2["Observed GATv2 layer 2"]:::common
+    G2 --> POOL["Pool: global_mean or last_node"]:::common
+    POOL --> CLS["Classifier"]:::output
+    CLS --> LOGITS["logits"]:::output
 
-    subgraph STR[Structural branch]
-        S0{struct_x present}
-        S1[struct_x]
-        S2[Structural identity embedding]
-        S3[Stats projection]
-        S4[LayerNorm identity plus beta stats]
-        S6[Structural GNN GATv2Conv or GCNConv]
-        S5[ReLU and Dropout]
-        S0 -->|yes| S1
-        S0 -->|always| S2
-        S1 --> S3
-        S2 --> S4
-        S3 --> S4
-        S4 --> S6
-        S6 --> S5
-    end
-
-    M0{structural_mode}
-    O9 --> M0
-    M0 -->|false| C0[Classifier]
-    C0 --> L0[logits]
-    M0 -->|true| A1[Cross-attention]
-    S5 --> A1
-    O9 --> A1
-    A1 --> F1[Fusion MLP]
-    O9 --> F1
-    F1 --> C1[Classifier]
-    C1 --> L1[logits]
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
 ```
+
+#### 6.3.5 ClassMeanAttention
+
+**Опис (ukr):** legacy attention режим. Observed prefix формує `obs_context`.
+Structural branch формує `h_struct`. Cross-attention використовує
+`obs_context` як query і стискає всі structural nodes в один structural context.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        O1["Observed inputs"]:::common --> O2["Observed GATv2 encoder"]:::common
+        O2 --> O3["obs_context"]:::common
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural identity + stats"]:::common
+        S2 --> S3["Structural GNN"]:::common
+        O3 --> A["Cross-attention"]:::variable
+        S3 --> A
+        A --> FU["Fusion([obs_context || attended_struct])"]:::variable
+        O3 --> FU
+        FU --> C["Classifier -> logits"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+**Відмінність:** структура впливає на representation, але не дає окремий logit
+для кожного target class. Це може бути слабким сигналом, якщо один pooled
+context не розрізняє кандидатів.
+
+#### 6.3.6 ClassMeanConcat
+
+**Опис (ukr):** найпростіший representation-level режим. Structural nodes
+усереднюються в один `struct_context`, який конкатенується з `obs_context`.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        O1["Observed inputs"]:::common --> O2["Observed GATv2 encoder"]:::common
+        O2 --> O3["obs_context"]:::common
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural GNN"]:::common
+        S2 --> MP["mean(h_struct)"]:::variable
+        O3 --> FU["Fusion([obs_context || struct_context])"]:::variable
+        MP --> FU
+        FU --> C["Classifier -> logits"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+**Відмінність:** структура є global prior без class-aware ranking. Це корисно
+для ablation, але може майже не впливати на strict-F1, якщо mean context
+згладжує topology signal.
+
+#### 6.3.7 ClassAwareStructuralScoring
+
+**Опис (ukr):** late class-aware режим. Observed branch дає `observed_logits`,
+а structural branch дає окремі `structural_logits` для кандидатів. Фінальний
+результат: `final_logits = observed_logits + structural_logits`.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["observed_logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        O1["Observed inputs"]:::common --> O2["Observed GATv2 encoder"]:::common
+        O2 --> O3["obs_context"]:::common
+        O3 --> OL["Observed classifier"]:::common
+        OL --> OBSL["observed_logits"]:::output
+
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural GNN"]:::common
+        O3 --> SC["Prefix-to-node structural scoring"]:::variable
+        S2 --> SC
+        SC --> NC["node-to-class pooling"]:::variable
+        NC --> SL["structural_logits"]:::output
+        OBSL --> ADD["observed_logits + structural_logits"]:::variable
+        SL --> ADD
+        ADD --> FL["final_logits"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+**Відмінність:** структура впливає саме на ranking класів. Це не classical
+attention, а structural logit scoring. Ключові діагностики:
+`structural_logits_mean_abs`, `structural_logits_max_abs`,
+`observed_logits_mean_abs`, `structural_to_observed_logit_ratio`.
+
+#### 6.3.8 TopologyStateEncoder
+
+**Опис (ukr):** early topology-state ablation. Prefix state переноситься на
+структурні ноди через `struct_prefix_state_x`, далі structural GNN рахує node
+logits, а потім вони агрегуються у class logits.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        OX["Observed IG encoder bypassed"]:::disabled
+        P1["struct_prefix_state_x"]:::variable --> P2["Prefix-state projection + gate"]:::variable
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural identity + stats"]:::common
+        P2 --> H0["h0 per topology node"]:::variable
+        S2 --> H0
+        H0 --> SG["Structural GNN"]:::common
+        SG --> NL["node_logits"]:::output
+        NL --> CP["node-to-class pooling"]:::variable
+        CP --> CL["class_logits"]:::output
+        CP --> R["duplicate activity cardinality risk"]:::risk
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+    classDef disabled fill:#F3F4F6,stroke:#9CA3AF,color:#111;
+    classDef risk fill:#FFE4E6,stroke:#B91C1C,color:#111;
+```
+
+**Відмінність:** це не dual-encoder fusion. При `structural_mode=true` observed
+IG branch не формує logits. Режим потрібен для перевірки раннього topology-state
+сигналу та structural overfitting.
+
+#### 6.3.9 TopologyStateGraphEncoder
+
+**Опис (ukr):** etalon/article-like structural graph baseline. Prefix state
+переноситься на topology nodes, structural GNN робить message passing, після
+чого весь граф стискається в `graph_context`.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        OX["Observed IG encoder bypassed"]:::disabled
+        P1["struct_prefix_state_x"]:::variable --> P2["Prefix-state projection + gate"]:::variable
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural identity + stats"]:::common
+        P2 --> H0["h0 per topology node"]:::variable
+        S2 --> H0
+        H0 --> SG["Structural GNN"]:::common
+        SG --> GP["mean topology graph pooling"]:::variable
+        GP --> GC["graph_context"]:::output
+        GC --> FU["Fusion([0 || graph_context])"]:::variable
+        FU --> CL["Classifier -> logits"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+    classDef disabled fill:#F3F4F6,stroke:#9CA3AF,color:#111;
+```
+
+**Відмінність:** на відміну від `TopologyStateEncoder`, немає node-to-class
+pooling. Це чистіший structural graph baseline для перевірки, чи сама
+топологія з prefix-state ознаками корисна в same-version prediction.
+
+#### 6.3.10 StructuralPriorEncoder
+
+**Опис (ukr):** representation-level prior. Observed encoder залишається
+основним джерелом контексту, а structural GNN дає pooled `struct_context`,
+який додається через `concat` або `gated_concat`.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        O1["Observed inputs"]:::common --> O2["Observed GATv2 encoder"]:::common
+        O2 --> O3["obs_context"]:::common
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural GNN"]:::common
+        S2 --> MP["mean(h_struct)"]:::variable
+        MP --> SC["struct_context"]:::output
+        O3 --> FU{"structural_prior_fusion"}:::variable
+        SC --> FU
+        FU -->|concat| C1["Classifier([obs_context || struct_context])"]:::output
+        FU -->|gated_concat| C2["Classifier([obs_context || gate * struct_context])"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+**Відмінність:** структура є global structural prior, а не per-class scorer і
+не pure topology-state path. `gated_concat` додатково вчить, наскільки сильно
+пропускати structural context у classifier.
 
 ### 6.4 ClassAwareStructuralScoring Fusion
 
 `ClassAwareStructuralScoring` computes structural representations at structural
 node level, scores each structural node against the observed prefix context, and
 then projects node scores to activity classes:
+
+**Коментар (ukr):** це режим, де структура найближче підходить до прямого
+впливу на вибір наступної активності. Observed encoder відповідає за контекст
+префікса, а structural branch додає окремий structural score для кожного
+candidate class. Тому головна перевірка для цього режиму - чи structural logits
+мають ненульовий, але не домінуючий масштаб відносно observed logits.
 
 ```text
 identity_v = Embedding(class_or_node_identity_v)
@@ -284,6 +522,12 @@ silent, useful, or dominating the observed branch.
 enabled only when `experiment.structural_mode=true` and
 `model.fusion_mode=TopologyStateEncoder`. If `experiment.structural_mode=false`,
 the model keeps the observed-only path regardless of this fusion setting.
+
+**Коментар (ukr):** цей режим переносить стан префікса на ноди topology і
+класифікує через node-to-class pooling. Він корисний як ablation для питання
+"чи може сама структура з prefix-state ознаками передбачати наступну дію", але
+не є повним аналогом observed IG encoder. Через duplicate activity labels
+потрібно уважно дивитись на class cardinality та entropy.
 
 The graph builder emits `struct_prefix_state_x` for every structural node. The
 current fixed feature order is:
@@ -332,6 +576,11 @@ same `struct_prefix_state_x` tensor as `TopologyStateEncoder`, but it does not
 emit node logits and does not perform node-to-class pooling. Instead, it
 classifies a graph-level topology context after structural message passing.
 
+**Коментар (ukr):** це чистий structural graph baseline у стилі старого etalon
+підходу: модель працює з графом структури як з основним носієм стану. На
+відміну від `TopologyStateEncoder`, тут немає ризику inflation через
+node-to-class `LogSumExp`, бо рішення приймається з pooled graph context.
+
 Runtime formula:
 
 ```text
@@ -366,6 +615,12 @@ Diagnostics logged by trainer:
 fusion mode. It keeps the observed prefix encoder as the primary path, computes
 a pooled structural context from EOPKG/BPMN tensors, and fuses both contexts
 before the classifier.
+
+**Коментар (ukr):** цей режим залишає observed model головною, а структуру
+подає як prior. Його треба читати як сильніший і чистіше задокументований
+аналог `ClassMeanConcat`: структура не ранжує класи напряму, але може змінювати
+representation перед classifier. `gated_concat` показує, чи модель взагалі
+хоче пропускати structural context.
 
 It differs from:
 

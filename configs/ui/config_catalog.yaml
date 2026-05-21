@@ -2959,6 +2959,289 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  training.learning_strategy:
+    path: training.learning_strategy
+    section: training
+    label: 'Training: Learning strategy'
+    description: Trainer-level methodology. standard preserves current behavior; topology_conditioned adds train-time topology dependency objectives.
+    affects: Separates model fusion mode from the methodology used to train topology dependence.
+    default: standard
+    enum:
+    - standard
+    - topology_conditioned
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1013
+  training.topology_conditioning_wrong_version_negative_enabled:
+    path: training.topology_conditioning_wrong_version_negative_enabled
+    section: training
+    label: 'Training: TC wrong-version negative'
+    description: Enable known wrong-version topology negative loss for topology_conditioned learning.
+    affects: Forces the model to prefer the correct known topology over another known version.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.learning_strategy: topology_conditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1014
+  training.topology_conditioning_wrong_version_negative_weight:
+    path: training.topology_conditioning_wrong_version_negative_weight
+    section: training
+    label: 'Training: TC wrong-version weight'
+    description: Weight for wrong-version topology negative margin loss.
+    affects: Strength of contrastive topology dependency pressure.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_wrong_version_negative_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1015
+  training.topology_conditioning_wrong_version_margin:
+    path: training.topology_conditioning_wrong_version_margin
+    section: training
+    label: 'Training: TC wrong-version margin'
+    description: Required CE gap between correct topology and wrong known-version topology.
+    affects: Minimum pressure for topology-sensitive learning.
+    default: 0.2
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_wrong_version_negative_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1016
+  training.topology_conditioning_drop_edges_negative_enabled:
+    path: training.topology_conditioning_drop_edges_negative_enabled
+    section: training
+    label: 'Training: TC drop-edges negative'
+    description: Enable same-version physically dropped structural edge negative loss.
+    affects: Tests whether model predictions react to local topology corruption.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.learning_strategy: topology_conditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1017
+  training.topology_conditioning_drop_edges_negative_weight:
+    path: training.topology_conditioning_drop_edges_negative_weight
+    section: training
+    label: 'Training: TC drop-edges weight'
+    description: Weight for same-version dropped-edge topology negative margin loss.
+    affects: Strength of local topology corruption pressure.
+    default: 0.05
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_drop_edges_negative_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1018
+  training.topology_conditioning_drop_edges_margin:
+    path: training.topology_conditioning_drop_edges_margin
+    section: training
+    label: 'Training: TC drop-edges margin'
+    description: Required CE gap between correct topology and dropped-edge topology.
+    affects: Minimum local corruption sensitivity expected from the model.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_drop_edges_negative_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1019
+  training.topology_conditioning_drop_edges_ratio:
+    path: training.topology_conditioning_drop_edges_ratio
+    section: training
+    label: 'Training: TC drop-edges ratio'
+    description: Fraction of structural edges physically removed in the negative topology view.
+    affects: Severity of topology corruption; high values can break BPM reachability.
+    default: 0.15
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_drop_edges_negative_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1020
+  training.topology_conditioning_allowed_set_loss_enabled:
+    path: training.topology_conditioning_allowed_set_loss_enabled
+    section: training
+    label: 'Training: TC allowed-set loss'
+    description: Enable train-time topology consistency loss over allowed target candidates.
+    affects: Adds mask-aware learning pressure independent from mask-guided inference logits.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.learning_strategy: topology_conditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1021
+  training.topology_conditioning_allowed_set_loss_weight:
+    path: training.topology_conditioning_allowed_set_loss_weight
+    section: training
+    label: 'Training: TC allowed-set weight'
+    description: Weight for topology allowed-set loss.
+    affects: Strength of topology-compatible target-set pressure.
+    default: 0.05
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_allowed_set_loss_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1022
+  training.topology_conditioning_retention_enabled:
+    path: training.topology_conditioning_retention_enabled
+    section: training
+    label: 'Training: TC retention'
+    description: Enable version-weighted CE/rehearsal for already seen versions.
+    affects: Controls how strongly older versions are retained while newer versions dominate.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.learning_strategy: topology_conditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1023
+  training.topology_conditioning_retention_policy:
+    path: training.topology_conditioning_retention_policy
+    section: training
+    label: 'Training: TC retention policy'
+    description: Policy for per-version retention sample weights.
+    affects: Defines how known older process versions contribute to topology_conditioned training.
+    default: version_decay
+    enum:
+    - version_decay
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1024
+  training.topology_conditioning_current_version_policy:
+    path: training.topology_conditioning_current_version_policy
+    section: training
+    label: 'Training: TC current version policy'
+    description: Rule for identifying the current/latest seen version in retention weighting.
+    affects: Determines version distance for retention weights.
+    default: latest_in_train
+    enum:
+    - latest_in_train
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1025
+  training.topology_conditioning_retention_recent_versions:
+    path: training.topology_conditioning_retention_recent_versions
+    section: training
+    label: 'Training: TC recent versions'
+    description: Number of previous versions treated as recent for retention weighting.
+    affects: Width of the rehearsal window for older versions.
+    default: 1
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1026
+  training.topology_conditioning_retention_recent_weight:
+    path: training.topology_conditioning_retention_recent_weight
+    section: training
+    label: 'Training: TC recent weight'
+    description: Sample weight for recent previous versions.
+    affects: Retention pressure for versions close to the current one.
+    default: 0.5
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1027
+  training.topology_conditioning_retention_old_weight:
+    path: training.topology_conditioning_retention_old_weight
+    section: training
+    label: 'Training: TC old weight'
+    description: Sample weight for older seen versions outside the recent window.
+    affects: Long-tail retention pressure for stale process versions.
+    default: 0.15
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1028
+  training.topology_conditioning_retention_obsolete_weight:
+    path: training.topology_conditioning_retention_obsolete_weight
+    section: training
+    label: 'Training: TC obsolete weight'
+    description: Reserved weight for versions considered obsolete by future policies.
+    affects: Future extension point for business lifecycle retention policy.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_conditioning_retention_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1029
   training.mask_guided_apply_in_eval:
     path: training.mask_guided_apply_in_eval
     section: training

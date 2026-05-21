@@ -12,7 +12,7 @@ that topology.
 
 ## Metadata
 
-- `status`: design
+- `status`: implemented
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, explanations in Ukrainian
@@ -78,6 +78,17 @@ training.learning_strategy=standard must not change existing train/eval results.
 `topology_conditioned` є новою методологією навчання, яка змушує модель
 використовувати topology як meaningful condition, а не як декоративний
 додатковий tensor.
+
+Implementation status:
+
+```text
+implemented in trainer-level services and ModelTrainer train loop
+```
+
+Current implementation adds config parsing, a topology payload pool from
+already prebuilt train graph tensors, train-time `L_allowed_set`,
+known-version wrong-topology negatives, same-version physical `drop_edges`
+negatives, version-weighted CE/rehearsal retention, and tracker diagnostics.
 
 Required guard:
 
@@ -216,6 +227,18 @@ Leakage guard:
 future topology must never be used as wrong-version negative
 ```
 
+Mixed-batch rule:
+
+```text
+prefer version-homogeneous training mini-batches for this loss
+```
+
+If a mixed-version batch reaches the trainer, the wrong-version term must not
+be silently disabled. The first implementation may skip only this term for that
+batch, but it must log explicit diagnostics. Per-version subgroup contrast is
+deferred because the current model contract carries one structural payload per
+batch.
+
 ### `L_drop_edges_negative`
 
 Purpose:
@@ -238,9 +261,15 @@ First implementation policy:
 edge_corruption_policy: drop_edges
 ```
 
+This is physical edge corruption in the first implementation. Soft Edge Drop
+would be preferable for BPM reachability, but it requires the structural GNN
+forward path to consume `structural_edge_weight`; current `EOPKGGATv2`
+structural message passing does not.
+
 Rules:
 
 - only edges are dropped;
+- never drop all edges;
 - node ids are not changed;
 - `struct_node_to_class_index` is not changed;
 - activity labels are not changed;
@@ -645,10 +674,16 @@ Future target may add:
 rewire_edges
 node_feature_corruption
 gateway_policy_corruption
+soft_edge_drop
+mixed_batch_subgroup_contrast
 ```
 
 These must not be added until the first `drop_edges` and `wrong_version`
 experiments demonstrate useful topology dependency.
+
+`soft_edge_drop` additionally requires an edge-weight-aware structural encoder.
+`mixed_batch_subgroup_contrast` requires per-version microbatch splitting or
+per-sample structural payload contracts.
 
 ### `retention_distillation`
 

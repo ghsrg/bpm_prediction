@@ -864,7 +864,33 @@ StructXAttn contrastive diagnostics:
 lower CE than the corrupted topology. If this stays near or below zero, the
 model still ignores structure or the corruption policy is not meaningful.
 
-## 7.1 Selective Structural Prediction Tracing
+## 7.1 Learning Strategy Hook
+
+`model.fusion_mode` still defines only the forward architecture. Trainer-level
+learning methodology is controlled by:
+
+```yaml
+training.learning_strategy: standard | topology_conditioned
+```
+
+`standard` preserves the previous CE-based training behavior. 
+`topology_conditioned` wraps the same forward model with additional train-only
+objectives:
+
+1. `topology_conditioned_allowed_set_loss`
+2. `topology_conditioned_wrong_version_ce_delta`
+3. `topology_conditioned_drop_edges_ce_delta`
+4. `topology_conditioned_retention_loss`
+5. `topology_conditioned_mixed_version_batches`
+6. `topology_conditioned_wrong_version_skipped_mixed_batches`
+
+These objectives are not applied during validation/test/eval_drift inference.
+They are intended to make the selected `fusion_mode` depend on topology during
+training. Physical `drop_edges` is used in the first implementation because the
+current structural GNN path does not consume `structural_edge_weight`; Soft Edge
+Drop is deferred.
+
+## 7.2 Selective Structural Prediction Tracing
 
 Selective tracing is an optional qualitative debugging layer for prediction
 explanations. It is not the primary scientific evidence. Dissertation/article

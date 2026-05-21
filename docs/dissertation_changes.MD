@@ -663,3 +663,44 @@ correct topology vs corrupted topology
   ігнорує структуру або corruption policy не створює змістовний negative view;
 - це не фінальний доказ transfer між версіями, а наступний крок після висновку,
   що проста подача структури не дає стабільного strict-F1 ефекту.
+
+---
+
+## 2026-05-21 - Topology-Conditioned Learning Strategy
+
+- `topic`: training methodology
+- `impact`: critical for dissertation core hypothesis
+- `status`: implemented trainer-level strategy
+- `related_runtime`: `training.learning_strategy=topology_conditioned`
+
+**Note (ukr):**
+
+Додано відокремлення `fusion_mode` від `learning_strategy`. Це важливо для
+дисертації: тепер можна окремо досліджувати, як структура входить у forward
+моделі, і як модель спеціально навчається залежати від topology.
+
+`topology_conditioned` не є новою архітектурою fusion. Це методологія навчання,
+яка додає до базового CE:
+
+1. `L_allowed_set` - train-time consistency з дозволеним topology target set;
+2. `L_wrong_version_negative` - порівняння правильної topology з topology іншої
+   вже відомої версії;
+3. `L_drop_edges_negative` - контрольована same-version topology corruption;
+4. `L_retention` - version-weighted CE/rehearsal для вже бачених версій.
+
+**Do not forget:**
+
+- у методології описати, що `mask_guided_enabled` і `L_allowed_set` - різні
+  механізми: перший змінює logits policy, другий формує train-time loss;
+- для Scopus/дисертації порівнювати матрицю:
+  `standard/no-mask`, `standard/mask`, `topology_conditioned/no-mask`,
+  `topology_conditioned/mask`;
+- основні diagnostics:
+  `topology_conditioned_wrong_version_ce_delta`,
+  `topology_conditioned_drop_edges_ce_delta`,
+  `topology_conditioned_allowed_set_loss`,
+  `topology_conditioned_retention_loss`,
+  `topology_conditioned_mixed_version_batches`;
+- перша реалізація використовує physical `drop_edges`, бо structural GNN ще не
+  споживає `structural_edge_weight`; Soft Edge Drop треба описувати як future
+  work/tech debt.

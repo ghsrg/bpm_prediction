@@ -37,7 +37,18 @@ from src.application.ports.prefix_policy_port import IPrefixPolicy
 from src.application.ports.trace_recorder_port import ITraceRecorder
 from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
+from src.application.services.learning_strategy_config import LearningStrategyConfig
 from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
+from src.application.services.topology_conditioned_learning import (
+    allowed_set_loss,
+    margin_negative_loss,
+    version_weighted_cross_entropy,
+)
+from src.application.services.topology_payload_pool import (
+    TopologyPayloadPool,
+    drop_structural_edges,
+    replace_structural_payload,
+)
 from src.application.services.trace_sampling_policy import TraceSamplingPolicy, classify_trace_reason
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
@@ -211,6 +222,49 @@ class _ShardAwareRandomSampler(Sampler[int]):
         return len(self._dataset)
 
 
+class _VersionHomogeneousBatchSampler(Sampler[List[int]]):
+    """Yield mini-batches grouped by process_version_idx."""
+
+    def __init__(self, dataset: Sequence[Data], *, batch_size: int, shuffle: bool, seed: int = 42) -> None:
+        self._dataset = dataset
+        self._batch_size = max(1, int(batch_size))
+        self._shuffle = bool(shuffle)
+        self._base_seed = int(seed)
+        self._iteration = 0
+        self._groups = self._build_groups(dataset)
+
+    @staticmethod
+    def _build_groups(dataset: Sequence[Data]) -> Dict[str, List[int]]:
+        groups: Dict[str, List[int]] = {}
+        for idx, graph in enumerate(dataset):
+            raw = getattr(graph, "process_version_idx", None)
+            if isinstance(raw, torch.Tensor) and raw.numel() > 0:
+                key = f"idx:{int(raw.view(-1)[0].item())}"
+            else:
+                key = "__unknown__"
+            groups.setdefault(key, []).append(int(idx))
+        return groups
+
+    def __iter__(self) -> Iterable[List[int]]:
+        rng = random.Random(self._base_seed + self._iteration)
+        self._iteration += 1
+        keys = list(self._groups)
+        if self._shuffle:
+            rng.shuffle(keys)
+        for key in keys:
+            indices = list(self._groups[key])
+            if self._shuffle:
+                rng.shuffle(indices)
+            for start in range(0, len(indices), self._batch_size):
+                yield indices[start : start + self._batch_size]
+
+    def __len__(self) -> int:
+        total = 0
+        for indices in self._groups.values():
+            total += int(math.ceil(len(indices) / float(self._batch_size)))
+        return total
+
+
 class ModelTrainer:
     """End-to-end trainer for MVP1 next-activity prediction baseline."""
 
@@ -301,6 +355,12 @@ class ModelTrainer:
             0.0,
             float(config.get("struct_xattn_corruption_feature_noise_std", 0.0)),
         )
+        self.learning_strategy_config = LearningStrategyConfig.from_training_config(
+            config,
+            fusion_mode=getattr(model, "fusion_mode", ""),
+            structural_mode=_as_bool(getattr(model, "structural_mode", True), default=True),
+        )
+        self._topology_payload_pool: TopologyPayloadPool | None = None
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -1195,6 +1255,15 @@ class ModelTrainer:
             return self._create_data_loader_from_source(lazy_dataset, shuffle=shuffle)
 
         graphs_source = dataset or []
+        if self.learning_strategy_config.is_topology_conditioned and self._topology_payload_pool is None:
+            self._topology_payload_pool = TopologyPayloadPool.from_dataset(
+                graphs_source,
+                idx_to_version=self._idx_to_version,
+            )
+            logger.info(
+                "Topology-conditioned payload pool ready: versions=%s",
+                ",".join(self._topology_payload_pool.version_labels) or "none",
+            )
         for graph in graphs_source:
             num_nodes_attr = getattr(graph, "num_nodes", None)
             if num_nodes_attr is None:
@@ -1234,10 +1303,24 @@ class ModelTrainer:
     def _create_data_loader_from_source(self, source: Any, *, shuffle: bool) -> DataLoader:
         """Create DataLoader from in-memory sequence or lazy on-disk dataset source."""
         sampler: Sampler[int] | None = None
+        batch_sampler: Sampler[List[int]] | None = None
         effective_shuffle = bool(shuffle)
         effective_num_workers = int(self.dataloader_num_workers)
         if isinstance(source, ShardedGraphDataset) and shuffle:
             sampler = _ShardAwareRandomSampler(source, seed=self.seed)
+            effective_shuffle = False
+        elif (
+            self.learning_strategy_config.is_topology_conditioned
+            and shuffle
+            and isinstance(source, Sequence)
+            and not isinstance(source, (str, bytes))
+        ):
+            batch_sampler = _VersionHomogeneousBatchSampler(
+                source,
+                batch_size=self.batch_size,
+                shuffle=True,
+                seed=self.seed,
+            )
             effective_shuffle = False
         if isinstance(source, ShardedGraphDataset) and effective_num_workers > 0:
             logger.info(
@@ -1247,17 +1330,114 @@ class ModelTrainer:
             effective_num_workers = 0
 
         kwargs: Dict[str, Any] = {
-            "batch_size": self.batch_size,
             "shuffle": effective_shuffle,
             "num_workers": effective_num_workers,
             "pin_memory": self.dataloader_pin_memory,
         }
-        if sampler is not None:
+        if batch_sampler is not None:
+            kwargs["batch_sampler"] = batch_sampler
+            kwargs.pop("shuffle", None)
+        else:
+            kwargs["batch_size"] = self.batch_size
+        if sampler is not None and batch_sampler is None:
             kwargs["sampler"] = sampler
         if effective_num_workers > 0:
             kwargs["persistent_workers"] = self.dataloader_persistent_workers
             kwargs["prefetch_factor"] = self.dataloader_prefetch_factor
         return DataLoader(source, **kwargs)
+
+    def _learning_strategy_active(self, *, training: bool) -> bool:
+        return bool(training and self.learning_strategy_config.is_topology_conditioned)
+
+    @staticmethod
+    def _batch_version_labels(contract: GraphTensorContract) -> List[str]:
+        raw = contract.get("process_version_labels")
+        if isinstance(raw, list):
+            return [str(item) for item in raw]
+        return []
+
+    def _batch_has_mixed_versions(self, contract: GraphTensorContract) -> bool:
+        labels = self._batch_version_labels(contract)
+        return len(set(labels)) > 1
+
+    def _current_batch_version(self, contract: GraphTensorContract) -> str | None:
+        labels = self._batch_version_labels(contract)
+        if not labels:
+            return None
+        first = labels[0]
+        if any(label != first for label in labels):
+            return None
+        return first
+
+    @staticmethod
+    def _version_ordinal(version_label: str) -> int | None:
+        digits = "".join(ch for ch in str(version_label) if ch.isdigit())
+        if not digits:
+            return None
+        try:
+            return int(digits)
+        except ValueError:
+            return None
+
+    def _retention_sample_weights(self, contract: GraphTensorContract, targets: torch.Tensor) -> torch.Tensor:
+        labels = self._batch_version_labels(contract)
+        if len(labels) != int(targets.numel()):
+            return torch.ones(int(targets.numel()), dtype=torch.float32, device=targets.device)
+        ordinals = [self._version_ordinal(label) for label in labels]
+        known_ordinals = [item for item in ordinals if item is not None]
+        if not known_ordinals:
+            return torch.ones(int(targets.numel()), dtype=torch.float32, device=targets.device)
+        latest = max(known_ordinals)
+        weights: List[float] = []
+        for ordinal in ordinals:
+            if ordinal is None:
+                weights.append(1.0)
+                continue
+            distance = max(0, latest - int(ordinal))
+            if distance == 0:
+                weights.append(1.0)
+            elif distance <= int(self.learning_strategy_config.retention_recent_versions):
+                weights.append(float(self.learning_strategy_config.retention_recent_weight))
+            elif float(self.learning_strategy_config.retention_old_weight) > 0.0:
+                weights.append(float(self.learning_strategy_config.retention_old_weight))
+            else:
+                weights.append(float(self.learning_strategy_config.retention_obsolete_weight))
+        return torch.tensor(weights, dtype=torch.float32, device=targets.device)
+
+    def _accumulate_topology_conditioned_stats(
+        self,
+        bucket: Dict[str, Any],
+        *,
+        key_prefix: str,
+        correct_ce: torch.Tensor,
+        negative_ce: torch.Tensor | None = None,
+        objective_loss: torch.Tensor | None = None,
+    ) -> None:
+        if negative_ce is None:
+            if objective_loss is None:
+                return
+            bucket[f"topology_conditioned_{key_prefix}_loss_sum"] = float(
+                bucket.get(f"topology_conditioned_{key_prefix}_loss_sum", 0.0)
+            ) + float(objective_loss.detach().cpu().item())
+            bucket[f"topology_conditioned_{key_prefix}_batches"] = int(
+                bucket.get(f"topology_conditioned_{key_prefix}_batches", 0)
+            ) + 1
+            return
+        correct_value = float(correct_ce.detach().cpu().item())
+        negative_value = float(negative_ce.detach().cpu().item())
+        loss_value = float(objective_loss.detach().cpu().item()) if isinstance(objective_loss, torch.Tensor) else 0.0
+        bucket[f"topology_conditioned_{key_prefix}_ce_sum"] = float(
+            bucket.get(f"topology_conditioned_{key_prefix}_ce_sum", 0.0)
+        ) + negative_value
+        bucket[f"topology_conditioned_{key_prefix}_delta_sum"] = float(
+            bucket.get(f"topology_conditioned_{key_prefix}_delta_sum", 0.0)
+        ) + (negative_value - correct_value)
+        bucket[f"topology_conditioned_{key_prefix}_loss_sum"] = float(
+            bucket.get(f"topology_conditioned_{key_prefix}_loss_sum", 0.0)
+        ) + loss_value
+        bucket[f"topology_conditioned_{key_prefix}_batches"] = int(
+            bucket.get(f"topology_conditioned_{key_prefix}_batches", 0)
+        ) + 1
 
     def _compute_structural_set_loss(
         self,
@@ -1485,6 +1665,118 @@ class ModelTrainer:
                     forward_stats["structural_aux_loss_batches"] = int(
                         forward_stats.get("structural_aux_loss_batches", 0)
                     ) + 1
+                if self._learning_strategy_active(training=training):
+                    if self._batch_has_mixed_versions(contract):
+                        forward_stats["topology_conditioned_mixed_version_batches"] = int(
+                            forward_stats.get("topology_conditioned_mixed_version_batches", 0)
+                        ) + 1
+                    if (
+                        self.learning_strategy_config.allowed_set_loss_enabled
+                        and float(self.learning_strategy_config.allowed_set_loss_weight) > 0.0
+                    ):
+                        if not isinstance(allowed_mask, torch.Tensor):
+                            raise ValueError(
+                                "training.topology_conditioning_allowed_set_loss_enabled requires allowed_target_mask."
+                            )
+                        allowed_loss = allowed_set_loss(logits, targets, allowed_mask)
+                        loss = loss + (float(self.learning_strategy_config.allowed_set_loss_weight) * allowed_loss)
+                        self._accumulate_topology_conditioned_stats(
+                            forward_stats,
+                            key_prefix="allowed_set",
+                            correct_ce=base_ce_loss.detach(),
+                            objective_loss=allowed_loss.detach(),
+                        )
+                    if (
+                        self.learning_strategy_config.retention_enabled
+                        and str(self.learning_strategy_config.retention_policy) == "version_decay"
+                    ):
+                        sample_weights = self._retention_sample_weights(contract, targets)
+                        retention_loss = version_weighted_cross_entropy(
+                            effective_logits,
+                            targets,
+                            sample_weights=sample_weights,
+                            class_weights=self.class_weights,
+                        )
+                        loss = loss + retention_loss
+                        self._accumulate_topology_conditioned_stats(
+                            forward_stats,
+                            key_prefix="retention",
+                            correct_ce=base_ce_loss.detach(),
+                            objective_loss=retention_loss.detach(),
+                        )
+                    if (
+                        self.learning_strategy_config.drop_edges_negative_enabled
+                        and float(self.learning_strategy_config.drop_edges_negative_weight) > 0.0
+                    ):
+                        dropped_contract = drop_structural_edges(
+                            contract,
+                            drop_ratio=float(self.learning_strategy_config.drop_edges_ratio),
+                            seed=int(self.seed) + (int(epoch_index) * 100_003) + int(batch_idx),
+                        )
+                        dropped_logits = self.model(dropped_contract)
+                        if not self._is_finite_tensor(dropped_logits):
+                            logits_sanitized_batches += 1
+                            dropped_logits = torch.nan_to_num(dropped_logits, nan=0.0, posinf=1e6, neginf=-1e6)
+                        dropped_effective_logits = self._apply_mask_guided_logits(
+                            logits=dropped_logits,
+                            allowed_mask=allowed_mask,
+                            policy=mask_policy,
+                        )
+                        dropped_ce = self.criterion(dropped_effective_logits, targets)
+                        drop_loss = margin_negative_loss(
+                            correct_ce=base_ce_loss,
+                            negative_ce=dropped_ce,
+                            margin=float(self.learning_strategy_config.drop_edges_margin),
+                        )
+                        loss = loss + (float(self.learning_strategy_config.drop_edges_negative_weight) * drop_loss)
+                        self._accumulate_topology_conditioned_stats(
+                            forward_stats,
+                            key_prefix="drop_edges",
+                            correct_ce=base_ce_loss.detach(),
+                            negative_ce=dropped_ce.detach(),
+                            objective_loss=drop_loss.detach(),
+                        )
+                    if (
+                        self.learning_strategy_config.wrong_version_negative_enabled
+                        and float(self.learning_strategy_config.wrong_version_negative_weight) > 0.0
+                    ):
+                        current_version = self._current_batch_version(contract)
+                        wrong_payload = (
+                            self._topology_payload_pool.wrong_version_payload(current_version)
+                            if self._topology_payload_pool is not None and current_version is not None
+                            else None
+                        )
+                        if current_version is None:
+                            forward_stats["topology_conditioned_wrong_version_skipped_mixed_batches"] = int(
+                                forward_stats.get("topology_conditioned_wrong_version_skipped_mixed_batches", 0)
+                            ) + 1
+                        elif wrong_payload is not None:
+                            wrong_contract = replace_structural_payload(contract, wrong_payload)
+                            wrong_logits = self.model(wrong_contract)
+                            if not self._is_finite_tensor(wrong_logits):
+                                logits_sanitized_batches += 1
+                                wrong_logits = torch.nan_to_num(wrong_logits, nan=0.0, posinf=1e6, neginf=-1e6)
+                            wrong_effective_logits = self._apply_mask_guided_logits(
+                                logits=wrong_logits,
+                                allowed_mask=allowed_mask,
+                                policy=mask_policy,
+                            )
+                            wrong_ce = self.criterion(wrong_effective_logits, targets)
+                            wrong_loss = margin_negative_loss(
+                                correct_ce=base_ce_loss,
+                                negative_ce=wrong_ce,
+                                margin=float(self.learning_strategy_config.wrong_version_margin),
+                            )
+                            loss = loss + (
+                                float(self.learning_strategy_config.wrong_version_negative_weight) * wrong_loss
+                            )
+                            self._accumulate_topology_conditioned_stats(
+                                forward_stats,
+                                key_prefix="wrong_version",
+                                correct_ce=base_ce_loss.detach(),
+                                negative_ce=wrong_ce.detach(),
+                                objective_loss=wrong_loss.detach(),
+                            )
                 if self._struct_xattn_contrastive_active(training=training, epoch_index=epoch_index):
                     corrupted_contract = self._build_corrupted_structural_contract(
                         contract,
@@ -1867,7 +2159,7 @@ class ModelTrainer:
                 row_sums = np.sum(y_prob, axis=1, keepdims=True)
             y_prob = y_prob / np.clip(row_sums, 1e-12, None)
         num_classes = y_prob.shape[1]
-        top_k = min(3, num_classes)
+        top_k = self._effective_top_k(num_classes, requested_k=3)
         if num_classes <= 2:
             top3_accuracy = float(accuracy_score(y_true, y_pred))
         else:
@@ -2073,7 +2365,7 @@ class ModelTrainer:
                 pred_tensor = torch.argmax(probs, dim=1).long()
                 confidence_tensor = torch.max(probs, dim=1).values
                 correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
-                top_k = min(3, int(probs.shape[1])) if probs.dim() == 2 else 1
+                top_k = self._effective_top_k(int(probs.shape[1]), requested_k=3) if probs.dim() == 2 else 1
                 topk = torch.topk(probs, k=top_k, dim=1).indices
                 top3_hit = (topk == target_tensor.to(topk.device).unsqueeze(1)).any(dim=1).float()
 
@@ -3076,7 +3368,29 @@ class ModelTrainer:
             "struct_xattn_contrastive_loss_sum": 0.0,
             "struct_xattn_prediction_flip_rate_sum": 0.0,
             "struct_xattn_contrastive_batches": 0,
+            "topology_conditioned_allowed_set_loss_sum": 0.0,
+            "topology_conditioned_allowed_set_batches": 0,
+            "topology_conditioned_retention_loss_sum": 0.0,
+            "topology_conditioned_retention_batches": 0,
+            "topology_conditioned_drop_edges_ce_sum": 0.0,
+            "topology_conditioned_drop_edges_delta_sum": 0.0,
+            "topology_conditioned_drop_edges_loss_sum": 0.0,
+            "topology_conditioned_drop_edges_batches": 0,
+            "topology_conditioned_wrong_version_ce_sum": 0.0,
+            "topology_conditioned_wrong_version_delta_sum": 0.0,
+            "topology_conditioned_wrong_version_loss_sum": 0.0,
+            "topology_conditioned_wrong_version_batches": 0,
+            "topology_conditioned_mixed_version_batches": 0,
+            "topology_conditioned_wrong_version_skipped_mixed_batches": 0,
         }
+
+    @staticmethod
+    def _effective_top_k(num_classes: int, *, requested_k: int = 3) -> int:
+        """Return top-k that is meaningful for the available class count."""
+        classes = max(1, int(num_classes))
+        if classes <= 2:
+            return 1
+        return max(1, min(int(requested_k), classes - 1))
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
         bucket["batches"] = int(bucket.get("batches", 0)) + 1
@@ -3831,6 +4145,44 @@ class ModelTrainer:
                 f"{metric_prefix}_struct_xattn_prediction_flip_rate",
                 struct_xattn_prediction_flip_rate,
             )
+        if self.tracker is not None:
+            allowed_batches = int(bucket.get("topology_conditioned_allowed_set_batches", 0))
+            if allowed_batches > 0:
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_allowed_set_loss",
+                    float(bucket.get("topology_conditioned_allowed_set_loss_sum", 0.0)) / float(allowed_batches),
+                )
+            retention_batches = int(bucket.get("topology_conditioned_retention_batches", 0))
+            if retention_batches > 0:
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_retention_loss",
+                    float(bucket.get("topology_conditioned_retention_loss_sum", 0.0)) / float(retention_batches),
+                )
+            for name in ("drop_edges", "wrong_version"):
+                count = int(bucket.get(f"topology_conditioned_{name}_batches", 0))
+                if count <= 0:
+                    continue
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_{name}_ce",
+                    float(bucket.get(f"topology_conditioned_{name}_ce_sum", 0.0)) / float(count),
+                )
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_{name}_ce_delta",
+                    float(bucket.get(f"topology_conditioned_{name}_delta_sum", 0.0)) / float(count),
+                )
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_{name}_loss",
+                    float(bucket.get(f"topology_conditioned_{name}_loss_sum", 0.0)) / float(count),
+                )
+            mixed_batches = int(bucket.get("topology_conditioned_mixed_version_batches", 0))
+            skipped_mixed = int(bucket.get("topology_conditioned_wrong_version_skipped_mixed_batches", 0))
+            if mixed_batches > 0:
+                self.tracker.log_metric(f"{metric_prefix}_topology_conditioned_mixed_version_batches", mixed_batches)
+            if skipped_mixed > 0:
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_wrong_version_skipped_mixed_batches",
+                    skipped_mixed,
+                )
 
     def _maybe_record_prediction_traces(
         self,
@@ -4284,6 +4636,11 @@ class ModelTrainer:
         self.tracker.log_param("dataloader_pin_memory", self.dataloader_pin_memory)
         self.tracker.log_param("dataloader_persistent_workers", self.dataloader_persistent_workers)
         self.tracker.log_param("dataloader_prefetch_factor", self.dataloader_prefetch_factor)
+        self.tracker.log_param("training.learning_strategy", self.learning_strategy_config.learning_strategy)
+        self.tracker.log_param(
+            "training.learning_strategy_fusion_support",
+            self.learning_strategy_config.fusion_support_level.value,
+        )
 
     def _log_run_context(self) -> None:
         """Log extended run context: tags, flattened params, and feature metadata."""

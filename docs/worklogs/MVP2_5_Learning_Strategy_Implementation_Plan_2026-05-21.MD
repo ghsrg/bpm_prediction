@@ -10,6 +10,54 @@
 
 ---
 
+## Plan Review Amendments
+
+External review identified two implementation risks that must be handled before
+coding:
+
+1. **Mixed-version batches must not silently disable topology pressure.**
+   The initial trainer sketch skipped `L_wrong_version_negative` when a batch
+   contained multiple process versions. This is not acceptable as an invisible
+   default because transition windows are expected in real process operation.
+
+   MVP decision:
+
+   - `topology_conditioned` training should prefer version-homogeneous train
+     mini-batches for wrong-version contrastive loss.
+   - If a mixed-version batch still reaches the trainer because the dataset or
+     loader cannot enforce homogeneous batches, the wrong-version term may be
+     skipped only with explicit diagnostics:
+     `topology_conditioned_mixed_version_batches` and
+     `topology_conditioned_wrong_version_skipped_mixed_batches`.
+   - Do not implement per-subgroup majority/minority wrong-topology contrast in
+     this step. Current `ModelTrainer._data_to_contract()` and model forward
+     contract use one structural payload per batch; subgroup contrast would
+     require batch splitting or per-sample structural payloads.
+   - Add architecture debt for mixed-batch subgroup contrast under
+     `versioned_zero_shot`.
+
+2. **`drop_edges` must not fake a soft-drop effect.**
+   Soft Edge Drop is preferable for BPM graphs because physical removal of one
+   critical edge can break reachability. However, current `EOPKGGATv2`
+   structural forward calls `self.struct_gnn(struct_nodes, structural_edge_index)`
+   and does not pass `structural_edge_weight` into the PyG structural GNN path.
+   Therefore, simply zeroing `structural_edge_weight` would not affect the
+   current structural encoder.
+
+   MVP decision:
+
+   - Keep physical `edge_index` corruption for the first implementation because
+     it is the only corruption that currently changes the structural GNN path.
+   - Keep it conservative: low ratio, deterministic seed, never drop all edges,
+     no mutation of the original contract, and explicit diagnostics.
+   - Add architecture debt for edge-weight-aware structural encoders and Soft
+     Edge Drop once `structural_edge_weight` is actually consumed by the
+     structural GNN.
+
+These amendments are part of the implementation contract, not optional notes.
+
+---
+
 ## Scope
 
 ### In Scope
@@ -34,8 +82,11 @@ L_total =
 ```
 
 - Add topology payload pool built from already prebuilt train graph tensors.
-- Add `drop_edges` corruption only.
+- Add conservative physical `drop_edges` corruption only, because the current
+  structural GNN path does not consume `structural_edge_weight`.
 - Add wrong-version negative only from known versions available in current train data.
+- Prefer version-homogeneous train mini-batches for wrong-version contrastive
+  loss; log mixed-batch skips if homogeneous batching is unavailable.
 - Add train-time allowed-set loss, independent from `experiment.mask_guided_enabled`.
 - Add version-weighted CE/rehearsal as first `L_retention` implementation.
 - Add MLflow/log diagnostics for generic `topology_conditioned` metrics.
@@ -48,6 +99,10 @@ L_total =
 - Do not implement future-tail eval orchestration.
 - Do not implement checkpoint smoothing/min-epoch policy yet.
 - Do not implement `rewire_edges`.
+- Do not implement Soft Edge Drop until structural GNN forward consumes edge
+  weights.
+- Do not implement per-subgroup mixed-batch contrast until per-version batch
+  splitting or per-sample structural payload contracts are available.
 - Do not implement distillation / teacher checkpoint retention.
 - Do not change EOPKG model forward semantics.
 - Do not make future topology available to train or negatives.
@@ -1856,8 +1911,11 @@ Include:
 - tests run and results;
 - known limitations:
   - `versioned_zero_shot` not implemented;
-  - wrong-version negative skips mixed-version batches;
-  - only `drop_edges` corruption implemented;
+  - wrong-version negative uses version-homogeneous batches where possible and
+    logs mixed-batch skips where not possible;
+  - only conservative physical `drop_edges` corruption implemented;
+  - Soft Edge Drop deferred until structural GNN forward consumes
+    `structural_edge_weight`;
   - retention is version-weighted CE/rehearsal, no distillation.
 
 ---
@@ -1866,9 +1924,37 @@ Include:
 
 ### Risk: Wrong-Version Negative And Mixed Batches
 
-Current `ModelTrainer._data_to_contract()` uses one structural payload for a batch. Therefore `wrong_version_topology` must skip mixed-version batches in this implementation. This is acceptable for first trainer-level support and must be logged through `topology_conditioned_mixed_version_batches`.
+Current `ModelTrainer._data_to_contract()` uses one structural payload for a batch. Therefore `wrong_version_topology` cannot safely apply one wrong topology to only part of a mixed-version batch without splitting the batch or extending the contract to per-sample structural payloads.
 
-Future `versioned_zero_shot` should add version-homogeneous or operational samplers.
+Implementation rule:
+
+- Prefer version-homogeneous train mini-batches for `learning_strategy=topology_conditioned`.
+- If homogeneous batching is unavailable for a dataset type, skip only the
+  wrong-version term for mixed batches and log both:
+  `topology_conditioned_mixed_version_batches` and
+  `topology_conditioned_wrong_version_skipped_mixed_batches`.
+- Do not silently skip the term.
+
+Future `versioned_zero_shot` should add explicit mixed-transition samplers or
+per-version microbatch splitting so majority/minority topology contrast can be
+computed inside operational transition windows.
+
+### Risk: Drop-Edges Corruption In BPM Graphs
+
+Physical edge deletion can break BPM reachability more severely than intended.
+Soft Edge Drop would be preferable, but current `EOPKGGATv2` structural GNN
+does not pass `structural_edge_weight` into the PyG structural convolution path.
+Therefore, zeroing edge weights would not create a valid negative for most
+current structural fusion modes.
+
+Implementation rule:
+
+- Keep physical edge deletion for MVP because it is currently the only effective
+  structural corruption.
+- Use conservative defaults and never drop all edges.
+- Log drop ratio diagnostics.
+- Add architecture debt for edge-weight-aware structural message passing and
+  Soft Edge Drop.
 
 ### Risk: Mask-Guided Interference
 
@@ -1894,7 +1980,9 @@ Building a topology payload pool by iterating a large sharded dataset can be exp
 - [ ] `topology_conditioned` fails fast when `structural_mode=false`.
 - [ ] `allowed_set_loss_enabled=true` fails fast when `allowed_target_mask` is missing.
 - [ ] `drop_edges` does not mutate original contract.
+- [ ] `drop_edges` is documented as physical edge corruption, not Soft Edge Drop.
 - [ ] `wrong_version_topology` uses only payloads from prebuilt train data.
+- [ ] Mixed-version wrong-version skips are counted explicitly if homogeneous batching is unavailable.
 - [ ] Future topology is not introduced anywhere in this plan.
 - [ ] Legacy `struct_xattn_contrastive_enabled` still works for `standard`.
 - [ ] New config keys are represented in `configs/ui/config_catalog.yaml`.

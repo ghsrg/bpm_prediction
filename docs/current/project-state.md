@@ -154,12 +154,14 @@ Trainer can add a set-aware structural auxiliary loss via
 `training.structural_aux_loss_enabled` so the structural branch receives a
 direct gradient signal.
 
-`docs/GNN_LEARNING_STRATEGY.MD` defines the target separation between
-`fusion_mode`, `training.learning_strategy`, and `experiment.mode`. The planned
-`training.learning_strategy=standard` must preserve current behavior, while
-`training.learning_strategy=topology_conditioned` is the proposed methodology
-for learning topology-conditioned prediction with version-safe negatives,
-allowed-set loss, controlled forgetting, and future-tail zero-shot evaluation.
+`docs/GNN_LEARNING_STRATEGY.MD` defines the separation between `fusion_mode`,
+`training.learning_strategy`, and `experiment.mode`.
+`training.learning_strategy=standard` preserves current behavior.
+`training.learning_strategy=topology_conditioned` is implemented as a
+trainer-level methodology with known-version wrong-topology negatives,
+same-version physical `drop_edges`, train-time allowed-set loss, and
+version-weighted CE/rehearsal retention. `experiment.mode=versioned_zero_shot`
+remains a separate future orchestration step.
 
 Stats-backed structural drift runtime now uses snapshot-aware Neo4j stats
 payload caching and deduplicated structural payload shards. Heavy stats payloads
@@ -180,6 +182,9 @@ resolved snapshot identity instead.
 samples carry `trace_idx` metadata. Drift-window metrics are aggregated from
 compact per-sample inference records instead of rebuilding graph windows or
 re-running model forward for every overlapping window.
+`test_top3_accuracy` uses an effective `k < n_classes` for small class spaces
+and falls back to plain accuracy for binary/single-class windows, so small test
+sets do not report mathematically meaningless perfect top-k diagnostics.
 
 `StructuralPriorEncoder` is available as an etalon-like `model.fusion_mode`
 for `EOPKGGATv2`. It keeps the observed prefix encoder as the primary path,

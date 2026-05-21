@@ -6,6 +6,8 @@ from tools.experiment_ui import (
     PoolFieldMeta,
     _merge_catalog_section_fields,
 )
+import yaml
+from pathlib import Path
 
 
 def _catalog(path: str, default: str = "") -> CatalogFieldMeta:
@@ -54,3 +56,19 @@ def test_preset_names_sort_underscore_prefixed_first():
     names = ExperimentUI._sort_preset_names(["Base-UN", "_Top-MN", "S_Att-UN", "_Base-UN"])
 
     assert names == ["_Base-UN", "_Top-MN", "Base-UN", "S_Att-UN"]
+
+
+def test_catalog_includes_topology_conditioned_learning_strategy_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "training.learning_strategy",
+        "training.topology_conditioning_wrong_version_negative_enabled",
+        "training.topology_conditioning_drop_edges_negative_enabled",
+        "training.topology_conditioning_allowed_set_loss_enabled",
+        "training.topology_conditioning_retention_enabled",
+    }
+
+    assert required.issubset(set(catalog))
+    assert catalog["training.learning_strategy"]["enum"] == ["standard", "topology_conditioned"]

@@ -281,7 +281,7 @@ guards.
 - `priority`: P1
 - `adr`: none
 - `current_behavior`: first `topology_conditioned` strategy is designed around `wrong_version_topology` plus `drop_edges_same_version`
-- `target_state`: negative sampler can support additional corruption policies after first experiments demonstrate useful topology dependency
+- `target_state`: negative sampler can support mixed-batch subgroup contrast and additional corruption policies after first experiments demonstrate useful topology dependency
 
 **Description (ukr):**
 
@@ -308,6 +308,17 @@ corruption policies. Якщо додати їх одразу, буде скла�
 
 Implement only `drop_edges` first. Add `rewire_edges` or richer corruption
 policies later as a separate controlled experiment.
+
+Also deferred:
+
+- `mixed_batch_subgroup_contrast`: when one batch contains several process
+  versions, compute wrong-version topology contrast per version subgroup instead
+  of skipping the wrong-version term. This requires either per-version
+  microbatch splitting or per-sample structural payload contracts.
+- `soft_edge_drop`: keep `structural_edge_index` unchanged and corrupt
+  `structural_edge_weight` instead of physically deleting edges. This requires
+  the structural GNN forward path to consume edge weights; current
+  `EOPKGGATv2` structural GNN does not.
 
 ---
 

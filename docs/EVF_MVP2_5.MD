@@ -49,6 +49,11 @@ Mandatory:
 3. ECE
 4. OOS (when mask exists)
 
+`top3_accuracy` is a diagnostic metric. For small class spaces the runtime uses
+an effective `k = min(3, n_classes - 1)` when `n_classes > 2`; for binary or
+single-class windows it falls back to plain accuracy. This avoids meaningless
+perfect top-k scores when `k >= n_classes`.
+
 Optional sliced metrics:
 1. by process version
 2. by prefix length bins
@@ -69,6 +74,27 @@ Track in reports:
 3. `fallback_triggered`
 4. `knowledge_version`
 5. effective `as_of_ts`
+
+## 7.1 Learning Strategy Evaluation Notes
+
+`training.learning_strategy` is part of experiment interpretation:
+
+1. `standard` is the control strategy and must preserve previous training behavior.
+2. `topology_conditioned` adds train-only topology dependency objectives while
+   keeping the selected `model.fusion_mode` unchanged.
+3. Compare `standard` vs `topology_conditioned` with identical data split,
+   seed set, `fusion_mode`, mask setting, and stats setting.
+4. Track:
+   - `topology_conditioned_wrong_version_ce_delta`
+   - `topology_conditioned_drop_edges_ce_delta`
+   - `topology_conditioned_allowed_set_loss`
+   - `topology_conditioned_retention_loss`
+   - `topology_conditioned_mixed_version_batches`
+   - `topology_conditioned_wrong_version_skipped_mixed_batches`
+5. Positive `wrong_version_ce_delta` means the correct topology gives lower CE
+   than a known wrong-version topology.
+6. Mixed-version batch counters must be reported when interpreting transition
+   windows.
 
 ## 8. Experiment Reproducibility Checklist
 1. Save config artifact.

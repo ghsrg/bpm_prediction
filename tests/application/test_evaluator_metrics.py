@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import warnings
 import numpy as np
 import pytest
 import torch
 from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from sklearn.exceptions import UndefinedMetricWarning
 
 from src.application.use_cases.trainer import ModelTrainer
 
@@ -187,6 +189,47 @@ def test_evaluate_test_reports_stage2_mask_metrics():
     assert metrics["test_accuracy"] == pytest.approx(2.0 / 3.0)
     assert metrics["test_set_hit_rate_ambiguous"] == pytest.approx(1.0)
     assert metrics["test_set_nll"] >= 0.0
+
+
+def test_evaluate_test_uses_meaningful_topk_when_class_count_is_three():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_ConstantClassZero3(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([0], dtype=torch.long),
+            num_nodes=1,
+        ),
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([1], dtype=torch.long),
+            num_nodes=1,
+        ),
+    ]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        metrics = trainer._evaluate_test(DataLoader(samples, batch_size=2, shuffle=False))
+
+    assert not any(isinstance(item.message, UndefinedMetricWarning) for item in caught)
+    assert 0.0 <= float(metrics["test_top3_accuracy"]) <= 1.0
 
 
 def test_mask_guided_policy_hard_when_reliable_and_soft_when_not():

@@ -2304,8 +2304,12 @@ class ExperimentUI:
     def _refresh_preset_choices(self) -> None:
         if not hasattr(self, "preset_name_box"):
             return
-        names = sorted(str(key) for key in self._presets.keys())
+        names = self._sort_preset_names(str(key) for key in self._presets.keys())
         self.preset_name_box.configure(values=names)
+
+    @staticmethod
+    def _sort_preset_names(names: Any) -> List[str]:
+        return sorted((str(name) for name in names), key=lambda name: (not name.startswith("_"), name.lower(), name))
 
     def _sync_preset_saved_at_label(self, *, highlight: bool = False) -> None:
         name = str(self.vars["preset_name"].get()).strip()

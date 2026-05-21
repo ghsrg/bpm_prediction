@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-05-16
+Updated: 2026-05-20
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -212,6 +212,7 @@ flowchart TD
     MODE --> TSE["TopologyStateEncoder"]:::variable
     MODE --> TSG["TopologyStateGraphEncoder"]:::variable
     MODE --> SPE["StructuralPriorEncoder"]:::variable
+    MODE --> XAT["StructXAttn"]:::variable
 
     classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
     classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
@@ -233,6 +234,7 @@ Backward-compatible aliases are normalized before runtime selection:
 | `TopologyStateEncoder` | observed-only | topology node state -> node logits -> class pooling | early topology-state path | observed IG branch вимкнено; prefix state переноситься на ноди структури |
 | `TopologyStateGraphEncoder` | observed-only | topology node state -> graph context -> classifier | pure structural graph path | etalon/article-like structural graph baseline |
 | `StructuralPriorEncoder` | observed-only | observed encoder + pooled structural prior | representation before classifier | структура як global prior до observed context |
+| `StructXAttn` | observed-only | observed encoder + structural GNN + token-level structural cross-attention | observed node representations before pooling | кожен observed IG node робить query до structural nodes; структура впливає на hidden states до classifier |
 
 **Коментар (ukr):** `ClassMeanAttention`, `ClassMeanConcat` і
 `StructuralPriorEncoder` зберігають observed encoder як основну гілку.
@@ -664,7 +666,124 @@ Trainer diagnostics:
 4. `structural_prior_gate_mean`
 5. `structural_prior_gate_max`
 
-### 6.8 EOPKGGCN
+### 6.8 StructXAttn Token-Level Structural Cross-Attention
+
+`StructXAttn` is the TokenXAttn-style dual-stream mode for `EOPKGGATv2`.
+It keeps both streams active:
+
+1. observed IG stream encodes prefix nodes;
+2. structural stream encodes BPMN/EOPKG topology nodes;
+3. every observed node queries structural nodes before pooling;
+4. classifier receives structurally updated observed node context.
+
+**Опис (ukr):** це перший режим, де структура не стискається в один global
+context і не додається лише на рівні logits. Структура впливає на
+`H_ig` до pooling/classifier. Тому цей режим перевіряє сильнішу гіпотезу:
+нормативний граф має керувати формуванням observed representations, а не лише
+після факту фільтрувати/додавати score.
+
+Runtime formula:
+
+```text
+H_ig = ObservedGATv2(prefix_graph)
+H_struct = StructuralGNN(struct_x, structural_edge_index)
+
+Q = W_q H_ig
+K = W_k H_struct
+V = W_v H_struct
+A = softmax(Q K^T / sqrt(d))
+C = A V
+gate = sigmoid(W_gate([H_ig || C]) + b)
+H_ig' = LayerNorm(H_ig + gamma * gate * C)
+
+obs_context = pool(H_ig')
+logits = Classifier(obs_context)
+```
+
+Layer placement:
+
+```yaml
+model.struct_xattn_layers: post_conv2      # safe smoke/integration mode
+model.struct_xattn_layers: after_each_conv # research target mode
+```
+
+`post_conv2`:
+
+```text
+conv1 -> conv2 -> StructXAttn -> pooling -> classifier
+```
+
+This is safer for implementation, but observed message passing is still blind
+to structure until after `conv2`.
+
+`after_each_conv`:
+
+```text
+conv1 -> StructXAttn_1 -> conv2 -> StructXAttn_2 -> pooling -> classifier
+```
+
+This is the main research variant because structural guidance enters observed
+message passing at each GATv2 layer.
+
+```mermaid
+flowchart LR
+    subgraph F["structural_mode=false"]
+        F1["Observed-only path"]:::common --> F2["Classifier -> logits"]:::output
+    end
+
+    subgraph T["structural_mode=true"]
+        O1["Observed inputs"]:::common --> G1["Observed GATv2 conv1"]:::common
+        S1["struct_x + structural_edge_index"]:::common --> S2["Structural identity + stats"]:::common
+        S2 --> SG["Structural GNN"]:::common
+        G1 --> XA1{"StructXAttn_1 optional"}:::variable
+        SG --> XA1
+        XA1 --> G2["Observed GATv2 conv2"]:::common
+        G2 --> XA2["StructXAttn_2"]:::variable
+        SG --> XA2
+        XA2 --> POOL["Pool updated observed nodes"]:::common
+        POOL --> CLS["Classifier -> logits"]:::output
+    end
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef variable fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef output fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+```
+
+Model config:
+
+```yaml
+model.fusion_mode: StructXAttn
+model.struct_xattn_layers: post_conv2 | after_each_conv
+model.struct_xattn_heads: 4
+model.struct_xattn_dropout: 0.2
+model.struct_xattn_scale_init: 0.1
+model.struct_xattn_scale_max: 2.0
+model.struct_xattn_use_layer_norm: true
+model.struct_xattn_use_gate: true
+model.struct_xattn_gate_init_bias: -2.0
+```
+
+Trainer diagnostics:
+
+1. `struct_xattn_context_mean_abs`
+2. `struct_xattn_delta_mean_abs`
+3. `struct_xattn_to_observed_ratio`
+4. `struct_xattn_attention_entropy`
+5. `struct_xattn_scale`
+6. `struct_xattn_gate_mean`
+7. `struct_xattn_l1_delta_mean_abs`
+8. `struct_xattn_l2_delta_mean_abs`
+9. `struct_xattn_l1_attention_entropy`
+10. `struct_xattn_l2_attention_entropy`
+
+Interpretation:
+
+- near-zero `struct_xattn_to_observed_ratio`: structure is ignored or too weak;
+- very high ratio: structure dominates and can cause negative transfer;
+- low entropy with poor F1/ECE: structural overconfidence;
+- `l1` metrics are expected only for `after_each_conv`.
+
+### 6.9 EOPKGGCN
 Compatibility EOPKG variant:
 1. observed branch with GCN encoder,
 2. structural summary context from structural tensors,
@@ -700,6 +819,134 @@ flowchart LR
    policy application. The set-aware component treats every `allowed_target_mask`
    candidate as valid and always includes the exact target, which keeps the loss
    compatible with parallel or ambiguous target regions.
+7. `StructXAttn` may add a correct-vs-corrupted topology objective during
+   training only:
+   - `training.struct_xattn_contrastive_enabled`: enables the objective,
+   - `training.struct_xattn_contrastive_weight`: loss multiplier,
+   - `training.struct_xattn_contrastive_margin`: required CE advantage for the
+     correct topology,
+   - `training.struct_xattn_contrastive_temperature`: softplus smoothing,
+   - `training.struct_xattn_contrastive_max_loss`: per-batch clamp before
+     weighting,
+   - `training.struct_xattn_contrastive_warmup_epochs`: initial epochs without
+     corrupted forward,
+   - `training.struct_xattn_corruption_policy`: tensor-level corruption policy.
+8. StructXAttn contrastive loss is not applied during validation, test, or
+   `eval_drift` inference. It is a training methodology to force structural
+   dependency, not an inference-time mask.
+
+StructXAttn contrastive formula:
+
+```text
+logits_correct = model(prefix, topology_correct)
+CE_correct = CE(logits_correct, y)
+
+logits_corrupt = model(prefix, topology_corrupt)
+CE_corrupt = CE(logits_corrupt, y)
+
+raw_gap = margin + CE_correct - CE_corrupt
+L_contrastive = clamp(tau * softplus(raw_gap / tau), max=max_loss)
+L_total = CE_correct + weight * L_contrastive
+```
+
+Corruption is applied to already prepared structural tensors. Runtime does not
+rebuild topology or query raw sources for negative examples.
+
+StructXAttn contrastive diagnostics:
+
+1. `struct_xattn_correct_ce`
+2. `struct_xattn_corrupt_ce`
+3. `struct_xattn_correct_vs_corrupt_ce_delta`
+4. `struct_xattn_contrastive_loss`
+5. `struct_xattn_prediction_flip_rate`
+
+`struct_xattn_correct_vs_corrupt_ce_delta > 0` means the correct topology gives
+lower CE than the corrupted topology. If this stays near or below zero, the
+model still ignores structure or the corruption policy is not meaningful.
+
+## 7.1 Selective Structural Prediction Tracing
+
+Selective tracing is an optional qualitative debugging layer for prediction
+explanations. It is not the primary scientific evidence. Dissertation/article
+evidence must still be based on aggregate metrics, drift windows, calibration,
+OOS/mask diagnostics, and seed variance.
+
+Enable through `tracking.tracing.*`:
+
+```yaml
+tracking:
+  tracing:
+    enabled: false
+    stages: test,eval_drift_one_pass
+    sample_policy: interesting
+    max_traces_per_run: 80
+    max_traces_per_stage: 40
+    max_traces_per_version: 10
+    random_sample_rate: 0.0
+    high_confidence_threshold: 0.8
+    low_confidence_threshold: 0.4
+    top_k: 5
+    log_json_artifact_fallback: true
+```
+
+Recorded cases are selected by `TraceSamplingPolicy`:
+
+1. `strict_error_but_allowed`: predicted class is allowed by mask but not the
+   exact target.
+2. `oos_prediction`: prediction is outside `allowed_target_mask`.
+3. `high_confidence_error`: wrong prediction with high confidence.
+4. `low_confidence_correct`: correct prediction but low confidence.
+5. `version_first`: first traced sample for a process version.
+6. `random` or `all`, if explicitly configured.
+
+The trace payload is built by
+`src/application/services/structural_trace_payload_builder.py`. All PyTorch
+tensors are detached and moved to CPU before serialization. This is mandatory:
+trace dictionaries must not retain computation graphs.
+
+Trace storage:
+
+1. If MLflow supports `mlflow.start_span`, the recorder writes one span per
+   selected prediction.
+2. If span tracing is unavailable or fails, the fallback writes JSONL to a
+   rank/PID-scoped file:
+   `outputs/mlflow_trace_fallback/structural_traces_run_<run>_pid_<pid>_rank_<rank>.jsonl`.
+3. The fallback artifact is logged to MLflow before `tracker.close()`.
+4. Nonzero distributed ranks do not write fallback files unless
+   `tracking.tracing.allow_nonzero_rank_fallback=true`.
+
+Flat MLflow span attributes are used for search/filtering:
+
+```text
+stage
+reason
+fusion_mode
+structural_mode
+process_version
+strict_correct
+strict_error_but_allowed
+target_in_mask
+pred_in_mask
+mask_cardinality
+confidence
+prediction_entropy
+structural_to_observed_logit_ratio
+struct_xattn_gate_mean
+struct_xattn_attention_entropy
+```
+
+Nested JSON payload is kept in span inputs/outputs or JSONL for explanation:
+
+1. sample ids and snapshot metadata,
+2. target/predicted labels and top-k classes,
+3. mask membership and mask cardinality,
+4. model diagnostics for the active `fusion_mode`,
+5. selected structural contribution fields, when available.
+
+**Опис (ukr):** tracing потрібен, щоб відповісти на питання "що саме модель
+бачила у конкретному prediction і як структурний шлях вплинув на відповідь".
+Це якісний debug/explainability інструмент. Він не замінює aggregated metrics і
+не має використовуватись як самостійний доказ користі структури.
 
 ```mermaid
 flowchart LR

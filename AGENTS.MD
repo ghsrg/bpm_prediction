@@ -12,7 +12,7 @@ rules, validation commands, and documentation drift checks only.
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_runtime`: Python local virtual environment
 - `primary_interface`: CLI
-- `last_updated`: 2026-05-01
+- `last_updated`: 2026-05-21
 
 ---
 
@@ -52,6 +52,7 @@ When documents conflict, use this priority:
    - `docs/LLD_MVP2_5.MD`
    - `docs/EVF_MVP2_5.MD`
    - `docs/GNN_RUNTIME_MVP2_5.MD`
+   - `docs/GNN_LEARNING_STRATEGY.MD`
 7. Adapter specs:
    - `docs/ADAPTER_XES.MD`
    - `docs/ADAPTER_CAMUNDA_SQL.MD`
@@ -138,6 +139,7 @@ GNN, XES, or Camunda task, read:
 Read `MVP2.5 Core`, then:
 
 - `docs/GNN_RUNTIME_MVP2_5.MD`
+- `docs/GNN_LEARNING_STRATEGY.MD`
 - `docs/EVF_MVP2_5.MD`
 - `docs/VARIABLES.MD` when metrics, notation, or dissertation reasoning are involved
 
@@ -304,5 +306,3 @@ The final response must include one of:
 - `Documentation drift check: no documentation changes required because <reason>`
 
 Never silently skip this check.
-
-

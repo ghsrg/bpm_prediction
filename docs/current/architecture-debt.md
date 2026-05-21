@@ -243,6 +243,74 @@ activity labels. Later choose target identity policy:
 
 ---
 
+## P1 Research Methodology Debt
+
+### version_order_metadata_policy
+
+- `status`: deferred
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: `versioned_zero_shot` design assumes parseable ordinal process versions such as `v1`, `v2`, `v3`
+- `target_state`: version order can be derived from explicit metadata such as `effective_from`, `deployment_ts`, or `topology_version_seq`
+
+**Description (ukr):**
+
+Перший дизайн `versioned_zero_shot` може рахувати `version_distance` через
+порядковий номер версії: `v4 - v1 = 3`. Це достатньо для поточного
+`loan_v1_v4_simulated`, але не є загальним рішенням для реальних BPM-систем,
+де версії можуть мати назви, описи, release labels або timestamps без
+простого ordinal id.
+
+**Impact (ukr):**
+
+Без явного metadata ordering майбутній `versioned_zero_shot` може неправильно
+рахувати `version_distance`, future-tail order, known/future split або
+degradation slope для процесів з непарсабельними назвами версій.
+
+**Next direction:**
+
+Add explicit version ordering metadata to topology/process-version DTOs and use
+that metadata for `version_distance`, future-tail evaluation, and leakage
+guards.
+
+---
+
+### topology_conditioned_extended_negative_sampler
+
+- `status`: deferred
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: first `topology_conditioned` strategy is designed around `wrong_version_topology` plus `drop_edges_same_version`
+- `target_state`: negative sampler can support additional corruption policies after first experiments demonstrate useful topology dependency
+
+**Description (ukr):**
+
+Перший варіант `topology_conditioned` має використовувати version-safe
+negatives:
+
+```text
+wrong_version_topology only from known versions
+drop_edges_same_version for local topology corruption
+```
+
+Більш агресивні corruption policies (`rewire_edges`, node feature corruption,
+gateway policy corruption) свідомо не входять у перший scope, щоб не змішати
+основну гіпотезу з важко інтерпретованими аугментаціями.
+
+**Impact (ukr):**
+
+Якщо `wrong_version_topology + drop_edges` покаже, що модель почала реагувати
+на topology, наступним кроком може бути підсилення robustness через додаткові
+corruption policies. Якщо додати їх одразу, буде складніше пояснити, який саме
+механізм дав або не дав ефект.
+
+**Next direction:**
+
+Implement only `drop_edges` first. Add `rewire_edges` or richer corruption
+policies later as a separate controlled experiment.
+
+---
+
 ## P1 Maintainability Debt
 
 ### cli_composition_root_overgrowth

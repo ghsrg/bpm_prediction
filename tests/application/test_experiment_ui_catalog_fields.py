@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tools.experiment_ui import (
     CatalogFieldMeta,
+    ExperimentUI,
     PoolFieldMeta,
     _merge_catalog_section_fields,
 )
@@ -47,3 +48,9 @@ def test_desktop_sync_stats_fields_include_catalog_only_entries():
     assert merged["sync_stats.alignment_gate.on_fail"] == "skip_snapshot"
     assert merged["sync_stats.enabled"] == ""
     assert merged["sync_stats.alignment_gate.profile"] == "legacy_exact"
+
+
+def test_preset_names_sort_underscore_prefixed_first():
+    names = ExperimentUI._sort_preset_names(["Base-UN", "_Top-MN", "S_Att-UN", "_Base-UN"])
+
+    assert names == ["_Base-UN", "_Top-MN", "Base-UN", "S_Att-UN"]

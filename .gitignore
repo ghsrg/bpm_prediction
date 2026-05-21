@@ -1,5 +1,6 @@
 .env
 .env.local
+.venv-modern
 .cache/
 logs/
 outputs/

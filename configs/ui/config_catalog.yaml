@@ -1458,7 +1458,7 @@ fields:
     path: model.fusion_mode
     section: model
     label: 'Модель: Fusion mode'
-    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing and pools node logits to classes; TopologyStateGraphEncoder projects observed prefix state onto topology nodes, performs topology message passing, then classifies a graph-level topology context; StructuralPriorEncoder uses etalon-like representation-level fusion with observed context plus pooled structural context before classifier.
+    description: ClassMeanAttention keeps old Attention semantics; ClassMeanConcat keeps old Concat/struct_pool_concat semantics; ClassAwareStructuralScoring adds per-class structural logits to observed logits; TopologyStateEncoder projects observed prefix state onto topology nodes before structural message passing and pools node logits to classes; TopologyStateGraphEncoder projects observed prefix state onto topology nodes, performs topology message passing, then classifies a graph-level topology context; StructuralPriorEncoder uses etalon-like representation-level fusion with observed context plus pooled structural context before classifier; StructXAttn uses token-level structural cross-attention from observed IG nodes to structural nodes before pooling.
     affects: How structural context is combined with observed branch in EOPKG mode.
     default: ClassMeanAttention
     enum:
@@ -1468,6 +1468,7 @@ fields:
     - TopologyStateEncoder
     - TopologyStateGraphEncoder
     - StructuralPriorEncoder
+    - StructXAttn
     required_in_modes: []
     required_when:
       model.type: EOPKGGATv2
@@ -1738,6 +1739,149 @@ fields:
       group: advanced
       priority: 100
       order: 1015
+  model.struct_xattn_layers:
+    path: model.struct_xattn_layers
+    section: model
+    label: 'Model: StructXAttn layers'
+    description: Injection placement for token-level structural cross-attention.
+    affects: post_conv2 is safer; after_each_conv makes observed message passing structurally guided.
+    default: post_conv2
+    enum:
+    - post_conv2
+    - after_each_conv
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1016
+  model.struct_xattn_heads:
+    path: model.struct_xattn_heads
+    section: model
+    label: 'Model: StructXAttn heads'
+    description: Number of heads for token-level structural cross-attention.
+    affects: Capacity and compute cost of observed-node to structure-node attention.
+    default: 4
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1017
+  model.struct_xattn_dropout:
+    path: model.struct_xattn_dropout
+    section: model
+    label: 'Model: StructXAttn dropout'
+    description: Dropout used inside and after StructXAttn.
+    affects: Regularization of structural token guidance.
+    default: 0.2
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1018
+  model.struct_xattn_scale_init:
+    path: model.struct_xattn_scale_init
+    section: model
+    label: 'Model: StructXAttn scale init'
+    description: Initial gamma multiplier for structural cross-attention delta.
+    affects: Conservative start for structural guidance.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1019
+  model.struct_xattn_scale_max:
+    path: model.struct_xattn_scale_max
+    section: model
+    label: 'Model: StructXAttn scale max'
+    description: Upper clamp for learned StructXAttn gamma.
+    affects: Prevents structural attention delta from dominating observed node states.
+    default: 2.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1020
+  model.struct_xattn_use_layer_norm:
+    path: model.struct_xattn_use_layer_norm
+    section: model
+    label: 'Model: StructXAttn layer norm'
+    description: Apply LayerNorm after residual structural cross-attention update.
+    affects: Stabilizes token-level structural updates.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1021
+  model.struct_xattn_use_gate:
+    path: model.struct_xattn_use_gate
+    section: model
+    label: 'Model: StructXAttn gate'
+    description: Use a sigmoid gate over the structural attention delta.
+    affects: Lets observed nodes suppress noisy structural guidance.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1022
+  model.struct_xattn_gate_init_bias:
+    path: model.struct_xattn_gate_init_bias
+    section: model
+    label: 'Model: StructXAttn gate init bias'
+    description: Initial sigmoid gate bias for structural attention delta.
+    affects: Negative values start StructXAttn conservatively.
+    default: -2.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+      model.struct_xattn_use_gate: 'true'
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1023
   model.dropout:
     path: model.dropout
     section: model
@@ -2393,6 +2537,195 @@ fields:
       group: advanced
       priority: 100
       order: 1000
+  tracking.tracing.enabled:
+    path: tracking.tracing.enabled
+    section: tracking
+    label: 'Tracing: enabled'
+    description: Enable selective structural prediction traces for qualitative debugging.
+    affects: MLflow span recording or JSONL fallback during test/eval_drift inference.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1010
+  tracking.tracing.stages:
+    path: tracking.tracing.stages
+    section: tracking
+    label: 'Tracing: stages'
+    description: Comma-separated stages where selective traces may be recorded.
+    affects: Limits trace collection to test, eval_drift_one_pass, or other supported stages.
+    default: test,eval_drift_one_pass
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1011
+  tracking.tracing.sample_policy:
+    path: tracking.tracing.sample_policy
+    section: tracking
+    label: 'Tracing: sample policy'
+    description: Selects which predictions become traces.
+    affects: Trace volume and diagnostic focus.
+    default: interesting
+    enum:
+    - interesting
+    - random
+    - all
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1012
+  tracking.tracing.max_traces_per_run:
+    path: tracking.tracing.max_traces_per_run
+    section: tracking
+    label: 'Tracing: max per run'
+    description: Hard limit for recorded trace events in one run.
+    affects: Runtime overhead and MLflow/JSONL artifact size.
+    default: 80
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1013
+  tracking.tracing.max_traces_per_stage:
+    path: tracking.tracing.max_traces_per_stage
+    section: tracking
+    label: 'Tracing: max per stage'
+    description: Per-stage limit for recorded trace events.
+    affects: Balance of traces across test and drift evaluation stages.
+    default: 40
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1014
+  tracking.tracing.max_traces_per_version:
+    path: tracking.tracing.max_traces_per_version
+    section: tracking
+    label: 'Tracing: max per version'
+    description: Per process-version limit for recorded trace events.
+    affects: Prevents one version from consuming the whole trace budget.
+    default: 10
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1015
+  tracking.tracing.random_sample_rate:
+    path: tracking.tracing.random_sample_rate
+    section: tracking
+    label: 'Tracing: random sample rate'
+    description: Probability for random trace sampling when sample_policy=random.
+    affects: Trace volume under random sampling.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1016
+  tracking.tracing.high_confidence_threshold:
+    path: tracking.tracing.high_confidence_threshold
+    section: tracking
+    label: 'Tracing: high confidence threshold'
+    description: Confidence threshold for high-confidence error traces.
+    affects: Which wrong predictions are treated as high-confidence diagnostics.
+    default: 0.8
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1017
+  tracking.tracing.low_confidence_threshold:
+    path: tracking.tracing.low_confidence_threshold
+    section: tracking
+    label: 'Tracing: low confidence threshold'
+    description: Confidence threshold for low-confidence correct traces.
+    affects: Which correct predictions are traced as unstable-but-right cases.
+    default: 0.4
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1018
+  tracking.tracing.top_k:
+    path: tracking.tracing.top_k
+    section: tracking
+    label: 'Tracing: top-k classes'
+    description: Number of top predicted classes included in trace payload.
+    affects: Trace payload size and prediction explanation detail.
+    default: 5
+    enum: []
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1019
+  tracking.tracing.log_json_artifact_fallback:
+    path: tracking.tracing.log_json_artifact_fallback
+    section: tracking
+    label: 'Tracing: JSONL fallback'
+    description: Write trace events to a rank/PID-scoped JSONL fallback and log it as an artifact.
+    affects: Trace availability when MLflow tracing spans are unavailable.
+    default: true
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1020
+  tracking.tracing.allow_nonzero_rank_fallback:
+    path: tracking.tracing.allow_nonzero_rank_fallback
+    section: tracking
+    label: 'Tracing: allow nonzero rank fallback'
+    description: Allow nonzero distributed ranks to write separate JSONL fallback files.
+    affects: DDP safety for fallback trace files.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: advanced
+      priority: 90
+      order: 1021
   tracking.tags.model_family:
     path: tracking.tags.model_family
     section: tracking
@@ -2738,6 +3071,157 @@ fields:
       group: advanced
       priority: 100
       order: 1003
+  training.struct_xattn_contrastive_enabled:
+    path: training.struct_xattn_contrastive_enabled
+    section: training
+    label: 'Training: StructXAttn contrastive enabled'
+    description: Enable correct-vs-corrupted topology loss for StructXAttn.
+    affects: Forces StructXAttn to prefer correct topology over corrupted topology during training.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1004
+  training.struct_xattn_contrastive_weight:
+    path: training.struct_xattn_contrastive_weight
+    section: training
+    label: 'Training: StructXAttn contrastive weight'
+    description: Weight for smoothed correct-vs-corrupted topology contrastive loss.
+    affects: Strength of explicit structural dependency pressure.
+    default: 0.03
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1005
+  training.struct_xattn_contrastive_margin:
+    path: training.struct_xattn_contrastive_margin
+    section: training
+    label: 'Training: StructXAttn contrastive margin'
+    description: Required CE advantage of correct topology over corrupted topology.
+    affects: Margin in the correct-vs-corrupted topology objective.
+    default: 0.05
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1006
+  training.struct_xattn_contrastive_temperature:
+    path: training.struct_xattn_contrastive_temperature
+    section: training
+    label: 'Training: StructXAttn contrastive temperature'
+    description: Softplus temperature for smoothed contrastive margin.
+    affects: Gradient smoothness of the contrastive topology objective.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1007
+  training.struct_xattn_contrastive_max_loss:
+    path: training.struct_xattn_contrastive_max_loss
+    section: training
+    label: 'Training: StructXAttn contrastive max loss'
+    description: Upper clamp for one-batch contrastive loss before weighting.
+    affects: Prevents corrupted-topology objective from dominating training.
+    default: 0.5
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1008
+  training.struct_xattn_contrastive_warmup_epochs:
+    path: training.struct_xattn_contrastive_warmup_epochs
+    section: training
+    label: 'Training: StructXAttn contrastive warmup'
+    description: Number of initial epochs before enabling corrupted-topology forward.
+    affects: Lets baseline CE stabilize before structural dependency pressure starts.
+    default: 3
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1009
+  training.struct_xattn_corruption_policy:
+    path: training.struct_xattn_corruption_policy
+    section: training
+    label: 'Training: StructXAttn corruption policy'
+    description: Tensor-level structural corruption used as the negative topology view.
+    affects: Defines the corrupted topology seen by the contrastive objective.
+    default: edge_drop
+    enum:
+    - none
+    - edge_drop
+    - feature_noise
+    - edge_drop_plus_feature_noise
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1010
+  training.struct_xattn_corruption_edge_drop_prob:
+    path: training.struct_xattn_corruption_edge_drop_prob
+    section: training
+    label: 'Training: StructXAttn edge drop'
+    description: Probability of dropping each structural edge in the corrupted topology view.
+    affects: Strength of edge-level topology corruption.
+    default: 0.15
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+      training.struct_xattn_corruption_policy: edge_drop
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1011
+  training.struct_xattn_corruption_feature_noise_std:
+    path: training.struct_xattn_corruption_feature_noise_std
+    section: training
+    label: 'Training: StructXAttn feature noise'
+    description: Gaussian noise std added to struct_x in the corrupted topology view.
+    affects: Strength of structural feature corruption.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.struct_xattn_contrastive_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1012
   training.patience:
     path: training.patience
     section: training

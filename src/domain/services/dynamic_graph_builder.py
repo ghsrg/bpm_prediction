@@ -12,6 +12,8 @@ from pathlib import Path
 
 import torch
 
+from src.domain.services.torch_serialization import load_trusted_torch_artifact
+
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.entities.tensor_contract import GraphTensorContract
@@ -469,6 +471,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             return None
         return datetime.fromtimestamp(float(prefix.prefix_events[-1].timestamp), tz=timezone.utc)
 
+    def _should_cache_dto_lookup(self, *, as_of_ts: datetime | None) -> bool:
+        if self.cache_policy not in {"dto", "full"}:
+            return False
+        if self.stats_time_policy == "strict_asof" and isinstance(as_of_ts, datetime):
+            mapping = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
+            if bool(mapping.get("enabled", False)):
+                return False
+        return True
+
     def _resolve_dto(
         self,
         *,
@@ -476,8 +487,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         candidate_versions: list[str],
     ) -> ProcessStructureDTO | None:
         cache_key: tuple[Any, ...] | None = None
-        cache_strict_asof_dto = not (self.stats_time_policy == "strict_asof" and isinstance(as_of_ts, datetime))
-        if self.cache_policy in {"dto", "full"} and cache_strict_asof_dto:
+        if self._should_cache_dto_lookup(as_of_ts=as_of_ts):
             cache_key = (
                 self.process_name or "__auto__",
                 tuple(str(item).strip() for item in candidate_versions),
@@ -927,7 +937,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if path is None or (not path.exists()):
             return None
         try:
-            payload = torch.load(path, map_location="cpu")
+            payload = load_trusted_torch_artifact(path, map_location="cpu")
         except Exception as exc:
             logger.warning("Failed to load topology disk cache '%s': %s", path, exc)
             return None

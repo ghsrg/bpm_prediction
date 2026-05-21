@@ -76,6 +76,7 @@ def test_eopkg_forward_with_structural_tensors(model_type: str):
         "TopologyStateEncoder",
         "TopologyStateGraphEncoder",
         "StructuralPriorEncoder",
+        "StructXAttn",
     ],
 )
 def test_eopkggatv2_forward_supports_fusion_modes(fusion_mode: str):

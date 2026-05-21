@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-16
+- `last_updated`: 2026-05-21
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -26,6 +26,30 @@ details from `README.MD`.
 - `stage`: Stage 4.2
 - `runtime_status`: implemented
 - `documentation_status`: canonical sync in progress
+
+## Current Research Hypothesis
+
+- `topic`: topology-conditioned zero-shot predictive monitoring under structural process drift
+- `dissertation_theme`: methodology of learning for optimizing business process management
+- `business_assumption`: a new process topology/version can be available before enough event logs exist for model training
+- `target_direction`: one fusion mode with a dedicated topology-conditioned training methodology, not a mixture of different fusion modes in one model
+- `learning_strategy_doc`: `docs/GNN_LEARNING_STRATEGY.MD`
+
+**Hypothesis (ukr):**
+
+Я бачу старі версії процесу та їхні логи. Модель має навчитися розуміти, як
+topology впливає на `next-activity prediction`. Коли приходить нова topology
+`vN`, навіть без логів `vN` для навчання, модель має використати цю topology як
+умову прогнозу.
+
+**Research framing (ukr):**
+
+Поточні `fusion_mode` експерименти треба трактувати як ablation baseline: вони
+показують, що проста подача структури може зменшувати OOS/ECE або давати
+локальні покращення, але не дає стабільної значущої переваги після structural
+drift. Основна дисертаційна цінність має бути в methodology: як навчити одну
+topology-conditioned модель реально залежати від структури так, щоб нова BPMN /
+EOPKG topology давала користь у cold-start/zero-shot режимі нової версії.
 
 **Description (ukr):**
 
@@ -130,12 +154,27 @@ Trainer can add a set-aware structural auxiliary loss via
 `training.structural_aux_loss_enabled` so the structural branch receives a
 direct gradient signal.
 
+`docs/GNN_LEARNING_STRATEGY.MD` defines the target separation between
+`fusion_mode`, `training.learning_strategy`, and `experiment.mode`. The planned
+`training.learning_strategy=standard` must preserve current behavior, while
+`training.learning_strategy=topology_conditioned` is the proposed methodology
+for learning topology-conditioned prediction with version-safe negatives,
+allowed-set loss, controlled forgetting, and future-tail zero-shot evaluation.
+
 Stats-backed structural drift runtime now uses snapshot-aware Neo4j stats
 payload caching and deduplicated structural payload shards. Heavy stats payloads
 are loaded by resolved snapshot identity instead of repeatedly loading full JSON
 payloads for every exact prefix `as_of_ts`. Sharded graph cache files can store
 one structural payload per repeated `structural_payload_key` and rehydrate it at
 load time.
+
+`DynamicGraphBuilder` DTO cache applies to `strict_asof` lookups when
+`cache_policy` is `dto` or `full` and stats-backed `graph_feature_mapping` is
+not active; repeated prefixes with the same version and timestamp do not
+repeatedly call the knowledge repository. When stats-backed
+`graph_feature_mapping.enabled=true`, DTO entries are intentionally not cached
+per exact prefix `as_of_ts`; compiled topology/stat payloads are deduplicated by
+resolved snapshot identity instead.
 
 `eval_drift` can use one-pass prebuilt test dataset evaluation when graph
 samples carry `trace_idx` metadata. Drift-window metrics are aggregated from
@@ -156,6 +195,22 @@ passing over `structural_edge_index`, mean-pools the topology node states into
 a graph-level context, and classifies that structural graph context. This mode
 is the etalon/article-like structural graph baseline for same-version topology
 usefulness checks, not the final drift-transfer mechanism.
+
+`StructXAttn` is available as a token-level structural cross-attention
+`model.fusion_mode` for `EOPKGGATv2`. It keeps the observed IG encoder active,
+encodes structural nodes with the structural GNN, and lets observed nodes query
+structural node states before pooling. It supports `model.struct_xattn_layers`
+values `post_conv2` and `after_each_conv`. Trainer can optionally enable
+correct-vs-corrupted topology training through
+`training.struct_xattn_contrastive_enabled`; this objective is train-only and
+logs StructXAttn contribution and corrupted-topology delta diagnostics.
+
+Selective structural prediction tracing is available through
+`tracking.tracing.*`. It records a bounded set of explanation/debug traces for
+interesting predictions during test or one-pass drift evaluation. MLflow 3
+spans are used when available; otherwise a rank/PID-scoped JSONL fallback is
+logged as an artifact. Trace payloads detach tensors before serialization and
+store searchable flat attributes separately from nested explanation JSON.
 
 ### graph_dataset_cache_and_spill
 
@@ -291,6 +346,22 @@ mapping:
 
 Поточний runtime може не падати при missing/degraded snapshot і вимикати stats
 branch. Для research-grade temporal runs потрібно використовувати `raise`.
+
+---
+
+### mlflow_model_logging_compatibility
+
+- `port`: `ITracker.log_model(model, artifact_path)`
+- `adapter`: `MLflowTracker`
+- `mlflow_2_behavior`: call `mlflow.pytorch.log_model(model, artifact_path)`
+- `mlflow_3_behavior`: call `mlflow.pytorch.log_model(model, name=artifact_path)`
+
+**Description (ukr):**
+
+Tracking adapter preserves the application-level `artifact_path` contract and
+selects the compatible `mlflow.pytorch.log_model` signature at runtime. This
+keeps the old `.venv` with MLflow 2.x and `.venv-modern` with MLflow 3.x
+compatible without changing trainer/use-case code.
 
 ---
 
@@ -438,6 +509,7 @@ interpreter з AppData, треба повторити той самий venv com
 - `docs/LLD_MVP2_5.MD`
 - `docs/EVF_MVP2_5.MD`
 - `docs/GNN_RUNTIME_MVP2_5.MD`
+- `docs/GNN_LEARNING_STRATEGY.MD`
 
 ---
 

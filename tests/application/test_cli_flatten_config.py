@@ -4,6 +4,7 @@ from src.cli import (
     _apply_experiment_switch_overrides,
     _build_model_factory_kwargs,
     _build_mlflow_params,
+    _build_trace_recorder,
     _derive_last_checkpoint_path,
     _flatten_config_dict,
     _resolve_resume_mlflow_run_id,
@@ -45,6 +46,33 @@ def test_build_mlflow_params_filters_sections_and_truncates_long_values():
     assert "feature_configs" not in params
     assert len(params["training.very_long"]) <= 495
     assert str(params["training.very_long"]).endswith("[truncated]")
+
+
+def test_build_trace_recorder_returns_none_when_disabled(tmp_path):
+    recorder = _build_trace_recorder(
+        tracking_cfg={"tracing": {"enabled": False}},
+        run_id="abc",
+        output_dir=str(tmp_path),
+    )
+
+    assert recorder is None
+
+
+def test_build_trace_recorder_creates_mlflow_recorder_with_json_fallback(tmp_path):
+    recorder = _build_trace_recorder(
+        tracking_cfg={
+            "tracing": {
+                "enabled": True,
+                "log_json_artifact_fallback": True,
+            }
+        },
+        run_id="abc",
+        output_dir=str(tmp_path),
+    )
+
+    assert recorder is not None
+    assert recorder.fallback_json_path is not None
+    assert str(recorder.fallback_json_path).endswith(".jsonl")
 
 
 def test_resolve_resume_mlflow_run_id_uses_checkpoint_embedded_run_id_for_train_resume():
@@ -188,3 +216,33 @@ def test_build_model_factory_kwargs_passes_topology_graph_config():
 
     assert kwargs["fusion_mode"] == "TopologyStateGraphEncoder"
     assert kwargs["topology_graph_pooling"] == "mean"
+
+
+def test_build_model_factory_kwargs_passes_struct_xattn_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGGATv2",
+            "hidden_dim": 16,
+            "fusion_mode": "StructXAttn",
+            "struct_xattn_layers": "after_each_conv",
+            "struct_xattn_heads": 2,
+            "struct_xattn_dropout": 0.05,
+            "struct_xattn_scale_init": 0.2,
+            "struct_xattn_scale_max": 1.5,
+            "struct_xattn_use_layer_norm": False,
+            "struct_xattn_use_gate": True,
+            "struct_xattn_gate_init_bias": -1.25,
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["fusion_mode"] == "StructXAttn"
+    assert kwargs["struct_xattn_layers"] == "after_each_conv"
+    assert kwargs["struct_xattn_heads"] == 2
+    assert kwargs["struct_xattn_dropout"] == 0.05
+    assert kwargs["struct_xattn_scale_init"] == 0.2
+    assert kwargs["struct_xattn_scale_max"] == 1.5
+    assert kwargs["struct_xattn_use_layer_norm"] is False
+    assert kwargs["struct_xattn_use_gate"] is True
+    assert kwargs["struct_xattn_gate_init_bias"] == -1.25

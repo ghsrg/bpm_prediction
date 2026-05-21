@@ -13,7 +13,7 @@ entire repository.
 - `audience`: human-and-agent
 - `source_of_truth`: navigation-only
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-04-27
+- `last_updated`: 2026-05-21
 
 ---
 
@@ -127,6 +127,11 @@ entire repository.
 - `docs/GNN_RUNTIME_MVP2_5.MD`
   - **Description (ukr):** model registry, tensor pipeline, target `y`
     generation, model forward behavior.
+
+- `docs/GNN_LEARNING_STRATEGY.MD`
+  - **Description (ukr):** learning strategy contract for GNN training:
+    `standard`, `topology_conditioned`, loss design, version-safe negative
+    sampling, controlled forgetting, and `versioned_zero_shot` protocol.
 
 ---
 

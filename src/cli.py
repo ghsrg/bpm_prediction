@@ -38,11 +38,13 @@ from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
 from src.domain.services.schema_resolver import SchemaResolver
+from src.domain.services.torch_serialization import load_trusted_torch_artifact
 from src.infrastructure.config.yaml_loader import load_yaml_with_includes
 from src.infrastructure.repositories.knowledge_graph_repository_factory import (
     build_knowledge_graph_repository,
     get_knowledge_graph_settings,
 )
+from src.infrastructure.tracking.mlflow_trace_recorder import MLflowTraceRecorder
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
@@ -129,6 +131,34 @@ def _build_mlflow_params(config: Dict[str, Any], max_value_len: int = 480) -> Di
         else:
             params[prefix] = _truncate_param_value(payload, max_len=max_value_len)
     return params
+
+
+def _build_trace_recorder(
+    *,
+    tracking_cfg: Dict[str, Any],
+    run_id: str | None,
+    output_dir: str | None,
+) -> MLflowTraceRecorder | None:
+    """Build optional structural trace recorder from tracking.tracing config."""
+    tracing_cfg = tracking_cfg.get("tracing", {}) if isinstance(tracking_cfg, dict) else {}
+    if not isinstance(tracing_cfg, dict):
+        return None
+    if not _as_bool(tracing_cfg.get("enabled"), default=False):
+        return None
+
+    fallback_dir: str | None = None
+    if _as_bool(tracing_cfg.get("log_json_artifact_fallback"), default=True):
+        fallback_dir = str(tracing_cfg.get("fallback_dir") or output_dir or Path("outputs") / "mlflow_trace_fallback")
+
+    return MLflowTraceRecorder(
+        enabled=True,
+        fallback_dir=fallback_dir,
+        run_id=run_id,
+        allow_nonzero_rank_fallback=_as_bool(
+            tracing_cfg.get("allow_nonzero_rank_fallback"),
+            default=False,
+        ),
+    )
 
 
 def _resolve_resume_mlflow_run_id(
@@ -257,6 +287,14 @@ def _build_model_factory_kwargs(
         "structural_prior_pooling": str(model_cfg.get("structural_prior_pooling", "mean")),
         "structural_prior_fusion": str(model_cfg.get("structural_prior_fusion", "concat")),
         "structural_prior_gate_init_bias": float(model_cfg.get("structural_prior_gate_init_bias", -1.0)),
+        "struct_xattn_layers": str(model_cfg.get("struct_xattn_layers", "post_conv2")),
+        "struct_xattn_heads": int(model_cfg.get("struct_xattn_heads", model_cfg.get("cross_attention_heads", 4))),
+        "struct_xattn_dropout": float(model_cfg.get("struct_xattn_dropout", model_cfg.get("dropout", 0.2))),
+        "struct_xattn_scale_init": float(model_cfg.get("struct_xattn_scale_init", 0.1)),
+        "struct_xattn_scale_max": float(model_cfg.get("struct_xattn_scale_max", 2.0)),
+        "struct_xattn_use_layer_norm": _as_bool(model_cfg.get("struct_xattn_use_layer_norm"), default=True),
+        "struct_xattn_use_gate": _as_bool(model_cfg.get("struct_xattn_use_gate"), default=True),
+        "struct_xattn_gate_init_bias": float(model_cfg.get("struct_xattn_gate_init_bias", -2.0)),
     }
 
 
@@ -716,7 +754,7 @@ def _iter_graphs_from_dataset_payload(payload: Any) -> Iterator[Data]:
             if not shard_path.exists():
                 continue
             try:
-                loaded = torch.load(shard_path, map_location="cpu")
+                loaded = load_trusted_torch_artifact(shard_path, map_location="cpu")
             except Exception:
                 continue
             if isinstance(loaded, dict) and loaded.get("format") == GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL:
@@ -946,9 +984,9 @@ def _load_graph_dataset_cache(
     if (not train_path.exists()) or (not val_path.exists()) or (not test_path.exists()):
         return None
     try:
-        train_dataset = torch.load(train_path, map_location="cpu")
-        val_dataset = torch.load(val_path, map_location="cpu")
-        test_dataset = torch.load(test_path, map_location="cpu")
+        train_dataset = load_trusted_torch_artifact(train_path, map_location="cpu")
+        val_dataset = load_trusted_torch_artifact(val_path, map_location="cpu")
+        test_dataset = load_trusted_torch_artifact(test_path, map_location="cpu")
     except Exception:
         return None
     if not isinstance(train_dataset, list) or not isinstance(val_dataset, list) or not isinstance(test_dataset, list):
@@ -2260,7 +2298,7 @@ def main() -> None:
         if mode.startswith("eval_") and not Path(early_checkpoint_path).exists():
             raise ValueError(f"Checkpoint required for mode '{mode}' was not found: {early_checkpoint_path}")
 
-        checkpoint_payload = torch.load(early_checkpoint_path, map_location="cpu")
+        checkpoint_payload = load_trusted_torch_artifact(early_checkpoint_path, map_location="cpu")
         if not isinstance(checkpoint_payload, dict):
             raise ValueError("Checkpoint payload must be a dictionary.")
         model_state_dict = checkpoint_payload.get("model_state_dict")
@@ -2360,6 +2398,12 @@ def main() -> None:
         tracker.log_params(mlflow_params)
         logger.info("Logged MLflow params from selected blocks: %d entries.", len(mlflow_params))
 
+    trace_recorder = _build_trace_recorder(
+        tracking_cfg=tracking_cfg,
+        run_id=tracker.get_run_id() if tracker is not None else None,
+        output_dir=str(Path("outputs") / "mlflow_trace_fallback"),
+    )
+
     trainer_experiment_cfg = dict(experiment_cfg)
     trainer_experiment_cfg.update(prepared.get("experiment_split_config", {}))
     trainer_experiment_cfg["name"] = full_run_name
@@ -2412,6 +2456,7 @@ def main() -> None:
         log_path=prepared["log_path"],
         config=trainer_config,
         tracker=tracker,
+        trace_recorder=trace_recorder,
         class_weights=class_weights,
         prepared_data=prepared,
     )
@@ -2425,6 +2470,10 @@ def main() -> None:
             print(f"{key}: {value}")
     finally:
         if tracker is not None:
+            if trace_recorder is not None:
+                fallback_json_path = getattr(trace_recorder, "fallback_json_path", None)
+                if fallback_json_path is not None and Path(fallback_json_path).exists():
+                    tracker.log_artifact(str(fallback_json_path))
             tracker.close()
 
 

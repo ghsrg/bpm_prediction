@@ -212,6 +212,14 @@ class EOPKGGATv2(BaseEOPKGModel):
         structural_prior_pooling: str = "mean",
         structural_prior_fusion: str = "concat",
         structural_prior_gate_init_bias: float = -1.0,
+        struct_xattn_layers: str = "post_conv2",
+        struct_xattn_heads: int | None = None,
+        struct_xattn_dropout: float | None = None,
+        struct_xattn_scale_init: float = 0.1,
+        struct_xattn_scale_max: float = 2.0,
+        struct_xattn_use_layer_norm: bool | str = True,
+        struct_xattn_use_gate: bool | str = True,
+        struct_xattn_gate_init_bias: float = -2.0,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -259,6 +267,14 @@ class EOPKGGATv2(BaseEOPKGModel):
             "structural_prior": "structural_prior_encoder",
             "bpmnstructuralprior": "structural_prior_encoder",
             "bpmn_structural_prior": "structural_prior_encoder",
+            "structxattn": "struct_xattn",
+            "struct_xattn": "struct_xattn",
+            "structuralcrossattention": "struct_xattn",
+            "structural_cross_attention": "struct_xattn",
+            "layerwisestructuralcrossattention": "struct_xattn",
+            "layerwise_structural_cross_attention": "struct_xattn",
+            "dualstreamtokenattention": "struct_xattn",
+            "dual_stream_token_attention": "struct_xattn",
         }
         self.fusion_mode = alias_map.get(raw_fusion_mode, raw_fusion_mode)
         allowed_fusion_modes = {
@@ -268,13 +284,15 @@ class EOPKGGATv2(BaseEOPKGModel):
             "topology_state_encoder",
             "topology_state_graph_encoder",
             "structural_prior_encoder",
+            "struct_xattn",
         }
         if self.fusion_mode not in allowed_fusion_modes:
             raise ValueError(
                 f"Unsupported model.fusion_mode '{self.fusion_mode}'. "
                 "Available: ['ClassMeanAttention', 'ClassMeanConcat', "
                 "'ClassAwareStructuralScoring', 'TopologyStateEncoder', "
-                "'TopologyStateGraphEncoder', 'StructuralPriorEncoder']"
+                "'TopologyStateGraphEncoder', 'StructuralPriorEncoder', "
+                "'StructXAttn']"
             )
         self.structural_score_mode = str(structural_score_mode or "bilinear_with_prior").strip().lower()
         if self.structural_score_mode not in {"bilinear_with_prior", "cosine"}:
@@ -316,6 +334,18 @@ class EOPKGGATv2(BaseEOPKGModel):
                 f"'{self.structural_prior_fusion}'. Available: ['concat', 'gated_concat']"
             )
         self.structural_prior_gate_init_bias = float(structural_prior_gate_init_bias)
+        self.struct_xattn_layers = str(struct_xattn_layers or "post_conv2").strip().lower()
+        if self.struct_xattn_layers not in {"post_conv2", "after_each_conv"}:
+            raise ValueError(
+                "Unsupported model.struct_xattn_layers "
+                f"'{self.struct_xattn_layers}'. Available: ['post_conv2', 'after_each_conv']"
+            )
+        self.struct_xattn_heads = int(struct_xattn_heads if struct_xattn_heads is not None else self.cross_attention_heads)
+        self.struct_xattn_scale_max = float(struct_xattn_scale_max)
+        self.struct_xattn_use_layer_norm = self._to_bool(struct_xattn_use_layer_norm, default=True)
+        self.struct_xattn_use_gate = self._to_bool(struct_xattn_use_gate, default=True)
+        self.struct_xattn_gate_init_bias = float(struct_xattn_gate_init_bias)
+        self.struct_xattn_dropout_p = float(dropout if struct_xattn_dropout is None else struct_xattn_dropout)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
         self.conv2 = GATv2Conv(hidden_dim * 4, hidden_dim, heads=1, concat=True, dropout=dropout)
@@ -350,6 +380,35 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.topology_state_node_head = nn.Linear(self.struct_hidden_dim, 1)
         self.structural_prior_gate = nn.Linear(hidden_dim + self.struct_hidden_dim, self.struct_hidden_dim)
         nn.init.constant_(self.structural_prior_gate.bias, self.structural_prior_gate_init_bias)
+        self.struct_xattn_scale = nn.Parameter(torch.tensor(float(struct_xattn_scale_init), dtype=torch.float32))
+        self.struct_xattn_l1_struct_proj = (
+            nn.Identity()
+            if self.struct_hidden_dim == hidden_dim * 4
+            else nn.Linear(self.struct_hidden_dim, hidden_dim * 4)
+        )
+        self.struct_xattn_l2_struct_proj = (
+            nn.Identity() if self.struct_hidden_dim == hidden_dim else nn.Linear(self.struct_hidden_dim, hidden_dim)
+        )
+        self.struct_xattn_l1 = nn.MultiheadAttention(
+            embed_dim=hidden_dim * 4,
+            num_heads=self.struct_xattn_heads,
+            dropout=self.struct_xattn_dropout_p,
+            batch_first=True,
+        )
+        self.struct_xattn_l2 = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=self.struct_xattn_heads,
+            dropout=self.struct_xattn_dropout_p,
+            batch_first=True,
+        )
+        self.struct_xattn_l1_dropout = nn.Dropout(p=self.struct_xattn_dropout_p)
+        self.struct_xattn_l2_dropout = nn.Dropout(p=self.struct_xattn_dropout_p)
+        self.struct_xattn_l1_gate = nn.Linear(hidden_dim * 8, hidden_dim * 4)
+        self.struct_xattn_l2_gate = nn.Linear(hidden_dim * 2, hidden_dim)
+        nn.init.constant_(self.struct_xattn_l1_gate.bias, self.struct_xattn_gate_init_bias)
+        nn.init.constant_(self.struct_xattn_l2_gate.bias, self.struct_xattn_gate_init_bias)
+        self.struct_xattn_l1_norm = nn.LayerNorm(hidden_dim * 4)
+        self.struct_xattn_l2_norm = nn.LayerNorm(hidden_dim)
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
         self.last_observed_logits: torch.Tensor | None = None
@@ -374,6 +433,16 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_observed_context: torch.Tensor | None = None
         self.last_structural_prior_context: torch.Tensor | None = None
         self.last_structural_prior_gate: torch.Tensor | None = None
+        self.last_struct_xattn_context_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_delta_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_to_observed_ratio: torch.Tensor | None = None
+        self.last_struct_xattn_attention_entropy: torch.Tensor | None = None
+        self.last_struct_xattn_scale: torch.Tensor | None = None
+        self.last_struct_xattn_gate_mean: torch.Tensor | None = None
+        self.last_struct_xattn_l1_delta_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_l2_delta_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_l1_attention_entropy: torch.Tensor | None = None
+        self.last_struct_xattn_l2_attention_entropy: torch.Tensor | None = None
 
     def _build_struct_encoder(self, dropout: float) -> nn.Module:
         if self.struct_encoder_type == "GATv2Conv":
@@ -574,6 +643,128 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_observed_context = None
         self.last_structural_prior_context = None
         self.last_structural_prior_gate = None
+        self.last_struct_xattn_context_mean_abs = None
+        self.last_struct_xattn_delta_mean_abs = None
+        self.last_struct_xattn_to_observed_ratio = None
+        self.last_struct_xattn_attention_entropy = None
+        self.last_struct_xattn_scale = None
+        self.last_struct_xattn_gate_mean = None
+        self.last_struct_xattn_l1_delta_mean_abs = None
+        self.last_struct_xattn_l2_delta_mean_abs = None
+        self.last_struct_xattn_l1_attention_entropy = None
+        self.last_struct_xattn_l2_attention_entropy = None
+
+    def _record_struct_xattn_layer_stats(
+        self,
+        *,
+        layer_name: str,
+        context: torch.Tensor,
+        delta: torch.Tensor,
+        observed: torch.Tensor,
+        attention_entropy: torch.Tensor,
+        gate: torch.Tensor | None,
+        scale: torch.Tensor,
+    ) -> None:
+        context_mean_abs = context.detach().abs().mean()
+        delta_mean_abs = delta.detach().abs().mean()
+        observed_mean_abs = observed.detach().abs().mean().clamp_min(1e-12)
+        ratio = delta_mean_abs / observed_mean_abs
+        self.last_struct_xattn_context_mean_abs = context_mean_abs
+        self.last_struct_xattn_delta_mean_abs = delta_mean_abs
+        self.last_struct_xattn_to_observed_ratio = ratio
+        self.last_struct_xattn_attention_entropy = attention_entropy.detach()
+        self.last_struct_xattn_scale = scale.detach()
+        if gate is not None:
+            self.last_struct_xattn_gate_mean = gate.detach().mean()
+        if layer_name == "l1":
+            self.last_struct_xattn_l1_delta_mean_abs = delta_mean_abs
+            self.last_struct_xattn_l1_attention_entropy = attention_entropy.detach()
+        elif layer_name == "l2":
+            self.last_struct_xattn_l2_delta_mean_abs = delta_mean_abs
+            self.last_struct_xattn_l2_attention_entropy = attention_entropy.detach()
+
+    def _apply_struct_xattn_layer(
+        self,
+        *,
+        node_hidden: torch.Tensor,
+        batch: torch.Tensor,
+        h_struct: torch.Tensor,
+        layer_name: str,
+    ) -> torch.Tensor:
+        if node_hidden.numel() == 0 or h_struct.numel() == 0:
+            return node_hidden
+        if layer_name == "l1":
+            attention = self.struct_xattn_l1
+            struct_proj = self.struct_xattn_l1_struct_proj
+            dropout = self.struct_xattn_l1_dropout
+            gate_layer = self.struct_xattn_l1_gate
+            norm = self.struct_xattn_l1_norm
+        elif layer_name == "l2":
+            attention = self.struct_xattn_l2
+            struct_proj = self.struct_xattn_l2_struct_proj
+            dropout = self.struct_xattn_l2_dropout
+            gate_layer = self.struct_xattn_l2_gate
+            norm = self.struct_xattn_l2_norm
+        else:
+            raise ValueError(f"Unsupported StructXAttn layer '{layer_name}'.")
+
+        structural_kv = struct_proj(h_struct).to(device=node_hidden.device, dtype=node_hidden.dtype)
+        batch = batch.to(device=node_hidden.device, dtype=torch.long)
+        if batch.numel() != node_hidden.size(0):
+            batch = torch.zeros(node_hidden.size(0), dtype=torch.long, device=node_hidden.device)
+
+        updated = node_hidden.clone()
+        context_all = torch.zeros_like(node_hidden)
+        gates: list[torch.Tensor] = []
+        entropies: list[torch.Tensor] = []
+        graph_ids = torch.unique(batch, sorted=True)
+        scale = torch.clamp(self.struct_xattn_scale, min=0.0, max=float(self.struct_xattn_scale_max))
+
+        for graph_id in graph_ids:
+            mask = batch == graph_id
+            if not torch.any(mask):
+                continue
+            query = node_hidden[mask].unsqueeze(0)
+            kv = structural_kv.unsqueeze(0)
+            context, attn_weights = attention(
+                query=query,
+                key=kv,
+                value=kv,
+                need_weights=True,
+                average_attn_weights=False,
+            )
+            context = dropout(context.squeeze(0))
+            if self.struct_xattn_use_gate:
+                gate = torch.sigmoid(gate_layer(torch.cat([node_hidden[mask], context], dim=1)))
+                gates.append(gate.detach())
+                delta = scale * gate * context
+            else:
+                delta = scale * context
+            output = node_hidden[mask] + delta
+            if self.struct_xattn_use_layer_norm:
+                output = norm(output)
+            updated[mask] = output
+            context_all[mask] = context
+            attn_probs = attn_weights.detach().clamp_min(1e-12)
+            entropies.append((-(attn_probs * torch.log(attn_probs)).sum(dim=-1)).mean())
+
+        delta_all = updated - node_hidden
+        gate_all = torch.cat(gates, dim=0) if gates else None
+        entropy = (
+            torch.stack(entropies).mean()
+            if entropies
+            else node_hidden.new_tensor(0.0)
+        )
+        self._record_struct_xattn_layer_stats(
+            layer_name=layer_name,
+            context=context_all,
+            delta=delta_all,
+            observed=node_hidden,
+            attention_entropy=entropy,
+            gate=gate_all,
+            scale=scale,
+        )
+        return updated
 
     def _pool_structural_prior_context(self, h_struct: torch.Tensor, *, batch_size: int) -> torch.Tensor:
         if self.structural_prior_pooling == "mean":
@@ -835,6 +1026,36 @@ class EOPKGGATv2(BaseEOPKGModel):
         x = self.dropout(x)
         return x
 
+    def _forward_observed_layers(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        *,
+        batch: torch.Tensor,
+        h_struct: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        x = self.conv1(x, edge_index)
+        x = self.activation(x)
+        x = self.dropout(x)
+        if h_struct is not None and self.fusion_mode == "struct_xattn" and self.struct_xattn_layers == "after_each_conv":
+            x = self._apply_struct_xattn_layer(
+                node_hidden=x,
+                batch=batch,
+                h_struct=h_struct,
+                layer_name="l1",
+            )
+        x = self.conv2(x, edge_index)
+        x = self.activation(x)
+        x = self.dropout(x)
+        if h_struct is not None and self.fusion_mode == "struct_xattn":
+            x = self._apply_struct_xattn_layer(
+                node_hidden=x,
+                batch=batch,
+                h_struct=h_struct,
+                layer_name="l2",
+            )
+        return x
+
     def forward(self, contract: GraphTensorContract) -> torch.Tensor:
         if self.structural_mode and self.fusion_mode == "topology_state_graph_encoder":
             structural_edge_index = contract.get("structural_edge_index")
@@ -854,10 +1075,9 @@ class EOPKGGATv2(BaseEOPKGModel):
             )
 
         x, edge_index, batch = self._encode_input(contract)
-        node_hidden = self._forward_local(x, edge_index)
-        obs_context = self._pool_nodes(node_hidden, batch)
-        batch_size = int(obs_context.shape[0])
         if not self.structural_mode:
+            node_hidden = self._forward_local(x, edge_index)
+            obs_context = self._pool_nodes(node_hidden, batch)
             self._clear_structural_diagnostics()
             return self.classifier(obs_context)
 
@@ -866,20 +1086,24 @@ class EOPKGGATv2(BaseEOPKGModel):
             if not self._warned_missing_struct:
                 logger.warning("Structural tensors are missing in contract! Falling back to Baseline forward.")
                 self._warned_missing_struct = True
+            node_hidden = self._forward_local(x, edge_index)
+            obs_context = self._pool_nodes(node_hidden, batch)
             self._clear_structural_diagnostics()
             return self.classifier(obs_context)
 
-        structural_edge_index = structural_edge_index.to(device=obs_context.device, dtype=torch.long)
+        structural_edge_index = structural_edge_index.to(device=x.device, dtype=torch.long)
         struct_nodes = self._prepare_structural_nodes(
             contract=contract,
             structural_edge_index=structural_edge_index,
-            device=obs_context.device,
+            device=x.device,
         )
         node_count = int(struct_nodes.size(0))
         if node_count <= 0:
             if not self._warned_missing_struct:
                 logger.warning("Structural node tensor is empty. Falling back to Baseline forward.")
                 self._warned_missing_struct = True
+            node_hidden = self._forward_local(x, edge_index)
+            obs_context = self._pool_nodes(node_hidden, batch)
             self._clear_structural_diagnostics()
             return self.classifier(obs_context)
         if self.fusion_mode == "topology_state_encoder":
@@ -899,6 +1123,38 @@ class EOPKGGATv2(BaseEOPKGModel):
         h_norm = self.struct_gnn(struct_nodes, structural_edge_index)
         h_norm = self.activation(h_norm)
         h_norm = self.dropout(h_norm)
+
+        if self.fusion_mode == "struct_xattn":
+            node_hidden = self._forward_observed_layers(
+                x,
+                edge_index,
+                batch=batch,
+                h_struct=h_norm,
+            )
+            obs_context = self._pool_nodes(node_hidden, batch)
+            self.last_cross_attn_weights = None
+            self.last_observed_logits = None
+            self.last_structural_node_logits = None
+            self.last_structural_raw_class_logits = None
+            self.last_structural_normalized_class_logits = None
+            self.last_structural_observed_scale = None
+            self.last_structural_class_logits = None
+            self.last_topology_state_node_logits = None
+            self.last_topology_state_class_logits = None
+            self.last_topology_state_entropy = None
+            self.last_topology_state_mean_class_cardinality = None
+            self.last_topology_state_max_class_cardinality = None
+            self.last_topology_graph_context = None
+            self.last_topology_graph_logits = None
+            self.last_topology_graph_entropy = None
+            self.last_observed_context = obs_context.detach()
+            self.last_structural_prior_context = None
+            self.last_structural_prior_gate = None
+            return self.classifier(obs_context)
+
+        node_hidden = self._forward_local(x, edge_index)
+        obs_context = self._pool_nodes(node_hidden, batch)
+        batch_size = int(obs_context.shape[0])
 
         if self.fusion_mode == "structural_prior_encoder":
             self.last_cross_attn_weights = None

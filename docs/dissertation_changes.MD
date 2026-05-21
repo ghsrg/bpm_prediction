@@ -4,6 +4,299 @@ Short checklist of project changes that should be reflected in the dissertation.
 
 ---
 
+## 2026-05-21 - Training Layer Separation And Topology-Conditioned Methodology
+
+- `topic`: separation of model fusion mechanism from training methodology
+- `impact`: critical dissertation architecture clarification
+- `status`: design direction
+- `related_concepts`:
+  - `training_layer=standard`
+  - `training_layer=topology_conditioned`
+  - `fusion_mode`
+  - `versioned_zero_shot`
+  - `controlled_forgetting`
+  - `version_safe_mixed_negative_sampler`
+
+**Alignment with current dissertation (ukr):**
+
+Поточна дисертація вже містить рамку, у яку добре лягає новий підхід:
+`Domain-Conditioned GNN`, ієрархічна стратегія адаптивного навчання,
+`version-conditioned` регуляризація, `Zero-Shot` / `Few-Shot` адаптація,
+структурний дрейф, контроль катастрофічного забування та предиктивне
+управління в умовах еволюції бізнес-процесу. Тому `training_layer` не є
+радикально новою темою, а є конкретизацією дисертаційної тези про
+методологію навчання.
+
+**Required dissertation clarification (ukr):**
+
+Потрібно явно розділити три рівні:
+
+```text
+fusion_mode = як topology входить у forward model
+training_layer = як організовано навчання, loss-и, sampling, negatives, retention
+experiment.mode = який життєвий або оцінювальний сценарій запускається
+```
+
+Це важливо, бо поточні `fusion_mode` експерименти показують обмеження простої
+подачі структури. Дисертаційний внесок має формулюватись не як "ще один спосіб
+fusion", а як методологія навчання, яка змушує модель трактувати topology як
+умову прогнозу:
+
+```text
+P(next_activity | observed_prefix, topology_version)
+```
+
+**Training layer concept (ukr):**
+
+`training_layer=standard` має означати поточну поведінку навчання без зміни
+результатів. Це контрольний режим.
+
+`training_layer=topology_conditioned` має означати нову методологію навчання,
+яка може застосовуватись до різних `fusion_mode`, але найбільший сенс має для
+режимів, де topology впливає на hidden states або class ranking, зокрема
+`StructXAttn` / майбутній `TopologyConditionedEncoder`.
+
+**Topology-conditioned loss design (ukr):**
+
+У тексті дисертації треба передбачити багатокомпонентну функцію втрат:
+
+```text
+L_total =
+  L_ce_correct
+  + lambda_wrong * L_wrong_version_negative
+  + lambda_corrupt * L_edge_corruption_negative
+  + lambda_allowed * L_allowed_set
+  + lambda_retention * L_retention
+```
+
+Інтерпретація:
+
+- `L_ce_correct`: базове навчання на правильній topology;
+- `L_wrong_version_negative`: штраф, якщо модель не відрізняє правильну topology
+  від topology іншої вже відомої версії;
+- `L_edge_corruption_negative`: штраф, якщо модель ігнорує локально зіпсовану
+  topology тієї самої версії;
+- `L_allowed_set`: train-time узгодження прогнозу з allowed topology set, не те
+  саме, що inference-time `experiment.mask_guided_enabled`;
+- `L_retention`: контрольоване збереження якості на ще актуальних старих
+  версіях.
+
+**Zero-shot leakage rule (ukr):**
+
+Для dissertation-grade `versioned_zero_shot` не можна використовувати future
+topology як negative topology у фазі, де ця topology ще не відома бізнесу.
+Наприклад, у фазі `train=v1` topology `v2/v3/v4` не можна використовувати навіть
+як negative. Якщо доступна тільки одна версія, negative signal має будуватись
+через `edge_corrupted_same_version`.
+
+**Controlled forgetting (ukr):**
+
+Катастрофічне забування треба замінити на поняття `controlled forgetting`.
+У бізнес-сценарії старі версії ще деякий час працюють після появи нової, але з
+часом втрачають актуальність. Тому retention має бути м'яким і залежним від
+віку версії:
+
+```text
+recent versions -> higher retention weight
+old versions -> lower retention weight
+obsolete versions -> may be forgotten
+```
+
+Це краще відповідає реальному BPM lifecycle, ніж вимога зберігати однакову
+якість на всіх історичних версіях.
+
+**Versioned zero-shot protocol (ukr):**
+
+`versioned_zero_shot` треба описати як автоматизований бізнес-життєвий цикл:
+
+```text
+Phase 1: train v1 -> eval v1 seen, v2/v3/v4 zero-shot
+Phase 2: train/adapt v1+v2 -> eval v1/v2 seen, v3/v4 zero-shot
+Phase 3: train/adapt v1+v2+v3 -> eval v1/v2/v3 seen, v4 zero-shot
+```
+
+Це не нова архітектура моделі, а оцінювальний та навчальний протокол, який
+дозволяє відокремити:
+
+- same-version quality;
+- zero-shot benefit from new topology before logs are available;
+- few-shot/adaptation benefit after logs of the new version accumulate;
+- forgetting/degradation on older versions.
+
+**Out-of-current-text changes (ukr):**
+
+Ці уточнення частково виходять за поточний текст дисертації і потребують
+оновлення розділів про методологію та архітектуру:
+
+1. Додати явний термін `training_layer` або його український еквівалент як
+   окремий рівень методології між архітектурою моделі та сценарієм експерименту.
+2. Переформулювати "version-conditioned регуляризацію" як конкретний механізм:
+   correct topology vs wrong/corrupted topology.
+3. Додати leakage rule: future topology не використовується у навчанні або
+   negative sampling до моменту появи відповідної версії в бізнес-сценарії.
+4. Замінити жорстке формулювання про нейтралізацію catastrophic forgetting на
+   більш бізнес-коректне `controlled forgetting`.
+5. Окремо розвести `mask-guided constraint effect` і `topology-conditioned
+   learning effect`.
+
+**Do not forget:**
+
+- у статті/дисертації не змішувати ефект `fusion_mode` та ефект
+  `training_layer`;
+- порівнювати мінімум `standard` vs `topology_conditioned` для одного й того
+  самого `fusion_mode`;
+- окремо показати матрицю:
+  `standard/no-mask`, `standard/mask`, `topology_conditioned/no-mask`,
+  `topology_conditioned/mask`;
+- future work / technical debt: розширити negative sampler до повного
+  `version_safe_mixed`, якщо перша реалізація з `wrong_version_topology` і
+  `edge_corrupted_same_version` покаже корисний topology dependency signal.
+
+---
+
+## 2026-05-21 - Main Research Hypothesis: Topology-Conditioned Zero-Shot Drift Adaptation
+
+- `topic`: topology-conditioned predictive monitoring under structural process drift
+- `impact`: central dissertation/article hypothesis
+- `status`: active research framing
+- `dissertation_theme`: methodology of learning for optimizing business process management
+- `business_assumption`: new BPMN/EOPKG topology is often available before sufficient logs of the new version exist
+- `target_runtime_direction`: one dedicated fusion mode and training methodology, not a mixture of multiple fusion modes in one model
+
+**Core hypothesis (ukr):**
+
+Я бачу старі версії процесу та їхні логи. Модель має навчитися розуміти, як
+topology впливає на `next-activity prediction`. Коли приходить нова topology
+`vN`, навіть без логів `vN` для навчання, модель має використати її як умову
+прогнозу.
+
+**Why this matters (ukr):**
+
+Це формулює бізнесову користь структури чіткіше, ніж звичайне порівняння
+`baseline vs structure-aware GNN`. У реальних BPM-системах зміна процесу часто
+спочатку з'являється як нова схема / BPMN / регламент, а журнали подій нової
+версії накопичуються пізніше. Тому структура має бути корисною саме в
+cold-start або zero-shot сценарії нової версії: модель ще не навчалась на логах
+`vN`, але вже отримує topology `vN` як умову inference.
+
+**Article framing (ukr):**
+
+У статті можна показати:
+
+1. `Baseline`: модель без структури не має доступу до нової topology і при
+   structural drift покладається лише на патерни старих логів.
+2. `Fusion-mode ablations`: різні поточні способи подачі структури
+   (`ClassMeanAttention`, `ClassMeanConcat`, `ClassAwareStructuralScoring`,
+   `TopologyStateEncoder`, `TopologyStateGraphEncoder`, `StructuralPriorEncoder`,
+   `StructXAttn`) дають часткові покращення або покращують OOS/ECE/process
+   consistency, але не дають стабільної статистично значущої переваги для
+   drift strict-F1.
+3. `Methodology gap`: це не спростовує користь topology, а показує, що проста
+   подача структури недостатня. Потрібна спеціальна methodology навчання, яка
+   змушує одну topology-conditioned модель реально залежати від topology.
+4. `Perspective / proposed direction`: новий єдиний fusion режим на кшталт
+   `TopologyConditionedEncoder`, навчений через correct-vs-corrupted topology,
+   allowed-set loss, OOS penalty, version/structure augmentation і
+   transfer-validation.
+
+**Important constraint (ukr):**
+
+Не робити основною ідеєю змішування двох різних `fusion_mode` в одній моделі
+(`TopologyStateEncoder teacher + StructXAttn student` тощо). Це може бути
+допоміжний експеримент, але для дисертації та Scopus статті краще мати одну
+чітку модельну концепцію: topology-conditioned predictive monitoring.
+
+**Do not forget:**
+
+- формулювати внесок як methodology of learning, а не як черговий варіант
+  fusion;
+- окремо підкреслити zero-shot/cold-start цінність: topology нової версії
+  доступна до появи достатніх логів;
+- baseline має бути принципово слабшим саме тому, що не бачить topology `vN`;
+- поточні fusion experiments показують motivation: є signal, але без правильної
+  training methodology він не переноситься стабільно;
+- головні метрики для доказу: drift-window strict/non-strict F1, OOS,
+  `target_in_mask_rate`, `pred_in_mask_rate`, ECE/NLL, seed variance,
+  leave-one-version-out або train-old/eval-new protocol.
+
+---
+
+## 2026-05-17 - Fusion Architecture Comparison And StructXAttn Direction
+
+- `topic`: dual-stream structure-aware learning under structural drift
+- `impact`: critical for methodology and future work
+- `status`: research conclusion / next architecture candidate
+- `related_runtime`:
+  - `ClassMeanAttention`
+  - `ClassMeanConcat`
+  - `ClassAwareStructuralScoring`
+  - `TopologyStateEncoder`
+  - `TopologyStateGraphEncoder`
+  - `StructuralPriorEncoder`
+  - `StructXAttn` / `LayerwiseStructuralCrossAttention` as proposed next mode
+
+**Note (ukr):**
+
+Поточні режими `EOPKGGATv2` треба описувати як послідовність ablation-рівнів
+інтеграції структури, а не як один фінальний підхід до OOD-generalization.
+Експерименти показали, що проста подача BPMN/EOPKG структури може зменшувати
+OOS, ECE та інколи покращувати non-strict / hybrid метрики, але поки не дає
+стабільного приросту drift strict-F1. Це важливий методологічний висновок:
+структурний сигнал сам по собі корисний, але спосіб його введення та стратегія
+навчання визначають, чи буде він переноситись між версіями процесу.
+
+**Architecture comparison (ukr):**
+
+| Architecture | Strong side | Weak side for drift transfer |
+|---|---|---|
+| `ClassMeanAttention` | Зберігає observed encoder і додає structural attention до representation. | Один `obs_context` стискає весь prefix у глобальний query; topology signal проходить через bottleneck і не модулює IG message passing. |
+| `ClassMeanConcat` | Простий контрольний baseline для representation-level structural context. | Mean-pooled структура згладжує топологічні відмінності; weak signal для strict class ranking. |
+| `StructuralPriorEncoder` | Etalon-like observed + pooled structural prior; добре підходить як стабільний representation-level baseline. | Структура лишається global prior після observed encoder; не змушує IG encoder вчитись залежати від поточної топології. |
+| `ClassAwareStructuralScoring` | Структура прямо додає per-class structural logits; добре показує вплив на ranking, OOS/ECE і mask-compatible diagnostics. | Це late fusion: structural branch коригує logits, але не змінює hidden states observed/IG encoder. |
+| `TopologyStateEncoder` | Перевіряє early topology-state signal і node-to-class structural prediction. | Observed IG encoder bypassed; може втрачати sequential/instance dynamics і давати structural overfitting. |
+| `TopologyStateGraphEncoder` | Найближчий до старого `etalon`: topology graph стає власним prediction graph. | Також bypassed observed IG encoder; hard `structural_edge_index` може погано переноситись на unseen topology. |
+| `StructXAttn` / `LayerwiseStructuralCrossAttention` | Потенційно правильний dual-stream механізм: IG node states формують `Q`, structural nodes формують `K,V`, структура впливає на hidden states до classifier. | Потребує нової training methodology, інакше модель може знову ігнорувати structural stream. |
+
+**Main conclusion (ukr):**
+
+Для дисертації важливо не стверджувати, що "будь-яка структура покращує
+strict-F1 під drift". Коректніший висновок: поточні late/global/structural-only
+режими демонструють обмеження простого fusion і мотивують перехід до
+dual-stream token-level / layerwise structural cross-attention. Саме це
+пояснює, чому наступним кроком має бути `StructXAttn`, де структура не тільки
+штрафує фінальні logits, а бере участь у формуванні observed representation.
+
+**StructXAttn target idea:**
+
+```text
+Q = W_Q h_IG_node
+K = W_K h_struct_node
+V = W_V h_struct_node
+h_IG_node' = h_IG_node + gamma * CrossAttention(Q, K, V)
+```
+
+У цій постановці `structural_mode=true` означає не "додати pooled structure",
+а "condition observed IG encoder on current process topology". Для transfer
+між `v1 -> v2/v3/v4` цього все одно недостатньо без навчальної методології:
+потрібні structural dropout, corrupted-topology contrastive checks,
+multi-version або pseudo-version training, а також diagnostics, які доводять,
+що модель реально використовує structural stream.
+
+**Do not forget:**
+
+- описати поточні fusion modes як ablation hierarchy: global context, class-aware
+  logits, topology-state-only, structural graph baseline, future token-level
+  cross-attention;
+- для Scopus не робити сильний claim про strict-F1 benefit без multi-seed і
+  transfer-validation;
+- показувати OOS, ECE, NLL, hybrid/non-strict F1 окремо від strict-F1;
+- додати future-work / next-methodology блок про `StructXAttn` і structural
+  conditioning of IG encoder;
+- додати контроль `correct topology vs corrupted topology` як доказ, що
+  structural branch не декоративний.
+
+---
+
 ## 2026-05-16 - TopologyStateGraphEncoder Structural Graph Baseline
 
 - `topic`: etalon/article-like structural graph baseline
@@ -319,3 +612,54 @@ classification head. Режим `gated_concat` є стабілізованою �
   `structural_prior_context_mean_abs`,
   `structural_prior_to_observed_context_ratio`,
   `structural_prior_gate_mean`, `structural_prior_gate_max`.
+
+---
+
+## 2026-05-17 - StructXAttn / Token-Level Structural Cross-Attention
+
+- `topic`: structural fusion and training methodology
+- `impact`: critical for dissertation hypothesis refinement
+- `status`: implemented experimental mode
+- `related_runtime`: `model.fusion_mode=StructXAttn`
+
+**Note (ukr):**
+
+Додано `StructXAttn` як TokenXAttn-style dual-stream fusion: observed IG nodes
+роблять cross-attention до structural nodes до pooling/classifier. Це важливо
+для дисертації, бо попередні режими показали, що late/global structural fusion
+не гарантує перенесення користі структури при structural drift. Нова гіпотеза
+формулюється точніше: структура має керувати формуванням observed hidden states,
+а модель має бути навчена не ігнорувати structural stream.
+
+Реалізовано два placement режими:
+
+1. `model.struct_xattn_layers=post_conv2` - безпечний smoke/integration режим;
+2. `model.struct_xattn_layers=after_each_conv` - основний research режим, де
+   structural guidance входить після кожного observed GATv2 message-passing
+   шару.
+
+Окремо додано training methodology:
+
+```text
+correct topology vs corrupted topology
+```
+
+Під час train модель порівнює CE на правильній структурі і CE на зіпсованій
+структурі. Це має показати, чи correct topology справді корисна для моделі.
+В eval/eval_drift corrupted forward не використовується.
+
+**Do not forget:**
+
+- у methodology пояснити, що `StructXAttn` відрізняється від
+  `ClassMeanAttention`: query робить кожен observed node, а не один pooled
+  `obs_context`;
+- окремо розділяти архітектурний ефект `post_conv2` / `after_each_conv` і
+  ефект contrastive topology training;
+- при аналізі результатів дивитись не тільки F1, а й:
+  `struct_xattn_to_observed_ratio`, `struct_xattn_attention_entropy`,
+  `struct_xattn_correct_vs_corrupt_ce_delta`,
+  `struct_xattn_prediction_flip_rate`;
+- якщо `correct_vs_corrupt_ce_delta <= 0`, це означає, що модель все ще
+  ігнорує структуру або corruption policy не створює змістовний negative view;
+- це не фінальний доказ transfer між версіями, а наступний крок після висновку,
+  що проста подача структури не дає стабільного strict-F1 ефекту.

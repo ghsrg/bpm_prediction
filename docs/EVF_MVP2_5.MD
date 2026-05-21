@@ -1,6 +1,6 @@
 ﻿# EVF_MVP2_5.MD
 
-Updated: 2026-04-27
+Updated: 2026-05-20
 Status: ACTIVE
 
 ## 1. Purpose
@@ -52,6 +52,15 @@ Mandatory:
 Optional sliced metrics:
 1. by process version
 2. by prefix length bins
+
+Qualitative diagnostics:
+
+1. Selective structural prediction traces may be enabled through
+   `tracking.tracing.*`.
+2. Traces explain individual predictions and structural-path contribution.
+3. Traces are not primary evidence for article/dissertation conclusions.
+4. Primary evidence remains aggregate metrics, drift-window metrics,
+   calibration/ECE, OOS/mask diagnostics, and seed variance.
 
 ## 7. Stats Enrichment Audit Metrics
 Track in reports:

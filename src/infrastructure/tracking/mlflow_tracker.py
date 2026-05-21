@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Tuple
+import inspect
 import logging
 import re
 
@@ -148,7 +149,11 @@ class MLflowTracker(ITracker):
 
     def log_model(self, model: Any, artifact_path: str) -> None:
         """Log PyTorch model into MLflow artifacts."""
-        mlflow.pytorch.log_model(model, artifact_path)
+        log_model = mlflow.pytorch.log_model
+        if "name" in inspect.signature(log_model).parameters:
+            log_model(model, name=artifact_path)
+            return
+        log_model(model, artifact_path)
 
 
     def _sanitize_key(self, key: str) -> str:

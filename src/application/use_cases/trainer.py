@@ -34,11 +34,15 @@ from tqdm import tqdm
 
 from src.application.ports.graph_builder_port import IGraphBuilder
 from src.application.ports.prefix_policy_port import IPrefixPolicy
+from src.application.ports.trace_recorder_port import ITraceRecorder
 from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
+from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
+from src.application.services.trace_sampling_policy import TraceSamplingPolicy, classify_trace_reason
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
+from src.domain.services.torch_serialization import load_trusted_torch_artifact
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
 
@@ -144,7 +148,7 @@ class ShardedGraphDataset(Dataset[Data]):
             return cached
         row = self._shards[shard_idx]
         shard_path = self.entry_dir / str(row["path"])
-        loaded = torch.load(shard_path, map_location="cpu")
+        loaded = load_trusted_torch_artifact(shard_path, map_location="cpu")
         if isinstance(loaded, dict) and loaded.get("format") == "dedup_structural_payloads":
             graphs = loaded.get("graphs", [])
             registry = loaded.get("structural_payloads", {})
@@ -221,6 +225,7 @@ class ModelTrainer:
         tracker: Optional[ITracker] = None,
         class_weights: Optional[torch.Tensor] = None,
         prepared_data: Optional[Dict[str, Any]] = None,
+        trace_recorder: Optional[ITraceRecorder] = None,
     ) -> None:
         self.xes_adapter = xes_adapter
         self.prefix_policy = prefix_policy
@@ -229,6 +234,7 @@ class ModelTrainer:
         self.log_path = log_path
         self.config = config
         self.tracker = tracker
+        self.trace_recorder = trace_recorder
         self.class_weights = class_weights
         self.prepared_data = dict(prepared_data) if isinstance(prepared_data, dict) else None
 
@@ -266,6 +272,35 @@ class ModelTrainer:
         self.structural_aux_loss_enabled = _as_bool(config.get("structural_aux_loss_enabled"), default=False)
         self.structural_aux_loss_weight = float(config.get("structural_aux_loss_weight", 0.05))
         self.structural_aux_exact_loss_weight = float(config.get("structural_aux_exact_loss_weight", 0.01))
+        self.struct_xattn_contrastive_enabled = _as_bool(
+            config.get("struct_xattn_contrastive_enabled"),
+            default=False,
+        )
+        self.struct_xattn_contrastive_weight = float(config.get("struct_xattn_contrastive_weight", 0.03))
+        self.struct_xattn_contrastive_margin = float(config.get("struct_xattn_contrastive_margin", 0.05))
+        self.struct_xattn_contrastive_temperature = max(
+            1e-6,
+            float(config.get("struct_xattn_contrastive_temperature", 0.10)),
+        )
+        self.struct_xattn_contrastive_max_loss = max(
+            0.0,
+            float(config.get("struct_xattn_contrastive_max_loss", 0.50)),
+        )
+        self.struct_xattn_contrastive_warmup_epochs = max(
+            0,
+            int(config.get("struct_xattn_contrastive_warmup_epochs", 3)),
+        )
+        self.struct_xattn_corruption_policy = str(
+            config.get("struct_xattn_corruption_policy", "edge_drop")
+        ).strip().lower()
+        self.struct_xattn_corruption_edge_drop_prob = min(
+            1.0,
+            max(0.0, float(config.get("struct_xattn_corruption_edge_drop_prob", 0.15))),
+        )
+        self.struct_xattn_corruption_feature_noise_std = max(
+            0.0,
+            float(config.get("struct_xattn_corruption_feature_noise_std", 0.0)),
+        )
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
@@ -295,6 +330,14 @@ class ModelTrainer:
         self._logged_peak_vram = False
         self._mask_guided_reliability_rate: float | None = None
         self._mask_guided_reliability_samples = 0
+        tracing_cfg = self.config.get("tracking_config", {}).get("tracing", {})
+        self.trace_policy = TraceSamplingPolicy.from_config(
+            tracing_cfg if isinstance(tracing_cfg, dict) else {},
+            seed=self.seed,
+        )
+        self._reverse_activity_vocab: Dict[int, str] = {}
+        self._trace_events_recorded = 0
+        self._trace_record_time_ms_total = 0.0
 
         if self.prepared_data is not None:
             raw_idx_to_version = self.prepared_data.get("idx_to_version", {})
@@ -319,6 +362,20 @@ class ModelTrainer:
                 self._stats_snapshot_version_to_idx.update(
                     {label: idx for idx, label in self._idx_to_stats_snapshot_version.items()}
                 )
+            reverse_activity_vocab_raw = self.prepared_data.get("reverse_activity_vocab", {})
+            if isinstance(reverse_activity_vocab_raw, dict):
+                for raw_idx, raw_label in reverse_activity_vocab_raw.items():
+                    try:
+                        self._reverse_activity_vocab[int(raw_idx)] = str(raw_label)
+                    except (TypeError, ValueError):
+                        continue
+            activity_vocab_raw = self.prepared_data.get("activity_vocab", {})
+            if not self._reverse_activity_vocab and isinstance(activity_vocab_raw, dict):
+                for raw_label, raw_idx in activity_vocab_raw.items():
+                    try:
+                        self._reverse_activity_vocab[int(raw_idx)] = str(raw_label)
+                    except (TypeError, ValueError):
+                        continue
 
     def _is_tqdm_disabled(self) -> bool:
         return (not self.show_progress) or self.tqdm_disable or self._structured_progress_enabled
@@ -866,7 +923,7 @@ class ModelTrainer:
 
     def _load_checkpoint(self, checkpoint_path: Path, require_encoder_state: bool) -> Dict[str, Any]:
         """Load checkpoint with required keys validation."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = load_trusted_torch_artifact(checkpoint_path, map_location=self.device)
         if not isinstance(checkpoint, dict):
             raise ValueError("Checkpoint payload must be a dictionary.")
 
@@ -1220,6 +1277,93 @@ class ModelTrainer:
         set_log_prob = torch.logsumexp(masked_log_probs, dim=1)
         return -set_log_prob.mean()
 
+    def _struct_xattn_contrastive_active(self, *, training: bool, epoch_index: int) -> bool:
+        if not training:
+            return False
+        if not self.struct_xattn_contrastive_enabled:
+            return False
+        if int(epoch_index) <= int(self.struct_xattn_contrastive_warmup_epochs):
+            return False
+        if float(self.struct_xattn_contrastive_weight) <= 0.0:
+            return False
+        fusion_mode = str(getattr(self.model, "fusion_mode", "")).strip().lower()
+        if fusion_mode != "struct_xattn":
+            return False
+        if not _as_bool(getattr(self.model, "structural_mode", True), default=True):
+            return False
+        return True
+
+    def _build_corrupted_structural_contract(
+        self,
+        contract: GraphTensorContract,
+        *,
+        epoch_index: int,
+        batch_idx: int,
+    ) -> GraphTensorContract:
+        corrupted: GraphTensorContract = dict(contract)  # type: ignore[assignment]
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(int(self.seed) + (int(epoch_index) * 100_003) + int(batch_idx))
+
+        policy = str(self.struct_xattn_corruption_policy).strip().lower()
+        if policy in {"edge_drop", "edge_drop_plus_feature_noise"}:
+            edge_index = corrupted.get("structural_edge_index")
+            if isinstance(edge_index, torch.Tensor) and edge_index.dim() == 2 and int(edge_index.size(1)) > 1:
+                edge_count = int(edge_index.size(1))
+                keep_prob = 1.0 - float(self.struct_xattn_corruption_edge_drop_prob)
+                random_values = torch.rand(edge_count, generator=generator, device="cpu")
+                keep_mask = random_values < keep_prob
+                if not torch.any(keep_mask):
+                    keep_mask[0] = True
+                keep_mask = keep_mask.to(device=edge_index.device, dtype=torch.bool)
+                corrupted["structural_edge_index"] = edge_index[:, keep_mask].clone()
+                edge_weight = corrupted.get("structural_edge_weight")
+                if isinstance(edge_weight, torch.Tensor) and int(edge_weight.numel()) == edge_count:
+                    corrupted["structural_edge_weight"] = edge_weight[keep_mask].clone()
+
+        if policy in {"feature_noise", "edge_drop_plus_feature_noise"}:
+            struct_x = corrupted.get("struct_x")
+            if isinstance(struct_x, torch.Tensor) and struct_x.numel() > 0:
+                std = float(self.struct_xattn_corruption_feature_noise_std)
+                if std > 0.0:
+                    noise = torch.randn(
+                        tuple(struct_x.shape),
+                        generator=generator,
+                        device="cpu",
+                        dtype=torch.float32,
+                    ).to(device=struct_x.device, dtype=struct_x.dtype)
+                    corrupted["struct_x"] = struct_x.clone() + (std * noise)
+
+        return corrupted
+
+    def _accumulate_struct_xattn_contrastive_stats(
+        self,
+        bucket: Dict[str, Any],
+        *,
+        correct_ce: torch.Tensor,
+        corrupt_ce: torch.Tensor,
+        contrastive_loss: torch.Tensor,
+        correct_logits: torch.Tensor,
+        corrupt_logits: torch.Tensor,
+    ) -> None:
+        correct_value = float(correct_ce.detach().cpu().item())
+        corrupt_value = float(corrupt_ce.detach().cpu().item())
+        contrastive_value = float(contrastive_loss.detach().cpu().item())
+        bucket["struct_xattn_correct_ce_sum"] = float(bucket.get("struct_xattn_correct_ce_sum", 0.0)) + correct_value
+        bucket["struct_xattn_corrupt_ce_sum"] = float(bucket.get("struct_xattn_corrupt_ce_sum", 0.0)) + corrupt_value
+        bucket["struct_xattn_contrastive_loss_sum"] = float(
+            bucket.get("struct_xattn_contrastive_loss_sum", 0.0)
+        ) + contrastive_value
+        bucket["struct_xattn_correct_vs_corrupt_ce_delta_sum"] = float(
+            bucket.get("struct_xattn_correct_vs_corrupt_ce_delta_sum", 0.0)
+        ) + (corrupt_value - correct_value)
+        bucket["struct_xattn_contrastive_batches"] = int(bucket.get("struct_xattn_contrastive_batches", 0)) + 1
+        correct_pred = torch.argmax(correct_logits.detach(), dim=1)
+        corrupt_pred = torch.argmax(corrupt_logits.detach(), dim=1)
+        flip_rate = (correct_pred != corrupt_pred).float().mean()
+        bucket["struct_xattn_prediction_flip_rate_sum"] = float(
+            bucket.get("struct_xattn_prediction_flip_rate_sum", 0.0)
+        ) + float(flip_rate.cpu().item())
+
     def _run_epoch(
         self,
         loader: Iterable[Data],
@@ -1274,6 +1418,7 @@ class ModelTrainer:
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
+                self._accumulate_struct_xattn_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1300,6 +1445,7 @@ class ModelTrainer:
                     policy=mask_policy,
                 )
                 loss = self.criterion(effective_logits, targets)
+                base_ce_loss = loss
                 structural_aux_set_loss: torch.Tensor | None = None
                 structural_aux_exact_loss: torch.Tensor | None = None
                 structural_logits = getattr(self.model, "last_structural_class_logits", None)
@@ -1339,6 +1485,44 @@ class ModelTrainer:
                     forward_stats["structural_aux_loss_batches"] = int(
                         forward_stats.get("structural_aux_loss_batches", 0)
                     ) + 1
+                if self._struct_xattn_contrastive_active(training=training, epoch_index=epoch_index):
+                    corrupted_contract = self._build_corrupted_structural_contract(
+                        contract,
+                        epoch_index=epoch_index,
+                        batch_idx=batch_idx,
+                    )
+                    corrupt_logits = self.model(corrupted_contract)
+                    if not self._is_finite_tensor(corrupt_logits):
+                        logits_sanitized_batches += 1
+                        logger.warning(
+                            "Numeric guard [epoch:%s]: non-finite corrupted StructXAttn logits detected. "
+                            "Applying nan_to_num.",
+                            "train" if training else "validation",
+                        )
+                        corrupt_logits = torch.nan_to_num(corrupt_logits, nan=0.0, posinf=1e6, neginf=-1e6)
+                    corrupt_effective_logits = self._apply_mask_guided_logits(
+                        logits=corrupt_logits,
+                        allowed_mask=allowed_mask,
+                        policy=mask_policy,
+                    )
+                    corrupt_ce = self.criterion(corrupt_effective_logits, targets)
+                    raw_gap = float(self.struct_xattn_contrastive_margin) + base_ce_loss - corrupt_ce
+                    tau = float(self.struct_xattn_contrastive_temperature)
+                    contrastive_loss = tau * F.softplus(raw_gap / tau)
+                    if float(self.struct_xattn_contrastive_max_loss) > 0.0:
+                        contrastive_loss = torch.clamp(
+                            contrastive_loss,
+                            max=float(self.struct_xattn_contrastive_max_loss),
+                        )
+                    loss = loss + (float(self.struct_xattn_contrastive_weight) * contrastive_loss)
+                    self._accumulate_struct_xattn_contrastive_stats(
+                        forward_stats,
+                        correct_ce=base_ce_loss.detach(),
+                        corrupt_ce=corrupt_ce.detach(),
+                        contrastive_loss=contrastive_loss.detach(),
+                        correct_logits=effective_logits,
+                        corrupt_logits=corrupt_effective_logits,
+                    )
                 skip_optimizer_step = False
                 if not self._is_finite_tensor(loss):
                     non_finite_loss_batches += 1
@@ -1456,6 +1640,7 @@ class ModelTrainer:
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
+                self._accumulate_struct_xattn_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1475,12 +1660,13 @@ class ModelTrainer:
                     batch_target_in_mask_rate=None,
                     batch_samples=int(target_tensor.shape[0]),
                 )
-                logits = self._apply_mask_guided_logits(
-                    logits=logits,
+                raw_logits = logits
+                effective_logits = self._apply_mask_guided_logits(
+                    logits=raw_logits,
                     allowed_mask=allowed_mask,
                     policy=mask_policy,
                 )
-                probs = torch.softmax(logits, dim=1)
+                probs = torch.softmax(effective_logits, dim=1)
                 if not self._is_finite_tensor(probs):
                     probs_sanitized_batches += 1
                     probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
@@ -1580,6 +1766,18 @@ class ModelTrainer:
                     )
                     batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
 
+                self._maybe_record_prediction_traces(
+                    stage_label=stage_label,
+                    contract=contract,
+                    logits=raw_logits,
+                    effective_logits=effective_logits,
+                    probs=probs,
+                    targets=target_tensor,
+                    predictions=pred_tensor,
+                    allowed_mask=allowed_mask,
+                    global_offset=inference_graphs,
+                )
+
                 all_oos_flags_aligned.extend(batch_oos_aligned.tolist())
                 all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
                 all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
@@ -1626,6 +1824,7 @@ class ModelTrainer:
                 probs_sanitized_batches,
             )
         self._log_forward_stats_summary(stage_label, forward_stats)
+        self._log_trace_overhead_metrics()
         test_batches_reporter.done(
             message=f"Test evaluation ({stage_label}) completed",
             current=total_batches if total_batches > 0 else None,
@@ -1835,6 +2034,7 @@ class ModelTrainer:
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
+                self._accumulate_struct_xattn_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1854,12 +2054,13 @@ class ModelTrainer:
                     batch_target_in_mask_rate=None,
                     batch_samples=int(target_tensor.shape[0]),
                 )
-                logits = self._apply_mask_guided_logits(
-                    logits=logits,
+                raw_logits = logits
+                effective_logits = self._apply_mask_guided_logits(
+                    logits=raw_logits,
                     allowed_mask=allowed_mask,
                     policy=mask_policy,
                 )
-                probs = torch.softmax(logits, dim=1)
+                probs = torch.softmax(effective_logits, dim=1)
                 if not self._is_finite_tensor(probs):
                     probs_sanitized_batches += 1
                     probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
@@ -1918,6 +2119,18 @@ class ModelTrainer:
                     )
                     batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
 
+                self._maybe_record_prediction_traces(
+                    stage_label="eval_drift_one_pass",
+                    contract=contract,
+                    logits=raw_logits,
+                    effective_logits=effective_logits,
+                    probs=probs,
+                    targets=target_tensor,
+                    predictions=pred_tensor,
+                    allowed_mask=allowed_mask,
+                    global_offset=inference_graphs,
+                )
+
                 all_trace_idx.extend(data.trace_idx.view(-1).long().detach().cpu().tolist())
                 all_true.extend(target_tensor.detach().cpu().tolist())
                 all_pred.extend(pred_tensor.detach().cpu().tolist())
@@ -1961,6 +2174,7 @@ class ModelTrainer:
                 probs_sanitized_batches,
             )
         self._log_forward_stats_summary("eval_drift_one_pass", forward_stats)
+        self._log_trace_overhead_metrics()
 
         return DriftInferenceRecords(
             trace_idx=np.asarray(all_trace_idx, dtype=np.int64),
@@ -2845,6 +3059,23 @@ class ModelTrainer:
             "structural_prior_gate_sum": 0.0,
             "structural_prior_gate_count": 0,
             "structural_prior_gate_max": 0.0,
+            "struct_xattn_context_mean_abs_sum": 0.0,
+            "struct_xattn_delta_mean_abs_sum": 0.0,
+            "struct_xattn_to_observed_ratio_sum": 0.0,
+            "struct_xattn_attention_entropy_sum": 0.0,
+            "struct_xattn_scale_sum": 0.0,
+            "struct_xattn_gate_mean_sum": 0.0,
+            "struct_xattn_l1_delta_mean_abs_sum": 0.0,
+            "struct_xattn_l2_delta_mean_abs_sum": 0.0,
+            "struct_xattn_l1_attention_entropy_sum": 0.0,
+            "struct_xattn_l2_attention_entropy_sum": 0.0,
+            "struct_xattn_diag_batches": 0,
+            "struct_xattn_correct_ce_sum": 0.0,
+            "struct_xattn_corrupt_ce_sum": 0.0,
+            "struct_xattn_correct_vs_corrupt_ce_delta_sum": 0.0,
+            "struct_xattn_contrastive_loss_sum": 0.0,
+            "struct_xattn_prediction_flip_rate_sum": 0.0,
+            "struct_xattn_contrastive_batches": 0,
         }
 
     def _accumulate_forward_stats(self, bucket: Dict[str, Any], contract: GraphTensorContract) -> None:
@@ -3147,6 +3378,43 @@ class ModelTrainer:
                 float(gate_safe.max().item()),
             )
 
+    def _accumulate_struct_xattn_stats(self, bucket: Dict[str, Any]) -> None:
+        diagnostics = {
+            "context_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_context_mean_abs", None)
+            ),
+            "delta_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_delta_mean_abs", None)
+            ),
+            "to_observed_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_to_observed_ratio", None)
+            ),
+            "attention_entropy": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_attention_entropy", None)
+            ),
+            "scale": self._diagnostic_scalar(getattr(self.model, "last_struct_xattn_scale", None)),
+            "gate_mean": self._diagnostic_scalar(getattr(self.model, "last_struct_xattn_gate_mean", None)),
+            "l1_delta_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_l1_delta_mean_abs", None)
+            ),
+            "l2_delta_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_l2_delta_mean_abs", None)
+            ),
+            "l1_attention_entropy": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_l1_attention_entropy", None)
+            ),
+            "l2_attention_entropy": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_l2_attention_entropy", None)
+            ),
+        }
+        if not any(value is not None for value in diagnostics.values()):
+            return
+        bucket["struct_xattn_diag_batches"] = int(bucket.get("struct_xattn_diag_batches", 0)) + 1
+        for name, value in diagnostics.items():
+            if value is None:
+                continue
+            bucket[f"struct_xattn_{name}_sum"] = float(bucket.get(f"struct_xattn_{name}_sum", 0.0)) + float(value)
+
     @staticmethod
     def _format_unique_values(values: set[Any], limit: int = 3) -> str:
         if not values:
@@ -3293,6 +3561,85 @@ class ModelTrainer:
             else 0.0
         )
         structural_prior_gate_max = float(bucket.get("structural_prior_gate_max", 0.0))
+        struct_xattn_diag_batches = int(bucket.get("struct_xattn_diag_batches", 0))
+        struct_xattn_context_mean_abs = (
+            float(bucket.get("struct_xattn_context_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_delta_mean_abs = (
+            float(bucket.get("struct_xattn_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_to_observed_ratio = (
+            float(bucket.get("struct_xattn_to_observed_ratio_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_attention_entropy = (
+            float(bucket.get("struct_xattn_attention_entropy_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_scale = (
+            float(bucket.get("struct_xattn_scale_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_gate_mean = (
+            float(bucket.get("struct_xattn_gate_mean_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_l1_delta_mean_abs = (
+            float(bucket.get("struct_xattn_l1_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_l2_delta_mean_abs = (
+            float(bucket.get("struct_xattn_l2_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_l1_attention_entropy = (
+            float(bucket.get("struct_xattn_l1_attention_entropy_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_l2_attention_entropy = (
+            float(bucket.get("struct_xattn_l2_attention_entropy_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_contrastive_batches = int(bucket.get("struct_xattn_contrastive_batches", 0))
+        struct_xattn_correct_ce = (
+            float(bucket.get("struct_xattn_correct_ce_sum", 0.0)) / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        struct_xattn_corrupt_ce = (
+            float(bucket.get("struct_xattn_corrupt_ce_sum", 0.0)) / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        struct_xattn_correct_vs_corrupt_ce_delta = (
+            float(bucket.get("struct_xattn_correct_vs_corrupt_ce_delta_sum", 0.0))
+            / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        struct_xattn_contrastive_loss = (
+            float(bucket.get("struct_xattn_contrastive_loss_sum", 0.0)) / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        struct_xattn_prediction_flip_rate = (
+            float(bucket.get("struct_xattn_prediction_flip_rate_sum", 0.0))
+            / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -3315,7 +3662,15 @@ class ModelTrainer:
             "topology_graph_logits_mean_abs=%.6f topology_graph_entropy=%.6f "
             "observed_context_mean_abs=%.6f structural_prior_context_mean_abs=%.6f "
             "structural_prior_to_observed_context_ratio=%.6f "
-            "structural_prior_gate_mean=%.6f structural_prior_gate_max=%.6f",
+            "structural_prior_gate_mean=%.6f structural_prior_gate_max=%.6f "
+            "struct_xattn_context_mean_abs=%.6f struct_xattn_delta_mean_abs=%.6f "
+            "struct_xattn_to_observed_ratio=%.6f struct_xattn_attention_entropy=%.6f "
+            "struct_xattn_scale=%.6f struct_xattn_gate_mean=%.6f "
+            "struct_xattn_l1_delta_mean_abs=%.6f struct_xattn_l2_delta_mean_abs=%.6f "
+            "struct_xattn_l1_attention_entropy=%.6f struct_xattn_l2_attention_entropy=%.6f "
+            "struct_xattn_correct_ce=%.6f struct_xattn_corrupt_ce=%.6f "
+            "struct_xattn_correct_vs_corrupt_ce_delta=%.6f "
+            "struct_xattn_contrastive_loss=%.6f struct_xattn_prediction_flip_rate=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -3365,6 +3720,21 @@ class ModelTrainer:
             structural_prior_to_observed_context_ratio,
             structural_prior_gate_mean,
             structural_prior_gate_max,
+            struct_xattn_context_mean_abs,
+            struct_xattn_delta_mean_abs,
+            struct_xattn_to_observed_ratio,
+            struct_xattn_attention_entropy,
+            struct_xattn_scale,
+            struct_xattn_gate_mean,
+            struct_xattn_l1_delta_mean_abs,
+            struct_xattn_l2_delta_mean_abs,
+            struct_xattn_l1_attention_entropy,
+            struct_xattn_l2_attention_entropy,
+            struct_xattn_correct_ce,
+            struct_xattn_corrupt_ce,
+            struct_xattn_correct_vs_corrupt_ce_delta,
+            struct_xattn_contrastive_loss,
+            struct_xattn_prediction_flip_rate,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -3420,6 +3790,125 @@ class ModelTrainer:
             if structural_prior_gate_count > 0:
                 self.tracker.log_metric(f"{metric_prefix}_structural_prior_gate_mean", structural_prior_gate_mean)
                 self.tracker.log_metric(f"{metric_prefix}_structural_prior_gate_max", structural_prior_gate_max)
+        if self.tracker is not None and struct_xattn_diag_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_context_mean_abs", struct_xattn_context_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_delta_mean_abs", struct_xattn_delta_mean_abs)
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_to_observed_ratio",
+                struct_xattn_to_observed_ratio,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_attention_entropy",
+                struct_xattn_attention_entropy,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_scale", struct_xattn_scale)
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_gate_mean", struct_xattn_gate_mean)
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_l1_delta_mean_abs",
+                struct_xattn_l1_delta_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_l2_delta_mean_abs",
+                struct_xattn_l2_delta_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_l1_attention_entropy",
+                struct_xattn_l1_attention_entropy,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_l2_attention_entropy",
+                struct_xattn_l2_attention_entropy,
+            )
+        if self.tracker is not None and struct_xattn_contrastive_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_correct_ce", struct_xattn_correct_ce)
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_corrupt_ce", struct_xattn_corrupt_ce)
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_correct_vs_corrupt_ce_delta",
+                struct_xattn_correct_vs_corrupt_ce_delta,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_struct_xattn_contrastive_loss", struct_xattn_contrastive_loss)
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_prediction_flip_rate",
+                struct_xattn_prediction_flip_rate,
+            )
+
+    def _maybe_record_prediction_traces(
+        self,
+        *,
+        stage_label: str,
+        contract: GraphTensorContract,
+        logits: torch.Tensor,
+        effective_logits: torch.Tensor,
+        probs: torch.Tensor,
+        targets: torch.Tensor,
+        predictions: torch.Tensor,
+        allowed_mask: torch.Tensor | None,
+        global_offset: int,
+    ) -> None:
+        if self.trace_recorder is None or not bool(self.trace_policy.enabled):
+            return
+        if probs.dim() != 2 or targets.numel() <= 0 or predictions.numel() <= 0:
+            return
+        batch_size = int(min(probs.size(0), targets.view(-1).size(0), predictions.view(-1).size(0)))
+        version_labels = contract.get("process_version_labels")
+        if not isinstance(version_labels, list):
+            version_labels = ["__unknown__"] * batch_size
+        normalized_mask = allowed_mask
+        if isinstance(normalized_mask, torch.Tensor) and normalized_mask.dim() == 1:
+            normalized_mask = normalized_mask.unsqueeze(0)
+
+        for row in range(batch_size):
+            version = str(version_labels[row]) if row < len(version_labels) else "__unknown__"
+            target_idx = int(targets.view(-1)[row].detach().cpu().item())
+            pred_idx = int(predictions.view(-1)[row].detach().cpu().item())
+            confidence = float(probs[row, pred_idx].detach().float().cpu().item())
+            target_in_mask: bool | None = None
+            pred_in_mask: bool | None = None
+            if isinstance(normalized_mask, torch.Tensor) and normalized_mask.numel() > 0:
+                mask_row = normalized_mask[row if normalized_mask.size(0) > row else 0].detach().bool().cpu()
+                if target_idx < int(mask_row.numel()):
+                    target_in_mask = bool(mask_row[target_idx].item())
+                if pred_idx < int(mask_row.numel()):
+                    pred_in_mask = bool(mask_row[pred_idx].item())
+            reason = classify_trace_reason(
+                strict_correct=bool(target_idx == pred_idx),
+                pred_in_mask=pred_in_mask,
+                target_in_mask=target_in_mask,
+                confidence=confidence,
+                version_seen=self.trace_policy.version_seen(version),
+                high_confidence_threshold=self.trace_policy.high_confidence_threshold,
+                low_confidence_threshold=self.trace_policy.low_confidence_threshold,
+            )
+            if not self.trace_policy.should_record(stage=stage_label, version=version, reason=reason):
+                continue
+            started = perf_counter()
+            event = build_structural_prediction_trace_event(
+                stage=stage_label,
+                global_index=int(global_offset + row),
+                contract=contract,
+                logits=logits,
+                effective_logits=effective_logits,
+                probs=probs,
+                targets=targets,
+                predictions=predictions,
+                model=self.model,
+                reverse_activity_vocab=self._reverse_activity_vocab,
+                row_index=row,
+                reason=str(reason or "random"),
+                top_k=int(self.trace_policy.top_k),
+            )
+            self.trace_recorder.record(event)
+            self._trace_events_recorded += 1
+            self._trace_record_time_ms_total += float((perf_counter() - started) * 1000.0)
+
+    def _log_trace_overhead_metrics(self) -> None:
+        if self.tracker is None or self._trace_events_recorded <= 0:
+            return
+        total_ms = float(self._trace_record_time_ms_total)
+        count = int(self._trace_events_recorded)
+        self.tracker.log_metric("tracing_events_recorded", float(count))
+        self.tracker.log_metric("tracing_record_time_ms_total", total_ms)
+        self.tracker.log_metric("tracing_record_time_ms_per_event", total_ms / max(float(count), 1.0))
 
     def _warn_if_mixed_snapshot_versions(self, data: Data) -> None:
         snapshot_version_idx = getattr(data, "stats_snapshot_version_idx", None)
@@ -3651,6 +4140,19 @@ class ModelTrainer:
                     values = [int(item) for item in raw_tensor.view(-1).long().cpu().tolist()]
                     if values:
                         contract[contract_key] = values  # type: ignore[typeddict-unknown-key]
+        for attr_name in ("trace_idx", "prefix_idx", "prefix_len"):
+            if hasattr(data, attr_name):
+                raw_tensor = getattr(data, attr_name)
+                if isinstance(raw_tensor, torch.Tensor):
+                    contract[attr_name] = raw_tensor.detach().long().cpu()  # type: ignore[typeddict-unknown-key]
+        if hasattr(data, "process_version_idx"):
+            raw_tensor = data.process_version_idx
+            if isinstance(raw_tensor, torch.Tensor):
+                labels: List[str] = []
+                for idx in raw_tensor.view(-1).long().cpu().tolist():
+                    labels.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
+                if labels:
+                    contract["process_version_labels"] = labels  # type: ignore[typeddict-unknown-key]
         return contract
 
     def _log_model_and_system_context(self) -> None:

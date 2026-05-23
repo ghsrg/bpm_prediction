@@ -12,7 +12,7 @@ MVP2.5 currently includes:
 3. Repository-backed structure consumption in train/eval/infer via `IKnowledgeGraphPort`.
 4. Snapshot-based historical lookup (`as_of`) for temporal-safe experiments.
 5. Operational tooling for topology/instance visualization, cache cleanup,
-   XES version labeling, versioned log simulation, desktop UI, and web UI.
+   XES version labeling, versioned log simulation, and desktop Experiment UI.
 
 Runtime model/tensor details are specified in:
 1. `docs/GNN_RUNTIME_MVP2_5.MD`.

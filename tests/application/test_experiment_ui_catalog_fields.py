@@ -72,3 +72,57 @@ def test_catalog_includes_topology_conditioned_learning_strategy_fields():
 
     assert required.issubset(set(catalog))
     assert catalog["training.learning_strategy"]["enum"] == ["standard", "topology_conditioned"]
+
+
+def test_catalog_includes_versioned_fraction_split_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "experiment.fraction",
+        "experiment.fraction_strategy",
+        "experiment.split_ratio",
+        "experiment.split_strategy",
+        "experiment.train_ratio",
+        "experiment.version_scope_policy",
+    }
+
+    assert required.issubset(set(catalog))
+    assert "versioned" in catalog["experiment.split_strategy"]["enum"]
+    for field_name in required:
+        assert catalog[field_name]["ui"]["group"] == "core"
+    assert {
+        field_name: catalog[field_name]["ui"]["order"]
+        for field_name in required
+    } == {
+        "experiment.fraction": 4,
+        "experiment.fraction_strategy": 5,
+        "experiment.train_ratio": 6,
+        "experiment.split_strategy": 7,
+        "experiment.split_ratio": 8,
+        "experiment.version_scope_policy": 9,
+    }
+
+
+def test_experiment_uis_surface_versioned_fraction_split_core_fields():
+    desktop_source = Path("tools/experiment_ui.py").read_text(encoding="utf-8")
+
+    for field_name in ("fraction_strategy", "version_scope_policy"):
+        assert f'self.vars["{field_name}"]' in desktop_source
+        assert f"experiment.{field_name}" in desktop_source
+
+
+def test_web_experiment_ui_is_removed_from_active_project_routing():
+    assert not Path("tools/web_experiment_ui_app.py").exists()
+    assert not Path("tools/web_ui.py").exists()
+
+    for path in [
+        Path("AGENTS.MD"),
+        Path("docs/current/project-state.md"),
+        Path("docs/ARCHITECTURE_MVP2_5.MD"),
+        Path("docs/UI_SPECA.MD"),
+    ]:
+        text = path.read_text(encoding="utf-8")
+        assert "web_experiment_ui_app.py" not in text
+        assert "web UI" not in text
+        assert "web prototype" not in text

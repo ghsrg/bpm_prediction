@@ -52,6 +52,7 @@ def test_build_trace_recorder_returns_none_when_disabled(tmp_path):
     recorder = _build_trace_recorder(
         tracking_cfg={"tracing": {"enabled": False}},
         run_id="abc",
+        experiment_id="exp-1",
         output_dir=str(tmp_path),
     )
 
@@ -67,6 +68,7 @@ def test_build_trace_recorder_creates_mlflow_recorder_with_json_fallback(tmp_pat
             }
         },
         run_id="abc",
+        experiment_id="exp-1",
         output_dir=str(tmp_path),
     )
 

@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import pytest
 
 from src.application.services.topology_conditioned_learning import (
+    allowed_set_mass_leakage,
     allowed_set_loss,
     margin_negative_loss,
     version_weighted_cross_entropy,
@@ -29,6 +30,17 @@ def test_allowed_set_loss_forces_target_allowed_when_mask_misses_target():
 
     assert torch.isfinite(loss)
     assert loss < F.cross_entropy(logits, targets)
+
+
+def test_allowed_set_mass_leakage_measures_probability_outside_allowed_set():
+    logits = torch.tensor([[4.0, 3.0, -2.0]], dtype=torch.float32)
+    targets = torch.tensor([1], dtype=torch.long)
+    allowed = torch.tensor([[True, True, False]])
+
+    leakage = allowed_set_mass_leakage(logits, targets, allowed)
+    probs = torch.softmax(logits, dim=1)
+
+    assert leakage == torch.sum(probs[:, 2])
 
 
 def test_margin_negative_loss_penalizes_when_wrong_ce_is_not_worse():

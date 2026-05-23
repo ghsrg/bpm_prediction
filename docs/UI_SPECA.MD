@@ -1,12 +1,12 @@
 ﻿# UI_SPECA.MD
 
-Updated: 2026-03-26
-Status: Implemented (catalog-driven desktop UI) + web prototype available
+Updated: 2026-05-22
+Status: Implemented legacy Tkinter UI; PySide6 prototype in progress
 
 ## 1. Objective
 CLI is the primary execution interface.
-`experiment-ui` is the convenience interactive wrapper.
-`web-ui` is currently a prototype and not primary.
+`experiment-ui` is the stable legacy Tkinter wrapper.
+`ui` is the parallel PySide6 prototype for the next catalog-driven desktop UI.
 
 ## 2. Single Source of Config Metadata
 Metadata catalog file:
@@ -26,6 +26,9 @@ Catalog stores per field:
 At startup, UI syncs pool-discovered config keys into this catalog (missing keys are auto-added).
 
 ## 3. UI Structure
+
+### 3.1 Legacy Tkinter UI
+
 Main tabs:
 1. `General`
 2. `Input Data`
@@ -39,6 +42,25 @@ Subtabs:
 3. `Input Data`: `Source + Runtime`, `Features / Policies`
 4. `Input Data -> Source + Runtime`: `Common`, `XES Mapping`, `Camunda Runtime`, `Camunda Mapping`
 5. `EOPKG / Structure`: `Backend`, `Structure`, `Sync Stats`, `Graph Mapping`
+
+### 3.2 PySide6 Prototype UI
+
+Launch:
+
+```powershell
+.\.venv\Scripts\python.exe main.py ui
+```
+
+Top-level navigation:
+
+1. `Project Setup`: stable data/source/adapter/BPMN/Neo4j/stats settings.
+2. `Experiment Run`: frequently changed experiment controls.
+3. `Run Status / Logs`: mode-aware status and log review.
+4. `Advanced`: rare and mode-specific tuning.
+
+The prototype uses `tools/desktop_ui/field_registry.py` to classify fields from
+`configs/ui/config_catalog.yaml` plus the audit matrix
+`outputs/ui/desktop_ui_field_dependency_matrix.csv`.
 
 ## 4. Dynamic Forms
 Dynamic forms expose full pooled parameter set from merged configs under `configs/**` for sections:

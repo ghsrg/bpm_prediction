@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Iterator
 
 import numpy as np
@@ -12,6 +13,7 @@ from torch_geometric.loader import DataLoader
 from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
+from src.infrastructure.runtime.progress_events import PROGRESS_EVENT_PREFIX
 
 
 class _FailOnReadAdapter:
@@ -162,11 +164,40 @@ def test_collect_drift_inference_records_is_compact(tmp_path):
     assert not hasattr(records, "y_prob")
 
 
+def test_collect_drift_inference_records_emits_one_pass_progress_events(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
+    trainer = _trainer(tmp_path)
+    loader = DataLoader(
+        [
+            _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
+            _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+            _sample(trace_idx=2, target=0, pred=2, mask=[True, False, True]),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+
+    records = trainer._collect_drift_inference_records(loader)
+
+    assert records.trace_idx.tolist() == [0, 1, 2]
+    output = capsys.readouterr().out
+    events = [
+        json.loads(line[len(PROGRESS_EVENT_PREFIX) :])
+        for line in output.splitlines()
+        if line.startswith(PROGRESS_EVENT_PREFIX)
+    ]
+    one_pass_events = [event for event in events if event.get("stage") == "eval_drift.one_pass_inference"]
+
+    assert [event.get("status") for event in one_pass_events] == ["start", "update", "update", "done"]
+    assert one_pass_events[-1]["current"] == 3
+    assert one_pass_events[-1]["total"] == 3
+
+
 def test_record_metrics_match_evaluate_test_for_full_dataset(tmp_path):
     trainer = _trainer(tmp_path)
     samples = [
         _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
-        _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+        _sample(trace_idx=1, target=2, pred=1, mask=[False, False, True]),
         _sample(trace_idx=2, target=0, pred=2, mask=[True, False, True]),
     ]
 
@@ -211,7 +242,7 @@ def test_run_eval_drift_uses_one_pass_prebuilt_dataset_without_legacy_graph_rebu
     trainer = _trainer(tmp_path, drift_window_size=2, drift_window_sliding=1)
     samples = [
         _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
-        _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+        _sample(trace_idx=1, target=2, pred=1, mask=[False, False, True]),
         _sample(trace_idx=2, target=0, pred=2, mask=[True, False, True]),
         _sample(trace_idx=3, target=1, pred=1, mask=[False, True, False]),
     ]
@@ -258,7 +289,7 @@ def test_one_pass_drift_rows_preserve_legacy_output_keys(tmp_path):
     trainer = _trainer(tmp_path, drift_window_size=2, drift_window_sliding=1)
     samples = [
         _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
-        _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+        _sample(trace_idx=1, target=2, pred=1, mask=[False, False, True]),
     ]
     traces = [_trace(f"c{idx}", idx) for idx in range(2)]
 
@@ -277,12 +308,14 @@ def test_one_pass_drift_rows_preserve_legacy_output_keys(tmp_path):
         "window_test_ece",
         "window_test_set_nll",
         "window_test_oos",
+        "window_oos_confidence_mean",
         "window_target_in_mask_rate",
         "window_pred_in_mask_rate",
         "window_strict_error_but_allowed_rate",
         "window_ambiguous_prefix_rate",
     }
     assert expected_keys.issubset(rows[0].keys())
+    assert rows[0]["window_oos_confidence_mean"] >= 0.0
 
 
 def test_one_pass_drift_logs_legacy_tracker_metric_names(tmp_path):
@@ -291,7 +324,7 @@ def test_one_pass_drift_logs_legacy_tracker_metric_names(tmp_path):
     trainer.tracker = tracker
     samples = [
         _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
-        _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+        _sample(trace_idx=1, target=2, pred=1, mask=[False, False, True]),
     ]
     traces = [_trace(f"c{idx}", idx) for idx in range(2)]
 
@@ -305,6 +338,7 @@ def test_one_pass_drift_logs_legacy_tracker_metric_names(tmp_path):
         "drift_window_test_ece",
         "drift_window_test_set_nll",
         "drift_window_test_oos",
+        "drift_window_oos_confidence_mean",
         "drift_window_target_in_mask_rate",
         "drift_window_pred_in_mask_rate",
         "drift_window_strict_error_but_allowed_rate",

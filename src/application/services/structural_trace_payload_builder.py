@@ -172,6 +172,13 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         attrs["struct_xattn_attention_entropy"] = _safe_attr_float(
             struct_xattn.get("struct_xattn_attention_entropy")
         )
+    for key in (
+        "struct_xattn_raw_to_observed_ratio",
+        "struct_xattn_pre_norm_to_observed_ratio",
+        "struct_xattn_post_norm_to_observed_ratio",
+    ):
+        if key in struct_xattn:
+            attrs[key] = _safe_attr_float(struct_xattn.get(key))
     return {str(key): value for key, value in attrs.items() if value is not None}
 
 
@@ -268,6 +275,24 @@ def _diagnostics_payload(
             }
 
     struct_xattn_values = {
+        "struct_xattn_raw_context_mean_abs": tensor_scalar(
+            getattr(model, "last_struct_xattn_raw_context_mean_abs", None)
+        ),
+        "struct_xattn_pre_norm_delta_mean_abs": tensor_scalar(
+            getattr(model, "last_struct_xattn_pre_norm_delta_mean_abs", None)
+        ),
+        "struct_xattn_post_norm_delta_mean_abs": tensor_scalar(
+            getattr(model, "last_struct_xattn_post_norm_delta_mean_abs", None)
+        ),
+        "struct_xattn_raw_to_observed_ratio": tensor_scalar(
+            getattr(model, "last_struct_xattn_raw_to_observed_ratio", None)
+        ),
+        "struct_xattn_pre_norm_to_observed_ratio": tensor_scalar(
+            getattr(model, "last_struct_xattn_pre_norm_to_observed_ratio", None)
+        ),
+        "struct_xattn_post_norm_to_observed_ratio": tensor_scalar(
+            getattr(model, "last_struct_xattn_post_norm_to_observed_ratio", None)
+        ),
         "struct_xattn_to_observed_ratio": tensor_scalar(
             getattr(model, "last_struct_xattn_to_observed_ratio", None)
         ),

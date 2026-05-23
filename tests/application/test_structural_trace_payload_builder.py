@@ -28,6 +28,12 @@ class _StructXAttnModel:
     fusion_mode = "StructXAttn"
 
     def __init__(self) -> None:
+        self.last_struct_xattn_raw_context_mean_abs = torch.tensor(0.9, requires_grad=True)
+        self.last_struct_xattn_pre_norm_delta_mean_abs = torch.tensor(0.04, requires_grad=True)
+        self.last_struct_xattn_post_norm_delta_mean_abs = torch.tensor(0.7, requires_grad=True)
+        self.last_struct_xattn_raw_to_observed_ratio = torch.tensor(1.1, requires_grad=True)
+        self.last_struct_xattn_pre_norm_to_observed_ratio = torch.tensor(0.05, requires_grad=True)
+        self.last_struct_xattn_post_norm_to_observed_ratio = torch.tensor(0.85, requires_grad=True)
         self.last_struct_xattn_to_observed_ratio = torch.tensor(0.25, requires_grad=True)
         self.last_struct_xattn_attention_entropy = torch.tensor(1.5, requires_grad=True)
         self.last_struct_xattn_gate_mean = torch.tensor(0.2, requires_grad=True)
@@ -136,7 +142,12 @@ def test_payload_builder_includes_struct_xattn_diagnostics():
     )
 
     diagnostics = payload["diagnostics"]["struct_xattn"]
-    assert diagnostics["struct_xattn_to_observed_ratio"] == 0.25
+    assert diagnostics["struct_xattn_raw_context_mean_abs"] == 0.9
+    assert diagnostics["struct_xattn_pre_norm_delta_mean_abs"] == 0.04
+    assert diagnostics["struct_xattn_post_norm_delta_mean_abs"] == 0.7
+    assert diagnostics["struct_xattn_raw_to_observed_ratio"] == 1.1
+    assert diagnostics["struct_xattn_pre_norm_to_observed_ratio"] == 0.05
+    assert diagnostics["struct_xattn_post_norm_to_observed_ratio"] == 0.85
     assert diagnostics["struct_xattn_attention_entropy"] == 1.5
     assert_no_tensors(payload)
 
@@ -168,6 +179,9 @@ def test_trace_event_uses_flat_searchable_attributes():
     assert event.attributes["target_in_mask"] is True
     assert event.attributes["pred_in_mask"] is True
     assert event.attributes["prediction_in_mask"] is True
+    assert event.attributes["struct_xattn_raw_to_observed_ratio"] == 1.1
+    assert event.attributes["struct_xattn_pre_norm_to_observed_ratio"] == 0.05
+    assert event.attributes["struct_xattn_post_norm_to_observed_ratio"] == 0.85
     assert event.attributes["process_version"] == "__unknown__"
     assert all("." not in key for key in event.attributes)
     assert_no_tensors(event.to_dict())

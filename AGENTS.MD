@@ -12,7 +12,7 @@ rules, validation commands, and documentation drift checks only.
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_runtime`: Python local virtual environment
 - `primary_interface`: CLI
-- `last_updated`: 2026-05-21
+- `last_updated`: 2026-05-22
 
 ---
 
@@ -108,7 +108,7 @@ Dependency rules:
 Validation:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\architecture_guard.py
+.\.venv-modern\Scripts\python.exe tools\architecture_guard.py
 ```
 
 ---
@@ -169,8 +169,8 @@ Read:
 
 - `docs/runbooks/mvp2_5-commands.md`
 - `configs/ui/config_catalog.yaml` for config/UI changes
-- `tools/experiment_ui.py` for desktop UI changes
-- `tools/web_experiment_ui_app.py` for web prototype changes
+- `tools/experiment_ui.py` for legacy Tkinter desktop UI changes
+- `tools/desktop_ui/` for the new PySide6 desktop UI prototype
 - `docs/EVF_MVP2_5.MD` for experiment or evaluation semantics
 
 Required rule:
@@ -228,26 +228,27 @@ Worklogs are never source of truth.
 Use only:
 
 ```powershell
-.\.venv\Scripts\python.exe <command>
+.\.venv-modern\Scripts\python.exe <command>
 ```
 
 Do not use:
 
 ```powershell
+.\.venv\Scripts\python.exe <command>
 python
 py -3
 ```
 
-If `.venv\Scripts\python.exe` fails with
+If `.venv-modern\Scripts\python.exe` fails with
 `Unable to create process using ...Python311...`, rerun the same command with
 escalated permissions. The venv is not necessarily broken.
 
 Canonical validation commands:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\architecture_guard.py
-.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
-.\.venv\Scripts\python.exe -m pytest tests/ -v
+.\.venv-modern\Scripts\python.exe tools\architecture_guard.py
+.\.venv-modern\Scripts\python.exe -m pytest -m mvp1_regression -v
+.\.venv-modern\Scripts\python.exe -m pytest tests/ -v
 ```
 
 ---

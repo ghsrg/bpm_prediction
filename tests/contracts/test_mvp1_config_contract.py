@@ -27,7 +27,7 @@ def test_mvp1_experiment_config_contract_is_valid(config_path: str):
 
     experiment = cfg["experiment"]
     assert experiment["mode"] in {"train", "eval_drift", "eval_cross_dataset"}
-    assert experiment["split_strategy"] in {"temporal", "none", "time"}
+    assert experiment["split_strategy"] in {"temporal", "none", "time", "versioned"}
     assert 0.0 < float(experiment["fraction"]) <= 1.0
     assert 0.0 <= float(experiment["train_ratio"]) <= 1.0
     assert len(experiment["split_ratio"]) == 3
@@ -39,4 +39,3 @@ def test_mvp1_experiment_config_contract_is_valid(config_path: str):
     if experiment["mode"] == "eval_drift":
         assert int(experiment["drift_window_size"]) > 0
         assert int(experiment.get("drift_window_sliding", 0) or 0) >= 0
-

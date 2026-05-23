@@ -13,7 +13,7 @@ historical debt worklogs.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-12
+- `last_updated`: 2026-05-22
 
 ---
 
@@ -348,6 +348,80 @@ modes або cache/reporting логіка ще більше збільшать c
 
 Plan a dedicated refactor: move data preparation, cache orchestration, and run
 profile/report assembly into focused application-level services/helpers.
+
+---
+
+### split_fraction_policy_duplication
+
+- `status`: active
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: version-aware fraction/split policy is mirrored in `src/cli.py` and `src/application/use_cases/trainer.py`
+- `target_state`: one application-level split/fraction policy service is used by CLI preparation and trainer preparation
+
+**Description (ukr):**
+
+Після додавання `experiment.fraction_strategy`, `experiment.split_strategy=versioned`
+та `experiment.version_scope_policy` логіка cascade/split тимчасово існує у двох
+місцях: CLI data preparation і `ModelTrainer`. Це зберігає сумісність поточного
+пайплайна, але створює ризик розходження поведінки при майбутніх змінах.
+
+**Impact (ukr):**
+
+Якщо змінювати правила split/fraction лише в одному місці, train/eval або cache
+fingerprint можуть працювати з іншою семантикою, ніж unit-тести trainer path.
+
+**Next direction:**
+
+Extract a focused application service for experiment trace selection:
+`fraction_strategy`, `version_scope_policy`, macro cut, and micro split should
+have one implementation and both CLI and trainer should delegate to it.
+
+---
+
+### desktop_ui_catalog_contract_drift
+
+- `status`: active
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: legacy Tkinter desktop Experiment UI mixes catalog-driven dynamic forms with manually rendered Core fields; a parallel PySide6 registry-driven prototype exists but is not production run UI yet
+- `target_state`: desktop UI renders Project Setup, Experiment Run, and Advanced fields from one field registry derived from `configs/ui/config_catalog.yaml`
+- `audit`: `docs/worklogs/MVP2_5_Desktop_UI_Field_Dependency_Audit_2026-05-22.MD`
+- `matrix`: `outputs/ui/desktop_ui_field_dependency_matrix.csv`
+
+**Description (ukr):**
+
+Desktop UI зараз має кілька source of truth для одного config key:
+`configs/ui/config_catalog.yaml`, ручні Core widgets у `tools/experiment_ui.py`,
+`self.vars`, logic завантаження YAML, defaults, generated config output та
+enable/disable rules. Через це новий параметр може бути реалізований у runtime
+і catalog, але не з'явитися на потрібній вкладці або не потрапити назад у YAML.
+
+Потрібна явна ієрархія полів:
+
+1. `Project Setup`: стабільні налаштування проекту, джерел логів, BPMN/Neo4j,
+   adapter, mapping та stats source.
+2. `Experiment Run`: параметри, які часто змінюються під час порівняння
+   запусків: mode, checkpoint/retrain, fraction/split, structure, mask,
+   statistics, `fusion_mode`, `learning_strategy`.
+3. `Advanced`: рідкісні або mode-specific параметри для тонкого налаштування,
+   debug/tracing, auxiliary losses, dataloader/performance knobs.
+
+**Impact (ukr):**
+
+Додавання нових параметрів у Desktop UI залишається помилконебезпечним:
+поле може бути в catalog, але відсутнє на формі; бути на формі, але не
+завантажуватись з preset; або бути неочевидним для користувача, бо залежність
+від `mode`, `fusion_mode`, `learning_strategy`, `adapter` не відображена.
+
+**Next direction:**
+
+Introduce a `DesktopFieldRegistry` that normalizes catalog metadata into
+`ui_level`, `tab`, `group`, `widget`, `active_when`, `default`,
+`runtime_consumers`, and `derived_writes`. Continue the parallel PySide6
+prototype in `tools/desktop_ui/`: first validate visual layout and field
+coverage, then implement full load/save/run/status/log behavior. Keep composite
+controls such as split-ratio editors and YAML blocks as explicit custom widgets.
 
 ---
 

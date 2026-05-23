@@ -128,5 +128,111 @@ tests/application/test_experiment_ui_catalog_fields.py
 ## Notes
 
 Tracing is disabled by default. Keep limits small for production-scale runs.
+
+## 2026-05-22 Run Binding Fix
+
+Issue observed on preset `_XAt-TC-UNcnt-drift`: eval_drift runs logged
+`tracing_events_recorded=40`, but MLflow Traces did not appear under the
+corresponding run.
+
+Root cause:
+
+- `MLflowTraceRecorder` used `mlflow.start_span()`, but did not explicitly guard
+  the expected active run context.
+- Passing an explicit MLflow `trace_destination` was tested and rejected because
+  it creates traces in the experiment but drops the `mlflow.sourceRun` binding.
+
+Fix:
+
+- `MLflowTraceRecorder` now receives `run_id` and `experiment_id`.
+- If no active MLflow run exists during trace recording, recorder reopens the
+  expected run with `mlflow.start_run(run_id=...)`.
+- Recorder no longer passes `trace_destination` to `mlflow.start_span()`, so
+  MLflow can attach `mlflow.sourceRun` to the active run.
+- JSONL fallback is now also written as a mirror when `start_span()` succeeds.
+  This guarantees inspectable trace payloads in run artifacts even if the MLflow
+  Traces UI/backend behaves unexpectedly.
+
+Verification:
+
+- Existing `_XAt-TC-UNcnt-drift` runs with tracing enabled:
+  - `2da0004b8d9144f1a05a8573f99c854e`: `tracing_events_recorded=40`, no
+    run-linked traces.
+  - `976a8b16658f4b00aaf94d13c9eafcc3`: `tracing_events_recorded=40`, no
+    run-linked traces.
+- Local repro after fix created:
+  - one MLflow trace with `trace_metadata.mlflow.sourceRun=<run_id>`;
+  - one JSONL fallback artifact file.
+
+Relevant validation commands:
+
+```powershell
+.\.venv-modern\Scripts\python.exe -m pytest tests\application\test_trace_sampling_policy.py tests\application\test_structural_trace_payload_builder.py tests\application\test_trainer_selective_tracing.py tests\application\test_cli_flatten_config.py tests\infrastructure\test_mlflow_trace_recorder.py -v
+.\.venv-modern\Scripts\python.exe tools\architecture_guard.py
+```
+
+## 2026-05-22 Seeded Trace ID Collision Fix
+
+Issue:
+
+- With experiment seed `42`, MLflow 3.12 file-store tracing repeatedly emitted:
+  `Yaml file ... trace_info.yaml exists`.
+- The trace IDs matched deterministic values produced by Python
+  `random.seed(42)`.
+- Root cause: MLflow trace ID generation uses global Python `random`, while the
+  training pipeline seeds global random for reproducibility. Re-running the same
+  seeded experiment generated the same `tr-*` IDs and collided with existing
+  trace directories.
+
+Fix:
+
+- `MLflowTraceRecorder` now isolates global random state only while creating the
+  MLflow span.
+- It temporarily seeds random from `os.urandom(16)` for trace ID generation, then
+  restores the exact previous random state.
+- This avoids trace ID collisions without changing model/training
+  reproducibility.
+
+Verification:
+
+- Added test:
+  `tests/infrastructure/test_mlflow_trace_recorder.py::test_mlflow_trace_recorder_isolates_mlflow_trace_id_random`.
+- Local repro: two separate MLflow runs with `random.seed(42)` created three
+  traces each, all correctly linked by `trace_metadata.mlflow.sourceRun`.
+
+## 2026-05-22 MVP Debug Diagnostics Extension
+
+Added compact diagnostics for StructXAttn/topology-conditioned experiments:
+
+1. Scale diagnostics:
+   - `struct_xattn_raw_context_mean_abs`
+   - `struct_xattn_pre_norm_delta_mean_abs`
+   - `struct_xattn_post_norm_delta_mean_abs`
+   - `struct_xattn_raw_to_observed_ratio`
+   - `struct_xattn_pre_norm_to_observed_ratio`
+   - `struct_xattn_post_norm_to_observed_ratio`
+
+2. Loss/gradient diagnostics:
+   - `allowed_set_mass_leakage`
+   - `grad_norm_observed`
+   - `grad_norm_struct_xattn`
+   - `grad_norm_structural`
+   - `struct_xattn_contrastive_margin_violation_rate`
+   - `topology_conditioned_drop_edges_margin_violation_rate`
+   - `topology_conditioned_wrong_version_margin_violation_rate`
+
+3. Drift diagnostics:
+   - `drift_window_oos_confidence_mean`
+
+4. Trace diagnostics:
+   - StructXAttn scale ratios are included in selected trace payloads and flat
+     MLflow span attributes.
+
+Purpose:
+
+- Separate raw structural magnitude from residual `LayerNorm` amplification.
+- Detect whether topology-conditioned losses create gradient imbalance.
+- Distinguish high-confidence toxic OOS predictions from uncertain OOS behavior.
+
 Trace payloads are intended for qualitative explanation of selected samples,
 not for full dataset export.

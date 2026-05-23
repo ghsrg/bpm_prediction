@@ -162,6 +162,93 @@ def test_cascade_prepare_diagnostics_detect_single_version_cut_from_versioned_lo
     assert _format_trace_version_counts(prepared_counts) == "v1:5"
 
 
+def test_cascade_prepare_versioned_fraction_keeps_each_version():
+    traces = []
+    for version_idx, version in enumerate(["v1", "v2", "v3"]):
+        for local_idx in range(5):
+            ts = float((version_idx * 10) + local_idx)
+            traces.append(_build_trace(ts=ts, case_id=f"{version}_c{local_idx}", version=version))
+
+    prepared = _apply_cascade_prepare(
+        traces,
+        mode="train",
+        split_strategy="versioned",
+        train_ratio=1.0,
+        fraction=0.2,
+        fraction_strategy="versioned",
+        version_scope_policy="all",
+    )
+
+    assert _trace_version_counts(prepared) == {"v1": 1, "v2": 1, "v3": 1}
+
+
+def test_trainer_versioned_micro_split_applies_split_ratio_per_version():
+    traces = []
+    for version_idx, version in enumerate(["v1", "v2"]):
+        for local_idx in range(10):
+            ts = float((version_idx * 100) + local_idx)
+            traces.append(_build_trace(ts=ts, case_id=f"{version}_c{local_idx}", version=version))
+
+    trainer = _trainer(
+        experiment_config={
+            "split_strategy": "versioned",
+            "fraction_strategy": "versioned",
+            "version_scope_policy": "all",
+            "train_ratio": 1.0,
+            "fraction": 1.0,
+            "split_ratio": [0.5, 0.2, 0.3],
+        },
+        mode="train",
+    )
+
+    prepared = trainer._prepare_data(traces, mode="train")
+    split = trainer._prepare_split_data(prepared)
+
+    assert _trace_version_counts(split.train) == {"v1": 5, "v2": 5}
+    assert _trace_version_counts(split.val) == {"v1": 2, "v2": 2}
+    assert _trace_version_counts(split.test) == {"v1": 3, "v2": 3}
+
+
+def test_version_scope_train_cut_excludes_future_versions_from_train_prepare():
+    traces = []
+    for version_idx, version in enumerate(["v1", "v2", "v3", "v4"]):
+        for local_idx in range(5):
+            ts = float((version_idx * 10) + local_idx)
+            traces.append(_build_trace(ts=ts, case_id=f"{version}_c{local_idx}", version=version))
+
+    prepared = _apply_cascade_prepare(
+        traces,
+        mode="train",
+        split_strategy="versioned",
+        train_ratio=0.5,
+        fraction=0.4,
+        fraction_strategy="versioned",
+        version_scope_policy="train_cut",
+    )
+
+    assert _trace_version_counts(prepared) == {"v1": 2, "v2": 2}
+
+
+def test_version_scope_train_cut_eval_drift_uses_future_tail_only():
+    traces = []
+    for version_idx, version in enumerate(["v1", "v2", "v3", "v4"]):
+        for local_idx in range(5):
+            ts = float((version_idx * 10) + local_idx)
+            traces.append(_build_trace(ts=ts, case_id=f"{version}_c{local_idx}", version=version))
+
+    prepared = _apply_cascade_prepare(
+        traces,
+        mode="eval_drift",
+        split_strategy="versioned",
+        train_ratio=0.5,
+        fraction=0.4,
+        fraction_strategy="versioned",
+        version_scope_policy="train_cut",
+    )
+
+    assert _trace_version_counts(prepared) == {"v3": 2, "v4": 2}
+
+
 def test_tensor_scale_diagnostics_flags_unbounded_struct_stats():
     dataset = [
         Data(struct_x=torch.tensor([[0.0, 1.0], [2.0, 6_500_000_000.0]], dtype=torch.float32)),

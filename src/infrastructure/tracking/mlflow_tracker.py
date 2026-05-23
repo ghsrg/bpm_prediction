@@ -57,6 +57,13 @@ class MLflowTracker(ITracker):
             return None
         return str(active.info.run_id or "").strip() or None
 
+    def get_experiment_id(self) -> Optional[str]:
+        """Return active MLflow experiment id if available."""
+        active = mlflow.active_run()
+        if active is None or active.info is None:
+            return None
+        return str(active.info.experiment_id or "").strip() or None
+
     @staticmethod
     def find_latest_run_id(
         *,

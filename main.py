@@ -10,7 +10,7 @@ from tools.graph_cache_cleaner import main as graph_cache_cleaner_main
 from tools.add_version2xes import main as add_version2xes_main
 from tools.simulate_versioned_log import main as simulate_versioned_log_main
 from tools.experiment_ui import main as experiment_ui_main
-from tools.web_ui import main as web_ui_main
+from tools.desktop_ui.app import main as desktop_ui_main
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "ingest-topology":
@@ -33,6 +33,6 @@ if __name__ == "__main__":
         sys.exit(graph_cache_cleaner_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "experiment-ui":
         sys.exit(experiment_ui_main(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "web-ui":
-        sys.exit(web_ui_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "ui":
+        sys.exit(desktop_ui_main(sys.argv[2:]))
     sys.exit(train_main())

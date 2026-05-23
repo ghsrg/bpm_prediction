@@ -436,6 +436,12 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_struct_xattn_context_mean_abs: torch.Tensor | None = None
         self.last_struct_xattn_delta_mean_abs: torch.Tensor | None = None
         self.last_struct_xattn_to_observed_ratio: torch.Tensor | None = None
+        self.last_struct_xattn_raw_context_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_pre_norm_delta_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_post_norm_delta_mean_abs: torch.Tensor | None = None
+        self.last_struct_xattn_raw_to_observed_ratio: torch.Tensor | None = None
+        self.last_struct_xattn_pre_norm_to_observed_ratio: torch.Tensor | None = None
+        self.last_struct_xattn_post_norm_to_observed_ratio: torch.Tensor | None = None
         self.last_struct_xattn_attention_entropy: torch.Tensor | None = None
         self.last_struct_xattn_scale: torch.Tensor | None = None
         self.last_struct_xattn_gate_mean: torch.Tensor | None = None
@@ -646,6 +652,12 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.last_struct_xattn_context_mean_abs = None
         self.last_struct_xattn_delta_mean_abs = None
         self.last_struct_xattn_to_observed_ratio = None
+        self.last_struct_xattn_raw_context_mean_abs = None
+        self.last_struct_xattn_pre_norm_delta_mean_abs = None
+        self.last_struct_xattn_post_norm_delta_mean_abs = None
+        self.last_struct_xattn_raw_to_observed_ratio = None
+        self.last_struct_xattn_pre_norm_to_observed_ratio = None
+        self.last_struct_xattn_post_norm_to_observed_ratio = None
         self.last_struct_xattn_attention_entropy = None
         self.last_struct_xattn_scale = None
         self.last_struct_xattn_gate_mean = None
@@ -659,28 +671,38 @@ class EOPKGGATv2(BaseEOPKGModel):
         *,
         layer_name: str,
         context: torch.Tensor,
-        delta: torch.Tensor,
+        pre_norm_delta: torch.Tensor,
+        post_norm_delta: torch.Tensor,
         observed: torch.Tensor,
         attention_entropy: torch.Tensor,
         gate: torch.Tensor | None,
         scale: torch.Tensor,
     ) -> None:
         context_mean_abs = context.detach().abs().mean()
-        delta_mean_abs = delta.detach().abs().mean()
+        pre_norm_delta_mean_abs = pre_norm_delta.detach().abs().mean()
+        post_norm_delta_mean_abs = post_norm_delta.detach().abs().mean()
         observed_mean_abs = observed.detach().abs().mean().clamp_min(1e-12)
-        ratio = delta_mean_abs / observed_mean_abs
+        raw_ratio = context_mean_abs / observed_mean_abs
+        pre_norm_ratio = pre_norm_delta_mean_abs / observed_mean_abs
+        post_norm_ratio = post_norm_delta_mean_abs / observed_mean_abs
         self.last_struct_xattn_context_mean_abs = context_mean_abs
-        self.last_struct_xattn_delta_mean_abs = delta_mean_abs
-        self.last_struct_xattn_to_observed_ratio = ratio
+        self.last_struct_xattn_delta_mean_abs = post_norm_delta_mean_abs
+        self.last_struct_xattn_to_observed_ratio = post_norm_ratio
+        self.last_struct_xattn_raw_context_mean_abs = context_mean_abs
+        self.last_struct_xattn_pre_norm_delta_mean_abs = pre_norm_delta_mean_abs
+        self.last_struct_xattn_post_norm_delta_mean_abs = post_norm_delta_mean_abs
+        self.last_struct_xattn_raw_to_observed_ratio = raw_ratio
+        self.last_struct_xattn_pre_norm_to_observed_ratio = pre_norm_ratio
+        self.last_struct_xattn_post_norm_to_observed_ratio = post_norm_ratio
         self.last_struct_xattn_attention_entropy = attention_entropy.detach()
         self.last_struct_xattn_scale = scale.detach()
         if gate is not None:
             self.last_struct_xattn_gate_mean = gate.detach().mean()
         if layer_name == "l1":
-            self.last_struct_xattn_l1_delta_mean_abs = delta_mean_abs
+            self.last_struct_xattn_l1_delta_mean_abs = post_norm_delta_mean_abs
             self.last_struct_xattn_l1_attention_entropy = attention_entropy.detach()
         elif layer_name == "l2":
-            self.last_struct_xattn_l2_delta_mean_abs = delta_mean_abs
+            self.last_struct_xattn_l2_delta_mean_abs = post_norm_delta_mean_abs
             self.last_struct_xattn_l2_attention_entropy = attention_entropy.detach()
 
     def _apply_struct_xattn_layer(
@@ -715,6 +737,7 @@ class EOPKGGATv2(BaseEOPKGModel):
 
         updated = node_hidden.clone()
         context_all = torch.zeros_like(node_hidden)
+        pre_norm_delta_all = torch.zeros_like(node_hidden)
         gates: list[torch.Tensor] = []
         entropies: list[torch.Tensor] = []
         graph_ids = torch.unique(batch, sorted=True)
@@ -740,15 +763,17 @@ class EOPKGGATv2(BaseEOPKGModel):
                 delta = scale * gate * context
             else:
                 delta = scale * context
-            output = node_hidden[mask] + delta
+            pre_norm_output = node_hidden[mask] + delta
+            output = pre_norm_output
             if self.struct_xattn_use_layer_norm:
                 output = norm(output)
             updated[mask] = output
             context_all[mask] = context
+            pre_norm_delta_all[mask] = delta
             attn_probs = attn_weights.detach().clamp_min(1e-12)
             entropies.append((-(attn_probs * torch.log(attn_probs)).sum(dim=-1)).mean())
 
-        delta_all = updated - node_hidden
+        post_norm_delta_all = updated - node_hidden
         gate_all = torch.cat(gates, dim=0) if gates else None
         entropy = (
             torch.stack(entropies).mean()
@@ -758,7 +783,8 @@ class EOPKGGATv2(BaseEOPKGModel):
         self._record_struct_xattn_layer_stats(
             layer_name=layer_name,
             context=context_all,
-            delta=delta_all,
+            pre_norm_delta=pre_norm_delta_all,
+            post_norm_delta=post_norm_delta_all,
             observed=node_hidden,
             attention_entropy=entropy,
             gate=gate_all,

@@ -240,9 +240,26 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 4
+  experiment.fraction_strategy:
+    path: experiment.fraction_strategy
+    section: experiment
+    label: Fraction strategy
+    description: Data fraction strategy. temporal preserves chronological sampling; versioned samples independently per process version.
+    affects: Data split and experiment validity.
+    default: temporal
+    enum:
+    - temporal
+    - versioned
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 5
   experiment.load_checkpoint:
     path: experiment.load_checkpoint
     section: experiment
@@ -360,9 +377,9 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 8
   experiment.split_strategy:
     path: experiment.split_strategy
     section: experiment
@@ -372,13 +389,15 @@ fields:
     default: ''
     enum:
     - temporal
+    - none
+    - versioned
     required_in_modes: []
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 7
   experiment.stats_time_policy:
     path: experiment.stats_time_policy
     section: experiment
@@ -412,9 +431,26 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 6
+  experiment.version_scope_policy:
+    path: experiment.version_scope_policy
+    section: experiment
+    label: Version scope policy
+    description: Version leakage control for versioned fraction/split. all uses all selected versions; train_cut restricts train to versions known before train_ratio cut and keeps future versions for eval tail.
+    affects: Data split and future-version leakage control.
+    default: all
+    enum:
+    - all
+    - train_cut
+    required_in_modes: []
+    required_when: {}
+    ui:
+      tab: general
+      group: core
+      priority: 1
+      order: 9
   experiment.structural_mode:
     path: experiment.structural_mode
     section: experiment
@@ -1338,9 +1374,9 @@ fields:
     required_when: {}
     ui:
       tab: input
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 4
   mapping.xes_adapter.lifecycle_key:
     path: mapping.xes_adapter.lifecycle_key
     section: mapping
@@ -3256,9 +3292,9 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 7
   training.mask_guided_hard_threshold:
     path: training.mask_guided_hard_threshold
     section: training
@@ -3271,9 +3307,9 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 8
   training.mask_guided_soft_penalty:
     path: training.mask_guided_soft_penalty
     section: training
@@ -3286,9 +3322,9 @@ fields:
     required_when: {}
     ui:
       tab: general
-      group: advanced
-      priority: 100
-      order: 1000
+      group: core
+      priority: 1
+      order: 9
   training.mask_guided_min_samples_for_hard:
     path: training.mask_guided_min_samples_for_hard
     section: training

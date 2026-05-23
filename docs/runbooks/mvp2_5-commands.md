@@ -1,4 +1,4 @@
-# MVP2.5 Commands Runbook
+﻿# MVP2.5 Commands Runbook
 
 Operational command reference for MVP2.5 Stage 4.2.
 
@@ -10,7 +10,7 @@ Operational command reference for MVP2.5 Stage 4.2.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-04-27
+- `last_updated`: 2026-05-22
 - `primary_interface`: CLI
 
 ---
@@ -20,7 +20,7 @@ Operational command reference for MVP2.5 Stage 4.2.
 Use the project virtual environment:
 
 ```powershell
-.\.venv\Scripts\python.exe <command>
+.\.venv-modern\Scripts\python.exe <command>
 ```
 
 **Description (ukr):**
@@ -33,9 +33,9 @@ Use the project virtual environment:
 ## Validation
 
 ```powershell
-.\.venv\Scripts\python.exe tools\architecture_guard.py
-.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
-.\.venv\Scripts\python.exe -m pytest tests/ -v
+.\.venv-modern\Scripts\python.exe tools\architecture_guard.py
+.\.venv-modern\Scripts\python.exe -m pytest -m mvp1_regression -v
+.\.venv-modern\Scripts\python.exe -m pytest tests/ -v
 ```
 
 ---
@@ -45,19 +45,19 @@ Use the project virtual environment:
 ### train
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --config configs/experiments/02_train_bpi2012.yaml
+.\.venv-modern\Scripts\python.exe main.py --config configs/experiments/02_train_bpi2012.yaml
 ```
 
 ### eval_drift
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
+.\.venv-modern\Scripts\python.exe main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
 ```
 
 ### generic_train_eval
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --config <train_or_eval_experiment.yaml>
+.\.venv-modern\Scripts\python.exe main.py --config <train_or_eval_experiment.yaml>
 ```
 
 ---
@@ -67,7 +67,7 @@ Use the project virtual environment:
 ### ingest_topology_single_dataset
 
 ```powershell
-.\.venv\Scripts\python.exe main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
+.\.venv-modern\Scripts\python.exe main.py ingest-topology --config configs/experiments/02_train_bpi2012.yaml --out outputs/bpi2012_ingest_summary.json
 ```
 
 ### ingest_topology_cli_keys
@@ -81,7 +81,7 @@ Use the project virtual environment:
 ### sync_topology_bulk
 
 ```powershell
-.\.venv\Scripts\python.exe main.py sync-topology --config <sync_topology_experiment.yaml> --out outputs/sync_topology.json
+.\.venv-modern\Scripts\python.exe main.py sync-topology --config <sync_topology_experiment.yaml> --out outputs/sync_topology.json
 ```
 
 ### sync_topology_config_matrix
@@ -102,27 +102,27 @@ configs/experiments/mvp2_5_stage4_2_sync_xes_dir_neo4j.yaml
 ### sync_stats_latest_or_auto_asof
 
 ```powershell
-.\.venv\Scripts\python.exe main.py sync-stats --config <sync_stats_experiment.yaml> --out outputs/sync_stats.json
+.\.venv-modern\Scripts\python.exe main.py sync-stats --config <sync_stats_experiment.yaml> --out outputs/sync_stats.json
 ```
 
 ### sync_stats_explicit_asof
 
 ```powershell
-.\.venv\Scripts\python.exe main.py sync-stats --config <sync_stats_experiment.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
+.\.venv-modern\Scripts\python.exe main.py sync-stats --config <sync_stats_experiment.yaml> --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_asof.json
 ```
 
 ### sync_stats_xes_lite
 
 ```powershell
-.\.venv\Scripts\python.exe main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --out outputs/sync_stats_xes.json
-.\.venv\Scripts\python.exe main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_xes_asof.json
+.\.venv-modern\Scripts\python.exe main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --out outputs/sync_stats_xes.json
+.\.venv-modern\Scripts\python.exe main.py sync-stats --config configs/experiments/mvp2_5_stage3_4_sync_stats_xes.yaml --as-of 2024-01-01T00:00:00Z --out outputs/sync_stats_xes_asof.json
 ```
 
 ### sync_stats_backfill
 
 ```powershell
-.\.venv\Scripts\python.exe main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step weekly --out-dir outputs/sync_stats_backfill
-.\.venv\Scripts\python.exe main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
+.\.venv-modern\Scripts\python.exe main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step weekly --out-dir outputs/sync_stats_backfill
+.\.venv-modern\Scripts\python.exe main.py sync-stats-backfill --config <sync_stats_experiment.yaml> --step monthly --from 2024-01-01T00:00:00Z --to 2024-12-31T23:59:59Z
 ```
 
 `backfill_summary.json` includes:
@@ -197,14 +197,14 @@ sync_stats:
 ### visualize_topology_repository
 
 ```powershell
-.\.venv\Scripts\python.exe main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
+.\.venv-modern\Scripts\python.exe main.py visualize-topology --config <experiment.yaml> --version <version_key> --out outputs/topology.png
 ```
 
 ### visualize_topology_from_raw
 
 ```powershell
-.\.venv\Scripts\python.exe main.py visualize-topology --config <experiment.yaml> --from-raw --version <version_key> --out outputs/topology_raw.png
-.\.venv\Scripts\python.exe main.py visualize-topology --data "../Data/Business Process Drift/logs/cb/cb2.5k.xes" --from-raw --version <version_key> --out outputs/topology_raw_xes.png
+.\.venv-modern\Scripts\python.exe main.py visualize-topology --config <experiment.yaml> --from-raw --version <version_key> --out outputs/topology_raw.png
+.\.venv-modern\Scripts\python.exe main.py visualize-topology --data "../Data/Business Process Drift/logs/cb/cb2.5k.xes" --from-raw --version <version_key> --out outputs/topology_raw_xes.png
 ```
 
 ### visualize_topology_cli_keys
@@ -225,13 +225,13 @@ sync_stats:
 ### visualize_graph_instance
 
 ```powershell
-.\.venv\Scripts\python.exe main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
+.\.venv-modern\Scripts\python.exe main.py visualize-graph --config <experiment.yaml> --case-id <PROC_INST_ID> --out outputs/ig_case.png
 ```
 
 ### visualize_graph_pick_case
 
 ```powershell
-.\.venv\Scripts\python.exe main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --pick with-call-activity --index 0 --out outputs/ig_call_case.png
+.\.venv-modern\Scripts\python.exe main.py visualize-graph --config configs/experiments/mvp2_5_stage3_1_baseline_files.yaml --pick with-call-activity --index 0 --out outputs/ig_call_case.png
 ```
 
 ### visualize_graph_cli_keys
@@ -259,21 +259,21 @@ sync_stats:
 ### mxml_to_xes
 
 ```powershell
-.\.venv\Scripts\python.exe tools\mxml2xes_convertor.py --input "../Data/Business Process Drift/logs/cb/cb2.5k.mxml" --output "../Data/Business Process Drift/logs/cb/cb2.5k.xes"
+.\.venv-modern\Scripts\python.exe tools\mxml2xes_convertor.py --input "../Data/Business Process Drift/logs/cb/cb2.5k.mxml" --output "../Data/Business Process Drift/logs/cb/cb2.5k.xes"
 ```
 
 ### add_version_to_xes
 
 ```powershell
-.\.venv\Scripts\python.exe main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml
-.\.venv\Scripts\python.exe main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml --out outputs/add_version2xes_summary.json
+.\.venv-modern\Scripts\python.exe main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml
+.\.venv-modern\Scripts\python.exe main.py add-version2xes --config configs/tools/add_version2xes_re2.5.yaml --out outputs/add_version2xes_summary.json
 ```
 
 ### simulate_versioned_log
 
 ```powershell
-.\.venv\Scripts\python.exe main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
-.\.venv\Scripts\python.exe main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml --out outputs/simulate_versioned_log_summary.json
+.\.venv-modern\Scripts\python.exe main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml
+.\.venv-modern\Scripts\python.exe main.py simulate-versioned-log --config configs/tools/simulate_versioned_log_demo.yaml --out outputs/simulate_versioned_log_summary.json
 ```
 
 ### simulate_versioned_log_cli_keys
@@ -294,45 +294,44 @@ sync_stats:
 ### cache_clean
 
 ```powershell
-.\.venv\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets
+.\.venv-modern\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets
 ```
 
 ### cache_clean_dry_run
 
 ```powershell
-.\.venv\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --older-than-days 7 --keep-last 5
+.\.venv-modern\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --older-than-days 7 --keep-last 5
 ```
 
 ### cache_clean_size_limit
 
 ```powershell
-.\.venv\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --max-size-gb 8 --keep-last 5
-.\.venv\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 8 --keep-last 5
+.\.venv-modern\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --dry-run --max-size-gb 8 --keep-last 5
+.\.venv-modern\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --max-size-gb 8 --keep-last 5
 ```
 
 ---
 
 ## UI Commands
 
-### web_ui
-
-```powershell
-.\.venv\Scripts\python.exe main.py web-ui
-.\.venv\Scripts\python.exe main.py web-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-```
-
 ### experiment_ui
 
 ```powershell
-.\.venv\Scripts\python.exe tools\experiment_ui.py --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
-.\.venv\Scripts\python.exe main.py experiment-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+.\.venv-modern\Scripts\python.exe tools\experiment_ui.py --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+.\.venv-modern\Scripts\python.exe main.py experiment-ui --config configs/experiments/mvp2_5_stage4_2_eopkg_files_stat.yaml
+```
+
+### py_side_ui_prototype
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py ui
 ```
 
 Operational stance:
 
 1. CLI is primary.
-2. `experiment-ui` is a convenience wrapper.
-3. `web-ui` is a prototype.
+2. `experiment-ui` is the supported legacy Tkinter desktop wrapper.
+3. `ui` is the parallel PySide6 desktop prototype for the new catalog-driven layout; do not treat it as the production run UI until Phase 2 is implemented.
 
 ---
 
@@ -341,7 +340,9 @@ Operational stance:
 ### experiment
 
 - `mode`: `train | eval_drift | eval_cross_dataset`
-- `split_strategy`: `temporal | none`
+- `split_strategy`: `temporal | versioned | none`
+- `fraction_strategy`: `temporal | versioned`
+- `version_scope_policy`: `all | train_cut`
 - `train_ratio`, `fraction`, `split_ratio`
 - `graph_dataset_cache_policy`: `off | read | write | full`
 - `graph_dataset_cache_dir`
@@ -392,3 +393,4 @@ Operational stance:
 - `min_unique_activity_coverage`
 - `min_node_coverage`
 - `on_fail`: `write_with_flag | skip_snapshot | raise`
+

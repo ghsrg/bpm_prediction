@@ -85,6 +85,12 @@ def test_struct_xattn_forward_shape_and_diagnostics():
     assert model.last_struct_xattn_context_mean_abs is not None
     assert model.last_struct_xattn_delta_mean_abs is not None
     assert model.last_struct_xattn_to_observed_ratio is not None
+    assert model.last_struct_xattn_raw_context_mean_abs is not None
+    assert model.last_struct_xattn_pre_norm_delta_mean_abs is not None
+    assert model.last_struct_xattn_post_norm_delta_mean_abs is not None
+    assert model.last_struct_xattn_raw_to_observed_ratio is not None
+    assert model.last_struct_xattn_pre_norm_to_observed_ratio is not None
+    assert model.last_struct_xattn_post_norm_to_observed_ratio is not None
     assert model.last_struct_xattn_attention_entropy is not None
     assert model.last_struct_xattn_scale is not None
     assert model.last_struct_xattn_gate_mean is not None

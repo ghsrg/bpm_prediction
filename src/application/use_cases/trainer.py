@@ -40,6 +40,7 @@ from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.services.learning_strategy_config import LearningStrategyConfig
 from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
 from src.application.services.topology_conditioned_learning import (
+    allowed_set_mass_leakage,
     allowed_set_loss,
     margin_negative_loss,
     version_weighted_cross_entropy,
@@ -1085,8 +1086,16 @@ class ModelTrainer:
         split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
         if split_strategy == "time":
             split_strategy = "temporal"
-        if split_strategy not in {"temporal", "none"}:
-            raise ValueError("experiment.split_strategy must be 'temporal' or 'none'.")
+        if split_strategy not in {"temporal", "none", "versioned"}:
+            raise ValueError("experiment.split_strategy must be 'temporal', 'none', or 'versioned'.")
+
+        fraction_strategy = str(experiment_cfg.get("fraction_strategy", "temporal")).strip().lower()
+        if fraction_strategy not in {"temporal", "versioned"}:
+            raise ValueError("experiment.fraction_strategy must be 'temporal' or 'versioned'.")
+
+        version_scope_policy = str(experiment_cfg.get("version_scope_policy", "all")).strip().lower()
+        if version_scope_policy not in {"all", "train_cut"}:
+            raise ValueError("experiment.version_scope_policy must be 'all' or 'train_cut'.")
 
         train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
         if train_ratio < 0.0 or train_ratio > 1.0:
@@ -1104,30 +1113,46 @@ class ModelTrainer:
             logger.info("Found %d traces. split_strategy=none, keeping original order.", len(traces_with_events))
             ordered = list(traces_with_events)
 
-        split_idx = int(len(ordered) * train_ratio)
+        macro = self._apply_version_scope(
+            ordered,
+            mode=mode,
+            train_ratio=train_ratio,
+            version_scope_policy=version_scope_policy,
+        )
         mode_label = mode.strip().lower()
         if mode_label == "train":
-            macro = ordered[:split_idx]
             logger.info(
-                "Macro split mode [train]: using %.2f%% of data (%d traces).",
+                "Macro split mode [train]: using %.2f%% of data (%d traces, version_scope_policy=%s).",
                 train_ratio * 100.0,
                 len(macro),
+                version_scope_policy,
             )
         elif mode_label in {"eval_drift", "eval_cross_dataset"}:
-            macro = ordered[split_idx:]
             logger.info(
-                "Macro split mode [%s]: using %.2f%% tail data (%d traces).",
+                "Macro split mode [%s]: using %.2f%% tail data (%d traces, version_scope_policy=%s).",
                 mode_label,
                 (1.0 - train_ratio) * 100.0,
                 len(macro),
+                version_scope_policy,
             )
         else:
-            macro = ordered
             logger.info("Macro split mode [%s]: no cut applied, kept %d traces.", mode_label, len(macro))
 
-        keep_count = int(len(macro) * fraction)
-        filtered = macro if fraction >= 1.0 else macro[:keep_count]
-        logger.info("Applied fraction=%.4f. Kept %d traces.", fraction, len(filtered))
+        if fraction >= 1.0:
+            filtered = macro
+        elif fraction_strategy == "versioned":
+            filtered = self._apply_versioned_fraction(macro, fraction)
+        else:
+            keep_count = int(len(macro) * fraction)
+            filtered = macro[:keep_count]
+        if split_strategy in {"temporal", "versioned"}:
+            filtered = sorted(filtered, key=self._first_event_ts)
+        logger.info(
+            "Applied fraction=%.4f with fraction_strategy=%s. Kept %d traces.",
+            fraction,
+            fraction_strategy,
+            len(filtered),
+        )
         return filtered
 
     def _parse_split_ratio(self, raw_ratio: Any) -> Tuple[float, float, float]:
@@ -1144,13 +1169,82 @@ class ModelTrainer:
 
     def _strict_temporal_split(self, ordered: Sequence[RawTrace], split_ratio: Tuple[float, float, float], split_strategy: str) -> SplitData:
         """Apply deterministic micro split by configured strategy and ratio."""
-        if split_strategy not in {"temporal", "none"}:
+        if split_strategy not in {"temporal", "none", "versioned"}:
             raise ValueError(f"Unsupported experiment.split_strategy '{split_strategy}'.")
+        if split_strategy == "versioned":
+            return self._versioned_split(ordered, split_ratio)
         total = len(ordered)
         train_ratio, val_ratio, _ = split_ratio
         train_end = int(total * train_ratio)
         val_end = train_end + int(total * val_ratio)
         return SplitData(train=list(ordered[:train_end]), val=list(ordered[train_end:val_end]), test=list(ordered[val_end:]))
+
+    @staticmethod
+    def _trace_version_label(trace: RawTrace) -> str:
+        return str(getattr(trace, "process_version", "")).strip() or "__missing__"
+
+    @staticmethod
+    def _first_event_ts(trace: RawTrace) -> Any:
+        return trace.events[0].timestamp if trace.events else 0
+
+    @classmethod
+    def _group_traces_by_version(cls, traces: Sequence[RawTrace]) -> Dict[str, List[RawTrace]]:
+        grouped: Dict[str, List[RawTrace]] = {}
+        for trace in traces:
+            grouped.setdefault(cls._trace_version_label(trace), []).append(trace)
+        return dict(sorted(grouped.items(), key=lambda item: item[0]))
+
+    def _apply_versioned_fraction(self, traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
+        grouped = self._group_traces_by_version([trace for trace in traces if trace.events])
+        selected: List[RawTrace] = []
+        for _, version_traces in grouped.items():
+            ordered = sorted(version_traces, key=self._first_event_ts)
+            keep_count = len(ordered) if fraction >= 1.0 else max(1, int(len(ordered) * fraction))
+            selected.extend(ordered[:keep_count])
+        return selected
+
+    def _apply_version_scope(
+        self,
+        ordered: Sequence[RawTrace],
+        *,
+        mode: str,
+        train_ratio: float,
+        version_scope_policy: str,
+    ) -> List[RawTrace]:
+        split_idx = int(len(ordered) * train_ratio)
+        mode_key = str(mode).strip().lower()
+        if version_scope_policy == "all":
+            if mode_key == "train":
+                return list(ordered[:split_idx])
+            if mode_key in {"eval_drift", "eval_cross_dataset"}:
+                return list(ordered[split_idx:])
+            return list(ordered)
+
+        known_versions = {self._trace_version_label(trace) for trace in ordered[:split_idx]}
+        if mode_key == "train":
+            return [trace for trace in ordered if self._trace_version_label(trace) in known_versions]
+        if mode_key in {"eval_drift", "eval_cross_dataset"}:
+            return [trace for trace in ordered[split_idx:] if self._trace_version_label(trace) not in known_versions]
+        return list(ordered)
+
+    def _versioned_split(
+        self,
+        traces: Sequence[RawTrace],
+        split_ratio: Tuple[float, float, float],
+    ) -> SplitData:
+        grouped = self._group_traces_by_version([trace for trace in traces if trace.events])
+        train: List[RawTrace] = []
+        val: List[RawTrace] = []
+        test: List[RawTrace] = []
+        train_ratio, val_ratio, _ = split_ratio
+        for _, version_traces in grouped.items():
+            ordered = sorted(version_traces, key=self._first_event_ts)
+            train_end = int(len(ordered) * train_ratio)
+            val_end = train_end + int(len(ordered) * val_ratio)
+            train.extend(ordered[:train_end])
+            val.extend(ordered[train_end:val_end])
+            test.extend(ordered[val_end:])
+        return SplitData(train=train, val=val, test=test)
 
     def _build_loader(self, traces: Sequence[RawTrace], shuffle: bool) -> DataLoader:
         """Convert traces into graph tensors and wrap them into PyG DataLoader."""
@@ -1412,6 +1506,7 @@ class ModelTrainer:
         correct_ce: torch.Tensor,
         negative_ce: torch.Tensor | None = None,
         objective_loss: torch.Tensor | None = None,
+        margin: float = 0.0,
     ) -> None:
         if negative_ce is None:
             if objective_loss is None:
@@ -1438,6 +1533,10 @@ class ModelTrainer:
         bucket[f"topology_conditioned_{key_prefix}_batches"] = int(
             bucket.get(f"topology_conditioned_{key_prefix}_batches", 0)
         ) + 1
+        if negative_value < correct_value + float(margin):
+            bucket[f"topology_conditioned_{key_prefix}_margin_violations"] = int(
+                bucket.get(f"topology_conditioned_{key_prefix}_margin_violations", 0)
+            ) + 1
 
     def _compute_structural_set_loss(
         self,
@@ -1524,6 +1623,7 @@ class ModelTrainer:
         contrastive_loss: torch.Tensor,
         correct_logits: torch.Tensor,
         corrupt_logits: torch.Tensor,
+        margin: float,
     ) -> None:
         correct_value = float(correct_ce.detach().cpu().item())
         corrupt_value = float(corrupt_ce.detach().cpu().item())
@@ -1537,6 +1637,10 @@ class ModelTrainer:
             bucket.get("struct_xattn_correct_vs_corrupt_ce_delta_sum", 0.0)
         ) + (corrupt_value - correct_value)
         bucket["struct_xattn_contrastive_batches"] = int(bucket.get("struct_xattn_contrastive_batches", 0)) + 1
+        if corrupt_value < correct_value + float(margin):
+            bucket["struct_xattn_contrastive_margin_violations"] = int(
+                bucket.get("struct_xattn_contrastive_margin_violations", 0)
+            ) + 1
         correct_pred = torch.argmax(correct_logits.detach(), dim=1)
         corrupt_pred = torch.argmax(corrupt_logits.detach(), dim=1)
         flip_rate = (correct_pred != corrupt_pred).float().mean()
@@ -1624,6 +1728,14 @@ class ModelTrainer:
                     allowed_mask=allowed_mask,
                     policy=mask_policy,
                 )
+                if isinstance(allowed_mask, torch.Tensor):
+                    leakage = allowed_set_mass_leakage(logits, targets, allowed_mask)
+                    forward_stats["allowed_set_mass_leakage_sum"] = float(
+                        forward_stats.get("allowed_set_mass_leakage_sum", 0.0)
+                    ) + float(leakage.detach().cpu().item())
+                    forward_stats["allowed_set_mass_leakage_batches"] = int(
+                        forward_stats.get("allowed_set_mass_leakage_batches", 0)
+                    ) + 1
                 loss = self.criterion(effective_logits, targets)
                 base_ce_loss = loss
                 structural_aux_set_loss: torch.Tensor | None = None
@@ -1735,6 +1847,7 @@ class ModelTrainer:
                             correct_ce=base_ce_loss.detach(),
                             negative_ce=dropped_ce.detach(),
                             objective_loss=drop_loss.detach(),
+                            margin=float(self.learning_strategy_config.drop_edges_margin),
                         )
                     if (
                         self.learning_strategy_config.wrong_version_negative_enabled
@@ -1776,6 +1889,7 @@ class ModelTrainer:
                                 correct_ce=base_ce_loss.detach(),
                                 negative_ce=wrong_ce.detach(),
                                 objective_loss=wrong_loss.detach(),
+                                margin=float(self.learning_strategy_config.wrong_version_margin),
                             )
                 if self._struct_xattn_contrastive_active(training=training, epoch_index=epoch_index):
                     corrupted_contract = self._build_corrupted_structural_contract(
@@ -1814,6 +1928,7 @@ class ModelTrainer:
                         contrastive_loss=contrastive_loss.detach(),
                         correct_logits=effective_logits,
                         corrupt_logits=corrupt_effective_logits,
+                        margin=float(self.struct_xattn_contrastive_margin),
                     )
                 skip_optimizer_step = False
                 if not self._is_finite_tensor(loss):
@@ -1829,6 +1944,12 @@ class ModelTrainer:
                 if training and optimizer is not None:
                     if not skip_optimizer_step:
                         loss.backward()
+                        grad_norms = self._parameter_grad_norm_groups(self.model)
+                        for group_name, group_norm in grad_norms.items():
+                            forward_stats[f"grad_norm_{group_name}_sum"] = float(
+                                forward_stats.get(f"grad_norm_{group_name}_sum", 0.0)
+                            ) + float(group_norm)
+                        forward_stats["grad_norm_batches"] = int(forward_stats.get("grad_norm_batches", 0)) + 1
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         optimizer.step()
 
@@ -2135,6 +2256,7 @@ class ModelTrainer:
                 "strict_test_macro_f1": 0.0,
                 "strict_test_weighted_f1": 0.0,
                 "test_oos": None,
+                "test_oos_confidence_mean": None,
                 "test_target_in_mask_rate": None,
                 "test_pred_in_mask_rate": None,
                 "test_strict_error_but_allowed_rate": None,
@@ -2308,152 +2430,206 @@ class ModelTrainer:
         contract_sanitized_batches = 0
         logits_sanitized_batches = 0
         probs_sanitized_batches = 0
+        try:
+            total_batches = int(len(loader))  # type: ignore[arg-type]
+        except (TypeError, AttributeError):
+            total_batches = None
+        total_graphs = None
+        loader_dataset = getattr(loader, "dataset", None)
+        try:
+            if loader_dataset is not None:
+                total_graphs = int(len(loader_dataset))  # type: ignore[arg-type]
+        except (TypeError, AttributeError):
+            total_graphs = None
+        progress_total = total_graphs if total_graphs is not None else total_batches
+        progress_reporter = ProgressReporter(
+            stage="eval_drift.one_pass_inference",
+            total=progress_total,
+            min_interval_sec=0.8,
+        )
+        progress_reporter.start(
+            message="Drift one-pass inference started",
+            current=0,
+            total=progress_total,
+            payload={"graphs_total": total_graphs, "batches_total": total_batches},
+        )
 
-        with torch.no_grad():
-            iterator = tqdm(loader, desc="Drift one-pass inference", leave=self.tqdm_leave, disable=self._is_tqdm_disabled())
-            for data in iterator:
-                if not hasattr(data, "trace_idx"):
-                    raise ValueError("prebuilt drift dataset is missing required trace_idx metadata")
-                data = data.to(self.device)
-                contract = self._data_to_contract(data)
-                if self._sanitize_contract_numeric_tensors(contract):
-                    contract_sanitized_batches += 1
-                self._accumulate_forward_stats(forward_stats, contract)
-                if self.device.type == "cuda" and torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                logits = self.model(contract)
-                self._accumulate_logit_contribution_stats(forward_stats)
-                self._accumulate_topology_state_stats(forward_stats)
-                self._accumulate_topology_graph_stats(forward_stats)
-                self._accumulate_structural_prior_stats(forward_stats)
-                self._accumulate_struct_xattn_stats(forward_stats)
-                if not self._is_finite_tensor(logits):
-                    logits_sanitized_batches += 1
-                    logger.warning(
-                        "Numeric guard [eval_drift_one_pass]: non-finite logits detected. Applying nan_to_num."
+        processed_batches = 0
+        try:
+            with torch.no_grad():
+                iterator = tqdm(loader, desc="Drift one-pass inference", leave=self.tqdm_leave, disable=self._is_tqdm_disabled())
+                for data in iterator:
+                    processed_batches += 1
+                    if not hasattr(data, "trace_idx"):
+                        raise ValueError("prebuilt drift dataset is missing required trace_idx metadata")
+                    data = data.to(self.device)
+                    contract = self._data_to_contract(data)
+                    if self._sanitize_contract_numeric_tensors(contract):
+                        contract_sanitized_batches += 1
+                    self._accumulate_forward_stats(forward_stats, contract)
+                    if self.device.type == "cuda" and torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                    logits = self.model(contract)
+                    self._accumulate_logit_contribution_stats(forward_stats)
+                    self._accumulate_topology_state_stats(forward_stats)
+                    self._accumulate_topology_graph_stats(forward_stats)
+                    self._accumulate_structural_prior_stats(forward_stats)
+                    self._accumulate_struct_xattn_stats(forward_stats)
+                    if not self._is_finite_tensor(logits):
+                        logits_sanitized_batches += 1
+                        logger.warning(
+                            "Numeric guard [eval_drift_one_pass]: non-finite logits detected. Applying nan_to_num."
+                        )
+                        logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
+                    if self.device.type == "cuda" and torch.cuda.is_available():
+                        torch.cuda.synchronize()
+
+                    target_tensor = data.y.view(-1).long()
+                    allowed_mask = self._normalize_allowed_mask(
+                        contract.get("allowed_target_mask"),
+                        expected_rows=int(target_tensor.shape[0]),
                     )
-                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
-                if self.device.type == "cuda" and torch.cuda.is_available():
-                    torch.cuda.synchronize()
+                    mask_policy = self._resolve_mask_guided_policy(
+                        training=False,
+                        batch_target_in_mask_rate=None,
+                        batch_samples=int(target_tensor.shape[0]),
+                    )
+                    raw_logits = logits
+                    effective_logits = self._apply_mask_guided_logits(
+                        logits=raw_logits,
+                        allowed_mask=allowed_mask,
+                        policy=mask_policy,
+                    )
+                    probs = torch.softmax(effective_logits, dim=1)
+                    if not self._is_finite_tensor(probs):
+                        probs_sanitized_batches += 1
+                        probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
+                        if probs.dim() == 2 and probs.size(1) > 0:
+                            row_sum = probs.sum(dim=1, keepdim=True)
+                            safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
+                            probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
 
-                target_tensor = data.y.view(-1).long()
-                allowed_mask = self._normalize_allowed_mask(
-                    contract.get("allowed_target_mask"),
-                    expected_rows=int(target_tensor.shape[0]),
-                )
-                mask_policy = self._resolve_mask_guided_policy(
-                    training=False,
-                    batch_target_in_mask_rate=None,
-                    batch_samples=int(target_tensor.shape[0]),
-                )
-                raw_logits = logits
-                effective_logits = self._apply_mask_guided_logits(
-                    logits=raw_logits,
-                    allowed_mask=allowed_mask,
-                    policy=mask_policy,
-                )
-                probs = torch.softmax(effective_logits, dim=1)
-                if not self._is_finite_tensor(probs):
-                    probs_sanitized_batches += 1
-                    probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
-                    if probs.dim() == 2 and probs.size(1) > 0:
-                        row_sum = probs.sum(dim=1, keepdim=True)
-                        safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
-                        probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
+                    batch_size = int(target_tensor.shape[0])
+                    pred_tensor = torch.argmax(probs, dim=1).long()
+                    confidence_tensor = torch.max(probs, dim=1).values
+                    correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                    top_k = self._effective_top_k(int(probs.shape[1]), requested_k=3) if probs.dim() == 2 else 1
+                    topk = torch.topk(probs, k=top_k, dim=1).indices
+                    top3_hit = (topk == target_tensor.to(topk.device).unsqueeze(1)).any(dim=1).float()
 
-                batch_size = int(target_tensor.shape[0])
-                pred_tensor = torch.argmax(probs, dim=1).long()
-                confidence_tensor = torch.max(probs, dim=1).values
-                correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
-                top_k = self._effective_top_k(int(probs.shape[1]), requested_k=3) if probs.dim() == 2 else 1
-                topk = torch.topk(probs, k=top_k, dim=1).indices
-                top3_hit = (topk == target_tensor.to(topk.device).unsqueeze(1)).any(dim=1).float()
-
-                batch_oos = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_target_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_hybrid_correct = correct_tensor
-                row_ids = torch.arange(batch_size, device=pred_tensor.device)
-                batch_hybrid_set_nll = -torch.log(
-                    probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
-                )
-                batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
-
-                if isinstance(allowed_mask, torch.Tensor):
-                    if allowed_mask.dim() == 1:
-                        allowed_mask = allowed_mask.unsqueeze(0)
+                    batch_oos = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_target_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_hybrid_correct = correct_tensor
                     row_ids = torch.arange(batch_size, device=pred_tensor.device)
-                    pred_in_mask = allowed_mask[row_ids, pred_tensor].bool()
-                    target_in_mask = allowed_mask[row_ids, target_tensor.to(pred_tensor.device)].bool()
-                    strict_error_but_allowed = (pred_tensor != target_tensor.to(pred_tensor.device)) & pred_in_mask
-                    mask_cardinality = allowed_mask.sum(dim=1).float()
-                    oos_flags = (~pred_in_mask).float()
-                    ambiguous_mask = mask_cardinality > 1.0
-                    set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
-                    set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
-                    target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
-                    selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
-                    batch_hybrid_set_nll = -torch.log(selected_prob_mass)
-                    batch_hybrid_correct = torch.where(
-                        ambiguous_mask,
-                        pred_in_mask.float(),
-                        correct_tensor,
+                    batch_hybrid_set_nll = -torch.log(
+                        probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
                     )
-                    batch_ambiguous = ambiguous_mask.float()
+                    batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
 
-                    batch_oos = oos_flags.detach().cpu().numpy().astype(np.float32, copy=False)
-                    batch_target_in_mask = target_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
-                    batch_pred_in_mask = pred_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
-                    batch_strict_error_but_allowed = (
-                        strict_error_but_allowed.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                    if isinstance(allowed_mask, torch.Tensor):
+                        if allowed_mask.dim() == 1:
+                            allowed_mask = allowed_mask.unsqueeze(0)
+                        row_ids = torch.arange(batch_size, device=pred_tensor.device)
+                        pred_in_mask = allowed_mask[row_ids, pred_tensor].bool()
+                        target_in_mask = allowed_mask[row_ids, target_tensor.to(pred_tensor.device)].bool()
+                        strict_error_but_allowed = (pred_tensor != target_tensor.to(pred_tensor.device)) & pred_in_mask
+                        mask_cardinality = allowed_mask.sum(dim=1).float()
+                        oos_flags = (~pred_in_mask).float()
+                        ambiguous_mask = mask_cardinality > 1.0
+                        set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
+                        set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
+                        target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
+                        selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
+                        batch_hybrid_set_nll = -torch.log(selected_prob_mass)
+                        batch_hybrid_correct = torch.where(
+                            ambiguous_mask,
+                            pred_in_mask.float(),
+                            correct_tensor,
+                        )
+                        batch_ambiguous = ambiguous_mask.float()
+
+                        batch_oos = oos_flags.detach().cpu().numpy().astype(np.float32, copy=False)
+                        batch_target_in_mask = target_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                        batch_pred_in_mask = pred_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                        batch_strict_error_but_allowed = (
+                            strict_error_but_allowed.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                        )
+                        batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
+
+                    self._maybe_record_prediction_traces(
+                        stage_label="eval_drift_one_pass",
+                        contract=contract,
+                        logits=raw_logits,
+                        effective_logits=effective_logits,
+                        probs=probs,
+                        targets=target_tensor,
+                        predictions=pred_tensor,
+                        allowed_mask=allowed_mask,
+                        global_offset=inference_graphs,
                     )
-                    batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
 
-                self._maybe_record_prediction_traces(
-                    stage_label="eval_drift_one_pass",
-                    contract=contract,
-                    logits=raw_logits,
-                    effective_logits=effective_logits,
-                    probs=probs,
-                    targets=target_tensor,
-                    predictions=pred_tensor,
-                    allowed_mask=allowed_mask,
-                    global_offset=inference_graphs,
-                )
+                    all_trace_idx.extend(data.trace_idx.view(-1).long().detach().cpu().tolist())
+                    all_true.extend(target_tensor.detach().cpu().tolist())
+                    all_pred.extend(pred_tensor.detach().cpu().tolist())
+                    all_confidence.extend(confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                    all_correct.extend(correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                    all_top3_hit.extend(top3_hit.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                    all_oos_flags.extend(batch_oos.tolist())
+                    all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
+                    all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
+                    all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
+                    all_mask_cardinality.extend(batch_mask_cardinality.tolist())
+                    all_hybrid_correct_flags.extend(
+                        batch_hybrid_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                    )
+                    all_hybrid_set_nll.extend(
+                        batch_hybrid_set_nll.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                    )
+                    all_ambiguous_flags.extend(batch_ambiguous.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
 
-                all_trace_idx.extend(data.trace_idx.view(-1).long().detach().cpu().tolist())
-                all_true.extend(target_tensor.detach().cpu().tolist())
-                all_pred.extend(pred_tensor.detach().cpu().tolist())
-                all_confidence.extend(confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
-                all_correct.extend(correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
-                all_top3_hit.extend(top3_hit.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
-                all_oos_flags.extend(batch_oos.tolist())
-                all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
-                all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
-                all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
-                all_mask_cardinality.extend(batch_mask_cardinality.tolist())
-                all_hybrid_correct_flags.extend(
-                    batch_hybrid_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
-                )
-                all_hybrid_set_nll.extend(
-                    batch_hybrid_set_nll.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
-                )
-                all_ambiguous_flags.extend(batch_ambiguous.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                    if hasattr(data, "prefix_len"):
+                        all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
+                    else:
+                        graph_lengths = torch.bincount(data.batch.view(-1).long(), minlength=batch_size)
+                        all_lengths.extend(graph_lengths.long().cpu().tolist())
 
-                if hasattr(data, "prefix_len"):
-                    all_lengths.extend(data.prefix_len.view(-1).long().cpu().tolist())
-                else:
-                    graph_lengths = torch.bincount(data.batch.view(-1).long(), minlength=batch_size)
-                    all_lengths.extend(graph_lengths.long().cpu().tolist())
+                    if hasattr(data, "process_version_idx"):
+                        version_indices = data.process_version_idx.view(-1).long().cpu().tolist()
+                        for idx in version_indices:
+                            all_versions.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
 
-                if hasattr(data, "process_version_idx"):
-                    version_indices = data.process_version_idx.view(-1).long().cpu().tolist()
-                    for idx in version_indices:
-                        all_versions.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
+                    inference_graphs += int(batch_size)
+                    current_progress = inference_graphs if total_graphs is not None else processed_batches
+                    progress_reporter.update(
+                        message="Drift one-pass inference",
+                        current=current_progress,
+                        total=progress_total,
+                        payload={
+                            "graphs_processed": inference_graphs,
+                            "batches_processed": processed_batches,
+                            "graphs_total": total_graphs,
+                            "batches_total": total_batches,
+                        },
+                        force=True,
+                    )
+        except Exception as exc:
+            progress_reporter.error(message=f"Drift one-pass inference failed: {exc}")
+            raise
 
-                inference_graphs += int(batch_size)
+        progress_reporter.done(
+            message="Drift one-pass inference completed",
+            current=inference_graphs if total_graphs is not None else processed_batches,
+            total=progress_total,
+            payload={
+                "graphs_processed": inference_graphs,
+                "batches_processed": processed_batches,
+                "graphs_total": total_graphs,
+                "batches_total": total_batches,
+            },
+        )
 
         total_inference_ms = float((perf_counter() - inference_started) * 1000.0)
         inference_ms_per_graph = float(total_inference_ms / inference_graphs) if inference_graphs > 0 else 0.0
@@ -2570,6 +2746,11 @@ class ModelTrainer:
         metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
         metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)
         metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
+        finite_oos = np.isfinite(oos_flags)
+        oos_idxs = np.where(finite_oos & (oos_flags > 0.5))[0]
+        metrics["test_oos_confidence_mean"] = (
+            float(np.mean(confidence[oos_idxs])) if int(oos_idxs.size) > 0 else None
+        )
 
         ambiguous_prefix_rate: float | None = None
         test_set_hit_rate_ambiguous: float | None = None
@@ -2686,6 +2867,7 @@ class ModelTrainer:
             window_strict_error_but_allowed = metrics.get("test_strict_error_but_allowed_rate")
             window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
             window_set_nll = metrics.get("test_set_nll")
+            window_oos_confidence_mean = metrics.get("test_oos_confidence_mean")
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
@@ -2697,6 +2879,12 @@ class ModelTrainer:
                     self.tracker.log_metric("drift_window_test_set_nll", float(window_set_nll), step=window_idx)
                 if window_oos is not None:
                     self.tracker.log_metric("drift_window_test_oos", float(window_oos), step=window_idx)
+                if window_oos_confidence_mean is not None:
+                    self.tracker.log_metric(
+                        "drift_window_oos_confidence_mean",
+                        float(window_oos_confidence_mean),
+                        step=window_idx,
+                    )
                 if window_target_in_mask is not None:
                     self.tracker.log_metric(
                         "drift_window_target_in_mask_rate",
@@ -2746,6 +2934,11 @@ class ModelTrainer:
                     "window_test_ece": ece,
                     "window_test_set_nll": float(window_set_nll) if window_set_nll is not None else float("nan"),
                     "window_test_oos": float(window_oos) if window_oos is not None else float("nan"),
+                    "window_oos_confidence_mean": (
+                        float(window_oos_confidence_mean)
+                        if window_oos_confidence_mean is not None
+                        else float("nan")
+                    ),
                     "window_target_in_mask_rate": (
                         float(window_target_in_mask) if window_target_in_mask is not None else float("nan")
                     ),
@@ -2864,6 +3057,7 @@ class ModelTrainer:
             window_strict_error_but_allowed = metrics.get("test_strict_error_but_allowed_rate")
             window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
             window_set_nll = metrics.get("test_set_nll")
+            window_oos_confidence_mean = metrics.get("test_oos_confidence_mean")
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
@@ -2875,6 +3069,12 @@ class ModelTrainer:
                     self.tracker.log_metric("drift_window_test_set_nll", float(window_set_nll), step=window_idx)
                 if window_oos is not None:
                     self.tracker.log_metric("drift_window_test_oos", float(window_oos), step=window_idx)
+                if window_oos_confidence_mean is not None:
+                    self.tracker.log_metric(
+                        "drift_window_oos_confidence_mean",
+                        float(window_oos_confidence_mean),
+                        step=window_idx,
+                    )
                 if window_target_in_mask is not None:
                     self.tracker.log_metric("drift_window_target_in_mask_rate", float(window_target_in_mask), step=window_idx)
                 if window_pred_in_mask is not None:
@@ -2910,6 +3110,11 @@ class ModelTrainer:
                     "window_test_ece": ece,
                     "window_test_set_nll": float(window_set_nll) if window_set_nll is not None else float("nan"),
                     "window_test_oos": float(window_oos) if window_oos is not None else float("nan"),
+                    "window_oos_confidence_mean": (
+                        float(window_oos_confidence_mean)
+                        if window_oos_confidence_mean is not None
+                        else float("nan")
+                    ),
                     "window_target_in_mask_rate": (
                         float(window_target_in_mask) if window_target_in_mask is not None else float("nan")
                     ),
@@ -3551,6 +3756,23 @@ class ModelTrainer:
         )
 
     @staticmethod
+    def _parameter_grad_norm_groups(model: nn.Module) -> Dict[str, float]:
+        sums = {"observed": 0.0, "struct_xattn": 0.0, "structural": 0.0}
+        for name, parameter in model.named_parameters():
+            grad = getattr(parameter, "grad", None)
+            if grad is None:
+                continue
+            norm_sq = float(torch.sum(torch.nan_to_num(grad.detach().float(), nan=0.0, posinf=0.0, neginf=0.0) ** 2).item())
+            lower_name = str(name).lower()
+            if "struct_xattn" in lower_name:
+                sums["struct_xattn"] += norm_sq
+            elif "struct" in lower_name or "topology" in lower_name:
+                sums["structural"] += norm_sq
+            else:
+                sums["observed"] += norm_sq
+        return {key: math.sqrt(value) for key, value in sums.items()}
+
+    @staticmethod
     def _diagnostic_scalar(value: Any) -> float | None:
         if not isinstance(value, torch.Tensor):
             return None
@@ -3708,6 +3930,24 @@ class ModelTrainer:
             ),
             "scale": self._diagnostic_scalar(getattr(self.model, "last_struct_xattn_scale", None)),
             "gate_mean": self._diagnostic_scalar(getattr(self.model, "last_struct_xattn_gate_mean", None)),
+            "raw_context_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_raw_context_mean_abs", None)
+            ),
+            "pre_norm_delta_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_pre_norm_delta_mean_abs", None)
+            ),
+            "post_norm_delta_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_post_norm_delta_mean_abs", None)
+            ),
+            "raw_to_observed_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_raw_to_observed_ratio", None)
+            ),
+            "pre_norm_to_observed_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_pre_norm_to_observed_ratio", None)
+            ),
+            "post_norm_to_observed_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_struct_xattn_post_norm_to_observed_ratio", None)
+            ),
             "l1_delta_mean_abs": self._diagnostic_scalar(
                 getattr(self.model, "last_struct_xattn_l1_delta_mean_abs", None)
             ),
@@ -3906,6 +4146,36 @@ class ModelTrainer:
             if struct_xattn_diag_batches > 0
             else 0.0
         )
+        struct_xattn_raw_context_mean_abs = (
+            float(bucket.get("struct_xattn_raw_context_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_pre_norm_delta_mean_abs = (
+            float(bucket.get("struct_xattn_pre_norm_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_post_norm_delta_mean_abs = (
+            float(bucket.get("struct_xattn_post_norm_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_raw_to_observed_ratio = (
+            float(bucket.get("struct_xattn_raw_to_observed_ratio_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_pre_norm_to_observed_ratio = (
+            float(bucket.get("struct_xattn_pre_norm_to_observed_ratio_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
+        struct_xattn_post_norm_to_observed_ratio = (
+            float(bucket.get("struct_xattn_post_norm_to_observed_ratio_sum", 0.0)) / float(struct_xattn_diag_batches)
+            if struct_xattn_diag_batches > 0
+            else 0.0
+        )
         struct_xattn_l1_delta_mean_abs = (
             float(bucket.get("struct_xattn_l1_delta_mean_abs_sum", 0.0)) / float(struct_xattn_diag_batches)
             if struct_xattn_diag_batches > 0
@@ -3952,6 +4222,33 @@ class ModelTrainer:
             float(bucket.get("struct_xattn_prediction_flip_rate_sum", 0.0))
             / float(struct_xattn_contrastive_batches)
             if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        struct_xattn_contrastive_margin_violation_rate = (
+            float(bucket.get("struct_xattn_contrastive_margin_violations", 0)) / float(struct_xattn_contrastive_batches)
+            if struct_xattn_contrastive_batches > 0
+            else 0.0
+        )
+        allowed_set_mass_leakage_batches = int(bucket.get("allowed_set_mass_leakage_batches", 0))
+        allowed_set_mass_leakage_value = (
+            float(bucket.get("allowed_set_mass_leakage_sum", 0.0)) / float(allowed_set_mass_leakage_batches)
+            if allowed_set_mass_leakage_batches > 0
+            else 0.0
+        )
+        grad_norm_batches = int(bucket.get("grad_norm_batches", 0))
+        grad_norm_observed = (
+            float(bucket.get("grad_norm_observed_sum", 0.0)) / float(grad_norm_batches)
+            if grad_norm_batches > 0
+            else 0.0
+        )
+        grad_norm_struct_xattn = (
+            float(bucket.get("grad_norm_struct_xattn_sum", 0.0)) / float(grad_norm_batches)
+            if grad_norm_batches > 0
+            else 0.0
+        )
+        grad_norm_structural = (
+            float(bucket.get("grad_norm_structural_sum", 0.0)) / float(grad_norm_batches)
+            if grad_norm_batches > 0
             else 0.0
         )
 
@@ -4108,8 +4405,32 @@ class ModelTrainer:
             self.tracker.log_metric(f"{metric_prefix}_struct_xattn_context_mean_abs", struct_xattn_context_mean_abs)
             self.tracker.log_metric(f"{metric_prefix}_struct_xattn_delta_mean_abs", struct_xattn_delta_mean_abs)
             self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_raw_context_mean_abs",
+                struct_xattn_raw_context_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_pre_norm_delta_mean_abs",
+                struct_xattn_pre_norm_delta_mean_abs,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_post_norm_delta_mean_abs",
+                struct_xattn_post_norm_delta_mean_abs,
+            )
+            self.tracker.log_metric(
                 f"{metric_prefix}_struct_xattn_to_observed_ratio",
                 struct_xattn_to_observed_ratio,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_raw_to_observed_ratio",
+                struct_xattn_raw_to_observed_ratio,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_pre_norm_to_observed_ratio",
+                struct_xattn_pre_norm_to_observed_ratio,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_post_norm_to_observed_ratio",
+                struct_xattn_post_norm_to_observed_ratio,
             )
             self.tracker.log_metric(
                 f"{metric_prefix}_struct_xattn_attention_entropy",
@@ -4145,7 +4466,17 @@ class ModelTrainer:
                 f"{metric_prefix}_struct_xattn_prediction_flip_rate",
                 struct_xattn_prediction_flip_rate,
             )
+            self.tracker.log_metric(
+                f"{metric_prefix}_struct_xattn_contrastive_margin_violation_rate",
+                struct_xattn_contrastive_margin_violation_rate,
+            )
         if self.tracker is not None:
+            if allowed_set_mass_leakage_batches > 0:
+                self.tracker.log_metric(f"{metric_prefix}_allowed_set_mass_leakage", allowed_set_mass_leakage_value)
+            if grad_norm_batches > 0:
+                self.tracker.log_metric(f"{metric_prefix}_grad_norm_observed", grad_norm_observed)
+                self.tracker.log_metric(f"{metric_prefix}_grad_norm_struct_xattn", grad_norm_struct_xattn)
+                self.tracker.log_metric(f"{metric_prefix}_grad_norm_structural", grad_norm_structural)
             allowed_batches = int(bucket.get("topology_conditioned_allowed_set_batches", 0))
             if allowed_batches > 0:
                 self.tracker.log_metric(
@@ -4173,6 +4504,10 @@ class ModelTrainer:
                 self.tracker.log_metric(
                     f"{metric_prefix}_topology_conditioned_{name}_loss",
                     float(bucket.get(f"topology_conditioned_{name}_loss_sum", 0.0)) / float(count),
+                )
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_{name}_margin_violation_rate",
+                    float(bucket.get(f"topology_conditioned_{name}_margin_violations", 0)) / float(count),
                 )
             mixed_batches = int(bucket.get("topology_conditioned_mixed_version_batches", 0))
             skipped_mixed = int(bucket.get("topology_conditioned_wrong_version_skipped_mixed_batches", 0))

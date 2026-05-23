@@ -29,6 +29,26 @@ def allowed_set_loss(
     return -torch.logsumexp(masked_log_probs, dim=1).mean()
 
 
+def allowed_set_mass_leakage(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    allowed_target_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Mean softmax probability mass assigned outside the allowed target set."""
+    if not isinstance(allowed_target_mask, torch.Tensor):
+        raise ValueError("allowed_set_mass_leakage requires allowed_target_mask.")
+    mask = allowed_target_mask.to(device=logits.device, dtype=torch.bool).clone()
+    target_index = targets.to(device=logits.device, dtype=torch.long).view(-1, 1)
+    if mask.dim() != 2 or mask.size(0) != logits.size(0) or mask.size(1) != logits.size(1):
+        raise ValueError(
+            "allowed_target_mask shape must match logits: "
+            f"mask={tuple(mask.shape)} logits={tuple(logits.shape)}."
+        )
+    mask.scatter_(1, target_index, True)
+    probs = torch.softmax(logits, dim=1)
+    return (probs * (~mask).to(dtype=probs.dtype)).sum(dim=1).mean()
+
+
 def version_weighted_cross_entropy(
     logits: torch.Tensor,
     targets: torch.Tensor,

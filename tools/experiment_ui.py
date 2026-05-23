@@ -59,6 +59,7 @@ RUN_STAGE_WEIGHTS: Dict[str, float] = {
     "validation.batches": 0.03,
     "test.eval": 0.03,
     "test.batches": 0.02,
+    "eval_drift.one_pass_inference": 0.04,
     "eval_drift.windows": 0.04,
 }
 
@@ -77,6 +78,7 @@ RUN_STAGE_ORDER: List[str] = [
     "validation.batches",
     "test.eval",
     "test.batches",
+    "eval_drift.one_pass_inference",
     "eval_drift.windows",
 ]
 
@@ -95,6 +97,7 @@ STAGE_TITLE_UA: Dict[str, str] = {
     "validation.batches": "Validation batch-и",
     "test.eval": "Підсумкове тестування",
     "test.batches": "Test batch-и",
+    "eval_drift.one_pass_inference": "One-pass inference для drift",
     "eval_drift.windows": "Оцінка drift-вікон",
 }
 
@@ -444,6 +447,9 @@ class _DynamicForm(ttk.Frame):
 class ExperimentUI:
     _STRICT_ENUM_PATHS: set[str] = {
         "experiment.mode",
+        "experiment.fraction_strategy",
+        "experiment.split_strategy",
+        "experiment.version_scope_policy",
         "experiment.cache_policy",
         "experiment.graph_dataset_cache_policy",
         "experiment.stats_time_policy",
@@ -561,9 +567,11 @@ class ExperimentUI:
             "experiment.project": "Проєкт експерименту",
             "experiment.name": "Назва запуску",
             "experiment.fraction": "Частка даних (fraction)",
+            "experiment.fraction_strategy": "Стратегія fraction",
             "experiment.split_strategy": "Стратегія розбиття",
             "experiment.train_ratio": "Частка train",
             "experiment.split_ratio": "Співвідношення train/val/test",
+            "experiment.version_scope_policy": "Політика версій",
             "experiment.stats_time_policy": "Політика часу статистики",
             "experiment.on_missing_asof_snapshot": "Що робити без as-of snapshot",
             "experiment.cache_policy": "Політика кешування графів",
@@ -861,9 +869,11 @@ class ExperimentUI:
             "experiment.project": "Назва групи запусків у трекінгу.",
             "experiment.name": "Назва конкретного запуску.",
             "experiment.fraction": "Частка трас (0..1] після каскадного відбору. Менше значення = швидше, але шумніші метрики.",
-            "experiment.split_strategy": "Стратегія розбиття: temporal (рекомендовано) або none.",
+            "experiment.fraction_strategy": "Як застосовувати fraction: temporal бере початок timeline, versioned бере частку з кожної версії.",
+            "experiment.split_strategy": "Стратегія розбиття: temporal, versioned або none.",
             "experiment.train_ratio": "Частка історії у train-cut. Типово 0.6-0.8.",
             "experiment.split_ratio": "Трійка [train,val,test], що має сумуватися до 1.0.",
+            "experiment.version_scope_policy": "Контроль витоку майбутніх версій: all або train_cut.",
             "experiment.load_checkpoint": "Шлях до checkpoint для eval або продовження навчання.",
             "experiment.stats_time_policy": "Часова політика snapshot статистик: latest або strict_asof.",
             "experiment.on_missing_asof_snapshot": "Що робити, якщо strict_asof snapshot відсутній: disable_stats/use_base/raise.",
@@ -1074,12 +1084,14 @@ class ExperimentUI:
         self.vars["project"] = tk.StringVar(value="")
         self.vars["experiment_name"] = tk.StringVar(value="")
         self.vars["fraction"] = tk.StringVar(value="1.0")
+        self.vars["fraction_strategy"] = tk.StringVar(value="temporal")
         self.vars["split_strategy"] = tk.StringVar(value="temporal")
         self.vars["train_ratio"] = tk.StringVar(value="0.7")
         self.vars["split_ratio"] = tk.StringVar(value="[0.7, 0.2, 0.1]")
         self.vars["split_ratio_train"] = tk.StringVar(value="0.7")
         self.vars["split_ratio_val"] = tk.StringVar(value="0.2")
         self.vars["split_ratio_test"] = tk.StringVar(value="0.1")
+        self.vars["version_scope_policy"] = tk.StringVar(value="all")
         self.vars["seed"] = tk.StringVar(value="42")
         self.vars["stats_time_policy"] = tk.StringVar(value="strict_asof")
         self.vars["on_missing_asof_snapshot"] = tk.StringVar(value="disable_stats")
@@ -1285,18 +1297,22 @@ class ExperimentUI:
         self._add_help_mark(core, 6, self._hint_for("experiment.fraction"))
         w = ttk.Entry(core, textvariable=self.vars["fraction"]); w.grid(row=6, column=1, sticky="ew"); self._general_field_widgets["fraction"] = w
 
-        ttk.Label(core, text="experiment.split_strategy").grid(row=7, column=0, sticky="w")
-        self._add_help_mark(core, 7, self._hint_for("experiment.split_strategy"))
-        w = ttk.Combobox(core, textvariable=self.vars["split_strategy"], values=["temporal", "none"], state="readonly", width=18); w.grid(row=7, column=1, sticky="w"); self._general_field_widgets["split_strategy"] = w
+        ttk.Label(core, text="experiment.fraction_strategy").grid(row=7, column=0, sticky="w")
+        self._add_help_mark(core, 7, self._hint_for("experiment.fraction_strategy"))
+        w = ttk.Combobox(core, textvariable=self.vars["fraction_strategy"], values=["temporal", "versioned"], state="readonly", width=18); w.grid(row=7, column=1, sticky="w"); self._general_field_widgets["fraction_strategy"] = w
 
         ttk.Label(core, text="experiment.train_ratio").grid(row=8, column=0, sticky="w")
         self._add_help_mark(core, 8, self._hint_for("experiment.train_ratio"))
         w = ttk.Entry(core, textvariable=self.vars["train_ratio"]); w.grid(row=8, column=1, sticky="ew"); self._general_field_widgets["train_ratio"] = w
 
-        ttk.Label(core, text="experiment.split_ratio").grid(row=9, column=0, sticky="w")
-        self._add_help_mark(core, 9, self._hint_for("experiment.split_ratio"))
+        ttk.Label(core, text="experiment.split_strategy").grid(row=9, column=0, sticky="w")
+        self._add_help_mark(core, 9, self._hint_for("experiment.split_strategy"))
+        w = ttk.Combobox(core, textvariable=self.vars["split_strategy"], values=["temporal", "versioned", "none"], state="readonly", width=18); w.grid(row=9, column=1, sticky="w"); self._general_field_widgets["split_strategy"] = w
+
+        ttk.Label(core, text="experiment.split_ratio").grid(row=10, column=0, sticky="w")
+        self._add_help_mark(core, 10, self._hint_for("experiment.split_ratio"))
         ratio_frame = ttk.Frame(core)
-        ratio_frame.grid(row=9, column=1, sticky="ew")
+        ratio_frame.grid(row=10, column=1, sticky="ew")
         ttk.Label(ratio_frame, text="train").grid(row=0, column=0, sticky="w")
         split_train = ttk.Entry(ratio_frame, textvariable=self.vars["split_ratio_train"], width=8)
         split_train.grid(row=0, column=1, sticky="w", padx=(4, 8))
@@ -1309,78 +1325,82 @@ class ExperimentUI:
         self._split_ratio_widgets = [split_train, split_val, split_test]
         self._general_field_widgets["split_ratio"] = split_train
 
-        ttk.Label(core, text="seed").grid(row=10, column=0, sticky="w")
-        self._add_help_mark(core, 10, self._hint_for("seed"))
-        w = ttk.Entry(core, textvariable=self.vars["seed"]); w.grid(row=10, column=1, sticky="ew"); self._general_field_widgets["seed"] = w
+        ttk.Label(core, text="experiment.version_scope_policy").grid(row=11, column=0, sticky="w")
+        self._add_help_mark(core, 11, self._hint_for("experiment.version_scope_policy"))
+        w = ttk.Combobox(core, textvariable=self.vars["version_scope_policy"], values=["all", "train_cut"], state="readonly", width=18); w.grid(row=11, column=1, sticky="w"); self._general_field_widgets["version_scope_policy"] = w
 
-        ttk.Label(core, text="experiment.stats_time_policy").grid(row=11, column=0, sticky="w")
-        self._add_help_mark(core, 11, self._hint_for("experiment.stats_time_policy"))
-        w = ttk.Combobox(core, textvariable=self.vars["stats_time_policy"], values=["latest", "strict_asof"], state="readonly", width=18); w.grid(row=11, column=1, sticky="w"); self._general_field_widgets["stats_time_policy"] = w
+        ttk.Label(core, text="seed").grid(row=12, column=0, sticky="w")
+        self._add_help_mark(core, 12, self._hint_for("seed"))
+        w = ttk.Entry(core, textvariable=self.vars["seed"]); w.grid(row=12, column=1, sticky="ew"); self._general_field_widgets["seed"] = w
 
-        ttk.Label(core, text="experiment.on_missing_asof_snapshot").grid(row=12, column=0, sticky="w")
-        self._add_help_mark(core, 12, self._hint_for("experiment.on_missing_asof_snapshot"))
+        ttk.Label(core, text="experiment.stats_time_policy").grid(row=13, column=0, sticky="w")
+        self._add_help_mark(core, 13, self._hint_for("experiment.stats_time_policy"))
+        w = ttk.Combobox(core, textvariable=self.vars["stats_time_policy"], values=["latest", "strict_asof"], state="readonly", width=18); w.grid(row=13, column=1, sticky="w"); self._general_field_widgets["stats_time_policy"] = w
+
+        ttk.Label(core, text="experiment.on_missing_asof_snapshot").grid(row=14, column=0, sticky="w")
+        self._add_help_mark(core, 14, self._hint_for("experiment.on_missing_asof_snapshot"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["on_missing_asof_snapshot"],
             values=["disable_stats", "use_base", "raise"],
             state="readonly",
             width=18,
-        ); w.grid(row=12, column=1, sticky="w"); self._general_field_widgets["on_missing_asof_snapshot"] = w
+        ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["on_missing_asof_snapshot"] = w
 
-        ttk.Label(core, text="experiment.cache_policy").grid(row=13, column=0, sticky="w")
-        self._add_help_mark(core, 13, self._hint_for("experiment.cache_policy"))
+        ttk.Label(core, text="experiment.cache_policy").grid(row=15, column=0, sticky="w")
+        self._add_help_mark(core, 15, self._hint_for("experiment.cache_policy"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["cache_policy"],
             values=["off", "dto", "full"],
             state="readonly",
             width=18,
-        ); w.grid(row=13, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
+        ); w.grid(row=15, column=1, sticky="w"); self._general_field_widgets["cache_policy"] = w
 
-        ttk.Label(core, text="experiment.graph_dataset_cache_policy").grid(row=14, column=0, sticky="w")
-        self._add_help_mark(core, 14, self._hint_for("experiment.graph_dataset_cache_policy"))
+        ttk.Label(core, text="experiment.graph_dataset_cache_policy").grid(row=16, column=0, sticky="w")
+        self._add_help_mark(core, 16, self._hint_for("experiment.graph_dataset_cache_policy"))
         w = ttk.Combobox(
             core,
             textvariable=self.vars["graph_dataset_cache_policy"],
             values=["off", "read", "write", "full"],
             state="readonly",
             width=18,
-        ); w.grid(row=14, column=1, sticky="w"); self._general_field_widgets["graph_dataset_cache_policy"] = w
+        ); w.grid(row=16, column=1, sticky="w"); self._general_field_widgets["graph_dataset_cache_policy"] = w
 
-        ttk.Label(core, text="experiment.graph_dataset_cache_dir").grid(row=15, column=0, sticky="w")
-        self._add_help_mark(core, 15, self._hint_for("experiment.graph_dataset_cache_dir"))
-        w = ttk.Entry(core, textvariable=self.vars["graph_dataset_cache_dir"]); w.grid(row=15, column=1, sticky="ew"); self._general_field_widgets["graph_dataset_cache_dir"] = w
+        ttk.Label(core, text="experiment.graph_dataset_cache_dir").grid(row=17, column=0, sticky="w")
+        self._add_help_mark(core, 17, self._hint_for("experiment.graph_dataset_cache_dir"))
+        w = ttk.Entry(core, textvariable=self.vars["graph_dataset_cache_dir"]); w.grid(row=17, column=1, sticky="ew"); self._general_field_widgets["graph_dataset_cache_dir"] = w
 
-        ttk.Label(core, text="sync --as-of").grid(row=16, column=0, sticky="w")
+        ttk.Label(core, text="sync --as-of").grid(row=18, column=0, sticky="w")
         self.sync_asof_entry = ttk.Entry(core, textvariable=self.vars["sync_as_of"])
-        self.sync_asof_entry.grid(row=16, column=1, sticky="ew")
-        self._add_help_mark(core, 16, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
+        self.sync_asof_entry.grid(row=18, column=1, sticky="ew")
+        self._add_help_mark(core, 18, "Явний as-of timestamp для `sync-stats` (ISO). Якщо порожньо, буде авто-режим на основі подій.", col=2)
 
-        ttk.Label(core, text="backfill step").grid(row=17, column=0, sticky="w")
+        ttk.Label(core, text="backfill step").grid(row=19, column=0, sticky="w")
         self.backfill_step_box = ttk.Combobox(
             core, textvariable=self.vars["backfill_step"], values=["daily", "weekly", "monthly"], state="readonly", width=18
         )
-        self.backfill_step_box.grid(row=17, column=1, sticky="w")
-        self._add_help_mark(core, 17, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
+        self.backfill_step_box.grid(row=19, column=1, sticky="w")
+        self._add_help_mark(core, 19, "Крок бектесту для `sync-stats-backfill`: daily/weekly/monthly.", col=2)
 
-        ttk.Label(core, text="backfill step-days").grid(row=18, column=0, sticky="w")
+        ttk.Label(core, text="backfill step-days").grid(row=20, column=0, sticky="w")
         self.backfill_step_days_entry = ttk.Entry(core, textvariable=self.vars["backfill_step_days"])
-        self.backfill_step_days_entry.grid(row=18, column=1, sticky="ew")
-        self._add_help_mark(core, 18, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
+        self.backfill_step_days_entry.grid(row=20, column=1, sticky="ew")
+        self._add_help_mark(core, 20, "Кастомний крок у днях (перевизначає стандартний step).", col=2)
 
-        ttk.Label(core, text="backfill from").grid(row=19, column=0, sticky="w")
+        ttk.Label(core, text="backfill from").grid(row=21, column=0, sticky="w")
         self.backfill_from_entry = ttk.Entry(core, textvariable=self.vars["backfill_from"])
-        self.backfill_from_entry.grid(row=19, column=1, sticky="ew")
-        self._add_help_mark(core, 19, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
+        self.backfill_from_entry.grid(row=21, column=1, sticky="ew")
+        self._add_help_mark(core, 21, "Початкова дата backfill (ISO). Якщо порожньо, береться перша подія.", col=2)
 
-        ttk.Label(core, text="backfill to").grid(row=20, column=0, sticky="w")
+        ttk.Label(core, text="backfill to").grid(row=22, column=0, sticky="w")
         self.backfill_to_entry = ttk.Entry(core, textvariable=self.vars["backfill_to"])
-        self.backfill_to_entry.grid(row=20, column=1, sticky="ew")
-        self._add_help_mark(core, 20, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
+        self.backfill_to_entry.grid(row=22, column=1, sticky="ew")
+        self._add_help_mark(core, 22, "Кінцева дата backfill (ISO). Якщо порожньо, береться остання подія.", col=2)
 
-        ttk.Label(core, text="extra_args").grid(row=21, column=0, sticky="w")
-        self._add_help_mark(core, 21, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
-        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=21, column=1, sticky="ew")
+        ttk.Label(core, text="extra_args").grid(row=23, column=0, sticky="w")
+        self._add_help_mark(core, 23, "Додаткові CLI-аргументи, які будуть додані в кінець команди запуску.")
+        ttk.Entry(core, textvariable=self.vars["extra_args"]).grid(row=23, column=1, sticky="ew")
 
         adv_sections = ttk.Notebook(advanced)
         adv_sections.grid(row=0, column=0, sticky="nsew")
@@ -1836,9 +1856,11 @@ class ExperimentUI:
         self.vars["experiment_name"].set(str(exp.get("name", "")))
         self.vars["mode"].set(str(exp.get("mode", "train")))
         self.vars["fraction"].set(str(exp.get("fraction", 1.0)))
+        self.vars["fraction_strategy"].set(str(exp.get("fraction_strategy", "temporal")))
         self.vars["split_strategy"].set(str(exp.get("split_strategy", "temporal")))
         self.vars["train_ratio"].set(str(exp.get("train_ratio", 0.7)))
         self._set_split_ratio_vars(exp.get("split_ratio", [0.7, 0.2, 0.1]))
+        self.vars["version_scope_policy"].set(str(exp.get("version_scope_policy", "all")))
         self.vars["stats_time_policy"].set(str(exp.get("stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(exp.get("on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(exp.get("cache_policy", "full")))
@@ -1944,9 +1966,11 @@ class ExperimentUI:
                 "experiment.name",
                 "experiment.mode",
                 "experiment.fraction",
+                "experiment.fraction_strategy",
                 "experiment.split_strategy",
                 "experiment.train_ratio",
                 "experiment.split_ratio",
+                "experiment.version_scope_policy",
                 "experiment.stats_time_policy",
                 "experiment.on_missing_asof_snapshot",
                 "experiment.cache_policy",
@@ -2156,9 +2180,11 @@ class ExperimentUI:
         self.vars["project"].set(str(self._catalog_default("experiment.project", "")))
         self.vars["experiment_name"].set(str(self._catalog_default("experiment.name", "")))
         self.vars["fraction"].set(str(self._catalog_default("experiment.fraction", "1.0")))
+        self.vars["fraction_strategy"].set(str(self._catalog_default("experiment.fraction_strategy", "temporal")))
         self.vars["split_strategy"].set(str(self._catalog_default("experiment.split_strategy", "temporal")))
         self.vars["train_ratio"].set(str(self._catalog_default("experiment.train_ratio", "0.7")))
         self._set_split_ratio_vars(self._catalog_default("experiment.split_ratio", [0.7, 0.2, 0.1]))
+        self.vars["version_scope_policy"].set(str(self._catalog_default("experiment.version_scope_policy", "all")))
         self.vars["stats_time_policy"].set(str(self._catalog_default("experiment.stats_time_policy", "strict_asof")))
         self.vars["on_missing_asof_snapshot"].set(str(self._catalog_default("experiment.on_missing_asof_snapshot", "disable_stats")))
         self.vars["cache_policy"].set(str(self._catalog_default("experiment.cache_policy", "full")))
@@ -2205,9 +2231,11 @@ class ExperimentUI:
         _deep_set(cfg, "experiment.name", str(self.vars["experiment_name"].get()).strip())
         _deep_set(cfg, "experiment.mode", str(self.vars["mode"].get()).strip())
         _deep_set(cfg, "experiment.fraction", float(str(self.vars["fraction"].get()).strip() or "1.0"))
+        _deep_set(cfg, "experiment.fraction_strategy", str(self.vars["fraction_strategy"].get()).strip())
         _deep_set(cfg, "experiment.split_strategy", str(self.vars["split_strategy"].get()).strip())
         _deep_set(cfg, "experiment.train_ratio", float(str(self.vars["train_ratio"].get()).strip() or "0.7"))
         _deep_set(cfg, "experiment.split_ratio", self._resolve_split_ratio())
+        _deep_set(cfg, "experiment.version_scope_policy", str(self.vars["version_scope_policy"].get()).strip())
         _deep_set(cfg, "experiment.stats_time_policy", str(self.vars["stats_time_policy"].get()).strip())
         _deep_set(cfg, "experiment.on_missing_asof_snapshot", str(self.vars["on_missing_asof_snapshot"].get()).strip())
         _deep_set(cfg, "experiment.cache_policy", str(self.vars["cache_policy"].get()).strip())

@@ -859,6 +859,13 @@ StructXAttn contrastive diagnostics:
 3. `struct_xattn_correct_vs_corrupt_ce_delta`
 4. `struct_xattn_contrastive_loss`
 5. `struct_xattn_prediction_flip_rate`
+6. `struct_xattn_contrastive_margin_violation_rate`
+7. `struct_xattn_raw_context_mean_abs`
+8. `struct_xattn_pre_norm_delta_mean_abs`
+9. `struct_xattn_post_norm_delta_mean_abs`
+10. `struct_xattn_raw_to_observed_ratio`
+11. `struct_xattn_pre_norm_to_observed_ratio`
+12. `struct_xattn_post_norm_to_observed_ratio`
 
 `struct_xattn_correct_vs_corrupt_ce_delta > 0` means the correct topology gives
 lower CE than the corrupted topology. If this stays near or below zero, the
@@ -883,12 +890,51 @@ objectives:
 4. `topology_conditioned_retention_loss`
 5. `topology_conditioned_mixed_version_batches`
 6. `topology_conditioned_wrong_version_skipped_mixed_batches`
+7. `allowed_set_mass_leakage`
+8. `grad_norm_observed`
+9. `grad_norm_struct_xattn`
+10. `grad_norm_structural`
+11. `topology_conditioned_*_margin_violation_rate`
 
 These objectives are not applied during validation/test/eval_drift inference.
 They are intended to make the selected `fusion_mode` depend on topology during
 training. Physical `drop_edges` is used in the first implementation because the
 current structural GNN path does not consume `structural_edge_weight`; Soft Edge
 Drop is deferred.
+
+## 7.1.1 MVP Debug Diagnostics
+
+MVP debug metrics separate four diagnostic levels:
+
+1. **Feature & Scale Level**
+   - `struct_xattn_raw_context_mean_abs`: raw cross-attention context magnitude.
+   - `struct_xattn_pre_norm_delta_mean_abs`: actual `scale * gate * context`
+     magnitude before residual `LayerNorm`.
+   - `struct_xattn_post_norm_delta_mean_abs`: observed hidden-state delta after
+     residual `LayerNorm`.
+   - `struct_xattn_raw_to_observed_ratio`,
+     `struct_xattn_pre_norm_to_observed_ratio`,
+     `struct_xattn_post_norm_to_observed_ratio`.
+
+2. **Gradient & Loss Level**
+   - `grad_norm_observed`, `grad_norm_struct_xattn`, `grad_norm_structural`.
+   - `allowed_set_mass_leakage`: probability mass outside `allowed_target_mask`.
+   - `struct_xattn_contrastive_margin_violation_rate`.
+   - `topology_conditioned_drop_edges_margin_violation_rate`.
+   - `topology_conditioned_wrong_version_margin_violation_rate`.
+
+3. **Drift / Zero-Shot Level**
+   - `drift_window_oos_confidence_mean`: mean confidence for OOS predictions in
+     each drift window.
+
+4. **Selective Trace Level**
+   - The same StructXAttn scale ratios are included in selected prediction trace
+     payloads and flat MLflow span attributes.
+
+**Опис (ukr):** ці метрики потрібні, щоб відокремити три різні проблеми:
+структурний сигнал майже нульовий, структурний сигнал токсично домінує, або
+структурний сигнал проходить у здоровому масштабі, але loss/методологія
+навчання спрямовує його не туди.
 
 ## 7.2 Selective Structural Prediction Tracing
 
@@ -959,6 +1005,9 @@ prediction_entropy
 structural_to_observed_logit_ratio
 struct_xattn_gate_mean
 struct_xattn_attention_entropy
+struct_xattn_raw_to_observed_ratio
+struct_xattn_pre_norm_to_observed_ratio
+struct_xattn_post_norm_to_observed_ratio
 ```
 
 Nested JSON payload is kept in span inputs/outputs or JSONL for explanation:

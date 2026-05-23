@@ -36,6 +36,14 @@ For drift-safe studies:
 3. Run train/eval with `experiment.stats_time_policy = strict_asof`.
 4. Use `experiment.on_missing_asof_snapshot = raise` for dissertation-grade evidence.
 5. Keep fixed seed and identical train split for baseline and EOPKG.
+6. For small topology-conditioned experiments on versioned logs, use
+   `experiment.fraction_strategy=versioned` to sample a fraction per process
+   version instead of only the earliest chronological slice.
+7. Use `experiment.split_strategy=versioned` when train/val/test must preserve
+   per-version proportions.
+8. Use `experiment.version_scope_policy=train_cut` when future-version leakage
+   must be prevented: train uses only versions known before `train_ratio`, while
+   eval tail keeps future versions for drift/zero-shot checks.
 
 ## 5. Leakage Risk Notes
 1. If no eligible snapshot exists for requested `as_of`, runtime behavior is controlled by `experiment.on_missing_asof_snapshot`.

@@ -137,6 +137,7 @@ def _build_trace_recorder(
     *,
     tracking_cfg: Dict[str, Any],
     run_id: str | None,
+    experiment_id: str | None,
     output_dir: str | None,
 ) -> MLflowTraceRecorder | None:
     """Build optional structural trace recorder from tracking.tracing config."""
@@ -154,6 +155,7 @@ def _build_trace_recorder(
         enabled=True,
         fallback_dir=fallback_dir,
         run_id=run_id,
+        experiment_id=experiment_id,
         allow_nonzero_rank_fallback=_as_bool(
             tracing_cfg.get("allow_nonzero_rank_fallback"),
             default=False,
@@ -447,6 +449,76 @@ def _apply_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrac
     return ordered[:keep_count]
 
 
+def _trace_version_label(trace: RawTrace) -> str:
+    return str(getattr(trace, "process_version", "")).strip() or "__missing__"
+
+
+def _first_event_ts(trace: RawTrace) -> Any:
+    return trace.events[0].timestamp if trace.events else 0
+
+
+def _group_traces_by_version(traces: Sequence[RawTrace]) -> Dict[str, List[RawTrace]]:
+    grouped: Dict[str, List[RawTrace]] = {}
+    for trace in traces:
+        grouped.setdefault(_trace_version_label(trace), []).append(trace)
+    return dict(sorted(grouped.items(), key=lambda item: item[0]))
+
+
+def _apply_versioned_fraction(traces: Sequence[RawTrace], fraction: float) -> List[RawTrace]:
+    if fraction <= 0.0 or fraction > 1.0:
+        raise ValueError("experiment.fraction must be within (0.0, 1.0].")
+    grouped = _group_traces_by_version([trace for trace in traces if trace.events])
+    selected: List[RawTrace] = []
+    for _, version_traces in grouped.items():
+        ordered = sorted(version_traces, key=_first_event_ts)
+        keep_count = len(ordered) if fraction >= 1.0 else max(1, int(len(ordered) * fraction))
+        selected.extend(ordered[:keep_count])
+    return selected
+
+
+def _apply_version_scope(
+    ordered: Sequence[RawTrace],
+    *,
+    mode: str,
+    train_ratio: float,
+    version_scope_policy: str,
+) -> List[RawTrace]:
+    split_idx = int(len(ordered) * train_ratio)
+    mode_key = str(mode).strip().lower()
+    if version_scope_policy == "all":
+        if mode_key == "train":
+            return list(ordered[:split_idx])
+        if mode_key in {"eval_drift", "eval_cross_dataset"}:
+            return list(ordered[split_idx:])
+        return list(ordered)
+
+    known_versions = {_trace_version_label(trace) for trace in ordered[:split_idx]}
+    if mode_key == "train":
+        return [trace for trace in ordered if _trace_version_label(trace) in known_versions]
+    if mode_key in {"eval_drift", "eval_cross_dataset"}:
+        return [trace for trace in ordered[split_idx:] if _trace_version_label(trace) not in known_versions]
+    return list(ordered)
+
+
+def _versioned_split(
+    traces: Sequence[RawTrace],
+    split_ratio: Tuple[float, float, float],
+) -> Tuple[List[RawTrace], List[RawTrace], List[RawTrace]]:
+    grouped = _group_traces_by_version([trace for trace in traces if trace.events])
+    train: List[RawTrace] = []
+    val: List[RawTrace] = []
+    test: List[RawTrace] = []
+    train_ratio, val_ratio, _ = split_ratio
+    for _, version_traces in grouped.items():
+        ordered = sorted(version_traces, key=_first_event_ts)
+        train_end = int(len(ordered) * train_ratio)
+        val_end = train_end + int(len(ordered) * val_ratio)
+        train.extend(ordered[:train_end])
+        val.extend(ordered[train_end:val_end])
+        test.extend(ordered[val_end:])
+    return train, val, test
+
+
 def _strict_temporal_split(
     traces: Sequence[RawTrace],
     split_ratio: Tuple[float, float, float],
@@ -455,8 +527,10 @@ def _strict_temporal_split(
     """Apply strict chronological split by configured strategy and ratio."""
     if split_strategy == "time":
         split_strategy = "temporal"
-    if split_strategy not in {"temporal", "none"}:
+    if split_strategy not in {"temporal", "none", "versioned"}:
         raise ValueError(f"Unsupported experiment.split_strategy '{split_strategy}'.")
+    if split_strategy == "versioned":
+        return _versioned_split(traces, split_ratio)
 
     train_ratio, val_ratio, _ = split_ratio
     traces_with_events = [trace for trace in traces if trace.events]
@@ -475,10 +549,20 @@ def _apply_cascade_prepare(
     split_strategy: str,
     train_ratio: float,
     fraction: float,
+    fraction_strategy: str = "temporal",
+    version_scope_policy: str = "all",
 ) -> List[RawTrace]:
     """Apply cascade filter in contract order: temporal sort -> macro split -> fraction."""
-    if split_strategy not in {"temporal", "none"}:
-        raise ValueError("experiment.split_strategy must be 'temporal' or 'none'.")
+    if split_strategy == "time":
+        split_strategy = "temporal"
+    if split_strategy not in {"temporal", "none", "versioned"}:
+        raise ValueError("experiment.split_strategy must be 'temporal', 'none', or 'versioned'.")
+    fraction_strategy = str(fraction_strategy).strip().lower()
+    if fraction_strategy not in {"temporal", "versioned"}:
+        raise ValueError("experiment.fraction_strategy must be 'temporal' or 'versioned'.")
+    version_scope_policy = str(version_scope_policy).strip().lower()
+    if version_scope_policy not in {"all", "train_cut"}:
+        raise ValueError("experiment.version_scope_policy must be 'all' or 'train_cut'.")
     if train_ratio < 0.0 or train_ratio > 1.0:
         raise ValueError("experiment.train_ratio must be within [0.0, 1.0].")
     if fraction <= 0.0 or fraction > 1.0:
@@ -490,19 +574,23 @@ def _apply_cascade_prepare(
     else:
         ordered = list(traces_with_events)
 
-    split_idx = int(len(ordered) * train_ratio)
-    mode_key = str(mode).strip().lower()
-    if mode_key == "train":
-        macro = ordered[:split_idx]
-    elif mode_key in {"eval_drift", "eval_cross_dataset"}:
-        macro = ordered[split_idx:]
-    else:
-        macro = ordered
+    macro = _apply_version_scope(
+        ordered,
+        mode=mode,
+        train_ratio=train_ratio,
+        version_scope_policy=version_scope_policy,
+    )
 
     if fraction >= 1.0:
-        return macro
-    keep_count = int(len(macro) * fraction)
-    return macro[:keep_count]
+        filtered = macro
+    elif fraction_strategy == "versioned":
+        filtered = _apply_versioned_fraction(macro, fraction)
+    else:
+        keep_count = int(len(macro) * fraction)
+        filtered = macro[:keep_count]
+    if split_strategy in {"temporal", "versioned"}:
+        return sorted(filtered, key=_first_event_ts)
+    return filtered
 
 
 def _trace_version_counts(traces: Sequence[RawTrace]) -> Dict[str, int]:
@@ -630,6 +718,8 @@ def _graph_dataset_cache_fingerprint(
     activity_vocab: Dict[str, int],
     resource_vocab: Dict[str, int],
     graph_feature_mapping: Dict[str, Any],
+    fraction_strategy: str = "temporal",
+    version_scope_policy: str = "all",
 ) -> str:
     mapping_cfg = config.get("mapping", {})
     features_cfg = config.get("features", None)
@@ -644,6 +734,8 @@ def _graph_dataset_cache_fingerprint(
         "adapter": str(adapter_kind),
         "mode": str(mode),
         "split_strategy": str(split_strategy),
+        "fraction_strategy": str(fraction_strategy),
+        "version_scope_policy": str(version_scope_policy),
         "split_ratio": [float(item) for item in split_ratio],
         "train_ratio": float(train_ratio),
         "fraction": float(fraction),
@@ -1576,6 +1668,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     split_strategy = str(experiment_cfg.get("split_strategy", "temporal")).strip().lower()
     if split_strategy == "time":
         split_strategy = "temporal"
+    fraction_strategy = str(experiment_cfg.get("fraction_strategy", "temporal")).strip().lower()
+    version_scope_policy = str(experiment_cfg.get("version_scope_policy", "all")).strip().lower()
     split_ratio = _parse_split_ratio(experiment_cfg)
     train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
@@ -1615,8 +1709,18 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         split_strategy=split_strategy,
         train_ratio=train_ratio,
         fraction=fraction,
+        fraction_strategy=fraction_strategy,
+        version_scope_policy=version_scope_policy,
     )
-    logger.info("Applied cascade filter (mode=%s, fraction=%.4f) -> traces=%d", mode, fraction, len(traces))
+    logger.info(
+        "Applied cascade filter (mode=%s, fraction=%.4f, fraction_strategy=%s, split_strategy=%s, version_scope_policy=%s) -> traces=%d",
+        mode,
+        fraction,
+        fraction_strategy,
+        split_strategy,
+        version_scope_policy,
+        len(traces),
+    )
     data_num_traces = len(traces)
     data_num_events = sum(len(trace.events) for trace in traces)
     prepared_version_counts = _trace_version_counts(traces)
@@ -1780,6 +1884,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "data_val_versions": _format_trace_version_counts(val_version_counts),
         "data_test_versions": _format_trace_version_counts(test_version_counts),
         "data_version_collapse_warning": bool(version_collapse_warning),
+        "fraction_strategy": fraction_strategy,
+        "version_scope_policy": version_scope_policy,
         "xes_use_classifier": xes_use_classifier,
         "xes_activity_key": xes_activity_key or None,
         "xes_version_key": xes_version_key or None,
@@ -1871,6 +1977,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         adapter_kind=adapter_kind,
         mode=mode,
         split_strategy=split_strategy,
+        fraction_strategy=fraction_strategy,
+        version_scope_policy=version_scope_policy,
         split_ratio=split_ratio,
         train_ratio=train_ratio,
         fraction=fraction,
@@ -2007,6 +2115,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
                             "mode": mode,
                             "adapter": adapter_kind,
                             "split_strategy": split_strategy,
+                            "fraction_strategy": fraction_strategy,
+                            "version_scope_policy": version_scope_policy,
                             "fraction": float(fraction),
                             "train_ratio": float(train_ratio),
                             "split_ratio": [float(item) for item in split_ratio],
@@ -2076,6 +2186,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
                             "mode": mode,
                             "adapter": adapter_kind,
                             "split_strategy": split_strategy,
+                            "fraction_strategy": fraction_strategy,
+                            "version_scope_policy": version_scope_policy,
                             "fraction": float(fraction),
                             "train_ratio": float(train_ratio),
                             "split_ratio": [float(item) for item in split_ratio],
@@ -2150,6 +2262,8 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         "experiment_split_config": {
             "fraction": fraction,
             "split_strategy": split_strategy,
+            "fraction_strategy": fraction_strategy,
+            "version_scope_policy": version_scope_policy,
             "split_ratio": list(split_ratio),
             "train_ratio": train_ratio,
         },
@@ -2401,6 +2515,7 @@ def main() -> None:
     trace_recorder = _build_trace_recorder(
         tracking_cfg=tracking_cfg,
         run_id=tracker.get_run_id() if tracker is not None else None,
+        experiment_id=tracker.get_experiment_id() if tracker is not None else None,
         output_dir=str(Path("outputs") / "mlflow_trace_fallback"),
     )
 

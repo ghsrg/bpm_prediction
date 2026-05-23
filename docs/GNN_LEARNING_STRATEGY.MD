@@ -124,6 +124,18 @@ training:
 multiple structural `fusion_mode` values, but expected effect depends on how
 strongly the selected fusion exposes topology to trainable prediction behavior.
 
+`L_wrong_version_negative` requires at least two known train versions. When a
+run intentionally uses a small data fraction, prefer:
+
+```yaml
+experiment.fraction_strategy: versioned
+experiment.split_strategy: versioned
+experiment.version_scope_policy: train_cut
+```
+
+This keeps small samples from each known version while preventing future-version
+leakage into train/validation.
+
 ### `supported`
 
 These modes have a meaningful topology channel for the proposed strategy:

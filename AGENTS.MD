@@ -53,6 +53,7 @@ When documents conflict, use this priority:
    - `docs/EVF_MVP2_5.MD`
    - `docs/GNN_RUNTIME_MVP2_5.MD`
    - `docs/GNN_LEARNING_STRATEGY.MD`
+   - `docs/GNN_LEARNING_METODOLOGY.MD`
 7. Adapter specs:
    - `docs/ADAPTER_XES.MD`
    - `docs/ADAPTER_CAMUNDA_SQL.MD`
@@ -140,6 +141,7 @@ Read `MVP2.5 Core`, then:
 
 - `docs/GNN_RUNTIME_MVP2_5.MD`
 - `docs/GNN_LEARNING_STRATEGY.MD`
+- `docs/GNN_LEARNING_METODOLOGY.MD` for zero-shot, topology-conditioned candidate scoring, or dissertation methodology tasks
 - `docs/EVF_MVP2_5.MD`
 - `docs/VARIABLES.MD` when metrics, notation, or dissertation reasoning are involved
 

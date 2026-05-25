@@ -704,3 +704,548 @@ correct topology vs corrupted topology
 - перша реалізація використовує physical `drop_edges`, бо structural GNN ще не
   споживає `structural_edge_weight`; Soft Edge Drop треба описувати як future
   work/tech debt.
+
+---
+
+## 2026-05-23 - StructXAttn Residual Fusion Stabilization
+
+- `topic`: architecture stabilization
+- `impact`: critical before interpreting StructXAttn drift results
+- `status`: implemented as configurable merge modes
+- `related_runtime`: `model.struct_xattn_merge_mode`
+
+**Note (ukr):**
+
+За результатами run `d9d019d3827548cc920554edbf47a75f` виявлено, що
+поточний StructXAttn мав не лише проблему сили структурного сигналу, а
+конкретний residual-normalization artifact:
+
+```text
+pre_norm_to_observed_ratio  ~= 0.25
+post_norm_to_observed_ratio ~= 6.75
+```
+
+Це означає, що структурний delta до residual merge був помірним, але
+`LayerNorm(node_hidden + delta)` роздував фактичну зміну hidden-state. Для
+дисертації важливо не трактувати такі запуски як доказ того, що cross-attention
+структура "погана"; спочатку треба відокремити дефект механіки злиття від
+дефекту методології навчання.
+
+Додано стабілізаційні режими:
+
+1. `post_norm_residual` - історична поведінка для відтворення старих запусків;
+2. `pre_norm_context` - рекомендований режим: нормалізується structural context
+   до residual merge, а після merge не застосовується post-LN;
+3. `residual_only` - ablation для перевірки ролі context normalization.
+
+Також додано `model.struct_xattn_delta_ratio_max`, який може обмежити
+`mean_abs(delta) / mean_abs(observed)`.
+
+**Do not forget:**
+
+- у Methodology/Limitations зазначити, що перші StructXAttn результати до
+  стабілізації fusion не є фінальним висновком про непридатність cross-attention;
+- окремо порівнювати `post_norm_residual` та `pre_norm_context`;
+- для аналізу дивитися не тільки strict-F1, а й:
+  `struct_xattn_pre_norm_to_observed_ratio`,
+  `struct_xattn_post_norm_to_observed_ratio`,
+  `drift_window_oos_confidence_mean`, `ECE`, `NLL`, `OOS`.
+
+---
+
+## 2026-05-24 - Dynamic Candidate Set And Topology Drift Audit
+
+- `topic`: methodology limitation / audit evidence
+- `impact`: critical for business-valid zero-shot claims
+- `status`: audit tool implemented
+- `related_runtime`: `tools/audit_topology_drift.py`
+
+**Note (ukr):**
+
+У реальних бізнес-версіях процесу нова topology може не лише змінювати
+ймовірності переходів, а й додавати/прибирати BPMN-вузли та нові activity
+labels. Це означає, що поточна fixed parametric classifier head
+`Linear(hidden_dim, num_classes)` може бути методологічно недостатньою для
+zero-shot сценарію: структура нової версії вже знає новий кандидат, але
+класифікатор або не має для нього навченого виходу, або має майже нульовий
+supervised signal.
+
+Додано offline audit, який порівнює gateway-collapsed BPMN topology між
+версіями та атрибутує prediction errors:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\audit_topology_drift.py `
+  --mlruns-dir mlruns `
+  --experiment-id 854778689611649472 `
+  --baseline-run <baseline_eval_drift_run_id> `
+  --structural-run <structural_eval_drift_run_id> `
+  --train-run <train_run_id> `
+  --output-dir outputs\audits\topology_drift
+```
+
+Перший smoke audit для `5af1d05da0524106b4031dd7c39767c6` показав, що у
+`loan_v4_re_pl_cb.bpmn` з'являється новий BPMN activity id
+`Activity_07k7tyn` (`Monitor Ten`) і нові gateway-collapsed transitions:
+
+```text
+t_confirm_payout -> Activity_07k7tyn
+Activity_07k7tyn -> t_update_risk
+```
+
+**Do not forget:**
+
+- у Methodology описати, що topology drift змінює не лише feature distribution,
+  а й candidate set;
+- окремо розрізняти:
+  1. known-label route change,
+  2. added/removed BPMN node with known label,
+  3. added/removed activity class;
+- якщо errors концентруються на added/new candidates, наступним архітектурним
+  кроком має бути dynamic topology-conditioned candidate scorer або
+  semantic-topological retrieval head, а не лише stronger fusion scale;
+**2026-05-24 update:** `prefix_last_activity` додано в future trace payload
+через `prefix_last_activity_idx`; для старих run artifacts audit може
+відновлювати його з XES за `(trace_idx, prefix_len)`. Повторний audit
+`loan_xattn_5af1d05_prefix_last_activity` показав, що для sampled traces:
+
+- `changed_transition_zone`: 2;
+- `strict_error_but_allowed`: 20;
+- `oos_prediction`: 13;
+- `correct`: 5.
+
+Це підтверджує, що частина post-drift помилок уже прив'язується до конкретної
+зони зміни маршруту, але домінують OOS та allowed-but-wrong помилки. Для
+дисертації це важливо трактувати як candidate-set/topology alignment problem,
+а не лише як проблему сили fusion signal.
+
+---
+
+## 2026-05-24 - EOPKGTopologyConditioned Stage 1
+
+- `topic`: topology-conditioned candidate scoring
+- `impact`: important architecture step beyond fixed-head fusion modes
+- `status`: Stage 1 implemented
+- `related_runtime`: `model.type=EOPKGTopologyConditioned`
+
+**Note (ukr):**
+
+Додано окремий тип моделі `EOPKGTopologyConditioned`. Це не ще один
+`fusion_mode`, а перехід до іншого принципу: структура задає простір
+кандидатів, а observed prefix порівнюється з candidate embeddings. Stage 1
+зберігає сумісність з поточним trainer/evaluator contract і повертає
+`[B, C_train]`, але всередині уже рахує `node_scores [B, |V|]` і агрегує
+дублікати BPMN-вузлів у activity class через MIL.
+
+**Do not forget:**
+
+- у тексті дисертації розділити fixed-head fusion ablations та
+  topology-conditioned candidate scoring;
+- Stage 1 ще не доводить повний zero-shot для нових activity classes, бо
+  фінальний contract залишається `[B, C_train]`;
+- ключові діагностики для аналізу:
+  `candidate_node_score_mean_abs`, `candidate_class_score_mean_abs`,
+  `duplicate_candidate_count_max`, `candidate_temperature`,
+  `candidate_prediction_entropy`, `candidate_score_gap`;
+- наступний методологічний крок: dynamic candidate contract `[B, C_v]` і
+  semantic-topological candidate prototypes.
+
+---
+
+## 2026-05-24 - Research Path From Baseline To Topology-Conditioned Scoring
+
+- `topic`: dissertation reasoning / model evolution
+- `impact`: helps explain why simple structural fusion is not enough for zero-shot adaptation
+- `status`: notes for future writing
+- `related_runtime`:
+  - `BaselineGATv2`
+  - `EOPKGGATv2`
+  - `EOPKGTopologyConditioned`
+
+**Short thesis (ukr):**
+
+Шлях дослідження йде не від "baseline гірший, структура краща", а від
+послідовної перевірки, на якому саме рівні структура має входити в модель,
+щоб бути корисною при drift:
+
+```text
+Baseline observed-only
+  -> EOPKG fixed-head fusion modes
+  -> topology-conditioned candidate scoring
+  -> future dynamic candidate contract / semantic-topological retrieval
+```
+
+**Baseline:**
+
+Baseline використовує тільки observed prefix / IG:
+
+```text
+P(y | observed_prefix)
+```
+
+Він не знає нову BPMN topology явно, але іноді краще переноситься між
+версіями, бо не прив'язаний до застарілих структурних кореляцій. Це важливий
+контрольний результат: слабший inductive bias може бути стабільнішим, якщо
+структурний bias неправильно інтегрований.
+
+**EOPKG fixed-head fusion modes:**
+
+Перевірені режими `ClassMeanAttention`, `ClassMeanConcat`,
+`StructuralPriorEncoder`, `TopologyStateEncoder`, `TopologyStateGraphEncoder`,
+`ClassAwareStructuralScoring`, `StructXAttn`.
+
+Їх спільне обмеження: фінальна prediction head здебільшого залишається
+фіксованою:
+
+```text
+logits = f(observed_prefix, topology_signal), logits in R^{C_train}
+```
+
+Тобто структура додається як context/prior/logit correction, але не змінює
+сам простір кандидатів. Якщо у новій версії процесу з'являється новий вузол,
+зникає старий або змінюється маршрут, fixed head все одно прогнозує в межах
+старого `C_train`.
+
+**Main observation:**
+
+Проста подача структури може:
+
+- зменшувати OOS або покращувати mask/calibration diagnostics;
+- іноді стабілізувати non-strict metrics;
+- давати локальні покращення на окремих версіях;
+- але не гарантує zero-shot improvement для strict-F1 після topology drift.
+
+Причина: модель вчиться не "користуватися новою topology як умовою", а часто
+лише підлаштовує fusion під topology, яку бачила під час train.
+
+**Why simple structure does not solve zero-shot:**
+
+1. `Conditional Structure Shift`:
+
+```text
+P_train(Y | X, A_v1) != P_test(Y | X, A_vN)
+```
+
+Однаковий або схожий prefix може мати інший valid next candidate у новій
+версії. Якщо модель вивчила стару кореляцію, структура може стати джерелом
+negative transfer.
+
+2. `Fixed-head limitation`:
+
+```text
+classifier: R^D -> R^{C_train}
+```
+
+Нова topology може містити candidate, якого немає у виході classifier. Тоді
+модель фізично не може чесно вибрати цей candidate без зміни prediction
+contract.
+
+3. `Fusion-level ambiguity`:
+
+Структура, додана через attention/concat/logit scoring, може бути:
+
+- занадто слабкою і ігноруватися;
+- занадто сильною і псувати calibration/NLL/OOS;
+- корисною лише як mask/filter, а не як learned candidate reasoning.
+
+4. `Mask-guided effect is separate`:
+
+`mask_guided_enabled=true` може покращити метрики, але це не доводить, що
+структурний encoder навчився прогнозувати. Це доводить, що topology constraint
+корисний як downstream filter. Тому треба порівнювати:
+
+```text
+TopologyConditioned-UN = candidate scoring only
+TopologyConditioned-MN = candidate scoring + mask-guided constraint
+```
+
+Якщо приріст є тільки в `MN`, то основний ефект дає маска, а не модельне
+розуміння структури.
+
+**Why EOPKGTopologyConditioned is the next step:**
+
+Нова модель змінює питання з:
+
+```text
+Which class from C_train should fixed classifier predict?
+```
+
+на:
+
+```text
+Which candidate from current topology best matches observed_prefix?
+```
+
+Stage 1:
+
+```text
+z_prefix = ObservedEncoder(IG_prefix)
+h_j = TopologyCandidateEncoder(node_j, topology_edges, optional struct_x)
+score_j = sim(z_prefix, h_j)
+class_score_c = MIL_pool({score_j | node_to_class(j)=c})
+```
+
+Тут `struct_x` є enrichment для candidate node, а не головний IG-вхід.
+Головний IG-вхід:
+
+```text
+x_cat, x_num, edge_index, batch
+```
+
+Мінімальний structural input:
+
+```text
+structural_edge_index + struct_node_to_class_index
+```
+
+Optional enrichment:
+
+```text
+struct_x = stats/topology node features
+```
+
+**Current limitation of Stage 1:**
+
+Stage 1 все ще повертає:
+
+```text
+[B, C_train]
+```
+
+Тому він є bridge між старим pipeline і майбутнім dynamic candidate prediction.
+Він потрібен, щоб перевірити сам принцип candidate scoring без повної
+перебудови evaluator/checkpoints.
+
+**Required future step:**
+
+Для бізнес-валідної zero-shot адаптації потрібен Stage 2:
+
+```text
+candidate_logits: [B, C_v]
+candidate_ids: candidates(topology_v)
+prediction = argmax_{j in candidates(topology_v)} score_j
+```
+
+І далі semantic-topological prototypes, щоб новий candidate мав embedding до
+появи логів:
+
+```text
+h_j = GNN_struct(Text/BPMN_metadata_embedding_j, topology_v)
+```
+
+**Dissertation framing:**
+
+Не формулювати проміжний висновок як "структура не працює". Коректніше:
+
+```text
+Simple structural fusion is insufficient for zero-shot adaptation under
+candidate-set drift and conditional structural shift.
+```
+
+Потрібна методологія, де topology:
+
+1. задає candidate space;
+2. входить у prediction як умова;
+3. підтримує added/removed candidates;
+4. окремо контролюється через calibration/OOS/mask diagnostics;
+5. відділяється від downstream mask filtering.
+
+---
+
+## 2026-05-25 - TopologyConditioned Drift Improves Reliability More Than Strict-F1
+
+- `topic`: EOPKGTopologyConditioned Stage 1 drift interpretation
+- `run_id`: `2c42cdcae0264f93968330c012caf073`
+- `baseline_reference`: `_Base-UN-drift-42` comparable versioned split runs
+- `impact`: important for business-facing evidence and methodology framing
+- `status`: preliminary observation, validate with seeds
+
+**Observation (ukr):**
+
+`EOPKGTopologyConditioned` Stage 1 на drift `v1..v4` не дає суттєвого приросту
+`strict_macro_f1` відносно baseline, але помітно покращує reliability-метрики:
+
+```text
+EOPKGTC drift last:
+strict_macro_f1 ~= 0.571
+macro_f1        ~= 0.780
+OOS             ~= 0.120
+ECE             ~= 0.063
+NLL             ~= 0.480
+
+Comparable Base-UN drift last:
+strict_macro_f1 ~= 0.578
+macro_f1        ~= 0.767
+OOS             ~= 0.134
+ECE             ~= 0.154
+NLL             ~= 1.079
+```
+
+**Interpretation (ukr):**
+
+Topology-conditioned candidate scoring поки не вирішує exact next-activity
+ranking після drift, але робить прогноз менш токсичним для бізнесу:
+
+- менше виходів за дозволений простір (`OOS`);
+- краща калібровка (`ECE`);
+- нижчий negative log-likelihood (`NLL`);
+- non-strict `macro_f1` трохи кращий, ніж baseline.
+
+Це підтримує тезу, що topology уже корисна як reliability / governance signal,
+але не достатня як повна zero-shot ranking methodology.
+
+**Methodology consequence:**
+
+У дисертації розділяти:
+
+```text
+1. business validity / reliability:
+   OOS, ECE, NLL, pred_in_mask_rate
+
+2. exact predictive accuracy:
+   strict_macro_f1, strict_error_but_allowed_rate
+```
+
+Stage 1 може бути доказом користі структури для першого блоку, але для другого
+потрібні Stage 2 dynamic candidates, richer candidate features/statistics або
+окрема методологія ranking adaptation.
+
+---
+
+## 2026-05-25 - Dissertation Notes Capture Rule
+
+- `topic`: research process hygiene
+- `impact`: keep business/methodology conclusions from being lost between runs
+- `status`: active working rule
+
+**Rule (ukr):**
+
+Усі висновки з експериментів, які важливі для бізнесової інтерпретації,
+методології навчання, дисертаційної аргументації або майбутньої Scopus статті,
+треба заносити сюди короткими тезами. Не чекати фінального тексту розділу.
+
+**Examples of conclusions to capture:**
+
+- що саме покращує topology: OOS, calibration, allowed-space, strict-F1,
+  drift slope, confidence, або лише mask-filtering;
+- де структура шкодить: overconfidence, NLL, negative transfer, wrong candidate
+  ranking;
+- які обмеження важливі для бізнесу: new/removed candidates, ambiguity,
+  duplicate activities, cold-start topology before logs;
+- які висновки впливають на методологію навчання або архітектуру.
+
+---
+
+## 2026-05-25 - Topology Helps Allowed-Space But Not Ambiguous Exact Ranking
+
+- `topic`: EOPKGTopologyConditioned Stage 1 train run interpretation
+- `run_id`: `0d2fd3875d7444f4a4be69ff3fb165e2`
+- `impact`: important for business and methodology framing
+- `status`: preliminary observation, validate on drift and seeds
+
+**Observation (ukr):**
+
+Для `EOPKGTopologyConditioned` на train `v1,v2` без mask-guided inference і без
+statistics topology допомагає тримати прогноз у дозволеній області:
+
+```text
+test_oos = 0
+target_in_mask_rate = 1
+pred_in_mask_rate = 1
+```
+
+Але це не гарантує exact next activity у неоднозначних префіксах:
+
+```text
+strict_test_macro_f1 ~= 0.836
+test_macro_f1 = 1.0
+test_ambiguous_prefix_rate ~= 0.473
+test_strict_error_but_allowed_rate ~= 0.056
+```
+
+**Interpretation (ukr):**
+
+Topology добре задає allowed candidate space, але якщо prefix допускає кілька
+валідних продовжень, сама topology не завжди містить достатньо інформації для
+точного ранжування конкретного next event. Для бізнесу це означає: структура
+корисна як обмеження простору рішень і audit/control layer, але для exact
+prediction потрібна додаткова методологія ранжування кандидатів: статистика,
+контекст префікса, temporal/process state, або candidate-level навчання.
+
+**Methodology consequence:**
+
+Розділяти дві задачі:
+
+```text
+1. valid candidate containment:
+   y_hat in allowed(topology, prefix)
+
+2. exact candidate ranking:
+   y_hat == y_true inside allowed(topology, prefix)
+```
+
+Перша задача може покращувати OOS/calibration/business validity. Друга задача
+потребує сильнішого навчання та/або Stage 2 dynamic candidate contract.
+---
+
+## 2026-05-25 - Dynamic Candidate Contract Foundation
+
+- `topic`: EOPKGTopologyConditioned Stage 2 foundation
+- `runtime_change`: added model-level `forward_candidate(contract)`
+- `contract`: `candidate_logits [B, C_v]`, `candidate_class_index [C_v]`,
+  `node_logits [B, |V|]`, `node_to_candidate_index [|V|]`
+
+Ключова методологічна зміна: модель тепер може представити prediction space як
+множину кандидатів поточної topology version, а не тільки як fixed activity vocab
+`C_train`. Це ще не повний zero-shot для нових BPMN вузлів, бо стандартний
+trainer/evaluator поки використовує backward-compatible `forward() -> [B, C_train]`.
+Але це перший технічний крок до доведення гіпотези:
+
+```text
+new topology defines candidates first;
+logs arrive later;
+model scores candidates from topology rather than only selecting from old fixed head.
+```
+
+Для тексту дисертації важливо розділяти:
+
+- `Stage 1`: topology node scoring + MIL pooling back to fixed labels;
+- `Stage 2 foundation`: model can return dynamic topology candidate logits `[B, C_v]`;
+- `Stage 2 end-to-end`: future trainer/evaluator must train and evaluate directly
+  on dynamic candidate outputs.
+
+**2026-05-25 update:** `training.dynamic_candidate_contract_enabled=true`
+connects this contract to train/eval/drift. The trainer calls
+`forward_candidate()` and optimizes topology-local `candidate_logits [B, C_v]`,
+then projects them back to sparse fixed-label logits `[B, C_train]` so existing
+CE, mask, calibration, and drift metrics still work. This is an important
+transitional step: the loss now follows topology-defined candidates, but the
+evaluation contract still cannot fully represent a new class outside
+`C_train`. In dissertation terms, this should be described as
+`Stage 2 compatibility`, not yet full semantic-topological zero-shot retrieval.
+
+**2026-05-25 run observation:** for `_EOPKGTC-UN`
+(`train_run=2b1bc6597752412a915a08e1778d1ed2`) and `_EOPKGTC-UN-drift`
+(`drift_run=8061e9c61a7a43f7b6434d1c68002e37`), Stage 2 compatibility produced
+graphs identical to Stage 1. Diagnostics explain why:
+
+```text
+vocab_activity_size = 37
+candidate_dynamic_count = 37
+duplicate_candidate_count_max = 1
+candidate_class_score_mean_abs == candidate_node_score_mean_abs
+```
+
+In this configuration, the topology-local candidate set is effectively the same
+as the fixed training vocab, and there are no duplicate candidate classes in the
+pooled view. Therefore:
+
+```text
+forward() class pooling
+==
+forward_candidate() dynamic pooling + projection back to C_train
+```
+
+Methodology consequence: this step validates wiring but does not yet test the
+business-critical zero-shot claim. To observe a difference, the evaluator/loss
+must stop projecting back to `C_train` and operate on true candidate ids /
+BPMN node ids, especially where a topology version adds/removes candidates.

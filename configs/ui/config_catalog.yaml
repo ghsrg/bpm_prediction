@@ -1918,6 +1918,182 @@ fields:
       group: advanced
       priority: 100
       order: 1023
+  model.struct_xattn_merge_mode:
+    path: model.struct_xattn_merge_mode
+    section: model
+    label: 'Model: StructXAttn merge mode'
+    description: Residual merge semantics for token-level structural cross-attention.
+    affects: Controls whether StructXAttn uses legacy post-merge LayerNorm or stable pre-normalized structural context.
+    default: post_norm_residual
+    enum:
+    - post_norm_residual
+    - pre_norm_context
+    - residual_only
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1024
+  model.struct_xattn_delta_ratio_max:
+    path: model.struct_xattn_delta_ratio_max
+    section: model
+    label: 'Model: StructXAttn delta ratio max'
+    description: Optional cap for mean_abs(delta) divided by mean_abs(observed) in StructXAttn residual merge.
+    affects: Prevents structural cross-attention delta from overpowering observed node states during drift.
+    default: ''
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGGATv2
+      model.fusion_mode: StructXAttn
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1025
+  model.observed_encoder:
+    path: model.observed_encoder
+    section: model
+    label: 'Model: observed encoder'
+    description: Observed-prefix encoder used by EOPKGTopologyConditioned.
+    affects: Defines how the prefix graph state is encoded before candidate scoring.
+    default: GATv2
+    enum:
+    - GATv2
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1030
+      readonly: true
+  model.struct_encoder:
+    path: model.struct_encoder
+    section: model
+    label: 'Model: topology candidate encoder'
+    description: Structural encoder used to produce topology candidate prototypes.
+    affects: Defines message passing over topology candidates before scoring.
+    default: GATv2
+    enum:
+    - GATv2
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1031
+      readonly: true
+  model.candidate_scoring:
+    path: model.candidate_scoring
+    section: model
+    label: 'Model: candidate scoring'
+    description: Scoring function between observed prefix state and topology candidate prototypes.
+    affects: Controls candidate ranking geometry for EOPKGTopologyConditioned.
+    default: cosine
+    enum:
+    - cosine
+    - bilinear
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: core
+      priority: 20
+      order: 32
+  model.candidate_pooling:
+    path: model.candidate_pooling
+    section: model
+    label: 'Model: duplicate candidate pooling'
+    description: Aggregation policy from topology node scores to label-level logits in Stage 1.
+    affects: Controls duplicate activity handling in topology-conditioned candidate scoring.
+    default: logmeanexp
+    enum:
+    - logmeanexp
+    - mean
+    - max
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: core
+      priority: 20
+      order: 33
+  model.candidate_temperature_init:
+    path: model.candidate_temperature_init
+    section: model
+    label: 'Model: candidate temperature'
+    description: Fixed or initial temperature for topology candidate cosine scores.
+    affects: Controls sharpness of candidate-score logits and MIL pooling gradients.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1032
+  model.candidate_temperature_min:
+    path: model.candidate_temperature_min
+    section: model
+    label: 'Model: candidate temperature min'
+    description: Lower clamp for trainable candidate temperature.
+    affects: Prevents candidate scores from becoming too sharp when temperature is trainable.
+    default: 0.05
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1033
+  model.candidate_temperature_max:
+    path: model.candidate_temperature_max
+    section: model
+    label: 'Model: candidate temperature max'
+    description: Upper clamp for trainable candidate temperature.
+    affects: Prevents candidate scores from becoming too flat when temperature is trainable.
+    default: 10.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1034
+  model.candidate_temperature_trainable:
+    path: model.candidate_temperature_trainable
+    section: model
+    label: 'Model: train candidate temperature'
+    description: Allows candidate temperature to be optimized; canonical Stage 1 keeps it fixed.
+    affects: Useful for ablation, but may destabilize candidate ranking if enabled.
+    default: false
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: model
+      group: advanced
+      priority: 100
+      order: 1035
   model.dropout:
     path: model.dropout
     section: model
@@ -2043,6 +2219,7 @@ fields:
     - BaselineGATv2
     - BaselineGCN
     - EOPKGGATv2
+    - EOPKGTopologyConditioned
     required_in_modes: []
     required_when: {}
     ui:
@@ -3012,6 +3189,24 @@ fields:
       group: advanced
       priority: 100
       order: 1013
+  training.dynamic_candidate_contract_enabled:
+    path: training.dynamic_candidate_contract_enabled
+    section: training
+    label: 'Training: Dynamic candidate contract'
+    description: Use model.forward_candidate() for EOPKGTopologyConditioned and train/evaluate through topology-local candidate logits projected back to fixed labels for compatibility.
+    affects: Enables Stage 2 candidate-scoring loss path while preserving existing trainer/evaluator metrics.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1014
   training.topology_conditioning_wrong_version_negative_enabled:
     path: training.topology_conditioning_wrong_version_negative_enabled
     section: training

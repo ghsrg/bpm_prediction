@@ -74,6 +74,17 @@ def test_catalog_includes_topology_conditioned_learning_strategy_fields():
     assert catalog["training.learning_strategy"]["enum"] == ["standard", "topology_conditioned"]
 
 
+def test_catalog_includes_dynamic_candidate_contract_toggle():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    field = catalog["training.dynamic_candidate_contract_enabled"]
+
+    assert field["enum"] == ["false", "true"]
+    assert field["required_when"]["model.type"] == "EOPKGTopologyConditioned"
+    assert field["ui"]["group"] == "advanced"
+
+
 def test_catalog_includes_versioned_fraction_split_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
@@ -102,6 +113,47 @@ def test_catalog_includes_versioned_fraction_split_fields():
         "experiment.split_ratio": 8,
         "experiment.version_scope_policy": 9,
     }
+
+
+def test_catalog_includes_struct_xattn_stabilization_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "model.struct_xattn_merge_mode",
+        "model.struct_xattn_delta_ratio_max",
+    }
+
+    assert required.issubset(set(catalog))
+    assert catalog["model.struct_xattn_merge_mode"]["enum"] == [
+        "post_norm_residual",
+        "pre_norm_context",
+        "residual_only",
+    ]
+    for field_name in required:
+        assert catalog[field_name]["required_when"]["model.fusion_mode"] == "StructXAttn"
+
+
+def test_catalog_includes_topology_conditioned_model_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "model.observed_encoder",
+        "model.struct_encoder",
+        "model.candidate_scoring",
+        "model.candidate_pooling",
+        "model.candidate_temperature_init",
+        "model.candidate_temperature_min",
+        "model.candidate_temperature_max",
+        "model.candidate_temperature_trainable",
+    }
+
+    assert required.issubset(set(catalog))
+    assert catalog["model.candidate_scoring"]["enum"] == ["cosine", "bilinear"]
+    assert catalog["model.candidate_pooling"]["enum"] == ["logmeanexp", "mean", "max"]
+    for field_name in required:
+        assert catalog[field_name]["required_when"]["model.type"] == "EOPKGTopologyConditioned"
 
 
 def test_experiment_uis_surface_versioned_fraction_split_core_fields():

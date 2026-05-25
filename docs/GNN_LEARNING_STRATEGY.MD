@@ -8,6 +8,9 @@ separate from `fusion_mode`: fusion describes how topology enters the model
 forward pass, while learning strategy describes how the model is trained to use
 that topology.
 
+For broader research methodology beyond current fixed-head fusion and
+implemented loss strategies, see `docs/GNN_LEARNING_METODOLOGY.MD`.
+
 ---
 
 ## Metadata
@@ -16,9 +19,10 @@ that topology.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, explanations in Ukrainian
-- `last_updated`: 2026-05-21
+- `last_updated`: 2026-05-24
 - `related_docs`:
   - `docs/GNN_RUNTIME_MVP2_5.MD`
+  - `docs/GNN_LEARNING_METODOLOGY.MD`
   - `docs/EVF_MVP2_5.MD`
   - `docs/VARIABLES.MD`
   - `docs/current/project-state.md`
@@ -656,6 +660,50 @@ same mask setting
 same seeds
 standard vs topology_conditioned
 ```
+
+---
+
+## Topology Drift Validity Audit
+
+Before claiming zero-shot benefit from structure, run the topology drift audit.
+This audit separates model failure from topology/candidate-set failure.
+
+Command:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\audit_topology_drift.py `
+  --mlruns-dir mlruns `
+  --experiment-id <experiment_id> `
+  --baseline-run <baseline_eval_drift_run_id> `
+  --structural-run <structural_eval_drift_run_id> `
+  --train-run <train_run_id> `
+  --log-path outputs\simulation\loan_v1_v4_simulated.xes `
+  --output-dir outputs\audits\topology_drift
+```
+
+For existing runs whose selective trace payloads do not yet include
+`prefix_last_activity`, pass `--log-path`. The audit reconstructs the last
+observed activity from XES by `(trace_idx, prefix_len)`; new graph payloads also
+carry `prefix_last_activity_idx` so future traces expose it directly.
+
+The audit checks:
+
+- added or removed activity labels between train and future versions;
+- added or removed gateway-collapsed topology transitions;
+- prediction errors on new/removed candidates;
+- OOS errors and `strict_error_but_allowed` errors;
+- whether fixed parametric classification is a plausible root cause.
+
+Interpretation:
+
+- If many errors have `target_seen_in_train=false`, current fixed-head
+  classification is not sufficient for business-valid zero-shot drift.
+- If errors concentrate in changed successor zones with known labels, improve
+  `topology_conditioned` training before changing the model head.
+- If `target_in_mask=false` appears for valid topology targets, fix topology
+  projection or mask generation before interpreting model quality.
+- If added labels exist but are rare in sampled traces, treat fixed-head risk as
+  present but not yet proven as the dominant failure mode.
 
 ---
 

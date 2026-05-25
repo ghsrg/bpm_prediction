@@ -98,6 +98,48 @@ def test_struct_xattn_forward_shape_and_diagnostics():
     assert model.last_struct_xattn_l2_delta_mean_abs is not None
 
 
+def test_struct_xattn_rejects_unknown_merge_mode():
+    with pytest.raises(ValueError, match="struct_xattn_merge_mode"):
+        _model(struct_xattn_merge_mode="unknown")
+
+
+def test_struct_xattn_pre_norm_context_avoids_post_merge_layernorm_amplification():
+    torch.manual_seed(41)
+    model = _model(
+        struct_xattn_merge_mode="pre_norm_context",
+        struct_xattn_scale_init=0.1,
+        struct_xattn_scale_max=0.1,
+    )
+    model.eval()
+
+    with torch.no_grad():
+        model(_contract())
+
+    pre_ratio = float(model.last_struct_xattn_pre_norm_to_observed_ratio.item())
+    post_ratio = float(model.last_struct_xattn_post_norm_to_observed_ratio.item())
+
+    assert pre_ratio > 0.0
+    assert post_ratio > 0.0
+    assert abs(post_ratio - pre_ratio) < 1e-5
+
+
+def test_struct_xattn_delta_ratio_max_clamps_output_delta():
+    torch.manual_seed(43)
+    model = _model(
+        struct_xattn_merge_mode="pre_norm_context",
+        struct_xattn_scale_init=1.0,
+        struct_xattn_scale_max=1.0,
+        struct_xattn_delta_ratio_max=0.05,
+    )
+    model.eval()
+
+    with torch.no_grad():
+        model(_contract())
+
+    ratio = float(model.last_struct_xattn_post_norm_to_observed_ratio.item())
+    assert ratio <= 0.0501
+
+
 def test_struct_xattn_structural_mode_false_matches_observed_path():
     torch.manual_seed(23)
     model = _model(structural_mode=False)

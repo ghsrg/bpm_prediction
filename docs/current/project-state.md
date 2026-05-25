@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-22
+- `last_updated`: 2026-05-25
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -34,6 +34,7 @@ details from `README.MD`.
 - `business_assumption`: a new process topology/version can be available before enough event logs exist for model training
 - `target_direction`: one fusion mode with a dedicated topology-conditioned training methodology, not a mixture of different fusion modes in one model
 - `learning_strategy_doc`: `docs/GNN_LEARNING_STRATEGY.MD`
+- `learning_methodology_doc`: `docs/GNN_LEARNING_METODOLOGY.MD`
 
 **Hypothesis (ukr):**
 
@@ -128,6 +129,7 @@ config-driven mapping Сѓ `struct_x`.
   - `BaselineGCN`
   - `EOPKGGATv2`
   - `EOPKGGCN`
+  - `EOPKGTopologyConditioned`
 
 **Description (ukr):**
 
@@ -156,6 +158,10 @@ direct gradient signal.
 
 `docs/GNN_LEARNING_STRATEGY.MD` defines the separation between `fusion_mode`,
 `training.learning_strategy`, and `experiment.mode`.
+`docs/GNN_LEARNING_METODOLOGY.MD` defines the research roadmap beyond current
+fixed-head fusion ablations: topology-conditioned candidate scoring,
+semantic-topological candidate prototypes, calibration/audit requirements, and
+the staged path toward business-valid zero-shot adaptation.
 `training.learning_strategy=standard` preserves current behavior.
 `training.learning_strategy=topology_conditioned` is implemented as a
 trainer-level methodology with known-version wrong-topology negatives,
@@ -168,6 +174,25 @@ and `experiment.version_scope_policy=train_cut`. This supports small balanced
 known-version training samples without leaking future versions into train.
 The desktop Experiment UI exposes these controls in the Core parameter group so
 version-aware sampling can be configured without editing raw YAML.
+
+`EOPKGTopologyConditioned` is available as an experimental `model.type` for
+topology-conditioned candidate scoring. It is not an `EOPKGGATv2.fusion_mode`.
+Stage 1 keeps the default trainer contract by returning fixed label logits
+`[B, C_train]`, but internally scores topology nodes `[B, |V|]`, filters
+`struct_node_to_class_index == -1`, and pools duplicate activity nodes to class
+scores through MIL. `structural_edge_index` and `struct_node_to_class_index`
+are required; `struct_x` is optional enrichment and the model can start from
+candidate identity embeddings when `struct_x` is absent. It logs candidate
+scale, entropy, duplicate-count, and target-vs-predicted score-gap diagnostics
+for MLflow and selective traces. Stage 2 foundation adds
+`forward_candidate(contract)` and `CandidatePredictionOutput` with dynamic
+candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and
+`node_to_candidate_index`. With
+`training.dynamic_candidate_contract_enabled=true`, train/eval/drift consume
+`forward_candidate()` and project topology-local candidate logits back to sparse
+fixed-label logits for compatibility with existing CE, mask, calibration, and
+drift metrics. Pure candidate-id evaluation without fixed-vocab projection is
+still future work.
 
 Run-Status structured progress includes `eval_drift.one_pass_inference` between
 `build_graph.test` and `eval_drift.windows`, so long one-pass drift inference on
@@ -196,6 +221,16 @@ re-running model forward for every overlapping window.
 and falls back to plain accuracy for binary/single-class windows, so small test
 sets do not report mathematically meaningless perfect top-k diagnostics.
 
+`tools/audit_topology_drift.py` is available as an offline diagnostic for
+completed train/eval_drift runs. It compares loan BPMN source files through a
+gateway-collapsed prediction view and writes audit artifacts under
+`outputs/audits/topology_drift/`. Use it before claiming zero-shot structural
+benefit when new/removed process candidates may explain drift degradation.
+The audit can backfill `prefix_last_activity` for older trace artifacts from
+XES via `(trace_idx, prefix_len)`, and new graph payloads carry
+`prefix_last_activity_idx` so future traces expose changed-transition context
+directly.
+
 `StructuralPriorEncoder` is available as an etalon-like `model.fusion_mode`
 for `EOPKGGATv2`. It keeps the observed prefix encoder as the primary path,
 mean-pools the structural GNN node states into `struct_context`, and fuses
@@ -219,6 +254,11 @@ values `post_conv2` and `after_each_conv`. Trainer can optionally enable
 correct-vs-corrupted topology training through
 `training.struct_xattn_contrastive_enabled`; this objective is train-only and
 logs StructXAttn contribution and corrupted-topology delta diagnostics.
+StructXAttn residual fusion is configurable through
+`model.struct_xattn_merge_mode`. Historical runs use `post_norm_residual`;
+new drift-stabilization experiments should prefer `pre_norm_context` with an
+optional `model.struct_xattn_delta_ratio_max` cap to prevent post-merge
+LayerNorm amplification of structural deltas.
 
 Selective structural prediction tracing is available through
 `tracking.tracing.*`. It records a bounded set of explanation/debug traces for

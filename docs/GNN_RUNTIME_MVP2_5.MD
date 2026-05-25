@@ -1,6 +1,6 @@
 # GNN_RUNTIME_MVP2_5.MD
 
-Updated: 2026-05-20
+Updated: 2026-05-24
 Status: ACTIVE (canonical runtime reference for MVP2.5)
 
 ## 1. Purpose
@@ -23,6 +23,7 @@ This document complements:
 2. `BaselineGCN`
 3. `EOPKGGATv2`
 4. `EOPKGGCN`
+5. `EOPKGTopologyConditioned`
 
 ### 2.2 Source files
 1. `src/domain/models/factory.py`
@@ -30,6 +31,7 @@ This document complements:
 3. `src/domain/models/baseline_gcn.py`
 4. `src/domain/models/eopkg_models.py`
 5. `src/domain/models/base_gnn.py`
+6. `src/domain/models/topology_conditioned.py`
 
 ### 2.3 Registration flow
 ```mermaid
@@ -40,6 +42,7 @@ flowchart LR
     REG --> BGCN[BaselineGCN]
     REG --> EGAT[EOPKGGATv2]
     REG --> EGCN[EOPKGGCN]
+    REG --> ETC[EOPKGTopologyConditioned]
 ```
 
 ## 3. End-to-End Training Data and Tensor Pipeline
@@ -694,11 +697,54 @@ V = W_v H_struct
 A = softmax(Q K^T / sqrt(d))
 C = A V
 gate = sigmoid(W_gate([H_ig || C]) + b)
-H_ig' = LayerNorm(H_ig + gamma * gate * C)
+delta = gamma * gate * C
+H_ig' = merge(H_ig, delta)
 
 obs_context = pool(H_ig')
 logits = Classifier(obs_context)
 ```
+
+Merge semantics are controlled by:
+
+```yaml
+model.struct_xattn_merge_mode: post_norm_residual | pre_norm_context | residual_only
+model.struct_xattn_delta_ratio_max: null
+```
+
+`post_norm_residual` is the compatibility mode:
+
+```text
+delta = gamma * gate * C
+H_ig' = LayerNorm(H_ig + delta)
+```
+
+It reproduces historical StructXAttn behavior, but can amplify a small
+pre-merge structural delta into a large post-merge hidden-state change.
+
+`pre_norm_context` is the recommended research mode after the 2026-05-23
+stabilization:
+
+```text
+C_norm = LayerNorm(C)
+delta = gamma * gate * C_norm
+delta = clamp_delta_ratio(delta, H_ig, model.struct_xattn_delta_ratio_max)
+H_ig' = H_ig + delta
+```
+
+There is intentionally no `LayerNorm(H_ig + delta)` after the residual merge in
+this mode. `model.struct_xattn_delta_ratio_max` is optional; when set, it caps
+`mean_abs(delta) / mean_abs(H_ig)`.
+
+`residual_only` is an ablation mode:
+
+```text
+delta = gamma * gate * C
+delta = clamp_delta_ratio(delta, H_ig, model.struct_xattn_delta_ratio_max)
+H_ig' = H_ig + delta
+```
+
+Use it to isolate whether context normalization or post-merge normalization is
+responsible for a run's behavior.
 
 Layer placement:
 
@@ -761,6 +807,21 @@ model.struct_xattn_scale_max: 2.0
 model.struct_xattn_use_layer_norm: true
 model.struct_xattn_use_gate: true
 model.struct_xattn_gate_init_bias: -2.0
+model.struct_xattn_merge_mode: post_norm_residual
+model.struct_xattn_delta_ratio_max: null
+```
+
+Recommended stabilization profile for new StructXAttn drift experiments:
+
+```yaml
+model.fusion_mode: StructXAttn
+model.struct_xattn_layers: after_each_conv
+model.struct_xattn_merge_mode: pre_norm_context
+model.struct_xattn_scale_init: 0.1
+model.struct_xattn_scale_max: 0.1
+model.struct_xattn_use_gate: true
+model.struct_xattn_gate_init_bias: -2.0
+model.struct_xattn_delta_ratio_max: 0.3
 ```
 
 Trainer diagnostics:
@@ -779,7 +840,13 @@ Trainer diagnostics:
 Interpretation:
 
 - near-zero `struct_xattn_to_observed_ratio`: structure is ignored or too weak;
-- very high ratio: structure dominates and can cause negative transfer;
+- very high `struct_xattn_post_norm_to_observed_ratio`: structure dominates or
+  post-merge normalization amplified the residual delta;
+- high `struct_xattn_raw_to_observed_ratio` with low
+  `struct_xattn_pre_norm_to_observed_ratio`: raw structural context is large but
+  gated/scale-controlled before merge;
+- in `pre_norm_context`, `post_norm_to_observed_ratio` should stay close to
+  `pre_norm_to_observed_ratio`;
 - low entropy with poor F1/ECE: structural overconfidence;
 - `l1` metrics are expected only for `after_each_conv`.
 
@@ -800,6 +867,140 @@ flowchart LR
     F1 --> C1[Classifier]
     C1 --> LOGITS[logits]
 ```
+
+### 6.10 EOPKGTopologyConditioned
+
+`EOPKGTopologyConditioned` is a separate `model.type`, not an
+`EOPKGGATv2.fusion_mode`.
+
+Purpose:
+
+1. make topology the candidate space, not only a hint added to a fixed
+   classifier;
+2. score observed prefix representation against topology node candidates;
+3. keep Stage 1 compatible with the current trainer by returning fixed
+   label-level logits `[B, C_train]`;
+4. expose the Stage 2 model-level dynamic candidate contract through
+   `forward_candidate(contract)`.
+
+Stage 1 architecture:
+
+```mermaid
+flowchart LR
+    X["Observed prefix graph"] --> O["Observed encoder"]
+    O --> Z["z_prefix [B,D]"]
+    SX["struct_x optional"] --> SI["struct input projection"]
+    N2C["struct_node_to_class_index"] --> ID["candidate identity grounding"]
+    SI --> ADD["base struct + identity embedding"]
+    ID --> ADD
+    ADD --> SG["TopologyCandidateEncoder"]
+    EDGE["structural_edge_index / edge_weight"] --> SG
+    SG --> H["h_nodes [|V|,D]"]
+    Z --> SCORE["candidate scoring: cosine or bilinear"]
+    H --> SCORE
+    SCORE --> NS["node_scores [B,|V|]"]
+    N2C --> MIL["MIL pooling by class; node_to_class=-1 excluded"]
+    NS --> MIL
+    MIL --> LOGITS["class_scores [B,C_train]"]
+```
+
+Stage 2 model-level candidate contract:
+
+```mermaid
+flowchart LR
+    Z["z_prefix [B,D]"] --> SCORE["candidate scoring"]
+    H["h_nodes [|V|,D]"] --> SCORE
+    SCORE --> NS["node_scores [B,|V|]"]
+    N2C["struct_node_to_class_index"] --> DYN["dynamic MIL pooling"]
+    NS --> DYN
+    DYN --> CLOGITS["candidate_logits [B,C_v]"]
+    DYN --> CIDX["candidate_class_index [C_v]"]
+    DYN --> NIDX["node_to_candidate_index [|V|]"]
+```
+
+`forward_candidate(contract)` returns `CandidatePredictionOutput`:
+
+```text
+candidate_logits: FloatTensor [B, C_v]
+candidate_class_index: LongTensor [C_v]
+node_logits: FloatTensor [B, |V|]
+node_to_candidate_index: LongTensor [|V|]
+node_to_class_index: LongTensor [|V|]
+fixed_label_logits: FloatTensor [B, C_train] | None
+```
+
+Current boundary:
+
+```text
+forward() remains the default train/eval path and returns [B, C_train].
+forward_candidate() can be consumed by trainer/evaluator when
+training.dynamic_candidate_contract_enabled=true.
+```
+
+When `training.dynamic_candidate_contract_enabled=true`, trainer/evaluator call
+`forward_candidate(contract)`, take `candidate_logits [B, C_v]`, and project
+them into a sparse fixed-label tensor `[B, C_train]` using
+`candidate_class_index`. Non-candidate fixed-label classes receive a very low
+logit. This makes the loss optimize topology-local candidate scores while
+preserving existing CE, mask, calibration, and drift metric code.
+
+This is a transitional Stage 2 compatibility path. It still cannot honestly
+score an unseen activity class outside `C_train`; the final target remains pure
+candidate-id evaluation without projection back to the fixed training vocab.
+
+Important semantics:
+
+1. `struct_node_to_class_index` and `structural_edge_index` are required.
+2. `struct_x` is optional enrichment. When absent, candidate nodes start from
+   identity embeddings only.
+3. `struct_node_to_class_index >= 0` receives a trainable candidate identity
+   embedding.
+4. `struct_node_to_class_index == -1` receives a shared non-target embedding and
+   participates in message passing, but is excluded from class pooling.
+5. Duplicate BPMN nodes mapped to the same activity class are pooled by
+   `model.candidate_pooling`.
+6. Default pooling is normalized `logmeanexp`, not raw `logsumexp`, to avoid
+   inflating a class only because it has more duplicate nodes.
+7. The model returns clean scores. `allowed_target_mask`, mask-guided inference,
+   and allowed-set losses remain trainer/evaluator responsibilities.
+
+Supported config keys:
+
+```yaml
+model.type: EOPKGTopologyConditioned
+model.observed_encoder: GATv2
+model.struct_encoder: GATv2
+model.candidate_scoring: cosine       # cosine | bilinear
+model.candidate_pooling: logmeanexp   # logmeanexp | mean | max
+model.candidate_temperature_init: 0.1
+model.candidate_temperature_min: 0.05
+model.candidate_temperature_max: 10.0
+model.candidate_temperature_trainable: false
+training.dynamic_candidate_contract_enabled: false
+```
+
+Diagnostics logged by trainer and exposed to selective traces:
+
+1. `candidate_node_score_mean_abs`
+2. `candidate_class_score_mean_abs`
+3. `duplicate_candidate_count_max`
+4. `candidate_temperature`
+5. `candidate_dynamic_count`
+5. `candidate_prediction_entropy`
+6. `candidate_target_score`
+7. `candidate_pred_score`
+8. `candidate_score_gap`
+
+Interpretation:
+
+- high `duplicate_candidate_count_max` means duplicate-activity ambiguity is
+  active and MIL behavior must be inspected;
+- low `candidate_prediction_entropy` with poor drift F1/OOS means the candidate
+  scorer is overconfident;
+- low `candidate_score_gap` means target and prediction candidates are close and
+  errors may be ranking/calibration issues rather than missing topology;
+- high class score scale with stable node score scale may indicate pooling or
+  temperature amplification.
 
 ## 7. Loss, Evaluation, and Mask Application
 1. Base objective remains cross-entropy on `y`.
@@ -1008,6 +1209,12 @@ struct_xattn_attention_entropy
 struct_xattn_raw_to_observed_ratio
 struct_xattn_pre_norm_to_observed_ratio
 struct_xattn_post_norm_to_observed_ratio
+candidate_temperature
+candidate_prediction_entropy
+candidate_score_gap
+candidate_node_score_mean_abs
+candidate_class_score_mean_abs
+duplicate_candidate_count_max
 ```
 
 Nested JSON payload is kept in span inputs/outputs or JSONL for explanation:

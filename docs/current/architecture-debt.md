@@ -13,7 +13,7 @@ historical debt worklogs.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-22
+- `last_updated`: 2026-05-25
 
 ---
 
@@ -28,6 +28,45 @@ historical debt worklogs.
 ---
 
 ## P0 Research-Grade Debt
+
+### dynamic_candidate_prediction_contract
+
+- `status`: active
+- `priority`: P0
+- `adr`: none
+- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; with `training.dynamic_candidate_contract_enabled=true`, train/eval/drift can consume this output and project it back to sparse fixed label logits `[B, C_train]` for compatibility
+- `target_state`: train/eval/drift contracts consume per-version candidate logits `[B, C_v]`, candidate ids, node ids, and target candidate mapping for added/removed BPMN nodes without fixed-vocab projection
+
+**Description (ukr):**
+
+Поточний prediction contract все ще орієнтований на фіксований activity vocab,
+який існував під час навчання. Це обмежує бізнес-валідний zero-shot сценарій:
+нова BPMN версія може додати або прибрати кандидатні вузли, але fixed-head
+classifier не може чесно видати логіт для нового candidate без розширення
+контракту. `EOPKGTopologyConditioned` Stage 2 compatibility path уже дозволяє
+trainer/evaluator оптимізувати topology-local candidate scores, але результат
+поки проектується назад у `[B, C_train]`.
+
+**Impact (ukr):**
+
+Без чистого candidate-id evaluation contract не можна робити сильну заяву, що
+модель повністю підтримує нові активності до появи логів. Поточні експерименти
+треба позначати як Stage 2 compatibility / fixed-label projected candidate
+scoring, а не як повну semantic-topological zero-shot адаптацію.
+
+**Next direction:**
+
+Complete train/eval/drift support for the model-level dynamic candidate output:
+
+1. keep current `training.dynamic_candidate_contract_enabled` projection path
+   for backward-compatible experiments;
+2. add `candidate_ids` / BPMN node ids per topology version;
+3. apply target candidate mapping for duplicate activity labels;
+4. compute candidate-level mask/OOS/calibration diagnostics directly on
+   `[B, C_v]`;
+5. keep backward-compatible fixed-label reporting for comparison with old runs.
+
+---
 
 ### stats_backed_structural_payload_caching
 

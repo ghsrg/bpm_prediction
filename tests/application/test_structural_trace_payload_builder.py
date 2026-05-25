@@ -39,6 +39,24 @@ class _StructXAttnModel:
         self.last_struct_xattn_gate_mean = torch.tensor(0.2, requires_grad=True)
 
 
+class _TopologyConditionedModel:
+    structural_mode = True
+    fusion_mode = ""
+
+    def __init__(self) -> None:
+        self.last_candidate_node_score_mean_abs = torch.tensor(0.33, requires_grad=True)
+        self.last_candidate_class_score_mean_abs = torch.tensor(0.22, requires_grad=True)
+        self.last_duplicate_candidate_count_max = 2
+        self.last_candidate_temperature = torch.tensor(0.1, requires_grad=True)
+        self.last_candidate_temperature_trainable = False
+        self.last_candidate_prediction_entropy = torch.tensor(1.2, requires_grad=True)
+        self.last_candidate_target_score = torch.tensor(0.7, requires_grad=True)
+        self.last_candidate_pred_score = torch.tensor(0.9, requires_grad=True)
+        self.last_candidate_score_gap = torch.tensor(0.2, requires_grad=True)
+        self.last_candidate_dynamic_count = 2
+        self.last_candidate_class_index = [1, 2]
+
+
 def _contract() -> dict:
     return {
         "x_cat": torch.zeros((2, 1), dtype=torch.long),
@@ -152,6 +170,41 @@ def test_payload_builder_includes_struct_xattn_diagnostics():
     assert_no_tensors(payload)
 
 
+def test_payload_builder_includes_topology_conditioned_candidate_diagnostics():
+    logits = torch.tensor([[0.1, 0.2, 2.0]], requires_grad=True)
+    probs = torch.softmax(logits, dim=1)
+
+    payload = build_structural_prediction_trace_payload(
+        stage="eval_drift_one_pass",
+        global_index=8,
+        contract=_contract(),
+        logits=logits,
+        effective_logits=logits,
+        probs=probs,
+        targets=torch.tensor([1]),
+        predictions=torch.tensor([2]),
+        model=_TopologyConditionedModel(),
+        reverse_activity_vocab={0: "<UNK>", 1: "Approve", 2: "Reject"},
+        row_index=0,
+        reason="strict_error_but_allowed",
+        top_k=2,
+    )
+
+    diagnostics = payload["diagnostics"]["topology_conditioned_candidate_scoring"]
+    assert diagnostics["candidate_node_score_mean_abs"] == 0.33
+    assert diagnostics["candidate_class_score_mean_abs"] == 0.22
+    assert diagnostics["duplicate_candidate_count_max"] == 2
+    assert diagnostics["candidate_temperature"] == 0.1
+    assert diagnostics["candidate_temperature_trainable"] is False
+    assert diagnostics["candidate_prediction_entropy"] == 1.2
+    assert diagnostics["candidate_target_score"] == 0.7
+    assert diagnostics["candidate_pred_score"] == 0.9
+    assert diagnostics["candidate_score_gap"] == 0.2
+    assert diagnostics["candidate_dynamic_count"] == 2
+    assert diagnostics["candidate_class_index"] == [1, 2]
+    assert_no_tensors(payload)
+
+
 def test_trace_event_uses_flat_searchable_attributes():
     logits = torch.tensor([[0.1, 0.2, 2.0]], requires_grad=True)
     probs = torch.softmax(logits, dim=1)
@@ -184,4 +237,62 @@ def test_trace_event_uses_flat_searchable_attributes():
     assert event.attributes["struct_xattn_post_norm_to_observed_ratio"] == 0.85
     assert event.attributes["process_version"] == "__unknown__"
     assert all("." not in key for key in event.attributes)
+    assert_no_tensors(event.to_dict())
+
+
+def test_trace_event_exposes_topology_conditioned_flat_attributes():
+    logits = torch.tensor([[0.1, 0.2, 2.0]], requires_grad=True)
+    probs = torch.softmax(logits, dim=1)
+
+    event = build_structural_prediction_trace_event(
+        stage="eval_drift_one_pass",
+        global_index=9,
+        contract=_contract(),
+        logits=logits,
+        effective_logits=logits,
+        probs=probs,
+        targets=torch.tensor([1]),
+        predictions=torch.tensor([2]),
+        model=_TopologyConditionedModel(),
+        reverse_activity_vocab={0: "<UNK>", 1: "Approve", 2: "Reject"},
+        row_index=0,
+        reason="strict_error_but_allowed",
+        top_k=2,
+    )
+
+    assert event.attributes["model_type"] == "_TopologyConditionedModel"
+    assert event.attributes["candidate_temperature"] == 0.1
+    assert event.attributes["candidate_prediction_entropy"] == 1.2
+    assert event.attributes["candidate_score_gap"] == 0.2
+    assert event.attributes["candidate_dynamic_count"] == 2.0
+    assert all("." not in key for key in event.attributes)
+    assert_no_tensors(event.to_dict())
+
+
+def test_trace_event_includes_prefix_last_activity_metadata():
+    logits = torch.tensor([[0.1, 2.0, 0.3]], requires_grad=True)
+    probs = torch.softmax(logits, dim=1)
+    contract = _contract()
+    contract["prefix_last_activity_idx"] = torch.tensor([2], dtype=torch.long)
+
+    event = build_structural_prediction_trace_event(
+        stage="eval_drift_one_pass",
+        global_index=5,
+        contract=contract,
+        logits=logits,
+        effective_logits=logits,
+        probs=probs,
+        targets=torch.tensor([1]),
+        predictions=torch.tensor([1]),
+        model=_ObservedOnlyModel(),
+        reverse_activity_vocab={0: "<UNK>", 1: "Approve", 2: "Reject"},
+        row_index=0,
+        reason="correct",
+        top_k=2,
+    )
+
+    assert event.inputs["sample"]["prefix_last_activity_index"] == 2
+    assert event.inputs["sample"]["prefix_last_activity"] == "Reject"
+    assert event.attributes["prefix_last_activity_index"] == 2
+    assert event.attributes["prefix_last_activity"] == "Reject"
     assert_no_tensors(event.to_dict())

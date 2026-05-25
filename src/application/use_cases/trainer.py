@@ -51,6 +51,7 @@ from src.application.services.topology_payload_pool import (
     replace_structural_payload,
 )
 from src.application.services.trace_sampling_policy import TraceSamplingPolicy, classify_trace_reason
+from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
@@ -327,6 +328,10 @@ class ModelTrainer:
         self.structural_aux_loss_enabled = _as_bool(config.get("structural_aux_loss_enabled"), default=False)
         self.structural_aux_loss_weight = float(config.get("structural_aux_loss_weight", 0.05))
         self.structural_aux_exact_loss_weight = float(config.get("structural_aux_exact_loss_weight", 0.01))
+        self.dynamic_candidate_contract_enabled = _as_bool(
+            config.get("dynamic_candidate_contract_enabled"),
+            default=False,
+        )
         self.struct_xattn_contrastive_enabled = _as_bool(
             config.get("struct_xattn_contrastive_enabled"),
             default=False,
@@ -440,6 +445,35 @@ class ModelTrainer:
 
     def _is_tqdm_disabled(self) -> bool:
         return (not self.show_progress) or self.tqdm_disable or self._structured_progress_enabled
+
+    def _forward_model_logits(self, contract: GraphTensorContract) -> torch.Tensor:
+        """Run model forward and return global fixed-label logits for trainer metrics."""
+
+        if self.dynamic_candidate_contract_enabled and hasattr(self.model, "forward_candidate"):
+            output = self.model.forward_candidate(contract)  # type: ignore[attr-defined]
+            if isinstance(output, CandidatePredictionOutput):
+                return self._candidate_output_to_fixed_logits(output)
+            if isinstance(output, torch.Tensor):
+                return output
+            raise TypeError("model.forward_candidate() must return CandidatePredictionOutput or Tensor.")
+        return self.model(contract)
+
+    def _candidate_output_to_fixed_logits(self, output: CandidatePredictionOutput) -> torch.Tensor:
+        candidate_logits = output.candidate_logits
+        candidate_class_index = output.candidate_class_index.to(device=candidate_logits.device, dtype=torch.long)
+        if isinstance(output.fixed_label_logits, torch.Tensor) and output.fixed_label_logits.dim() == 2:
+            output_dim = int(output.fixed_label_logits.size(1))
+        else:
+            output_dim = int(getattr(self.model, "output_dim", 0) or 0)
+            if output_dim <= 0 and candidate_class_index.numel() > 0:
+                output_dim = int(candidate_class_index.max().item()) + 1
+        if output_dim <= 0:
+            raise ValueError("Dynamic candidate output cannot infer fixed-label output dimension.")
+        fixed_logits = candidate_logits.new_full((candidate_logits.size(0), output_dim), -1e6)
+        valid = (candidate_class_index >= 0) & (candidate_class_index < output_dim)
+        if bool(valid.any()):
+            fixed_logits[:, candidate_class_index[valid]] = candidate_logits[:, valid]
+        return fixed_logits
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -908,7 +942,7 @@ class ModelTrainer:
             dummy_batch = dummy_batch.to(self.device)
             contract = self._data_to_contract(dummy_batch)
             with torch.no_grad():
-                _ = self.model(contract)
+                _ = self._forward_model_logits(contract)
             logger.info("Dry run successful (%s). Model initialized.", context_label)
             emit_progress_event(stage="trainer.dry_run", status="done", message=f"Dry run completed ({context_label})", current=1, total=1)
         except Exception as exc:
@@ -1697,12 +1731,13 @@ class ModelTrainer:
                 optimizer.zero_grad()
 
             with torch.set_grad_enabled(training):
-                logits = self.model(contract)
+                logits = self._forward_model_logits(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
                 self._accumulate_struct_xattn_stats(forward_stats)
+                self._accumulate_topology_conditioned_candidate_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -1825,7 +1860,7 @@ class ModelTrainer:
                             drop_ratio=float(self.learning_strategy_config.drop_edges_ratio),
                             seed=int(self.seed) + (int(epoch_index) * 100_003) + int(batch_idx),
                         )
-                        dropped_logits = self.model(dropped_contract)
+                        dropped_logits = self._forward_model_logits(dropped_contract)
                         if not self._is_finite_tensor(dropped_logits):
                             logits_sanitized_batches += 1
                             dropped_logits = torch.nan_to_num(dropped_logits, nan=0.0, posinf=1e6, neginf=-1e6)
@@ -1865,7 +1900,7 @@ class ModelTrainer:
                             ) + 1
                         elif wrong_payload is not None:
                             wrong_contract = replace_structural_payload(contract, wrong_payload)
-                            wrong_logits = self.model(wrong_contract)
+                            wrong_logits = self._forward_model_logits(wrong_contract)
                             if not self._is_finite_tensor(wrong_logits):
                                 logits_sanitized_batches += 1
                                 wrong_logits = torch.nan_to_num(wrong_logits, nan=0.0, posinf=1e6, neginf=-1e6)
@@ -1897,7 +1932,7 @@ class ModelTrainer:
                         epoch_index=epoch_index,
                         batch_idx=batch_idx,
                     )
-                    corrupt_logits = self.model(corrupted_contract)
+                    corrupt_logits = self._forward_model_logits(corrupted_contract)
                     if not self._is_finite_tensor(corrupt_logits):
                         logits_sanitized_batches += 1
                         logger.warning(
@@ -2048,12 +2083,13 @@ class ModelTrainer:
                 self._accumulate_forward_stats(forward_stats, contract)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
-                logits = self.model(contract)
+                logits = self._forward_model_logits(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
                 self._accumulate_structural_prior_stats(forward_stats)
                 self._accumulate_struct_xattn_stats(forward_stats)
+                self._accumulate_topology_conditioned_candidate_stats(forward_stats)
                 if not self._is_finite_tensor(logits):
                     logits_sanitized_batches += 1
                     logger.warning(
@@ -2469,12 +2505,13 @@ class ModelTrainer:
                     self._accumulate_forward_stats(forward_stats, contract)
                     if self.device.type == "cuda" and torch.cuda.is_available():
                         torch.cuda.synchronize()
-                    logits = self.model(contract)
+                    logits = self._forward_model_logits(contract)
                     self._accumulate_logit_contribution_stats(forward_stats)
                     self._accumulate_topology_state_stats(forward_stats)
                     self._accumulate_topology_graph_stats(forward_stats)
                     self._accumulate_structural_prior_stats(forward_stats)
                     self._accumulate_struct_xattn_stats(forward_stats)
+                    self._accumulate_topology_conditioned_candidate_stats(forward_stats)
                     if not self._is_finite_tensor(logits):
                         logits_sanitized_batches += 1
                         logger.warning(
@@ -3587,6 +3624,16 @@ class ModelTrainer:
             "topology_conditioned_wrong_version_batches": 0,
             "topology_conditioned_mixed_version_batches": 0,
             "topology_conditioned_wrong_version_skipped_mixed_batches": 0,
+            "candidate_diag_batches": 0,
+            "candidate_node_score_mean_abs_sum": 0.0,
+            "candidate_class_score_mean_abs_sum": 0.0,
+            "duplicate_candidate_count_max": 0.0,
+            "candidate_temperature_sum": 0.0,
+            "candidate_prediction_entropy_sum": 0.0,
+            "candidate_target_score_sum": 0.0,
+            "candidate_pred_score_sum": 0.0,
+            "candidate_score_gap_sum": 0.0,
+            "candidate_dynamic_count_sum": 0.0,
         }
 
     @staticmethod
@@ -3774,6 +3821,11 @@ class ModelTrainer:
 
     @staticmethod
     def _diagnostic_scalar(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            scalar = float(value)
+            return scalar if math.isfinite(scalar) else None
         if not isinstance(value, torch.Tensor):
             return None
         if value.numel() <= 0:
@@ -3840,6 +3892,52 @@ class ModelTrainer:
             bucket["topology_state_gate_max"] = max(
                 float(bucket.get("topology_state_gate_max", 0.0)),
                 float(diagnostics["gate_max"]),
+            )
+
+    def _accumulate_topology_conditioned_candidate_stats(self, bucket: Dict[str, Any]) -> None:
+        diagnostics = {
+            "node_score_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_candidate_node_score_mean_abs", None)
+            ),
+            "class_score_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_candidate_class_score_mean_abs", None)
+            ),
+            "duplicate_count_max": self._diagnostic_scalar(
+                getattr(self.model, "last_duplicate_candidate_count_max", None)
+            ),
+            "temperature": self._diagnostic_scalar(getattr(self.model, "last_candidate_temperature", None)),
+            "prediction_entropy": self._diagnostic_scalar(
+                getattr(self.model, "last_candidate_prediction_entropy", None)
+            ),
+            "target_score": self._diagnostic_scalar(getattr(self.model, "last_candidate_target_score", None)),
+            "pred_score": self._diagnostic_scalar(getattr(self.model, "last_candidate_pred_score", None)),
+            "score_gap": self._diagnostic_scalar(getattr(self.model, "last_candidate_score_gap", None)),
+            "dynamic_count": self._diagnostic_scalar(getattr(self.model, "last_candidate_dynamic_count", None)),
+        }
+        if not any(value is not None for value in diagnostics.values()):
+            return
+
+        bucket["candidate_diag_batches"] = int(bucket.get("candidate_diag_batches", 0)) + 1
+        for name in (
+            "node_score_mean_abs",
+            "class_score_mean_abs",
+            "temperature",
+            "prediction_entropy",
+            "target_score",
+            "pred_score",
+            "score_gap",
+            "dynamic_count",
+        ):
+            value = diagnostics[name]
+            if value is None:
+                continue
+            bucket[f"candidate_{name}_sum"] = float(bucket.get(f"candidate_{name}_sum", 0.0)) + float(value)
+
+        duplicate_count_max = diagnostics["duplicate_count_max"]
+        if duplicate_count_max is not None:
+            bucket["duplicate_candidate_count_max"] = max(
+                float(bucket.get("duplicate_candidate_count_max", 0.0)),
+                float(duplicate_count_max),
             )
 
     def _accumulate_topology_graph_stats(self, bucket: Dict[str, Any]) -> None:
@@ -4251,6 +4349,22 @@ class ModelTrainer:
             if grad_norm_batches > 0
             else 0.0
         )
+        candidate_diag_batches = int(bucket.get("candidate_diag_batches", 0))
+
+        def _candidate_average(name: str) -> float:
+            if candidate_diag_batches <= 0:
+                return 0.0
+            return float(bucket.get(f"candidate_{name}_sum", 0.0)) / float(candidate_diag_batches)
+
+        candidate_node_score_mean_abs = _candidate_average("node_score_mean_abs")
+        candidate_class_score_mean_abs = _candidate_average("class_score_mean_abs")
+        duplicate_candidate_count_max = float(bucket.get("duplicate_candidate_count_max", 0.0))
+        candidate_temperature = _candidate_average("temperature")
+        candidate_prediction_entropy = _candidate_average("prediction_entropy")
+        candidate_target_score = _candidate_average("target_score")
+        candidate_pred_score = _candidate_average("pred_score")
+        candidate_score_gap = _candidate_average("score_gap")
+        candidate_dynamic_count = _candidate_average("dynamic_count")
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -4281,7 +4395,12 @@ class ModelTrainer:
             "struct_xattn_l1_attention_entropy=%.6f struct_xattn_l2_attention_entropy=%.6f "
             "struct_xattn_correct_ce=%.6f struct_xattn_corrupt_ce=%.6f "
             "struct_xattn_correct_vs_corrupt_ce_delta=%.6f "
-            "struct_xattn_contrastive_loss=%.6f struct_xattn_prediction_flip_rate=%.6f",
+            "struct_xattn_contrastive_loss=%.6f struct_xattn_prediction_flip_rate=%.6f "
+            "candidate_node_score_mean_abs=%.6f candidate_class_score_mean_abs=%.6f "
+            "duplicate_candidate_count_max=%.6f candidate_temperature=%.6f "
+            "candidate_prediction_entropy=%.6f candidate_target_score=%.6f "
+            "candidate_pred_score=%.6f candidate_score_gap=%.6f "
+            "candidate_dynamic_count=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -4346,6 +4465,15 @@ class ModelTrainer:
             struct_xattn_correct_vs_corrupt_ce_delta,
             struct_xattn_contrastive_loss,
             struct_xattn_prediction_flip_rate,
+            candidate_node_score_mean_abs,
+            candidate_class_score_mean_abs,
+            duplicate_candidate_count_max,
+            candidate_temperature,
+            candidate_prediction_entropy,
+            candidate_target_score,
+            candidate_pred_score,
+            candidate_score_gap,
+            candidate_dynamic_count,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -4470,6 +4598,16 @@ class ModelTrainer:
                 f"{metric_prefix}_struct_xattn_contrastive_margin_violation_rate",
                 struct_xattn_contrastive_margin_violation_rate,
             )
+        if self.tracker is not None and candidate_diag_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_candidate_node_score_mean_abs", candidate_node_score_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_class_score_mean_abs", candidate_class_score_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_duplicate_candidate_count_max", duplicate_candidate_count_max)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_temperature", candidate_temperature)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_prediction_entropy", candidate_prediction_entropy)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_target_score", candidate_target_score)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_pred_score", candidate_pred_score)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_score_gap", candidate_score_gap)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_dynamic_count", candidate_dynamic_count)
         if self.tracker is not None:
             if allowed_set_mass_leakage_batches > 0:
                 self.tracker.log_metric(f"{metric_prefix}_allowed_set_mass_leakage", allowed_set_mass_leakage_value)
@@ -4827,7 +4965,7 @@ class ModelTrainer:
                     values = [int(item) for item in raw_tensor.view(-1).long().cpu().tolist()]
                     if values:
                         contract[contract_key] = values  # type: ignore[typeddict-unknown-key]
-        for attr_name in ("trace_idx", "prefix_idx", "prefix_len"):
+        for attr_name in ("trace_idx", "prefix_idx", "prefix_len", "prefix_last_activity_idx"):
             if hasattr(data, attr_name):
                 raw_tensor = getattr(data, attr_name)
                 if isinstance(raw_tensor, torch.Tensor):

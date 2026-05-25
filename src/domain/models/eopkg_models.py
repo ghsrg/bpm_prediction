@@ -74,6 +74,21 @@ class BaseEOPKGModel(BaseGNN):
             return False
         return bool(default)
 
+    @staticmethod
+    def _optional_positive_float(value: float | str | None, *, field_name: str) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"", "none", "null"}:
+                return None
+            parsed = float(text)
+        else:
+            parsed = float(value)
+        if parsed <= 0.0:
+            raise ValueError(f"{field_name} must be positive or null.")
+        return parsed
+
     def _encode_input(self, contract: GraphTensorContract) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_cat = contract["x_cat"]
         x_num = contract["x_num"]
@@ -220,6 +235,8 @@ class EOPKGGATv2(BaseEOPKGModel):
         struct_xattn_use_layer_norm: bool | str = True,
         struct_xattn_use_gate: bool | str = True,
         struct_xattn_gate_init_bias: float = -2.0,
+        struct_xattn_merge_mode: str = "post_norm_residual",
+        struct_xattn_delta_ratio_max: float | str | None = None,
     ) -> None:
         super().__init__(
             feature_layout=feature_layout,
@@ -345,6 +362,17 @@ class EOPKGGATv2(BaseEOPKGModel):
         self.struct_xattn_use_layer_norm = self._to_bool(struct_xattn_use_layer_norm, default=True)
         self.struct_xattn_use_gate = self._to_bool(struct_xattn_use_gate, default=True)
         self.struct_xattn_gate_init_bias = float(struct_xattn_gate_init_bias)
+        self.struct_xattn_merge_mode = str(struct_xattn_merge_mode or "post_norm_residual").strip().lower()
+        if self.struct_xattn_merge_mode not in {"post_norm_residual", "pre_norm_context", "residual_only"}:
+            raise ValueError(
+                "Unsupported model.struct_xattn_merge_mode "
+                f"'{self.struct_xattn_merge_mode}'. "
+                "Available: ['post_norm_residual', 'pre_norm_context', 'residual_only']"
+            )
+        self.struct_xattn_delta_ratio_max = self._optional_positive_float(
+            struct_xattn_delta_ratio_max,
+            field_name="model.struct_xattn_delta_ratio_max",
+        )
         self.struct_xattn_dropout_p = float(dropout if struct_xattn_dropout is None else struct_xattn_dropout)
 
         self.conv1 = GATv2Conv(self.input_dim, hidden_dim, heads=4, concat=True, dropout=dropout)
@@ -409,6 +437,8 @@ class EOPKGGATv2(BaseEOPKGModel):
         nn.init.constant_(self.struct_xattn_l2_gate.bias, self.struct_xattn_gate_init_bias)
         self.struct_xattn_l1_norm = nn.LayerNorm(hidden_dim * 4)
         self.struct_xattn_l2_norm = nn.LayerNorm(hidden_dim)
+        self.struct_xattn_l1_context_norm = nn.LayerNorm(hidden_dim * 4, elementwise_affine=False)
+        self.struct_xattn_l2_context_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False)
         self.fusion = nn.Sequential(nn.Linear(hidden_dim + self.struct_hidden_dim, hidden_dim), nn.ReLU())
         self.last_cross_attn_weights: torch.Tensor | None = None
         self.last_observed_logits: torch.Tensor | None = None
@@ -705,6 +735,55 @@ class EOPKGGATv2(BaseEOPKGModel):
             self.last_struct_xattn_l2_delta_mean_abs = post_norm_delta_mean_abs
             self.last_struct_xattn_l2_attention_entropy = attention_entropy.detach()
 
+    def _clamp_struct_xattn_delta_ratio(
+        self,
+        *,
+        delta: torch.Tensor,
+        observed: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.struct_xattn_delta_ratio_max is None:
+            return delta
+        observed_mean = observed.detach().abs().mean().clamp_min(1e-12)
+        delta_mean = delta.detach().abs().mean()
+        max_delta_mean = observed_mean * float(self.struct_xattn_delta_ratio_max)
+        if float(delta_mean.item()) <= float(max_delta_mean.item()):
+            return delta
+        factor = (max_delta_mean / delta_mean).to(device=delta.device, dtype=delta.dtype)
+        return delta * factor
+
+    def _merge_struct_xattn_context(
+        self,
+        *,
+        observed: torch.Tensor,
+        context: torch.Tensor,
+        gate: torch.Tensor | None,
+        scale: torch.Tensor,
+        residual_norm: nn.LayerNorm,
+        context_norm: nn.LayerNorm,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.struct_xattn_merge_mode == "pre_norm_context":
+            merge_context = context_norm(context)
+            delta = scale * merge_context
+            if gate is not None:
+                delta = delta * gate
+            delta = self._clamp_struct_xattn_delta_ratio(delta=delta, observed=observed)
+            return observed + delta, delta, delta
+
+        if self.struct_xattn_merge_mode == "residual_only":
+            delta = scale * context
+            if gate is not None:
+                delta = delta * gate
+            delta = self._clamp_struct_xattn_delta_ratio(delta=delta, observed=observed)
+            return observed + delta, delta, delta
+
+        delta = scale * context
+        if gate is not None:
+            delta = delta * gate
+        delta = self._clamp_struct_xattn_delta_ratio(delta=delta, observed=observed)
+        pre_norm_output = observed + delta
+        output = residual_norm(pre_norm_output) if self.struct_xattn_use_layer_norm else pre_norm_output
+        return output, delta, output - observed
+
     def _apply_struct_xattn_layer(
         self,
         *,
@@ -721,12 +800,14 @@ class EOPKGGATv2(BaseEOPKGModel):
             dropout = self.struct_xattn_l1_dropout
             gate_layer = self.struct_xattn_l1_gate
             norm = self.struct_xattn_l1_norm
+            context_norm = self.struct_xattn_l1_context_norm
         elif layer_name == "l2":
             attention = self.struct_xattn_l2
             struct_proj = self.struct_xattn_l2_struct_proj
             dropout = self.struct_xattn_l2_dropout
             gate_layer = self.struct_xattn_l2_gate
             norm = self.struct_xattn_l2_norm
+            context_norm = self.struct_xattn_l2_context_norm
         else:
             raise ValueError(f"Unsupported StructXAttn layer '{layer_name}'.")
 
@@ -760,13 +841,16 @@ class EOPKGGATv2(BaseEOPKGModel):
             if self.struct_xattn_use_gate:
                 gate = torch.sigmoid(gate_layer(torch.cat([node_hidden[mask], context], dim=1)))
                 gates.append(gate.detach())
-                delta = scale * gate * context
             else:
-                delta = scale * context
-            pre_norm_output = node_hidden[mask] + delta
-            output = pre_norm_output
-            if self.struct_xattn_use_layer_norm:
-                output = norm(output)
+                gate = None
+            output, delta, _ = self._merge_struct_xattn_context(
+                observed=node_hidden[mask],
+                context=context,
+                gate=gate,
+                scale=scale,
+                residual_norm=norm,
+                context_norm=context_norm,
+            )
             updated[mask] = output
             context_all[mask] = context
             pre_norm_delta_all[mask] = delta

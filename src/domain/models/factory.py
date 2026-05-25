@@ -50,3 +50,4 @@ register_model("BaselineGATv2")(BaselineGATv2)
 
 # Register EOPKG models via decorators declared in eopkg_models.py.
 from src.domain.models import eopkg_models as _eopkg_models  # noqa: E402,F401
+from src.domain.models import topology_conditioned as _topology_conditioned  # noqa: E402,F401

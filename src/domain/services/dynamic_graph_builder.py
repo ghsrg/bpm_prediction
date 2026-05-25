@@ -148,6 +148,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         last_activity_idx = activity_vocab.get(last_activity)
         if last_activity_idx is None:
             last_activity_idx = activity_vocab.get(last_activity.strip())
+        contract["prefix_last_activity_idx"] = torch.tensor(
+            [int(last_activity_idx) if last_activity_idx is not None else -1],
+            dtype=torch.long,
+        )
         if last_activity_idx is not None:
             cached_mask = compiled["allowed_masks_by_src"].get(int(last_activity_idx))
             if isinstance(cached_mask, torch.Tensor):

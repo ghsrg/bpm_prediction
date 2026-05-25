@@ -17,7 +17,7 @@ import math
 from pathlib import Path
 import logging
 import random
-from typing import Any, Dict, Iterable, Iterator, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import psutil
@@ -297,6 +297,19 @@ def _build_model_factory_kwargs(
         "struct_xattn_use_layer_norm": _as_bool(model_cfg.get("struct_xattn_use_layer_norm"), default=True),
         "struct_xattn_use_gate": _as_bool(model_cfg.get("struct_xattn_use_gate"), default=True),
         "struct_xattn_gate_init_bias": float(model_cfg.get("struct_xattn_gate_init_bias", -2.0)),
+        "struct_xattn_merge_mode": str(model_cfg.get("struct_xattn_merge_mode", "post_norm_residual")),
+        "struct_xattn_delta_ratio_max": model_cfg.get("struct_xattn_delta_ratio_max"),
+        "observed_encoder": str(model_cfg.get("observed_encoder", "GATv2")),
+        "struct_encoder": str(model_cfg.get("struct_encoder", "GATv2")),
+        "candidate_scoring": str(model_cfg.get("candidate_scoring", "cosine")),
+        "candidate_pooling": str(model_cfg.get("candidate_pooling", "logmeanexp")),
+        "candidate_temperature_init": float(model_cfg.get("candidate_temperature_init", 0.1)),
+        "candidate_temperature_min": float(model_cfg.get("candidate_temperature_min", 0.05)),
+        "candidate_temperature_max": float(model_cfg.get("candidate_temperature_max", 10.0)),
+        "candidate_temperature_trainable": _as_bool(
+            model_cfg.get("candidate_temperature_trainable"),
+            default=False,
+        ),
     }
 
 
@@ -626,6 +639,15 @@ def _safe_iso_to_epoch(value: Any) -> float | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return float(parsed.timestamp())
+
+
+def _prefix_last_activity_idx_from_contract(contract: Mapping[str, Any]) -> int:
+    raw = contract.get("prefix_last_activity_idx")
+    if isinstance(raw, torch.Tensor) and raw.numel() > 0:
+        return int(raw.detach().cpu().view(-1)[0].item())
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return int(raw)
+    return -1
 
 
 def _safe_cache_token(raw: str) -> str:
@@ -1311,6 +1333,7 @@ def _build_graph_dataset_sharded(
             version_label = str(prefix_slice.process_version)
             version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
             prefix_len = int(len(prefix_slice.prefix_events))
+            prefix_last_activity_idx = _prefix_last_activity_idx_from_contract(contract)
             payload: Dict[str, Any] = {
                 "x_cat": contract["x_cat"],
                 "x_num": contract["x_num"],
@@ -1322,6 +1345,7 @@ def _build_graph_dataset_sharded(
                 "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
                 "trace_idx": torch.tensor([trace_index], dtype=torch.long),
                 "prefix_idx": torch.tensor([int(slice_idx - 1)], dtype=torch.long),
+                "prefix_last_activity_idx": torch.tensor([prefix_last_activity_idx], dtype=torch.long),
                 "trace_start_ts": torch.tensor([trace_start_ts], dtype=torch.float64),
                 "trace_end_ts": torch.tensor([trace_end_ts], dtype=torch.float64),
             }
@@ -1481,6 +1505,7 @@ def _build_graph_dataset(
             version_label = str(prefix_slice.process_version)
             version_idx = version_to_idx.setdefault(version_label, len(version_to_idx))
             prefix_len = int(len(prefix_slice.prefix_events))
+            prefix_last_activity_idx = _prefix_last_activity_idx_from_contract(contract)
             payload: Dict[str, Any] = {
                 "x_cat": contract["x_cat"],
                 "x_num": contract["x_num"],
@@ -1492,6 +1517,7 @@ def _build_graph_dataset(
                 "process_version_idx": torch.tensor([version_idx], dtype=torch.long),
                 "trace_idx": torch.tensor([trace_index], dtype=torch.long),
                 "prefix_idx": torch.tensor([int(slice_idx - 1)], dtype=torch.long),
+                "prefix_last_activity_idx": torch.tensor([prefix_last_activity_idx], dtype=torch.long),
                 "trace_start_ts": torch.tensor([trace_start_ts], dtype=torch.float64),
                 "trace_end_ts": torch.tensor([trace_end_ts], dtype=torch.float64),
             }

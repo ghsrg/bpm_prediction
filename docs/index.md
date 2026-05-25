@@ -13,7 +13,7 @@ entire repository.
 - `audience`: human-and-agent
 - `source_of_truth`: navigation-only
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-21
+- `last_updated`: 2026-05-24
 
 ---
 
@@ -132,6 +132,12 @@ entire repository.
   - **Description (ukr):** learning strategy contract for GNN training:
     `standard`, `topology_conditioned`, loss design, version-safe negative
     sampling, controlled forgetting, and `versioned_zero_shot` protocol.
+
+- `docs/GNN_LEARNING_METODOLOGY.MD`
+  - **Description (ukr):** research methodology roadmap for business-valid
+    topology-conditioned zero-shot adaptation: candidate-set drift, dynamic
+    candidate scoring, calibration, auditability, and staged transition beyond
+    fixed-head fusion ablations.
 
 ---
 

@@ -335,6 +335,53 @@ Operational stance:
 
 ---
 
+## Diagnostics / Audits
+
+### topology_drift_audit
+
+Use this after train/eval_drift runs to explain whether post-drift degradation
+comes from added/removed topology candidates, changed gateway-collapsed
+successors, OOS predictions, or fixed classifier limitations.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\audit_topology_drift.py `
+  --mlruns-dir mlruns `
+  --experiment-id 854778689611649472 `
+  --baseline-run <baseline_eval_drift_run_id> `
+  --structural-run <structural_eval_drift_run_id> `
+  --train-run <train_run_id> `
+  --log-path outputs\simulation\loan_v1_v4_simulated.xes `
+  --output-dir outputs\audits\topology_drift
+```
+
+`--log-path` is optional but recommended for older trace artifacts. When trace
+payloads do not contain `prefix_last_activity`, the audit reconstructs it from
+XES using `(trace_idx, prefix_len)` and can attribute errors to changed
+gateway-collapsed successor zones without rerunning `eval_drift`.
+
+For the current loan BPMN source files, the tool reads:
+
+```text
+data/camunda_exports/bpmn_xml/loan_v1.bpmn
+data/camunda_exports/bpmn_xml/loan_v2_re.bpmn
+data/camunda_exports/bpmn_xml/loan_v3_re_pl.bpmn
+data/camunda_exports/bpmn_xml/loan_v4_re_pl_cb.bpmn
+```
+
+Output:
+
+```text
+summary.json
+version_topology_diff.csv
+activity_label_diff.csv
+transition_diff.csv
+prediction_error_attribution.csv
+by_version_metrics.csv
+report.md
+```
+
+---
+
 ## Key Config Attributes
 
 ### experiment

@@ -154,6 +154,38 @@ class _StructuralPriorDiagnosticModel(nn.Module):
         return logits + (self.dummy * 0.0)
 
 
+class _TopologyConditionedCandidateDiagnosticModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.last_candidate_node_score_mean_abs: float | None = None
+        self.last_candidate_class_score_mean_abs: float | None = None
+        self.last_duplicate_candidate_count_max: int | None = None
+        self.last_candidate_temperature: float | None = None
+        self.last_candidate_temperature_trainable: bool | None = None
+        self.last_candidate_prediction_entropy: float | None = None
+        self.last_candidate_target_score: float | None = None
+        self.last_candidate_pred_score: float | None = None
+        self.last_candidate_score_gap: float | None = None
+        self.last_candidate_dynamic_count: int | None = None
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        self.last_candidate_node_score_mean_abs = 0.33
+        self.last_candidate_class_score_mean_abs = 0.22
+        self.last_duplicate_candidate_count_max = 2
+        self.last_candidate_temperature = 0.1
+        self.last_candidate_temperature_trainable = False
+        self.last_candidate_prediction_entropy = 1.2
+        self.last_candidate_target_score = 0.7
+        self.last_candidate_pred_score = 0.9
+        self.last_candidate_score_gap = 0.2
+        self.last_candidate_dynamic_count = 2
+        logits = torch.tensor([[1.0, -1.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        return logits + (self.dummy * 0.0)
+
+
 class _RecordingTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[str, float, int | None]] = []
@@ -482,6 +514,40 @@ def test_trainer_logs_structural_prior_diagnostics(caplog):
     assert "train_structural_prior_to_observed_context_ratio" in metric_names
     assert "train_structural_prior_gate_mean" in metric_names
     assert "train_structural_prior_gate_max" in metric_names
+
+
+def test_trainer_logs_topology_conditioned_candidate_diagnostics(caplog):
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    loader = DataLoader(
+        [
+            _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+            _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        ],
+        batch_size=2,
+        shuffle=False,
+    )
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(model=_TopologyConditionedCandidateDiagnosticModel(), tracker=tracker)
+    optimizer = Adam(trainer.model.parameters(), lr=0.01)
+
+    caplog.set_level(logging.INFO)
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert "candidate_node_score_mean_abs=0.330000" in caplog.text
+    assert "candidate_class_score_mean_abs=0.220000" in caplog.text
+    assert "duplicate_candidate_count_max=2.000000" in caplog.text
+    assert "candidate_temperature=0.100000" in caplog.text
+    assert "candidate_prediction_entropy=1.200000" in caplog.text
+    assert "candidate_score_gap=0.200000" in caplog.text
+    assert "candidate_dynamic_count=2.000000" in caplog.text
+    metric_names = {key for key, _, _ in tracker.metrics}
+    assert "train_candidate_node_score_mean_abs" in metric_names
+    assert "train_candidate_class_score_mean_abs" in metric_names
+    assert "train_duplicate_candidate_count_max" in metric_names
+    assert "train_candidate_temperature" in metric_names
+    assert "train_candidate_prediction_entropy" in metric_names
+    assert "train_candidate_score_gap" in metric_names
+    assert "train_candidate_dynamic_count" in metric_names
 
 
 def test_structural_set_loss_rewards_any_allowed_target_candidate():

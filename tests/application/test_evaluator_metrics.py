@@ -9,6 +9,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from sklearn.exceptions import UndefinedMetricWarning
 
+from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.application.use_cases.trainer import ModelTrainer
 
 
@@ -131,6 +132,35 @@ class _ConstantClassZero3(nn.Module):
         return logits
 
 
+class _DynamicCandidateModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
+        self.output_dim = 3
+        self.forward_called = False
+        self.forward_candidate_called = False
+
+    def forward(self, contract):
+        self.forward_called = True
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        return torch.zeros((num_graphs, self.output_dim), dtype=torch.float32, device=batch.device)
+
+    def forward_candidate(self, contract):
+        self.forward_candidate_called = True
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        candidate_logits = torch.tensor([[0.0, 5.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        candidate_logits = candidate_logits + (self.dummy * 0.0)
+        return CandidatePredictionOutput(
+            candidate_logits=candidate_logits,
+            candidate_class_index=torch.tensor([1, 2], dtype=torch.long, device=batch.device),
+            node_logits=candidate_logits,
+            node_to_candidate_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            node_to_class_index=torch.tensor([1, 2], dtype=torch.long, device=batch.device),
+        )
+
+
 def test_evaluate_test_reports_stage2_mask_metrics():
     trainer = ModelTrainer(
         xes_adapter=_DummyAdapter(),
@@ -189,6 +219,90 @@ def test_evaluate_test_reports_stage2_mask_metrics():
     assert metrics["test_accuracy"] == pytest.approx(2.0 / 3.0)
     assert metrics["test_set_hit_rate_ambiguous"] == pytest.approx(1.0)
     assert metrics["test_set_nll"] >= 0.0
+
+
+def test_evaluate_test_can_consume_dynamic_candidate_contract():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "dynamic_candidate_contract_enabled": True,
+        },
+    )
+
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+        ),
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+        ),
+    ]
+
+    metrics = trainer._evaluate_test(DataLoader(samples, batch_size=2, shuffle=False))
+
+    assert model.forward_candidate_called is True
+    assert model.forward_called is False
+    assert metrics["strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["strict_test_macro_f1"] == pytest.approx(1.0)
+
+
+def test_train_epoch_can_consume_dynamic_candidate_contract():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "dynamic_candidate_contract_enabled": True,
+        },
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+        )
+    ]
+
+    loss, macro_f1, _, _ = trainer._run_epoch(
+        DataLoader(samples, batch_size=1, shuffle=False),
+        optimizer=torch.optim.Adam(model.parameters(), lr=0.01),
+        training=True,
+    )
+
+    assert model.forward_candidate_called is True
+    assert model.forward_called is False
+    assert loss >= 0.0
+    assert macro_f1 == pytest.approx(1.0)
 
 
 def test_evaluate_test_uses_meaningful_topk_when_class_count_is_three():

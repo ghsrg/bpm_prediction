@@ -234,6 +234,8 @@ def test_build_model_factory_kwargs_passes_struct_xattn_config():
             "struct_xattn_use_layer_norm": False,
             "struct_xattn_use_gate": True,
             "struct_xattn_gate_init_bias": -1.25,
+            "struct_xattn_merge_mode": "pre_norm_context",
+            "struct_xattn_delta_ratio_max": 0.3,
         },
         feature_layout=object(),
         output_dim=7,
@@ -248,3 +250,35 @@ def test_build_model_factory_kwargs_passes_struct_xattn_config():
     assert kwargs["struct_xattn_use_layer_norm"] is False
     assert kwargs["struct_xattn_use_gate"] is True
     assert kwargs["struct_xattn_gate_init_bias"] == -1.25
+    assert kwargs["struct_xattn_merge_mode"] == "pre_norm_context"
+    assert kwargs["struct_xattn_delta_ratio_max"] == 0.3
+
+
+def test_build_model_factory_kwargs_passes_topology_conditioned_candidate_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGTopologyConditioned",
+            "hidden_dim": 16,
+            "pooling_strategy": "last_node",
+            "observed_encoder": "GATv2",
+            "struct_encoder": "GATv2",
+            "candidate_scoring": "cosine",
+            "candidate_pooling": "logmeanexp",
+            "candidate_temperature_init": 0.12,
+            "candidate_temperature_min": 0.05,
+            "candidate_temperature_max": 1.0,
+            "candidate_temperature_trainable": True,
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["model_type"] == "EOPKGTopologyConditioned"
+    assert kwargs["observed_encoder"] == "GATv2"
+    assert kwargs["struct_encoder"] == "GATv2"
+    assert kwargs["candidate_scoring"] == "cosine"
+    assert kwargs["candidate_pooling"] == "logmeanexp"
+    assert kwargs["candidate_temperature_init"] == 0.12
+    assert kwargs["candidate_temperature_min"] == 0.05
+    assert kwargs["candidate_temperature_max"] == 1.0
+    assert kwargs["candidate_temperature_trainable"] is True

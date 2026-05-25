@@ -29,6 +29,7 @@ class GraphTensorContract(TypedDict):
     struct_prefix_state_x: NotRequired[torch.FloatTensor | None]
     version_emb_idx: NotRequired[torch.LongTensor | None]
     allowed_target_mask: NotRequired[torch.BoolTensor | None]
+    prefix_last_activity_idx: NotRequired[torch.LongTensor | None]
     stats_snapshot_version_seq: NotRequired[int | None]
     stats_snapshot_as_of_epoch: NotRequired[float | None]
     stats_allowed: NotRequired[bool | None]

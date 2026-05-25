@@ -100,6 +100,12 @@ def build_structural_prediction_trace_payload(
     process_version = _batch_value(contract.get("process_version_labels"), row, default=None)
     if process_version is None:
         process_version = _batch_value(contract.get("version_labels"), row, default="__unknown__")
+    prefix_last_activity_index = _tensor_attr_at(contract.get("prefix_last_activity_idx"), row)
+    prefix_last_activity = (
+        label_for_index(prefix_last_activity_index, reverse_activity_vocab)
+        if prefix_last_activity_index is not None and int(prefix_last_activity_index) >= 0
+        else "__unknown__"
+    )
 
     payload = {
         "schema_version": "1.0",
@@ -109,6 +115,8 @@ def build_structural_prediction_trace_payload(
             "trace_idx": _tensor_attr_at(contract.get("trace_idx"), row),
             "prefix_idx": _tensor_attr_at(contract.get("prefix_idx"), row),
             "prefix_len": _tensor_attr_at(contract.get("prefix_len"), row),
+            "prefix_last_activity_index": prefix_last_activity_index,
+            "prefix_last_activity": prefix_last_activity,
             "process_version": str(process_version or "__unknown__"),
         },
         "run": {
@@ -144,6 +152,9 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
     generic = diagnostics.get("generic", {}) if isinstance(diagnostics, dict) else {}
     class_aware = diagnostics.get("class_aware_structural_scoring", {}) if isinstance(diagnostics, dict) else {}
     struct_xattn = diagnostics.get("struct_xattn", {}) if isinstance(diagnostics, dict) else {}
+    topology_conditioned = (
+        diagnostics.get("topology_conditioned_candidate_scoring", {}) if isinstance(diagnostics, dict) else {}
+    )
 
     attrs: dict[str, Any] = {
         "stage": str(payload.get("stage", "")),
@@ -152,6 +163,7 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         "fusion_mode": str(run.get("fusion_mode", "")),
         "structural_mode": bool(run.get("structural_mode", False)),
         "process_version": str(sample.get("process_version", "__unknown__")),
+        "prefix_last_activity": str(sample.get("prefix_last_activity", "__unknown__")),
         "stats_snapshot_version": str(snapshot.get("stats_snapshot_version", "")),
         "strict_correct": bool(prediction.get("strict_correct", False)),
         "target_index": int(prediction.get("target_index", -1)),
@@ -164,6 +176,8 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         "mask_cardinality": _safe_attr_float(mask.get("mask_cardinality")),
         "prediction_entropy": _safe_attr_float(generic.get("prediction_entropy")),
     }
+    if sample.get("prefix_last_activity_index") is not None:
+        attrs["prefix_last_activity_index"] = int(sample.get("prefix_last_activity_index", -1))
     if "structural_to_observed_logit_ratio" in class_aware:
         attrs["structural_to_observed_logit_ratio"] = _safe_attr_float(
             class_aware.get("structural_to_observed_logit_ratio")
@@ -179,6 +193,17 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
     ):
         if key in struct_xattn:
             attrs[key] = _safe_attr_float(struct_xattn.get(key))
+    for key in (
+        "candidate_temperature",
+        "candidate_prediction_entropy",
+        "candidate_score_gap",
+        "candidate_node_score_mean_abs",
+        "candidate_class_score_mean_abs",
+        "duplicate_candidate_count_max",
+        "candidate_dynamic_count",
+    ):
+        if key in topology_conditioned:
+            attrs[key] = _safe_attr_float(topology_conditioned.get(key))
     return {str(key): value for key, value in attrs.items() if value is not None}
 
 
@@ -213,7 +238,9 @@ def label_for_index(index: int, reverse_vocab: dict[int, str]) -> str:
     return str(reverse_vocab.get(int(index), f"__class_{int(index)}__"))
 
 
-def tensor_scalar(value: torch.Tensor | None) -> float | None:
+def tensor_scalar(value: torch.Tensor | int | float | None) -> float | None:
+    if isinstance(value, (int, float)):
+        return _round_float(float(value))
     if not isinstance(value, torch.Tensor) or value.numel() <= 0:
         return None
     safe = _safe_tensor(value)
@@ -304,6 +331,34 @@ def _diagnostics_payload(
     struct_xattn_values = {key: value for key, value in struct_xattn_values.items() if value is not None}
     if struct_xattn_values:
         diagnostics["struct_xattn"] = struct_xattn_values
+    topology_conditioned_values = {
+        "candidate_node_score_mean_abs": tensor_scalar(
+            getattr(model, "last_candidate_node_score_mean_abs", None)
+        ),
+        "candidate_class_score_mean_abs": tensor_scalar(
+            getattr(model, "last_candidate_class_score_mean_abs", None)
+        ),
+        "duplicate_candidate_count_max": tensor_scalar(
+            getattr(model, "last_duplicate_candidate_count_max", None)
+        ),
+        "candidate_temperature": tensor_scalar(getattr(model, "last_candidate_temperature", None)),
+        "candidate_temperature_trainable": _json_safe(
+            getattr(model, "last_candidate_temperature_trainable", None)
+        ),
+        "candidate_prediction_entropy": tensor_scalar(
+            getattr(model, "last_candidate_prediction_entropy", None)
+        ),
+        "candidate_target_score": tensor_scalar(getattr(model, "last_candidate_target_score", None)),
+        "candidate_pred_score": tensor_scalar(getattr(model, "last_candidate_pred_score", None)),
+        "candidate_score_gap": tensor_scalar(getattr(model, "last_candidate_score_gap", None)),
+        "candidate_dynamic_count": tensor_scalar(getattr(model, "last_candidate_dynamic_count", None)),
+        "candidate_class_index": _json_safe(getattr(model, "last_candidate_class_index", None)),
+    }
+    topology_conditioned_values = {
+        key: value for key, value in topology_conditioned_values.items() if value is not None
+    }
+    if topology_conditioned_values:
+        diagnostics["topology_conditioned_candidate_scoring"] = topology_conditioned_values
     return diagnostics
 
 
@@ -415,6 +470,8 @@ def _json_safe(value: Any) -> Any:
         if value.numel() == 1:
             return tensor_scalar(value)
         return _safe_tensor(value).tolist()
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)

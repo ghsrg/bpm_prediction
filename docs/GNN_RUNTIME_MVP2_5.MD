@@ -948,6 +948,26 @@ This is a transitional Stage 2 compatibility path. It still cannot honestly
 score an unseen activity class outside `C_train`; the final target remains pure
 candidate-id evaluation without projection back to the fixed training vocab.
 
+Candidate contract modes:
+
+```yaml
+training.candidate_contract_mode: fixed_label | fixed_projection | candidate_id
+training.candidate_batch_topology_policy: single_topology_required | group_by_topology
+```
+
+- `fixed_label`: legacy `forward(contract) -> [B, C_train]`.
+- `fixed_projection`: `forward_candidate(contract)` is consumed and projected
+  back to `[B, C_train]`; this is equivalent to
+  `training.dynamic_candidate_contract_enabled=true`.
+- `candidate_id`: reserved for true candidate-level loss/evaluation. The
+  DataLoader must emit topology-homogeneous batches keyed by
+  `process_version_idx + stats_snapshot_version_idx`, because the candidate
+  axis `[C_v]` is topology-local. `single_topology_required` forms
+  homogeneous batches for indexable graph sources, including in-memory datasets
+  and `ShardedGraphDataset` disk-cache sources, and fails if a mixed batch
+  reaches `_data_to_contract()`. `group_by_topology` is reserved for a future
+  implementation that will split already-mixed batches inside the trainer.
+
 Important semantics:
 
 1. `struct_node_to_class_index` and `structural_edge_index` are required.

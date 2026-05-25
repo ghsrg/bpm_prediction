@@ -107,6 +107,20 @@ class DriftInferenceRecords:
     inference_ms_per_graph: float
 
 
+def _data_topology_key(graph: Data) -> str:
+    raw_version = getattr(graph, "process_version_idx", None)
+    if isinstance(raw_version, torch.Tensor) and raw_version.numel() > 0:
+        version = f"v:{int(raw_version.view(-1)[0].item())}"
+    else:
+        version = "v:__missing__"
+    raw_snapshot = getattr(graph, "stats_snapshot_version_idx", None)
+    if isinstance(raw_snapshot, torch.Tensor) and raw_snapshot.numel() > 0:
+        snapshot = f"s:{int(raw_snapshot.view(-1)[0].item())}"
+    else:
+        snapshot = "s:__none__"
+    return f"{version}|{snapshot}"
+
+
 class ShardedGraphDataset(Dataset[Data]):
     """Lazy on-disk dataset backed by shard files produced by CLI graph cache."""
 
@@ -122,13 +136,18 @@ class ShardedGraphDataset(Dataset[Data]):
             count = int(row.get("count", 0))
             if not rel_path or count <= 0:
                 continue
-            self._shards.append({"path": rel_path, "count": int(count)})
+            shard_payload: Dict[str, Any] = {"path": rel_path, "count": int(count)}
+            segments = row.get("topology_segments")
+            if isinstance(segments, list):
+                shard_payload["topology_segments"] = segments
+            self._shards.append(shard_payload)
             total += int(count)
             self._offsets.append(total)
         self._size = int(total)
         self._max_cached_shards = max(1, int(max_cached_shards))
         self._cached_shards: Dict[int, List[Data]] = {}
         self._cache_lru_order: List[int] = []
+        self._topology_index: Tuple[str, ...] | None = None
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any], *, max_cached_shards: int = 2) -> "ShardedGraphDataset":
@@ -198,6 +217,53 @@ class ShardedGraphDataset(Dataset[Data]):
             start = int(end)
         return ranges
 
+    def topology_index(self) -> Tuple[str, ...]:
+        """Return one topology identity per graph without hydrating structural tensors."""
+        if self._topology_index is not None:
+            return self._topology_index
+
+        indexed: List[str] = []
+        can_use_segments = True
+        for row in self._shards:
+            segments = row.get("topology_segments")
+            if not isinstance(segments, list):
+                can_use_segments = False
+                break
+            expanded: List[str] = []
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    can_use_segments = False
+                    break
+                key = str(segment.get("key", "")).strip()
+                count = int(segment.get("count", 0))
+                if not key or count <= 0:
+                    can_use_segments = False
+                    break
+                expanded.extend([key] * count)
+            if not can_use_segments or len(expanded) != int(row.get("count", 0)):
+                can_use_segments = False
+                break
+            indexed.extend(expanded)
+        if can_use_segments and len(indexed) == self._size:
+            self._topology_index = tuple(indexed)
+            return self._topology_index
+
+        indexed = []
+        for row in self._shards:
+            shard_path = self.entry_dir / str(row["path"])
+            loaded = load_trusted_torch_artifact(shard_path, map_location="cpu")
+            graphs = loaded.get("graphs", []) if isinstance(loaded, dict) and loaded.get("format") == "dedup_structural_payloads" else loaded
+            if not isinstance(graphs, list):
+                raise ValueError(f"Invalid shard payload type for {shard_path}.")
+            for graph in graphs:
+                if not isinstance(graph, Data):
+                    raise ValueError(f"Invalid graph item in {shard_path}.")
+                indexed.append(_data_topology_key(graph))
+        if len(indexed) != self._size:
+            raise ValueError(f"Invalid sharded topology index size: expected {self._size}, got {len(indexed)}.")
+        self._topology_index = tuple(indexed)
+        return self._topology_index
+
 
 class _ShardAwareRandomSampler(Sampler[int]):
     """Shuffle by shard then by index within shard to avoid random disk seeks."""
@@ -224,30 +290,57 @@ class _ShardAwareRandomSampler(Sampler[int]):
         return len(self._dataset)
 
 
-class _VersionHomogeneousBatchSampler(Sampler[List[int]]):
-    """Yield mini-batches grouped by process_version_idx."""
+class _TopologyHomogeneousBatchSampler(Sampler[List[int]]):
+    """Yield mini-batches grouped by process_version_idx and stats snapshot."""
 
-    def __init__(self, dataset: Sequence[Data], *, batch_size: int, shuffle: bool, seed: int = 42) -> None:
+    def __init__(self, dataset: Any, *, batch_size: int, shuffle: bool, seed: int = 42) -> None:
         self._dataset = dataset
         self._batch_size = max(1, int(batch_size))
         self._shuffle = bool(shuffle)
         self._base_seed = int(seed)
         self._iteration = 0
-        self._groups = self._build_groups(dataset)
+        self._topology_keys = self._resolve_topology_keys(dataset)
+        self._groups = self._build_groups(self._topology_keys)
 
     @staticmethod
-    def _build_groups(dataset: Sequence[Data]) -> Dict[str, List[int]]:
+    def _graph_key(graph: Data) -> str:
+        return _data_topology_key(graph)
+
+    @classmethod
+    def _resolve_topology_keys(cls, dataset: Any) -> Tuple[str, ...]:
+        index_fn = getattr(dataset, "topology_index", None)
+        if callable(index_fn):
+            raw_keys = tuple(str(key) for key in index_fn())
+            if len(raw_keys) != len(dataset):
+                raise ValueError(f"Invalid topology_index length: expected {len(dataset)}, got {len(raw_keys)}.")
+            return raw_keys
+        keys: List[str] = []
+        for idx in range(len(dataset)):
+            graph = dataset[idx]
+            keys.append(cls._graph_key(graph))
+        return tuple(keys)
+
+    @classmethod
+    def _build_groups(cls, topology_keys: Sequence[str]) -> Dict[str, List[int]]:
         groups: Dict[str, List[int]] = {}
-        for idx, graph in enumerate(dataset):
-            raw = getattr(graph, "process_version_idx", None)
-            if isinstance(raw, torch.Tensor) and raw.numel() > 0:
-                key = f"idx:{int(raw.view(-1)[0].item())}"
-            else:
-                key = "__unknown__"
-            groups.setdefault(key, []).append(int(idx))
+        for idx, key in enumerate(topology_keys):
+            groups.setdefault(str(key), []).append(int(idx))
         return groups
 
     def __iter__(self) -> Iterable[List[int]]:
+        if not self._shuffle:
+            current_key: str | None = None
+            current_batch: List[int] = []
+            for idx, key in enumerate(self._topology_keys):
+                if current_batch and (key != current_key or len(current_batch) >= self._batch_size):
+                    yield current_batch
+                    current_batch = []
+                current_key = key
+                current_batch.append(int(idx))
+            if current_batch:
+                yield current_batch
+            return
+
         rng = random.Random(self._base_seed + self._iteration)
         self._iteration += 1
         keys = list(self._groups)
@@ -261,10 +354,22 @@ class _VersionHomogeneousBatchSampler(Sampler[List[int]]):
                 yield indices[start : start + self._batch_size]
 
     def __len__(self) -> int:
+        if self._shuffle:
+            total = 0
+            for indices in self._groups.values():
+                total += int(math.ceil(len(indices) / float(self._batch_size)))
+            return total
+
         total = 0
-        for indices in self._groups.values():
-            total += int(math.ceil(len(indices) / float(self._batch_size)))
-        return total
+        last_key: str | None = None
+        current_size = 0
+        for key in self._topology_keys:
+            if current_size and (key != last_key or current_size >= self._batch_size):
+                total += 1
+                current_size = 0
+            last_key = key
+            current_size += 1
+        return total + (1 if current_size else 0)
 
 
 class ModelTrainer:
@@ -332,6 +437,27 @@ class ModelTrainer:
             config.get("dynamic_candidate_contract_enabled"),
             default=False,
         )
+        self.candidate_contract_mode = str(config.get("candidate_contract_mode", "") or "").strip().lower()
+        if not self.candidate_contract_mode:
+            self.candidate_contract_mode = (
+                "fixed_projection" if self.dynamic_candidate_contract_enabled else "fixed_label"
+            )
+        if self.candidate_contract_mode not in {"fixed_label", "fixed_projection", "candidate_id"}:
+            raise ValueError(
+                "training.candidate_contract_mode must be fixed_label, fixed_projection, or candidate_id."
+            )
+        self.candidate_batch_topology_policy = str(
+            config.get("candidate_batch_topology_policy", "single_topology_required")
+            or "single_topology_required"
+        ).strip().lower()
+        if self.candidate_batch_topology_policy not in {"single_topology_required", "group_by_topology"}:
+            raise ValueError(
+                "training.candidate_batch_topology_policy must be single_topology_required or group_by_topology."
+            )
+        if self.candidate_contract_mode == "candidate_id" and self.candidate_batch_topology_policy == "group_by_topology":
+            raise ValueError(
+                "training.candidate_batch_topology_policy=group_by_topology is planned but not implemented."
+            )
         self.struct_xattn_contrastive_enabled = _as_bool(
             config.get("struct_xattn_contrastive_enabled"),
             default=False,
@@ -449,7 +575,10 @@ class ModelTrainer:
     def _forward_model_logits(self, contract: GraphTensorContract) -> torch.Tensor:
         """Run model forward and return global fixed-label logits for trainer metrics."""
 
-        if self.dynamic_candidate_contract_enabled and hasattr(self.model, "forward_candidate"):
+        if (
+            self.candidate_contract_mode == "fixed_projection"
+            and hasattr(self.model, "forward_candidate")
+        ):
             output = self.model.forward_candidate(contract)  # type: ignore[attr-defined]
             if isinstance(output, CandidatePredictionOutput):
                 return self._candidate_output_to_fixed_logits(output)
@@ -1434,19 +1563,29 @@ class ModelTrainer:
         batch_sampler: Sampler[List[int]] | None = None
         effective_shuffle = bool(shuffle)
         effective_num_workers = int(self.dataloader_num_workers)
-        if isinstance(source, ShardedGraphDataset) and shuffle:
+        is_indexable_graph_source = hasattr(source, "__len__") and hasattr(source, "__getitem__")
+        if self.candidate_contract_mode == "candidate_id" and is_indexable_graph_source:
+            batch_sampler = _TopologyHomogeneousBatchSampler(
+                source,
+                batch_size=self.batch_size,
+                shuffle=bool(shuffle),
+                seed=self.seed,
+            )
+            effective_shuffle = False
+        elif isinstance(source, ShardedGraphDataset) and shuffle:
             sampler = _ShardAwareRandomSampler(source, seed=self.seed)
             effective_shuffle = False
         elif (
-            self.learning_strategy_config.is_topology_conditioned
-            and shuffle
-            and isinstance(source, Sequence)
+            isinstance(source, Sequence)
             and not isinstance(source, (str, bytes))
+            and (
+                self.learning_strategy_config.is_topology_conditioned and shuffle
+            )
         ):
-            batch_sampler = _VersionHomogeneousBatchSampler(
+            batch_sampler = _TopologyHomogeneousBatchSampler(
                 source,
                 batch_size=self.batch_size,
-                shuffle=True,
+                shuffle=bool(shuffle),
                 seed=self.seed,
             )
             effective_shuffle = False
@@ -4756,6 +4895,51 @@ class ModelTrainer:
             stacklevel=2,
         )
 
+    @staticmethod
+    def _tensor_values_as_int_tuple(value: Any) -> tuple[int, ...]:
+        if isinstance(value, torch.Tensor):
+            return tuple(int(item) for item in value.view(-1).long().cpu().tolist())
+        if isinstance(value, (list, tuple)):
+            result: list[int] = []
+            for item in value:
+                try:
+                    result.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            return tuple(result)
+        return ()
+
+    def _candidate_batch_topology_identities(self, data: Data) -> tuple[str, ...]:
+        versions = self._tensor_values_as_int_tuple(getattr(data, "process_version_idx", None))
+        snapshots = self._tensor_values_as_int_tuple(getattr(data, "stats_snapshot_version_idx", None))
+        if not versions:
+            return ()
+        if snapshots and len(snapshots) == len(versions):
+            return tuple(
+                f"version:{version}|snapshot:{snapshot}"
+                for version, snapshot in zip(versions, snapshots)
+            )
+        return tuple(f"version:{version}|snapshot:__none__" for version in versions)
+
+    def _guard_candidate_batch_topology(self, data: Data, contract: GraphTensorContract) -> None:
+        if self.candidate_contract_mode != "candidate_id":
+            return
+        identities = self._candidate_batch_topology_identities(data)
+        if not identities:
+            raise ValueError(
+                "candidate_contract_mode=candidate_id requires process_version_idx in each batch "
+                "to verify topology homogeneity."
+            )
+        unique = tuple(sorted(set(identities)))
+        contract["batch_topology_unique_count"] = int(len(unique))  # type: ignore[typeddict-unknown-key]
+        contract["batch_topology_identities"] = list(unique)  # type: ignore[typeddict-unknown-key]
+        if self.candidate_batch_topology_policy == "single_topology_required" and len(unique) > 1:
+            raise ValueError(
+                "candidate_contract_mode=candidate_id received a mixed topology batch; "
+                f"unique_topology_identities={list(unique)}. Use topology-homogeneous batching "
+                "or implement candidate_batch_topology_policy=group_by_topology."
+            )
+
     def _select_structural_payload_for_forward(
         self,
         data: Data,
@@ -4978,6 +5162,7 @@ class ModelTrainer:
                     labels.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
                 if labels:
                     contract["process_version_labels"] = labels  # type: ignore[typeddict-unknown-key]
+        self._guard_candidate_batch_topology(data, contract)
         return contract
 
     def _log_model_and_system_context(self) -> None:

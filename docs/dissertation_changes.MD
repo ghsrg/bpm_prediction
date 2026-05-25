@@ -1249,3 +1249,33 @@ Methodology consequence: this step validates wiring but does not yet test the
 business-critical zero-shot claim. To observe a difference, the evaluator/loss
 must stop projecting back to `C_train` and operate on true candidate ids /
 BPMN node ids, especially where a topology version adds/removes candidates.
+
+**2026-05-25 Stage 2 true plan correction:** true candidate-id learning cannot
+reuse the old "first structural payload per batch" assumption. Once prediction
+space becomes topology-local `[B, C_v]`, mixed-version/mixed-topology batches
+can silently corrupt the candidate axis. The methodology must either enforce
+homogeneous topology batches (`single_topology_required`) or explicitly split
+mixed batches by topology before loss/evaluation.
+
+Additional interpretation guardrails:
+
+- MIL/set-aware loss over duplicate BPMN candidates must log target-set entropy
+  and variance. If duplicate target logits remain identical, the model has not
+  learned to distinguish duplicate structural nodes.
+- Missing target candidates are not normal noise. A high
+  `candidate_missing_target_rate` means log/topology alignment is broken, so
+  training must fail instead of continuing with zero-gradient rows.
+
+**2026-05-25 batching correction:** для true candidate-id режиму недостатньо
+лише падати на mixed batch. Експеримент має бути прохідним, тому DataLoader
+повинен формувати topology-homogeneous mini-batches за:
+
+```text
+process_version_idx + stats_snapshot_version_idx
+```
+
+Якщо для певної topology identity є лише 1 prefix/sample, batch size для цієї
+групи буде `1`. Це не недолік, а умова коректності: candidate axis `[C_v]`
+залежить від версії процесу і stats/as-of snapshot. Змішування різних axes в
+одному forward/loss робить висновки про zero-shot користь структури
+методологічно невалідними.

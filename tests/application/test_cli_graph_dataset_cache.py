@@ -322,6 +322,36 @@ def test_build_graph_dataset_sharded_attaches_trace_metadata(mock_feature_config
     assert all(hasattr(item, "trace_end_ts") for item in items)
 
 
+def test_build_graph_dataset_sharded_records_topology_segments(mock_feature_configs, tmp_path: Path):
+    traces = [
+        _trace("c1", "v1", ["A", "B"]),
+        _trace("c2", "v2", ["A", "C"]),
+    ]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    graph_builder = BaselineGraphBuilder(feature_encoder=encoder)
+
+    payload = _build_graph_dataset_sharded(
+        traces=traces,
+        prefix_policy=PrefixPolicy(),
+        graph_builder=graph_builder,  # type: ignore[arg-type]
+        version_to_idx={},
+        stats_snapshot_version_to_idx={},
+        show_progress=False,
+        tqdm_disable=True,
+        desc="Build test graphs",
+        progress_stage="test.build_graph",
+        entry_dir=tmp_path / "entry",
+        split_key="test",
+        shard_size=10,
+        max_ram_bytes=None,
+    )
+
+    assert payload["shards"][0]["topology_segments"] == [
+        {"key": "v:0|s:__none__", "count": 1},
+        {"key": "v:1|s:__none__", "count": 1},
+    ]
+
+
 class _TopologyStateContractBuilder:
     def build_graph(self, prefix_slice):
         _ = prefix_slice

@@ -11,8 +11,9 @@ from torch import nn
 from torch.optim import Adam
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
+from torch.utils.data import Dataset
 
-from src.application.use_cases.trainer import ModelTrainer
+from src.application.use_cases.trainer import ModelTrainer, ShardedGraphDataset, _TopologyHomogeneousBatchSampler
 from src.domain.entities.raw_trace import RawTrace
 
 
@@ -695,6 +696,336 @@ def test_data_to_contract_warns_when_batch_has_mixed_snapshot_versions():
     assert contract.get("stats_snapshot_versions") is not None
     assert "k000007" in contract["stats_snapshot_versions"]
     assert "k000008" in contract["stats_snapshot_versions"]
+    assert trainer.candidate_contract_mode == "fixed_label"
+
+
+def test_candidate_contract_mode_defaults_to_fixed_projection_when_dynamic_enabled():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "dynamic_candidate_contract_enabled": True,
+        },
+    )
+
+    assert trainer.candidate_contract_mode == "fixed_projection"
+
+
+def test_candidate_contract_mode_accepts_candidate_id_and_default_topology_policy():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+
+    assert trainer.candidate_contract_mode == "candidate_id"
+    assert trainer.candidate_batch_topology_policy == "single_topology_required"
+
+
+def test_topology_homogeneous_sampler_groups_by_version_and_snapshot_when_shuffling():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    samples = [
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+    ]
+    samples[0].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[1].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[2].process_version_idx = torch.tensor([1], dtype=torch.long)
+    samples[3].process_version_idx = torch.tensor([0], dtype=torch.long)
+
+    sampler = _TopologyHomogeneousBatchSampler(samples, batch_size=2, shuffle=True, seed=42)
+
+    for batch_indices in sampler:
+        identities = {
+            (
+                int(samples[idx].process_version_idx.view(-1)[0].item()),
+                int(samples[idx].stats_snapshot_version_idx.view(-1)[0].item()),
+            )
+            for idx in batch_indices
+        }
+        assert len(identities) == 1
+
+
+def test_topology_homogeneous_sampler_preserves_order_when_not_shuffling():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    samples = [
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(0, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+    ]
+    for sample in samples:
+        sample.process_version_idx = torch.tensor([0], dtype=torch.long)
+
+    sampler = _TopologyHomogeneousBatchSampler(samples, batch_size=3, shuffle=False, seed=42)
+
+    assert list(sampler) == [[0, 1], [2, 3], [4]]
+
+
+def test_candidate_id_dataloader_emits_topology_homogeneous_batches():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    samples = [
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+        _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch),
+    ]
+    samples[0].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[1].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[2].process_version_idx = torch.tensor([1], dtype=torch.long)
+    samples[3].process_version_idx = torch.tensor([0], dtype=torch.long)
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "batch_size": 2,
+        },
+    )
+
+    loader = trainer._create_data_loader(samples, shuffle=True)
+
+    for batch in loader:
+        identities = set(
+            zip(
+                batch.process_version_idx.view(-1).long().tolist(),
+                batch.stats_snapshot_version_idx.view(-1).long().tolist(),
+            )
+        )
+        assert len(identities) == 1
+
+
+def test_candidate_id_dataloader_groups_dataset_sources_by_topology():
+    class _DatasetSource(Dataset):
+        def __init__(self, items):
+            self._items = list(items)
+
+        def __len__(self):
+            return len(self._items)
+
+        def __getitem__(self, index):
+            return self._items[index]
+
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    samples = [
+        _sample(0, snapshot_idx=80, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=80, snapshot_epoch=snapshot_epoch),
+        _sample(0, snapshot_idx=80, snapshot_epoch=snapshot_epoch),
+        _sample(1, snapshot_idx=80, snapshot_epoch=snapshot_epoch),
+    ]
+    samples[0].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[1].process_version_idx = torch.tensor([1], dtype=torch.long)
+    samples[2].process_version_idx = torch.tensor([0], dtype=torch.long)
+    samples[3].process_version_idx = torch.tensor([1], dtype=torch.long)
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "batch_size": 2,
+        },
+    )
+
+    loader = trainer._create_data_loader_from_source(_DatasetSource(samples), shuffle=True)
+
+    assert isinstance(loader.batch_sampler, _TopologyHomogeneousBatchSampler)
+    observed = []
+    for batch in loader:
+        versions = tuple(int(v) for v in batch.process_version_idx.view(-1).long().tolist())
+        snapshots = tuple(int(v) for v in batch.stats_snapshot_version_idx.view(-1).long().tolist())
+        observed.append((versions, snapshots))
+
+    assert sorted(observed) == [
+        ((0, 0), (80, 80)),
+        ((1, 1), (80, 80)),
+    ]
+
+
+def test_topology_sampler_uses_dataset_topology_index_without_loading_graphs():
+    class _IndexedDataset(Dataset):
+        def __len__(self):
+            return 4
+
+        def __getitem__(self, index):
+            raise AssertionError("topology sampler should not load full graph items when topology_index is available")
+
+        def topology_index(self):
+            return ("v:0|s:80", "v:1|s:80", "v:0|s:80", "v:1|s:80")
+
+    sampler = _TopologyHomogeneousBatchSampler(_IndexedDataset(), batch_size=2, shuffle=True, seed=42)
+
+    observed = sorted(sorted(batch) for batch in sampler)
+    assert observed == [[0, 2], [1, 3]]
+
+
+def test_sharded_dataset_topology_index_uses_segments_without_loading_files(tmp_path):
+    dataset = ShardedGraphDataset.from_payload(
+        {
+            "entry_dir": str(tmp_path),
+            "shards": [
+                {
+                    "path": "missing.pt",
+                    "count": 4,
+                    "topology_segments": [
+                        {"key": "v:0|s:80", "count": 2},
+                        {"key": "v:1|s:80", "count": 2},
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert dataset.topology_index() == ("v:0|s:80", "v:0|s:80", "v:1|s:80", "v:1|s:80")
+
+
+def test_candidate_id_mode_rejects_mixed_process_version_batch():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    sample_a = _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_b = _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_a.process_version_idx = torch.tensor([0], dtype=torch.long)
+    sample_b.process_version_idx = torch.tensor([1], dtype=torch.long)
+    loader = DataLoader([sample_a, sample_b], batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+
+    with pytest.raises(ValueError, match="candidate_id.*mixed topology"):
+        trainer._data_to_contract(batch)
+
+
+def test_candidate_id_mode_rejects_mixed_stats_snapshot_batch():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    sample_a = _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_b = _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch)
+    sample_a.process_version_idx = torch.tensor([0], dtype=torch.long)
+    sample_b.process_version_idx = torch.tensor([0], dtype=torch.long)
+    loader = DataLoader([sample_a, sample_b], batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+
+    with pytest.raises(ValueError, match="candidate_id.*mixed topology"):
+        trainer._data_to_contract(batch)
+
+
+def test_candidate_id_mode_accepts_homogeneous_topology_batch():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    sample_a = _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_b = _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_a.process_version_idx = torch.tensor([0], dtype=torch.long)
+    sample_b.process_version_idx = torch.tensor([0], dtype=torch.long)
+    loader = DataLoader([sample_a, sample_b], batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+
+    contract = trainer._data_to_contract(batch)
+
+    assert contract.get("batch_topology_unique_count") == 1
+
+
+def test_fixed_projection_mode_does_not_reject_mixed_topology_batch():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    sample_a = _sample(0, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample_b = _sample(1, snapshot_idx=8, snapshot_epoch=snapshot_epoch)
+    sample_a.process_version_idx = torch.tensor([0], dtype=torch.long)
+    sample_b.process_version_idx = torch.tensor([1], dtype=torch.long)
+    loader = DataLoader([sample_a, sample_b], batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "fixed_projection",
+        },
+    )
+
+    with pytest.warns(UserWarning, match="Mixed stats snapshots in one batch detected"):
+        contract = trainer._data_to_contract(batch)
+
+    assert contract.get("batch_topology_unique_count") is None
 
 
 def test_trainer_numeric_guard_sanitizes_nan_logits_in_eval():

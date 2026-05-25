@@ -3207,6 +3207,43 @@ fields:
       group: advanced
       priority: 100
       order: 1014
+  training.candidate_contract_mode:
+    path: training.candidate_contract_mode
+    section: training
+    label: 'Training: Candidate contract mode'
+    description: Prediction/loss contract. fixed_label uses the legacy fixed activity head; fixed_projection uses dynamic candidates projected back to fixed labels; candidate_id requires topology-homogeneous batches and is reserved for true candidate-level training/evaluation.
+    affects: Controls whether topology candidates are evaluated as fixed labels, compatibility projections, or true topology-local candidate ids.
+    default: fixed_label
+    enum:
+    - fixed_label
+    - fixed_projection
+    - candidate_id
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1015
+  training.candidate_batch_topology_policy:
+    path: training.candidate_batch_topology_policy
+    section: training
+    label: 'Training: Candidate batch topology policy'
+    description: Batch topology policy for candidate_id mode. single_topology_required uses topology-homogeneous batches and fails manually mixed batches; group_by_topology is reserved for a future implementation.
+    affects: Prevents silent candidate-axis corruption when a batch contains multiple process versions or stats snapshots.
+    default: single_topology_required
+    enum:
+    - single_topology_required
+    - group_by_topology
+    required_in_modes: []
+    required_when:
+      training.candidate_contract_mode: candidate_id
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1016
   training.topology_conditioning_wrong_version_negative_enabled:
     path: training.topology_conditioning_wrong_version_negative_enabled
     section: training

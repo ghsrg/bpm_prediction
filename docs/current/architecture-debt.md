@@ -175,6 +175,59 @@ micro-batching, or fail-fast research profile.
 
 ---
 
+### candidate_batch_topology_grouping
+
+- `status`: active
+- `priority`: P0
+- `adr`: none
+- `current_behavior`: minimal `candidate_contract_mode=candidate_id` behavior
+  uses topology-homogeneous DataLoader batching by
+  `process_version_idx + stats_snapshot_version_idx` for indexable graph
+  sources, including in-memory datasets and `ShardedGraphDataset`; new sharded
+  graph cache entries store lightweight `topology_segments` so sampler setup
+  does not need to hydrate full graph payloads; manually mixed batches still
+  fail via
+  `training.candidate_batch_topology_policy: single_topology_required`
+- `target_state`: trainer can split mixed batches by topology identity and run
+  candidate forward/loss per group, then aggregate loss and metrics
+
+**Description (ukr):**
+
+У true candidate-id режимі різні версії процесу можуть мати різні candidate
+axes `[C_v]`. Тому один forward/loss не може безпечно використовувати перший
+structural payload для всього batch. Мінімальна реалізація має формувати
+homogeneous batches за `process_version_idx + stats_snapshot_version_idx`, а
+guard `single_topology_required` має зупиняти будь-який змішаний batch, який
+все одно дійшов до trainer. Повна реалізація `group_by_topology` має вміти
+приймати вже змішаний batch, розбивати його на sub-batches і агрегувати
+loss/metrics.
+
+**Impact (ukr):**
+
+Без цього guard Stage 2 true candidate-id може давати тихо неправильний
+loss/eval: targets і candidate logits будуть зіставлятися з topology axis не
+тієї версії або snapshot. Це блокує валідну перевірку zero-shot гіпотези.
+
+**Next direction:**
+
+Implemented first-stage protection:
+
+1. topology-homogeneous DataLoader batching for `candidate_id` mode;
+2. `single_topology_required` fail-fast guard as a safety net;
+3. config catalog entries for candidate contract and batch topology policy;
+4. tests that legacy modes keep current behavior.
+
+Remaining debt: implement `group_by_topology` as a separate controlled change
+for cases where mixed batches are intentionally accepted and split inside the
+trainer. Old sharded cache entries without `topology_segments` may still need a
+one-time shard scan or cache rebuild before candidate-id eval starts.
+
+Implementation plan:
+
+`docs/worklogs/MVP2_5_Single_Topology_Required_Guard_Plan_2026-05-25.MD`
+
+---
+
 ### activity_to_topology_alignment_gate
 
 - `status`: closed

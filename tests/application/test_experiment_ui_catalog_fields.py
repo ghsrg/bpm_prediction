@@ -85,6 +85,25 @@ def test_catalog_includes_dynamic_candidate_contract_toggle():
     assert field["ui"]["group"] == "advanced"
 
 
+def test_catalog_includes_candidate_contract_mode():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    field = catalog["training.candidate_contract_mode"]
+
+    assert field["enum"] == ["fixed_label", "fixed_projection", "candidate_id"]
+
+
+def test_catalog_includes_candidate_batch_topology_policy():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    field = catalog["training.candidate_batch_topology_policy"]
+
+    assert field["enum"] == ["single_topology_required", "group_by_topology"]
+    assert field["default"] == "single_topology_required"
+
+
 def test_catalog_includes_versioned_fraction_split_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
@@ -162,6 +181,20 @@ def test_experiment_uis_surface_versioned_fraction_split_core_fields():
     for field_name in ("fraction_strategy", "version_scope_policy"):
         assert f'self.vars["{field_name}"]' in desktop_source
         assert f"experiment.{field_name}" in desktop_source
+
+
+def test_legacy_experiment_ui_surfaces_candidate_contract_training_fields():
+    desktop_source = Path("tools/experiment_ui.py").read_text(encoding="utf-8")
+
+    expected = {
+        "training.dynamic_candidate_contract_enabled",
+        "training.candidate_contract_mode",
+        "training.candidate_batch_topology_policy",
+    }
+
+    for config_path in expected:
+        assert config_path in desktop_source
+        assert f'"{config_path}",\n                "seed",' not in desktop_source
 
 
 def test_web_experiment_ui_is_removed_from_active_project_routing():

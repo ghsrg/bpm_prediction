@@ -192,7 +192,16 @@ candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and
 `forward_candidate()` and project topology-local candidate logits back to sparse
 fixed-label logits for compatibility with existing CE, mask, calibration, and
 drift metrics. Pure candidate-id evaluation without fixed-vocab projection is
-still future work.
+still future work. `training.candidate_contract_mode` now separates
+`fixed_label`, `fixed_projection`, and reserved `candidate_id` runtime modes.
+For `candidate_id`, the DataLoader uses topology-homogeneous batching by
+`process_version_idx + stats_snapshot_version_idx` for indexable graph sources,
+including in-memory datasets and `ShardedGraphDataset` disk-cache sources. A
+safety guard rejects mixed topology batches that still reach the trainer. This
+is a validity precondition for future true `[B, C_v]` candidate-level
+loss/evaluation. New sharded graph cache entries persist lightweight
+`topology_segments` per shard, so candidate-id batching can form topology
+groups without hydrating every structural payload before inference.
 
 Run-Status structured progress includes `eval_drift.one_pass_inference` between
 `build_graph.test` and `eval_drift.windows`, so long one-pass drift inference on

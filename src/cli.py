@@ -1058,7 +1058,11 @@ def _load_graph_dataset_cache(
                 shard_path = entry_dir / rel_path
                 if not shard_path.exists():
                     return None
-                normalized_shards.append({"path": rel_path, "count": count})
+                normalized_shard: Dict[str, Any] = {"path": rel_path, "count": count}
+                topology_segments = shard.get("topology_segments")
+                if isinstance(topology_segments, list):
+                    normalized_shard["topology_segments"] = topology_segments
+                normalized_shards.append(normalized_shard)
                 graph_count += max(0, count)
             split_payloads[split_key] = {
                 "kind": "sharded_cache_split",
@@ -1295,6 +1299,32 @@ def _build_graph_dataset_sharded(
         for item in buffer:
             stripped, structural_payloads = _strip_structural_payload(item, structural_payloads)
             stripped_buffer.append(stripped)
+        topology_segments: list[dict[str, Any]] = []
+        last_key: str | None = None
+        last_count = 0
+        for item in stripped_buffer:
+            raw_version = getattr(item, "process_version_idx", None)
+            if isinstance(raw_version, torch.Tensor) and raw_version.numel() > 0:
+                version = f"v:{int(raw_version.view(-1)[0].item())}"
+            else:
+                version = "v:__missing__"
+            raw_snapshot = getattr(item, "stats_snapshot_version_idx", None)
+            if isinstance(raw_snapshot, torch.Tensor) and raw_snapshot.numel() > 0:
+                snapshot = f"s:{int(raw_snapshot.view(-1)[0].item())}"
+            else:
+                snapshot = "s:__none__"
+            key = f"{version}|{snapshot}"
+            if last_key is None:
+                last_key = key
+                last_count = 1
+            elif key == last_key:
+                last_count += 1
+            else:
+                topology_segments.append({"key": last_key, "count": int(last_count)})
+                last_key = key
+                last_count = 1
+        if last_key is not None:
+            topology_segments.append({"key": last_key, "count": int(last_count)})
         shard_payload = {
             "schema": 2,
             "format": GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL,
@@ -1308,6 +1338,7 @@ def _build_graph_dataset_sharded(
                 "path": str(shard_path.relative_to(entry_dir).as_posix()),
                 "count": int(len(buffer)),
                 "structural_payloads": int(len(structural_payloads)),
+                "topology_segments": topology_segments,
             }
         )
         buffer.clear()

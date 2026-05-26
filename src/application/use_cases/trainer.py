@@ -38,10 +38,18 @@ from src.application.ports.trace_recorder_port import ITraceRecorder
 from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.services.learning_strategy_config import LearningStrategyConfig
+from src.application.services.candidate_target_mapping import (
+    candidate_predictions_to_global,
+    candidate_set_cross_entropy,
+    candidate_target_summary,
+)
 from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
 from src.application.services.topology_conditioned_learning import (
     allowed_set_mass_leakage,
     allowed_set_loss,
+    candidate_allowed_flow_summary,
+    candidate_allowed_mask_from_global,
+    candidate_topology_flow_penalty_loss,
     margin_negative_loss,
     version_weighted_cross_entropy,
 )
@@ -99,6 +107,10 @@ class DriftInferenceRecords:
     pred_in_mask_flags: np.ndarray
     strict_error_but_allowed_flags: np.ndarray
     mask_cardinality: np.ndarray
+    candidate_oos_flags: np.ndarray
+    candidate_invalid_probability_mass: np.ndarray
+    candidate_valid_probability_mass: np.ndarray
+    candidate_valid_invalid_logit_margin: np.ndarray
     hybrid_correct_flags: np.ndarray
     hybrid_set_nll: np.ndarray
     ambiguous_flags: np.ndarray
@@ -450,6 +462,20 @@ class ModelTrainer:
             config.get("candidate_batch_topology_policy", "single_topology_required")
             or "single_topology_required"
         ).strip().lower()
+        self.candidate_missing_target_fail_threshold = float(
+            config.get("candidate_missing_target_fail_threshold", 0.10)
+        )
+        self.topology_flow_penalty_enabled = _as_bool(config.get("topology_flow_penalty_enabled"), default=False)
+        self.topology_flow_penalty_weight = float(config.get("topology_flow_penalty_weight", 0.0) or 0.0)
+        self.topology_flow_penalty_type = str(
+            config.get("topology_flow_penalty_type", "invalid_probability_mass")
+            or "invalid_probability_mass"
+        ).strip().lower()
+        self.topology_flow_penalty_margin = float(config.get("topology_flow_penalty_margin", 0.1) or 0.1)
+        self.topology_flow_penalty_fail_on_missing_mask = _as_bool(
+            config.get("topology_flow_penalty_fail_on_missing_mask"),
+            default=True,
+        )
         if self.candidate_batch_topology_policy not in {"single_topology_required", "group_by_topology"}:
             raise ValueError(
                 "training.candidate_batch_topology_policy must be single_topology_required or group_by_topology."
@@ -575,6 +601,8 @@ class ModelTrainer:
     def _forward_model_logits(self, contract: GraphTensorContract) -> torch.Tensor:
         """Run model forward and return global fixed-label logits for trainer metrics."""
 
+        if self.candidate_contract_mode == "candidate_id":
+            raise ValueError("candidate_contract_mode=candidate_id requires _forward_candidate_output().")
         if (
             self.candidate_contract_mode == "fixed_projection"
             and hasattr(self.model, "forward_candidate")
@@ -586,6 +614,14 @@ class ModelTrainer:
                 return output
             raise TypeError("model.forward_candidate() must return CandidatePredictionOutput or Tensor.")
         return self.model(contract)
+
+    def _forward_candidate_output(self, contract: GraphTensorContract) -> CandidatePredictionOutput:
+        if not hasattr(self.model, "forward_candidate"):
+            raise ValueError("candidate_contract_mode=candidate_id requires a model with forward_candidate().")
+        output = self.model.forward_candidate(contract)  # type: ignore[attr-defined]
+        if not isinstance(output, CandidatePredictionOutput):
+            raise TypeError("candidate_contract_mode=candidate_id requires forward_candidate() to return CandidatePredictionOutput.")
+        return output
 
     def _candidate_output_to_fixed_logits(self, output: CandidatePredictionOutput) -> torch.Tensor:
         candidate_logits = output.candidate_logits
@@ -603,6 +639,20 @@ class ModelTrainer:
         if bool(valid.any()):
             fixed_logits[:, candidate_class_index[valid]] = candidate_logits[:, valid]
         return fixed_logits
+
+    def _candidate_probs_to_fixed_probs(self, output: CandidatePredictionOutput, candidate_probs: torch.Tensor) -> torch.Tensor:
+        candidate_class_index = output.candidate_class_index.to(device=candidate_probs.device, dtype=torch.long)
+        output_dim = int(getattr(self.model, "output_dim", 0) or 0)
+        if output_dim <= 0 and candidate_class_index.numel() > 0:
+            output_dim = int(candidate_class_index.max().item()) + 1
+        if output_dim <= 0:
+            raise ValueError("Candidate output cannot infer fixed-label probability dimension.")
+        fixed_probs = candidate_probs.new_zeros((candidate_probs.size(0), output_dim))
+        valid = (candidate_class_index >= 0) & (candidate_class_index < output_dim)
+        if bool(valid.any()):
+            fixed_probs.index_add_(1, candidate_class_index[valid], candidate_probs[:, valid])
+        row_sum = fixed_probs.sum(dim=1, keepdim=True).clamp_min(1e-12)
+        return fixed_probs / row_sum
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -1071,7 +1121,10 @@ class ModelTrainer:
             dummy_batch = dummy_batch.to(self.device)
             contract = self._data_to_contract(dummy_batch)
             with torch.no_grad():
-                _ = self._forward_model_logits(contract)
+                if self.candidate_contract_mode == "candidate_id":
+                    _ = self._forward_candidate_output(contract)
+                else:
+                    _ = self._forward_model_logits(contract)
             logger.info("Dry run successful (%s). Model initialized.", context_label)
             emit_progress_event(stage="trainer.dry_run", status="done", message=f"Dry run completed ({context_label})", current=1, total=1)
         except Exception as exc:
@@ -1711,6 +1764,51 @@ class ModelTrainer:
                 bucket.get(f"topology_conditioned_{key_prefix}_margin_violations", 0)
             ) + 1
 
+    def _candidate_allowed_mask(
+        self,
+        *,
+        candidate_output: CandidatePredictionOutput,
+        allowed_mask: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        if not isinstance(allowed_mask, torch.Tensor):
+            return None
+        return candidate_allowed_mask_from_global(allowed_mask, candidate_output.candidate_class_index)
+
+    def _accumulate_candidate_flow_stats(self, bucket: Dict[str, Any], summary: Dict[str, float]) -> None:
+        bucket["candidate_flow_batches"] = int(bucket.get("candidate_flow_batches", 0)) + 1
+        for key in (
+            "candidate_oos_rate",
+            "candidate_invalid_probability_mass",
+            "candidate_valid_probability_mass",
+            "candidate_valid_invalid_logit_margin",
+        ):
+            bucket[f"{key}_sum"] = float(bucket.get(f"{key}_sum", 0.0)) + float(summary.get(key, 0.0))
+
+    @staticmethod
+    def _candidate_flow_arrays(
+        candidate_logits: torch.Tensor,
+        candidate_allowed_mask: torch.Tensor,
+    ) -> Dict[str, np.ndarray]:
+        mask = candidate_allowed_mask.to(device=candidate_logits.device, dtype=torch.bool)
+        probs = torch.softmax(candidate_logits, dim=1)
+        invalid = ~mask
+        pred = torch.argmax(candidate_logits, dim=1)
+        pred_allowed = mask.gather(1, pred.view(-1, 1)).view(-1)
+        invalid_mass = probs.masked_fill(~invalid, 0.0).sum(dim=1)
+        valid_mass = probs.masked_fill(~mask, 0.0).sum(dim=1)
+        valid_logits = candidate_logits.masked_fill(~mask, float("-inf"))
+        invalid_logits = candidate_logits.masked_fill(~invalid, float("-inf"))
+        zeros = candidate_logits.new_zeros(candidate_logits.size(0))
+        valid_max = torch.where(mask.any(dim=1), valid_logits.max(dim=1).values, zeros)
+        invalid_max = torch.where(invalid.any(dim=1), invalid_logits.max(dim=1).values, zeros)
+        margin = valid_max - invalid_max
+        return {
+            "candidate_oos_flags": (~pred_allowed).float().detach().cpu().numpy().astype(np.float32, copy=False),
+            "candidate_invalid_probability_mass": invalid_mass.detach().cpu().numpy().astype(np.float32, copy=False),
+            "candidate_valid_probability_mass": valid_mass.detach().cpu().numpy().astype(np.float32, copy=False),
+            "candidate_valid_invalid_logit_margin": margin.detach().cpu().numpy().astype(np.float32, copy=False),
+        }
+
     def _compute_structural_set_loss(
         self,
         *,
@@ -1870,7 +1968,14 @@ class ModelTrainer:
                 optimizer.zero_grad()
 
             with torch.set_grad_enabled(training):
-                logits = self._forward_model_logits(contract)
+                candidate_output: CandidatePredictionOutput | None = None
+                target_candidate_mask: torch.Tensor | None = None
+                candidate_allowed_mask: torch.Tensor | None = None
+                if self.candidate_contract_mode == "candidate_id":
+                    candidate_output = self._forward_candidate_output(contract)
+                    logits = candidate_output.candidate_logits
+                else:
+                    logits = self._forward_model_logits(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
@@ -1897,12 +2002,48 @@ class ModelTrainer:
                     batch_target_in_mask_rate=batch_target_in_mask_rate,
                     batch_samples=valid_rows,
                 )
-                effective_logits = self._apply_mask_guided_logits(
-                    logits=logits,
-                    allowed_mask=allowed_mask,
-                    policy=mask_policy,
-                )
-                if isinstance(allowed_mask, torch.Tensor):
+                if candidate_output is not None:
+                    target_candidate_mask = candidate_output.map_targets_to_candidate_mask(targets)
+                    candidate_allowed_mask = self._candidate_allowed_mask(
+                        candidate_output=candidate_output,
+                        allowed_mask=allowed_mask,
+                    )
+                    if candidate_allowed_mask is not None:
+                        self._accumulate_candidate_flow_stats(
+                            forward_stats,
+                            candidate_allowed_flow_summary(logits.detach(), candidate_allowed_mask),
+                        )
+                    summary = candidate_target_summary(logits, target_candidate_mask)
+                    missing_rate = float(summary["missing_target_rate"])
+                    if training and missing_rate > float(self.candidate_missing_target_fail_threshold):
+                        raise ValueError(
+                            "candidate_contract_mode=candidate_id target mapping failed: "
+                            f"missing_target_rate={missing_rate:.6f} exceeds "
+                            f"candidate_missing_target_fail_threshold={self.candidate_missing_target_fail_threshold:.6f}."
+                        )
+                    for key, value in summary.items():
+                        metric_key = f"candidate_{key}"
+                        if isinstance(value, (int, float)):
+                            forward_stats[f"{metric_key}_sum"] = float(forward_stats.get(f"{metric_key}_sum", 0.0)) + float(value)
+                    forward_stats["candidate_target_mapping_batches"] = int(
+                        forward_stats.get("candidate_target_mapping_batches", 0)
+                    ) + 1
+                    effective_logits = logits
+                    loss = candidate_set_cross_entropy(
+                        logits,
+                        target_candidate_mask,
+                        missing_target_penalty=1.0,
+                    )
+                    base_ce_loss = loss
+                else:
+                    effective_logits = self._apply_mask_guided_logits(
+                        logits=logits,
+                        allowed_mask=allowed_mask,
+                        policy=mask_policy,
+                    )
+                    loss = self.criterion(effective_logits, targets)
+                    base_ce_loss = loss
+                if isinstance(allowed_mask, torch.Tensor) and candidate_output is None:
                     leakage = allowed_set_mass_leakage(logits, targets, allowed_mask)
                     forward_stats["allowed_set_mass_leakage_sum"] = float(
                         forward_stats.get("allowed_set_mass_leakage_sum", 0.0)
@@ -1910,8 +2051,6 @@ class ModelTrainer:
                     forward_stats["allowed_set_mass_leakage_batches"] = int(
                         forward_stats.get("allowed_set_mass_leakage_batches", 0)
                     ) + 1
-                loss = self.criterion(effective_logits, targets)
-                base_ce_loss = loss
                 structural_aux_set_loss: torch.Tensor | None = None
                 structural_aux_exact_loss: torch.Tensor | None = None
                 structural_logits = getattr(self.model, "last_structural_class_logits", None)
@@ -1964,7 +2103,19 @@ class ModelTrainer:
                             raise ValueError(
                                 "training.topology_conditioning_allowed_set_loss_enabled requires allowed_target_mask."
                             )
-                        allowed_loss = allowed_set_loss(logits, targets, allowed_mask)
+                        if candidate_output is not None:
+                            if candidate_allowed_mask is None:
+                                raise ValueError(
+                                    "candidate_contract_mode=candidate_id allowed-set loss requires allowed_target_mask."
+                                )
+                            allowed_loss = candidate_topology_flow_penalty_loss(
+                                logits,
+                                candidate_allowed_mask,
+                                penalty_type="invalid_probability_mass",
+                                margin=float(self.topology_flow_penalty_margin),
+                            )
+                        else:
+                            allowed_loss = allowed_set_loss(logits, targets, allowed_mask)
                         loss = loss + (float(self.learning_strategy_config.allowed_set_loss_weight) * allowed_loss)
                         self._accumulate_topology_conditioned_stats(
                             forward_stats,
@@ -1972,6 +2123,28 @@ class ModelTrainer:
                             correct_ce=base_ce_loss.detach(),
                             objective_loss=allowed_loss.detach(),
                         )
+                    if (
+                        candidate_output is not None
+                        and bool(self.topology_flow_penalty_enabled)
+                        and float(self.topology_flow_penalty_weight) > 0.0
+                    ):
+                        if candidate_allowed_mask is None:
+                            if bool(self.topology_flow_penalty_fail_on_missing_mask):
+                                raise ValueError("training.topology_flow_penalty_enabled requires allowed_target_mask.")
+                        else:
+                            flow_loss = candidate_topology_flow_penalty_loss(
+                                logits,
+                                candidate_allowed_mask,
+                                penalty_type=self.topology_flow_penalty_type,
+                                margin=float(self.topology_flow_penalty_margin),
+                            )
+                            loss = loss + (float(self.topology_flow_penalty_weight) * flow_loss)
+                            self._accumulate_topology_conditioned_stats(
+                                forward_stats,
+                                key_prefix="topology_flow_penalty",
+                                correct_ce=base_ce_loss.detach(),
+                                objective_loss=flow_loss.detach(),
+                            )
                     if (
                         self.learning_strategy_config.retention_enabled
                         and str(self.learning_strategy_config.retention_policy) == "version_decay"
@@ -1994,35 +2167,48 @@ class ModelTrainer:
                         self.learning_strategy_config.drop_edges_negative_enabled
                         and float(self.learning_strategy_config.drop_edges_negative_weight) > 0.0
                     ):
-                        dropped_contract = drop_structural_edges(
-                            contract,
-                            drop_ratio=float(self.learning_strategy_config.drop_edges_ratio),
-                            seed=int(self.seed) + (int(epoch_index) * 100_003) + int(batch_idx),
-                        )
-                        dropped_logits = self._forward_model_logits(dropped_contract)
-                        if not self._is_finite_tensor(dropped_logits):
-                            logits_sanitized_batches += 1
-                            dropped_logits = torch.nan_to_num(dropped_logits, nan=0.0, posinf=1e6, neginf=-1e6)
-                        dropped_effective_logits = self._apply_mask_guided_logits(
-                            logits=dropped_logits,
-                            allowed_mask=allowed_mask,
-                            policy=mask_policy,
-                        )
-                        dropped_ce = self.criterion(dropped_effective_logits, targets)
-                        drop_loss = margin_negative_loss(
-                            correct_ce=base_ce_loss,
-                            negative_ce=dropped_ce,
-                            margin=float(self.learning_strategy_config.drop_edges_margin),
-                        )
-                        loss = loss + (float(self.learning_strategy_config.drop_edges_negative_weight) * drop_loss)
-                        self._accumulate_topology_conditioned_stats(
-                            forward_stats,
-                            key_prefix="drop_edges",
-                            correct_ce=base_ce_loss.detach(),
-                            negative_ce=dropped_ce.detach(),
-                            objective_loss=drop_loss.detach(),
-                            margin=float(self.learning_strategy_config.drop_edges_margin),
-                        )
+                        if candidate_output is not None:
+                            forward_stats["topology_conditioned_drop_edges_skipped_candidate_id_batches"] = int(
+                                forward_stats.get(
+                                    "topology_conditioned_drop_edges_skipped_candidate_id_batches",
+                                    0,
+                                )
+                            ) + 1
+                        else:
+                            dropped_contract = drop_structural_edges(
+                                contract,
+                                drop_ratio=float(self.learning_strategy_config.drop_edges_ratio),
+                                seed=int(self.seed) + (int(epoch_index) * 100_003) + int(batch_idx),
+                            )
+                            dropped_logits = self._forward_model_logits(dropped_contract)
+                            if not self._is_finite_tensor(dropped_logits):
+                                logits_sanitized_batches += 1
+                                dropped_logits = torch.nan_to_num(
+                                    dropped_logits,
+                                    nan=0.0,
+                                    posinf=1e6,
+                                    neginf=-1e6,
+                                )
+                            dropped_effective_logits = self._apply_mask_guided_logits(
+                                logits=dropped_logits,
+                                allowed_mask=allowed_mask,
+                                policy=mask_policy,
+                            )
+                            dropped_ce = self.criterion(dropped_effective_logits, targets)
+                            drop_loss = margin_negative_loss(
+                                correct_ce=base_ce_loss,
+                                negative_ce=dropped_ce,
+                                margin=float(self.learning_strategy_config.drop_edges_margin),
+                            )
+                            loss = loss + (float(self.learning_strategy_config.drop_edges_negative_weight) * drop_loss)
+                            self._accumulate_topology_conditioned_stats(
+                                forward_stats,
+                                key_prefix="drop_edges",
+                                correct_ce=base_ce_loss.detach(),
+                                negative_ce=dropped_ce.detach(),
+                                objective_loss=drop_loss.detach(),
+                                margin=float(self.learning_strategy_config.drop_edges_margin),
+                            )
                     if (
                         self.learning_strategy_config.wrong_version_negative_enabled
                         and float(self.learning_strategy_config.wrong_version_negative_weight) > 0.0
@@ -2036,6 +2222,13 @@ class ModelTrainer:
                         if current_version is None:
                             forward_stats["topology_conditioned_wrong_version_skipped_mixed_batches"] = int(
                                 forward_stats.get("topology_conditioned_wrong_version_skipped_mixed_batches", 0)
+                            ) + 1
+                        elif candidate_output is not None:
+                            forward_stats["topology_conditioned_wrong_version_skipped_candidate_id_batches"] = int(
+                                forward_stats.get(
+                                    "topology_conditioned_wrong_version_skipped_candidate_id_batches",
+                                    0,
+                                )
                             ) + 1
                         elif wrong_payload is not None:
                             wrong_contract = replace_structural_payload(contract, wrong_payload)
@@ -2129,7 +2322,14 @@ class ModelTrainer:
 
             total_loss += float(loss.detach().cpu().item())
             batches += 1
-            all_pred.extend(torch.argmax(effective_logits.detach(), dim=1).cpu().numpy().tolist())
+            if candidate_output is not None:
+                pred_for_metrics = candidate_predictions_to_global(
+                    candidate_output.candidate_logits.detach(),
+                    candidate_output.candidate_class_index,
+                )
+            else:
+                pred_for_metrics = torch.argmax(effective_logits.detach(), dim=1)
+            all_pred.extend(pred_for_metrics.cpu().numpy().tolist())
             all_true.extend(targets.detach().cpu().numpy().tolist())
             batch_reporter.update(
                 message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
@@ -2189,11 +2389,21 @@ class ModelTrainer:
         all_pred_in_mask_flags: List[float] = []
         all_strict_error_but_allowed_flags: List[float] = []
         all_mask_cardinality: List[float] = []
+        all_candidate_oos_flags: List[float] = []
+        all_candidate_invalid_probability_mass: List[float] = []
+        all_candidate_valid_probability_mass: List[float] = []
+        all_candidate_valid_invalid_logit_margin: List[float] = []
         all_hybrid_correct_flags: List[float] = []
         all_hybrid_set_nll: List[float] = []
         all_ambiguous_flags: List[float] = []
         all_lengths: List[int] = []
         all_versions: List[str] = []
+        all_candidate_target_in_set_rates: List[float] = []
+        all_candidate_missing_target_rates: List[float] = []
+        all_candidate_oos_flags: List[float] = []
+        all_candidate_invalid_probability_mass: List[float] = []
+        all_candidate_valid_probability_mass: List[float] = []
+        all_candidate_valid_invalid_logit_margin: List[float] = []
         inference_graphs = 0
         inference_started = perf_counter()
         first_batch_debug_logged = False
@@ -2222,7 +2432,13 @@ class ModelTrainer:
                 self._accumulate_forward_stats(forward_stats, contract)
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
-                logits = self._forward_model_logits(contract)
+                candidate_output: CandidatePredictionOutput | None = None
+                target_candidate_mask: torch.Tensor | None = None
+                if self.candidate_contract_mode == "candidate_id":
+                    candidate_output = self._forward_candidate_output(contract)
+                    logits = candidate_output.candidate_logits
+                else:
+                    logits = self._forward_model_logits(contract)
                 self._accumulate_logit_contribution_stats(forward_stats)
                 self._accumulate_topology_state_stats(forward_stats)
                 self._accumulate_topology_graph_stats(forward_stats)
@@ -2239,6 +2455,11 @@ class ModelTrainer:
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 target_tensor = data.y.view(-1).long()
+                if candidate_output is not None:
+                    target_candidate_mask = candidate_output.map_targets_to_candidate_mask(target_tensor)
+                    summary = candidate_target_summary(logits, target_candidate_mask)
+                    all_candidate_target_in_set_rates.append(float(summary["target_in_candidate_set_rate"]))
+                    all_candidate_missing_target_rates.append(float(summary["missing_target_rate"]))
                 allowed_mask = self._normalize_allowed_mask(
                     contract.get("allowed_target_mask"),
                     expected_rows=int(target_tensor.shape[0]),
@@ -2248,13 +2469,37 @@ class ModelTrainer:
                     batch_target_in_mask_rate=None,
                     batch_samples=int(target_tensor.shape[0]),
                 )
+                if candidate_output is not None and isinstance(allowed_mask, torch.Tensor):
+                    candidate_allowed_mask = self._candidate_allowed_mask(
+                        candidate_output=candidate_output,
+                        allowed_mask=allowed_mask,
+                    )
+                    if candidate_allowed_mask is not None:
+                        flow_summary = candidate_allowed_flow_summary(logits.detach(), candidate_allowed_mask)
+                        self._accumulate_candidate_flow_stats(forward_stats, flow_summary)
+                        flow_arrays = self._candidate_flow_arrays(logits.detach(), candidate_allowed_mask)
+                        all_candidate_oos_flags.extend(flow_arrays["candidate_oos_flags"].tolist())
+                        all_candidate_invalid_probability_mass.extend(
+                            flow_arrays["candidate_invalid_probability_mass"].tolist()
+                        )
+                        all_candidate_valid_probability_mass.extend(
+                            flow_arrays["candidate_valid_probability_mass"].tolist()
+                        )
+                        all_candidate_valid_invalid_logit_margin.extend(
+                            flow_arrays["candidate_valid_invalid_logit_margin"].tolist()
+                        )
                 raw_logits = logits
-                effective_logits = self._apply_mask_guided_logits(
-                    logits=raw_logits,
-                    allowed_mask=allowed_mask,
-                    policy=mask_policy,
-                )
-                probs = torch.softmax(effective_logits, dim=1)
+                if candidate_output is not None:
+                    candidate_probs = torch.softmax(raw_logits, dim=1)
+                    probs = self._candidate_probs_to_fixed_probs(candidate_output, candidate_probs)
+                    effective_logits = torch.log(probs.clamp_min(1e-12))
+                else:
+                    effective_logits = self._apply_mask_guided_logits(
+                        logits=raw_logits,
+                        allowed_mask=allowed_mask,
+                        policy=mask_policy,
+                    )
+                    probs = torch.softmax(effective_logits, dim=1)
                 if not self._is_finite_tensor(probs):
                     probs_sanitized_batches += 1
                     probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
@@ -2263,7 +2508,13 @@ class ModelTrainer:
                         safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
                         probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
                 targets = target_tensor.cpu().numpy()
-                pred_tensor = torch.argmax(probs, dim=1).long()
+                if candidate_output is not None:
+                    pred_tensor = candidate_predictions_to_global(
+                        candidate_output.candidate_logits,
+                        candidate_output.candidate_class_index,
+                    ).long()
+                else:
+                    pred_tensor = torch.argmax(probs, dim=1).long()
                 preds = pred_tensor.cpu().numpy()
                 batch_size = int(pred_tensor.shape[0])
                 batch_oos_aligned = np.full(batch_size, np.nan, dtype=np.float32)
@@ -2435,6 +2686,10 @@ class ModelTrainer:
                 "test_target_in_mask_rate": None,
                 "test_pred_in_mask_rate": None,
                 "test_strict_error_but_allowed_rate": None,
+                "candidate_oos_rate": None,
+                "candidate_invalid_probability_mass": None,
+                "candidate_valid_probability_mass": None,
+                "candidate_valid_invalid_logit_margin": None,
                 "test_ambiguous_prefix_rate": None,
                 "test_set_hit_rate_ambiguous": None,
                 "test_accuracy_deterministic": None,
@@ -2442,6 +2697,12 @@ class ModelTrainer:
                 "test_precision_macro": 0.0,
                 "test_recall_macro": 0.0,
                 "test_inference_time_ms_per_graph": inference_ms_per_graph,
+                "candidate_target_in_candidate_set_rate": None,
+                "candidate_missing_target_rate": None,
+                "candidate_oos_rate": None,
+                "candidate_invalid_probability_mass": None,
+                "candidate_valid_probability_mass": None,
+                "candidate_valid_invalid_logit_margin": None,
             }
 
         y_true = np.asarray(all_true)
@@ -2501,6 +2762,30 @@ class ModelTrainer:
             "strict_test_precision_macro": strict_precision_macro,
             "strict_test_recall_macro": strict_recall_macro,
             "test_inference_time_ms_per_graph": inference_ms_per_graph,
+            "candidate_target_in_candidate_set_rate": (
+                float(np.mean(all_candidate_target_in_set_rates)) if all_candidate_target_in_set_rates else None
+            ),
+            "candidate_missing_target_rate": (
+                float(np.mean(all_candidate_missing_target_rates)) if all_candidate_missing_target_rates else None
+            ),
+            "candidate_oos_rate": (
+                float(np.mean(all_candidate_oos_flags)) if all_candidate_oos_flags else None
+            ),
+            "candidate_invalid_probability_mass": (
+                float(np.mean(all_candidate_invalid_probability_mass))
+                if all_candidate_invalid_probability_mass
+                else None
+            ),
+            "candidate_valid_probability_mass": (
+                float(np.mean(all_candidate_valid_probability_mass))
+                if all_candidate_valid_probability_mass
+                else None
+            ),
+            "candidate_valid_invalid_logit_margin": (
+                float(np.mean(all_candidate_valid_invalid_logit_margin))
+                if all_candidate_valid_invalid_logit_margin
+                else None
+            ),
         }
         oos_flags_aligned = np.asarray(all_oos_flags_aligned, dtype=np.float32) if all_oos_flags_aligned else None
         target_in_mask_flags = np.asarray(all_target_in_mask_flags, dtype=np.float32) if all_target_in_mask_flags else None
@@ -2594,6 +2879,10 @@ class ModelTrainer:
         all_pred_in_mask_flags: List[float] = []
         all_strict_error_but_allowed_flags: List[float] = []
         all_mask_cardinality: List[float] = []
+        all_candidate_oos_flags: List[float] = []
+        all_candidate_invalid_probability_mass: List[float] = []
+        all_candidate_valid_probability_mass: List[float] = []
+        all_candidate_valid_invalid_logit_margin: List[float] = []
         all_hybrid_correct_flags: List[float] = []
         all_hybrid_set_nll: List[float] = []
         all_ambiguous_flags: List[float] = []
@@ -2644,7 +2933,12 @@ class ModelTrainer:
                     self._accumulate_forward_stats(forward_stats, contract)
                     if self.device.type == "cuda" and torch.cuda.is_available():
                         torch.cuda.synchronize()
-                    logits = self._forward_model_logits(contract)
+                    candidate_output: CandidatePredictionOutput | None = None
+                    if self.candidate_contract_mode == "candidate_id":
+                        candidate_output = self._forward_candidate_output(contract)
+                        logits = candidate_output.candidate_logits
+                    else:
+                        logits = self._forward_model_logits(contract)
                     self._accumulate_logit_contribution_stats(forward_stats)
                     self._accumulate_topology_state_stats(forward_stats)
                     self._accumulate_topology_graph_stats(forward_stats)
@@ -2671,12 +2965,17 @@ class ModelTrainer:
                         batch_samples=int(target_tensor.shape[0]),
                     )
                     raw_logits = logits
-                    effective_logits = self._apply_mask_guided_logits(
-                        logits=raw_logits,
-                        allowed_mask=allowed_mask,
-                        policy=mask_policy,
-                    )
-                    probs = torch.softmax(effective_logits, dim=1)
+                    if candidate_output is not None:
+                        candidate_probs = torch.softmax(raw_logits, dim=1)
+                        probs = self._candidate_probs_to_fixed_probs(candidate_output, candidate_probs)
+                        effective_logits = torch.log(probs.clamp_min(1e-12))
+                    else:
+                        effective_logits = self._apply_mask_guided_logits(
+                            logits=raw_logits,
+                            allowed_mask=allowed_mask,
+                            policy=mask_policy,
+                        )
+                        probs = torch.softmax(effective_logits, dim=1)
                     if not self._is_finite_tensor(probs):
                         probs_sanitized_batches += 1
                         probs = torch.nan_to_num(probs, nan=0.0, posinf=1.0, neginf=0.0)
@@ -2686,7 +2985,13 @@ class ModelTrainer:
                             probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
 
                     batch_size = int(target_tensor.shape[0])
-                    pred_tensor = torch.argmax(probs, dim=1).long()
+                    if candidate_output is not None:
+                        pred_tensor = candidate_predictions_to_global(
+                            candidate_output.candidate_logits,
+                            candidate_output.candidate_class_index,
+                        ).long()
+                    else:
+                        pred_tensor = torch.argmax(probs, dim=1).long()
                     confidence_tensor = torch.max(probs, dim=1).values
                     correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
                     top_k = self._effective_top_k(int(probs.shape[1]), requested_k=3) if probs.dim() == 2 else 1
@@ -2698,6 +3003,10 @@ class ModelTrainer:
                     batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_candidate_oos = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_candidate_invalid_probability_mass = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_candidate_valid_probability_mass = np.full(batch_size, np.nan, dtype=np.float32)
+                    batch_candidate_valid_invalid_logit_margin = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_hybrid_correct = correct_tensor
                     row_ids = torch.arange(batch_size, device=pred_tensor.device)
                     batch_hybrid_set_nll = -torch.log(
@@ -2708,6 +3017,23 @@ class ModelTrainer:
                     if isinstance(allowed_mask, torch.Tensor):
                         if allowed_mask.dim() == 1:
                             allowed_mask = allowed_mask.unsqueeze(0)
+                        if candidate_output is not None:
+                            candidate_allowed_mask = self._candidate_allowed_mask(
+                                candidate_output=candidate_output,
+                                allowed_mask=allowed_mask,
+                            )
+                            if candidate_allowed_mask is not None:
+                                flow_summary = candidate_allowed_flow_summary(raw_logits.detach(), candidate_allowed_mask)
+                                self._accumulate_candidate_flow_stats(forward_stats, flow_summary)
+                                flow_arrays = self._candidate_flow_arrays(raw_logits.detach(), candidate_allowed_mask)
+                                batch_candidate_oos = flow_arrays["candidate_oos_flags"]
+                                batch_candidate_invalid_probability_mass = flow_arrays[
+                                    "candidate_invalid_probability_mass"
+                                ]
+                                batch_candidate_valid_probability_mass = flow_arrays["candidate_valid_probability_mass"]
+                                batch_candidate_valid_invalid_logit_margin = flow_arrays[
+                                    "candidate_valid_invalid_logit_margin"
+                                ]
                         row_ids = torch.arange(batch_size, device=pred_tensor.device)
                         pred_in_mask = allowed_mask[row_ids, pred_tensor].bool()
                         target_in_mask = allowed_mask[row_ids, target_tensor.to(pred_tensor.device)].bool()
@@ -2758,6 +3084,10 @@ class ModelTrainer:
                     all_pred_in_mask_flags.extend(batch_pred_in_mask.tolist())
                     all_strict_error_but_allowed_flags.extend(batch_strict_error_but_allowed.tolist())
                     all_mask_cardinality.extend(batch_mask_cardinality.tolist())
+                    all_candidate_oos_flags.extend(batch_candidate_oos.tolist())
+                    all_candidate_invalid_probability_mass.extend(batch_candidate_invalid_probability_mass.tolist())
+                    all_candidate_valid_probability_mass.extend(batch_candidate_valid_probability_mass.tolist())
+                    all_candidate_valid_invalid_logit_margin.extend(batch_candidate_valid_invalid_logit_margin.tolist())
                     all_hybrid_correct_flags.extend(
                         batch_hybrid_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
                     )
@@ -2832,6 +3162,10 @@ class ModelTrainer:
             pred_in_mask_flags=np.asarray(all_pred_in_mask_flags, dtype=np.float32),
             strict_error_but_allowed_flags=np.asarray(all_strict_error_but_allowed_flags, dtype=np.float32),
             mask_cardinality=np.asarray(all_mask_cardinality, dtype=np.float32),
+            candidate_oos_flags=np.asarray(all_candidate_oos_flags, dtype=np.float32),
+            candidate_invalid_probability_mass=np.asarray(all_candidate_invalid_probability_mass, dtype=np.float32),
+            candidate_valid_probability_mass=np.asarray(all_candidate_valid_probability_mass, dtype=np.float32),
+            candidate_valid_invalid_logit_margin=np.asarray(all_candidate_valid_invalid_logit_margin, dtype=np.float32),
             hybrid_correct_flags=np.asarray(all_hybrid_correct_flags, dtype=np.float32),
             hybrid_set_nll=np.asarray(all_hybrid_set_nll, dtype=np.float32),
             ambiguous_flags=np.asarray(all_ambiguous_flags, dtype=np.float32),
@@ -2881,6 +3215,10 @@ class ModelTrainer:
         pred_in_mask_flags = records.pred_in_mask_flags[idxs]
         strict_error_but_allowed_flags = records.strict_error_but_allowed_flags[idxs]
         mask_cardinality = records.mask_cardinality[idxs]
+        candidate_oos_flags = records.candidate_oos_flags[idxs]
+        candidate_invalid_probability_mass = records.candidate_invalid_probability_mass[idxs]
+        candidate_valid_probability_mass = records.candidate_valid_probability_mass[idxs]
+        candidate_valid_invalid_logit_margin = records.candidate_valid_invalid_logit_margin[idxs]
         prefix_lengths = records.prefix_lengths[idxs] if records.prefix_lengths.shape[0] >= int(np.max(idxs)) + 1 else None
         versions = [records.version_labels[int(idx)] for idx in idxs if int(idx) < len(records.version_labels)]
 
@@ -2922,6 +3260,10 @@ class ModelTrainer:
         metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
         metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)
         metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
+        metrics["candidate_oos_rate"] = self._nanmean_or_none(candidate_oos_flags)
+        metrics["candidate_invalid_probability_mass"] = self._nanmean_or_none(candidate_invalid_probability_mass)
+        metrics["candidate_valid_probability_mass"] = self._nanmean_or_none(candidate_valid_probability_mass)
+        metrics["candidate_valid_invalid_logit_margin"] = self._nanmean_or_none(candidate_valid_invalid_logit_margin)
         finite_oos = np.isfinite(oos_flags)
         oos_idxs = np.where(finite_oos & (oos_flags > 0.5))[0]
         metrics["test_oos_confidence_mean"] = (
@@ -3044,6 +3386,10 @@ class ModelTrainer:
             window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
             window_set_nll = metrics.get("test_set_nll")
             window_oos_confidence_mean = metrics.get("test_oos_confidence_mean")
+            window_candidate_oos = metrics.get("candidate_oos_rate")
+            window_candidate_invalid_mass = metrics.get("candidate_invalid_probability_mass")
+            window_candidate_valid_mass = metrics.get("candidate_valid_probability_mass")
+            window_candidate_margin = metrics.get("candidate_valid_invalid_logit_margin")
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
@@ -3083,6 +3429,26 @@ class ModelTrainer:
                     self.tracker.log_metric(
                         "drift_window_ambiguous_prefix_rate",
                         float(window_ambiguous_prefix),
+                        step=window_idx,
+                    )
+                if window_candidate_oos is not None:
+                    self.tracker.log_metric("drift_window_candidate_oos", float(window_candidate_oos), step=window_idx)
+                if window_candidate_invalid_mass is not None:
+                    self.tracker.log_metric(
+                        "drift_window_candidate_invalid_probability_mass",
+                        float(window_candidate_invalid_mass),
+                        step=window_idx,
+                    )
+                if window_candidate_valid_mass is not None:
+                    self.tracker.log_metric(
+                        "drift_window_candidate_valid_probability_mass",
+                        float(window_candidate_valid_mass),
+                        step=window_idx,
+                    )
+                if window_candidate_margin is not None:
+                    self.tracker.log_metric(
+                        "drift_window_candidate_valid_invalid_logit_margin",
+                        float(window_candidate_margin),
                         step=window_idx,
                     )
 
@@ -3128,6 +3494,20 @@ class ModelTrainer:
                     ),
                     "window_ambiguous_prefix_rate": (
                         float(window_ambiguous_prefix) if window_ambiguous_prefix is not None else float("nan")
+                    ),
+                    "window_candidate_oos": (
+                        float(window_candidate_oos) if window_candidate_oos is not None else float("nan")
+                    ),
+                    "window_candidate_invalid_probability_mass": (
+                        float(window_candidate_invalid_mass)
+                        if window_candidate_invalid_mass is not None
+                        else float("nan")
+                    ),
+                    "window_candidate_valid_probability_mass": (
+                        float(window_candidate_valid_mass) if window_candidate_valid_mass is not None else float("nan")
+                    ),
+                    "window_candidate_valid_invalid_logit_margin": (
+                        float(window_candidate_margin) if window_candidate_margin is not None else float("nan")
                     ),
                 }
             )
@@ -3763,6 +4143,8 @@ class ModelTrainer:
             "topology_conditioned_wrong_version_batches": 0,
             "topology_conditioned_mixed_version_batches": 0,
             "topology_conditioned_wrong_version_skipped_mixed_batches": 0,
+            "topology_conditioned_wrong_version_skipped_candidate_id_batches": 0,
+            "topology_conditioned_drop_edges_skipped_candidate_id_batches": 0,
             "candidate_diag_batches": 0,
             "candidate_node_score_mean_abs_sum": 0.0,
             "candidate_class_score_mean_abs_sum": 0.0,
@@ -4504,6 +4886,29 @@ class ModelTrainer:
         candidate_pred_score = _candidate_average("pred_score")
         candidate_score_gap = _candidate_average("score_gap")
         candidate_dynamic_count = _candidate_average("dynamic_count")
+        candidate_target_mapping_batches = int(bucket.get("candidate_target_mapping_batches", 0))
+
+        def _candidate_target_average(name: str) -> float:
+            if candidate_target_mapping_batches <= 0:
+                return 0.0
+            return float(bucket.get(f"candidate_{name}_sum", 0.0)) / float(candidate_target_mapping_batches)
+
+        candidate_target_in_candidate_set_rate = _candidate_target_average("target_in_candidate_set_rate")
+        candidate_missing_target_rate = _candidate_target_average("missing_target_rate")
+        candidate_target_duplicate_count_max = _candidate_target_average("target_duplicate_count_max")
+        candidate_target_set_logit_variance_mean = _candidate_target_average("target_set_logit_variance_mean")
+        candidate_target_set_entropy_mean = _candidate_target_average("target_set_entropy_mean")
+        candidate_flow_batches = int(bucket.get("candidate_flow_batches", 0))
+
+        def _candidate_flow_average(name: str) -> float:
+            if candidate_flow_batches <= 0:
+                return 0.0
+            return float(bucket.get(f"{name}_sum", 0.0)) / float(candidate_flow_batches)
+
+        candidate_oos_rate = _candidate_flow_average("candidate_oos_rate")
+        candidate_invalid_probability_mass = _candidate_flow_average("candidate_invalid_probability_mass")
+        candidate_valid_probability_mass = _candidate_flow_average("candidate_valid_probability_mass")
+        candidate_valid_invalid_logit_margin = _candidate_flow_average("candidate_valid_invalid_logit_margin")
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -4539,7 +4944,12 @@ class ModelTrainer:
             "duplicate_candidate_count_max=%.6f candidate_temperature=%.6f "
             "candidate_prediction_entropy=%.6f candidate_target_score=%.6f "
             "candidate_pred_score=%.6f candidate_score_gap=%.6f "
-            "candidate_dynamic_count=%.6f",
+            "candidate_dynamic_count=%.6f "
+            "candidate_target_in_candidate_set_rate=%.6f candidate_missing_target_rate=%.6f "
+            "candidate_target_duplicate_count_max=%.6f candidate_target_set_logit_variance_mean=%.6f "
+            "candidate_target_set_entropy_mean=%.6f "
+            "candidate_oos_rate=%.6f candidate_invalid_probability_mass=%.6f "
+            "candidate_valid_probability_mass=%.6f candidate_valid_invalid_logit_margin=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -4613,6 +5023,15 @@ class ModelTrainer:
             candidate_pred_score,
             candidate_score_gap,
             candidate_dynamic_count,
+            candidate_target_in_candidate_set_rate,
+            candidate_missing_target_rate,
+            candidate_target_duplicate_count_max,
+            candidate_target_set_logit_variance_mean,
+            candidate_target_set_entropy_mean,
+            candidate_oos_rate,
+            candidate_invalid_probability_mass,
+            candidate_valid_probability_mass,
+            candidate_valid_invalid_logit_margin,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -4747,6 +5166,38 @@ class ModelTrainer:
             self.tracker.log_metric(f"{metric_prefix}_candidate_pred_score", candidate_pred_score)
             self.tracker.log_metric(f"{metric_prefix}_candidate_score_gap", candidate_score_gap)
             self.tracker.log_metric(f"{metric_prefix}_candidate_dynamic_count", candidate_dynamic_count)
+        if self.tracker is not None and candidate_target_mapping_batches > 0:
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_target_in_candidate_set_rate",
+                candidate_target_in_candidate_set_rate,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_candidate_missing_target_rate", candidate_missing_target_rate)
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_target_duplicate_count_max",
+                candidate_target_duplicate_count_max,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_target_set_logit_variance_mean",
+                candidate_target_set_logit_variance_mean,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_target_set_entropy_mean",
+                candidate_target_set_entropy_mean,
+            )
+        if self.tracker is not None and candidate_flow_batches > 0:
+            self.tracker.log_metric(f"{metric_prefix}_candidate_oos_rate", candidate_oos_rate)
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_invalid_probability_mass",
+                candidate_invalid_probability_mass,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_valid_probability_mass",
+                candidate_valid_probability_mass,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_valid_invalid_logit_margin",
+                candidate_valid_invalid_logit_margin,
+            )
         if self.tracker is not None:
             if allowed_set_mass_leakage_batches > 0:
                 self.tracker.log_metric(f"{metric_prefix}_allowed_set_mass_leakage", allowed_set_mass_leakage_value)
@@ -4766,34 +5217,53 @@ class ModelTrainer:
                     f"{metric_prefix}_topology_conditioned_retention_loss",
                     float(bucket.get("topology_conditioned_retention_loss_sum", 0.0)) / float(retention_batches),
                 )
-            for name in ("drop_edges", "wrong_version"):
+            for name in ("drop_edges", "wrong_version", "topology_flow_penalty"):
                 count = int(bucket.get(f"topology_conditioned_{name}_batches", 0))
                 if count <= 0:
                     continue
-                self.tracker.log_metric(
-                    f"{metric_prefix}_topology_conditioned_{name}_ce",
-                    float(bucket.get(f"topology_conditioned_{name}_ce_sum", 0.0)) / float(count),
-                )
-                self.tracker.log_metric(
-                    f"{metric_prefix}_topology_conditioned_{name}_ce_delta",
-                    float(bucket.get(f"topology_conditioned_{name}_delta_sum", 0.0)) / float(count),
-                )
+                if f"topology_conditioned_{name}_ce_sum" in bucket:
+                    self.tracker.log_metric(
+                        f"{metric_prefix}_topology_conditioned_{name}_ce",
+                        float(bucket.get(f"topology_conditioned_{name}_ce_sum", 0.0)) / float(count),
+                    )
+                if f"topology_conditioned_{name}_delta_sum" in bucket:
+                    self.tracker.log_metric(
+                        f"{metric_prefix}_topology_conditioned_{name}_ce_delta",
+                        float(bucket.get(f"topology_conditioned_{name}_delta_sum", 0.0)) / float(count),
+                    )
                 self.tracker.log_metric(
                     f"{metric_prefix}_topology_conditioned_{name}_loss",
                     float(bucket.get(f"topology_conditioned_{name}_loss_sum", 0.0)) / float(count),
                 )
-                self.tracker.log_metric(
-                    f"{metric_prefix}_topology_conditioned_{name}_margin_violation_rate",
-                    float(bucket.get(f"topology_conditioned_{name}_margin_violations", 0)) / float(count),
-                )
+                if f"topology_conditioned_{name}_margin_violations" in bucket:
+                    self.tracker.log_metric(
+                        f"{metric_prefix}_topology_conditioned_{name}_margin_violation_rate",
+                        float(bucket.get(f"topology_conditioned_{name}_margin_violations", 0)) / float(count),
+                    )
             mixed_batches = int(bucket.get("topology_conditioned_mixed_version_batches", 0))
             skipped_mixed = int(bucket.get("topology_conditioned_wrong_version_skipped_mixed_batches", 0))
+            skipped_wrong_candidate_id = int(
+                bucket.get("topology_conditioned_wrong_version_skipped_candidate_id_batches", 0)
+            )
+            skipped_drop_candidate_id = int(
+                bucket.get("topology_conditioned_drop_edges_skipped_candidate_id_batches", 0)
+            )
             if mixed_batches > 0:
                 self.tracker.log_metric(f"{metric_prefix}_topology_conditioned_mixed_version_batches", mixed_batches)
             if skipped_mixed > 0:
                 self.tracker.log_metric(
                     f"{metric_prefix}_topology_conditioned_wrong_version_skipped_mixed_batches",
                     skipped_mixed,
+                )
+            if skipped_wrong_candidate_id > 0:
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_wrong_version_skipped_candidate_id_batches",
+                    skipped_wrong_candidate_id,
+                )
+            if skipped_drop_candidate_id > 0:
+                self.tracker.log_metric(
+                    f"{metric_prefix}_topology_conditioned_drop_edges_skipped_candidate_id_batches",
+                    skipped_drop_candidate_id,
                 )
 
     def _maybe_record_prediction_traces(

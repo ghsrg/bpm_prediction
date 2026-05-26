@@ -34,8 +34,8 @@ historical debt worklogs.
 - `status`: active
 - `priority`: P0
 - `adr`: none
-- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; with `training.dynamic_candidate_contract_enabled=true`, train/eval/drift can consume this output and project it back to sparse fixed label logits `[B, C_train]` for compatibility
-- `target_state`: train/eval/drift contracts consume per-version candidate logits `[B, C_v]`, candidate ids, node ids, and target candidate mapping for added/removed BPMN nodes without fixed-vocab projection
+- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; `fixed_projection` projects candidate logits back to sparse fixed-label logits `[B, C_train]`; `candidate_id` trains with set-aware CE directly on `[B, C_v]`, reports candidate target mapping diagnostics, and maps predictions/probabilities back to global activity labels for existing metrics/drift reporting
+- `target_state`: train/eval/drift contracts consume per-version candidate logits `[B, C_v]`, stable candidate ids, BPMN node ids, and target candidate mapping for added/removed BPMN nodes without requiring fixed-vocab metric projection
 
 **Description (ukr):**
 
@@ -56,12 +56,12 @@ scoring, а не як повну semantic-topological zero-shot адаптаці
 
 **Next direction:**
 
-Complete train/eval/drift support for the model-level dynamic candidate output:
+Complete the remaining true candidate-id contract pieces:
 
-1. keep current `training.dynamic_candidate_contract_enabled` projection path
-   for backward-compatible experiments;
-2. add `candidate_ids` / BPMN node ids per topology version;
-3. apply target candidate mapping for duplicate activity labels;
+1. keep current `fixed_projection` path for backward-compatible experiments;
+2. add stable `candidate_ids` / BPMN node ids per topology version;
+3. keep set-aware class-target mapping for duplicate activity labels, then add
+   exact node-level targets when the log source can provide them;
 4. compute candidate-level mask/OOS/calibration diagnostics directly on
    `[B, C_v]`;
 5. keep backward-compatible fixed-label reporting for comparison with old runs.

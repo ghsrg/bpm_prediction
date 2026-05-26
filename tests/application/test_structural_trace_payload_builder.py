@@ -57,6 +57,11 @@ class _TopologyConditionedModel:
         self.last_candidate_class_index = [1, 2]
 
 
+class EOPKGTopologyConditioned:
+    candidate_scoring = "cosine"
+    candidate_pooling = "direct"
+
+
 def _contract() -> dict:
     return {
         "x_cat": torch.zeros((2, 1), dtype=torch.long),
@@ -265,6 +270,35 @@ def test_trace_event_exposes_topology_conditioned_flat_attributes():
     assert event.attributes["candidate_prediction_entropy"] == 1.2
     assert event.attributes["candidate_score_gap"] == 0.2
     assert event.attributes["candidate_dynamic_count"] == 2.0
+    assert all("." not in key for key in event.attributes)
+    assert_no_tensors(event.to_dict())
+
+
+def test_trace_event_falls_back_to_topology_conditioned_run_metadata():
+    logits = torch.tensor([[0.1, 0.2, 2.0]], requires_grad=True)
+    probs = torch.softmax(logits, dim=1)
+
+    event = build_structural_prediction_trace_event(
+        stage="eval_drift_one_pass",
+        global_index=10,
+        contract=_contract(),
+        logits=logits,
+        effective_logits=logits,
+        probs=probs,
+        targets=torch.tensor([1]),
+        predictions=torch.tensor([2]),
+        model=EOPKGTopologyConditioned(),
+        reverse_activity_vocab={0: "<UNK>", 1: "Approve", 2: "Reject"},
+        row_index=0,
+        reason="strict_error_but_allowed",
+        top_k=2,
+    )
+
+    assert event.attributes["model_type"] == "EOPKGTopologyConditioned"
+    assert event.attributes["fusion_mode"] == "TopologyConditionedCandidateScoring"
+    assert event.attributes["structural_mode"] is True
+    assert event.attributes["candidate_scoring_mode"] == "cosine"
+    assert event.attributes["candidate_pooling"] == "direct"
     assert all("." not in key for key in event.attributes)
     assert_no_tensors(event.to_dict())
 

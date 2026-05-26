@@ -932,21 +932,53 @@ fixed_label_logits: FloatTensor [B, C_train] | None
 Current boundary:
 
 ```text
-forward() remains the default train/eval path and returns [B, C_train].
-forward_candidate() can be consumed by trainer/evaluator when
-training.dynamic_candidate_contract_enabled=true.
+forward() remains the default fixed-label train/eval path and returns
+`[B, C_train]`.
+
+`forward_candidate()` can be consumed by trainer/evaluator through either the
+compatibility projection path or the true candidate-level path.
 ```
 
-When `training.dynamic_candidate_contract_enabled=true`, trainer/evaluator call
+When `training.dynamic_candidate_contract_enabled=true` or
+`training.candidate_contract_mode=fixed_projection`, trainer/evaluator call
 `forward_candidate(contract)`, take `candidate_logits [B, C_v]`, and project
 them into a sparse fixed-label tensor `[B, C_train]` using
 `candidate_class_index`. Non-candidate fixed-label classes receive a very low
-logit. This makes the loss optimize topology-local candidate scores while
-preserving existing CE, mask, calibration, and drift metric code.
+logit. This preserves existing CE, mask, calibration, and drift metric code.
 
 This is a transitional Stage 2 compatibility path. It still cannot honestly
-score an unseen activity class outside `C_train`; the final target remains pure
-candidate-id evaluation without projection back to the fixed training vocab.
+score an unseen activity class outside `C_train`.
+
+When `training.candidate_contract_mode=candidate_id`, trainer/evaluator use the
+topology-local candidate axis directly for the loss:
+
+```text
+candidate_logits: [B, C_v]
+target_candidate_mask[b, j] = candidate_class_index[j] == y_b
+loss_b = -logsumexp(candidate_logits[b, target_candidate_mask[b]])
+         + logsumexp(candidate_logits[b, :])
+```
+
+This is set-aware CE: if several BPMN candidate nodes map to the same activity
+class, any of them is accepted as a correct target candidate. The implementation
+logs candidate target mapping diagnostics:
+
+```text
+candidate_target_in_candidate_set_rate
+candidate_missing_target_rate
+candidate_target_duplicate_count_max
+candidate_target_set_logit_variance_mean
+candidate_target_set_entropy_mean
+```
+
+Training fails when `candidate_missing_target_rate` exceeds:
+
+```yaml
+training.candidate_missing_target_fail_threshold: 0.10
+```
+
+because a high missing-target rate means the log target cannot be mapped to the
+topology-local candidate space.
 
 Candidate contract modes:
 
@@ -959,14 +991,52 @@ training.candidate_batch_topology_policy: single_topology_required | group_by_to
 - `fixed_projection`: `forward_candidate(contract)` is consumed and projected
   back to `[B, C_train]`; this is equivalent to
   `training.dynamic_candidate_contract_enabled=true`.
-- `candidate_id`: reserved for true candidate-level loss/evaluation. The
-  DataLoader must emit topology-homogeneous batches keyed by
+- `candidate_id`: uses true topology-local candidate logits for train loss and
+  maps candidate predictions/probabilities back to global activity labels only
+  for existing metrics and drift-window reporting. The DataLoader must emit
+  topology-homogeneous batches keyed by
   `process_version_idx + stats_snapshot_version_idx`, because the candidate
   axis `[C_v]` is topology-local. `single_topology_required` forms
   homogeneous batches for indexable graph sources, including in-memory datasets
   and `ShardedGraphDataset` disk-cache sources, and fails if a mixed batch
   reaches `_data_to_contract()`. `group_by_topology` is reserved for a future
   implementation that will split already-mixed batches inside the trainer.
+
+Candidate-flow consistency:
+
+When `training.candidate_contract_mode=candidate_id`, the trainer can project
+the fixed-label `allowed_target_mask [B, C_train]` onto the topology-local
+candidate axis:
+
+```text
+candidate_allowed_mask[b, j] = allowed_target_mask[b, candidate_class_index[j]]
+```
+
+This enables candidate-level topology-flow diagnostics and an optional
+train-time penalty:
+
+```yaml
+training.topology_flow_penalty_enabled: true
+training.topology_flow_penalty_weight: 0.05
+training.topology_flow_penalty_type: invalid_probability_mass  # invalid_probability_mass | margin
+training.topology_flow_penalty_margin: 0.1
+training.topology_flow_penalty_fail_on_missing_mask: true
+```
+
+`invalid_probability_mass` is the stable default:
+
+```text
+L_flow = mean_b sum_j softmax(candidate_logits[b])[j]
+         where candidate_allowed_mask[b,j] == false
+```
+
+`margin` requires the best valid candidate logit to exceed the best invalid
+candidate logit by `training.topology_flow_penalty_margin`.
+
+For `candidate_id`, legacy `wrong_version` and `drop_edges` CE-negative
+objectives are skipped and logged as skipped candidate-id batches. They still
+depend on fixed-label forward semantics and are not valid as-is for a
+topology-local candidate axis.
 
 Important semantics:
 
@@ -997,6 +1067,8 @@ model.candidate_temperature_min: 0.05
 model.candidate_temperature_max: 10.0
 model.candidate_temperature_trainable: false
 training.dynamic_candidate_contract_enabled: false
+training.candidate_contract_mode: fixed_label
+training.topology_flow_penalty_enabled: false
 ```
 
 Diagnostics logged by trainer and exposed to selective traces:
@@ -1010,6 +1082,10 @@ Diagnostics logged by trainer and exposed to selective traces:
 6. `candidate_target_score`
 7. `candidate_pred_score`
 8. `candidate_score_gap`
+9. `candidate_oos_rate`
+10. `candidate_invalid_probability_mass`
+11. `candidate_valid_probability_mass`
+12. `candidate_valid_invalid_logit_margin`
 
 Interpretation:
 
@@ -1021,6 +1097,8 @@ Interpretation:
   errors may be ranking/calibration issues rather than missing topology;
 - high class score scale with stable node score scale may indicate pooling or
   temperature amplification.
+- high `candidate_invalid_probability_mass` or `candidate_oos_rate` means the
+  scorer assigns probability to candidates disallowed by current topology flow.
 
 ## 7. Loss, Evaluation, and Mask Application
 1. Base objective remains cross-entropy on `y`.

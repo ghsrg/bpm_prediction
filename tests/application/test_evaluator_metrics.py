@@ -305,6 +305,158 @@ def test_train_epoch_can_consume_dynamic_candidate_contract():
     assert macro_f1 == pytest.approx(1.0)
 
 
+def test_train_epoch_candidate_id_uses_candidate_set_loss_without_fixed_projection():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "candidate_missing_target_fail_threshold": 1.0,
+        },
+    )
+    trainer.criterion = nn.CrossEntropyLoss()
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    loss, macro_f1, _, _ = trainer._run_epoch(
+        DataLoader(samples, batch_size=1, shuffle=False),
+        optimizer=torch.optim.Adam(model.parameters(), lr=0.01),
+        training=True,
+    )
+
+    assert model.forward_candidate_called is True
+    assert model.forward_called is False
+    assert loss >= 0.0
+    assert macro_f1 == pytest.approx(1.0)
+
+
+def test_dry_run_candidate_id_uses_candidate_forward_path():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    trainer._perform_dry_run(DataLoader(samples, batch_size=1, shuffle=False), context_label="train")
+
+    assert model.forward_candidate_called is True
+    assert model.forward_called is False
+
+
+def test_evaluate_test_candidate_id_reports_global_metrics_from_candidate_predictions():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    metrics = trainer._evaluate_test(DataLoader(samples, batch_size=1, shuffle=False))
+
+    assert model.forward_candidate_called is True
+    assert model.forward_called is False
+    assert metrics["strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["candidate_target_in_candidate_set_rate"] == pytest.approx(1.0)
+
+
+def test_evaluate_test_candidate_id_reports_candidate_flow_metrics():
+    model = _DynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([2], dtype=torch.long),
+            num_nodes=1,
+            allowed_target_mask=torch.tensor([[False, True, False]], dtype=torch.bool),
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    metrics = trainer._evaluate_test(DataLoader(samples, batch_size=1, shuffle=False))
+
+    assert metrics["candidate_oos_rate"] == pytest.approx(1.0)
+    assert metrics["candidate_invalid_probability_mass"] > 0.5
+    assert metrics["candidate_valid_invalid_logit_margin"] < 0.0
+
+
 def test_evaluate_test_uses_meaningful_topk_when_class_count_is_three():
     trainer = ModelTrainer(
         xes_adapter=_DummyAdapter(),

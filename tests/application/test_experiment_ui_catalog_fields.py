@@ -67,11 +67,15 @@ def test_catalog_includes_topology_conditioned_learning_strategy_fields():
         "training.topology_conditioning_wrong_version_negative_enabled",
         "training.topology_conditioning_drop_edges_negative_enabled",
         "training.topology_conditioning_allowed_set_loss_enabled",
+        "training.topology_flow_penalty_enabled",
+        "training.topology_flow_penalty_weight",
+        "training.topology_flow_penalty_type",
         "training.topology_conditioning_retention_enabled",
     }
 
     assert required.issubset(set(catalog))
     assert catalog["training.learning_strategy"]["enum"] == ["standard", "topology_conditioned"]
+    assert catalog["training.topology_flow_penalty_type"]["enum"] == ["invalid_probability_mass", "margin"]
 
 
 def test_catalog_includes_dynamic_candidate_contract_toggle():
@@ -102,6 +106,16 @@ def test_catalog_includes_candidate_batch_topology_policy():
 
     assert field["enum"] == ["single_topology_required", "group_by_topology"]
     assert field["default"] == "single_topology_required"
+
+
+def test_catalog_includes_candidate_missing_target_fail_threshold():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    field = catalog["training.candidate_missing_target_fail_threshold"]
+
+    assert field["type"] == "float"
+    assert field["default"] == 0.1
 
 
 def test_catalog_includes_versioned_fraction_split_fields():

@@ -1279,3 +1279,94 @@ process_version_idx + stats_snapshot_version_idx
 залежить від версії процесу і stats/as-of snapshot. Змішування різних axes в
 одному forward/loss робить висновки про zero-shot користь структури
 методологічно невалідними.
+
+**2026-05-25 Stage 2 true candidate-level path:** `candidate_contract_mode=candidate_id`
+now trains on topology-local `candidate_logits [B, C_v]` with set-aware CE:
+
+```text
+target_candidate_mask[b, j] = candidate_class_index[j] == y_b
+loss_b = -logsumexp(logits_b[target_candidate_mask_b]) + logsumexp(logits_b[:])
+```
+
+This is methodologically important: when the log target is an activity label
+but the topology contains multiple BPMN nodes for the same activity, the model
+is not forced to choose one arbitrary duplicate node. All candidates with the
+target class are accepted. This directly addresses duplicate activity identity
+ambiguity at the class-label level, while leaving exact BPMN node target
+learning for future log sources that can provide node ids.
+
+New audit metrics to mention in dissertation experiments:
+
+- `candidate_target_in_candidate_set_rate`: whether the topology candidate set
+  contains the target activity label;
+- `candidate_missing_target_rate`: alignment failure rate between logs and
+  topology candidate space;
+- `candidate_target_duplicate_count_max`: duplicate candidate pressure;
+- `candidate_target_set_logit_variance_mean` and
+  `candidate_target_set_entropy_mean`: whether the model learns to distinguish
+  duplicate structural candidates or keeps them collapsed.
+
+If `candidate_missing_target_rate` is high, the run should be treated as invalid
+alignment rather than weak model quality.
+
+**2026-05-26 EOPKGTopologyConditioned run analysis:** candidate-level wiring is
+valid, but the tested XES/collapse configuration still does not demonstrate
+topology-based zero-shot transfer. In runs
+`0f36f16dcd484c03b454c201d2723d14` and
+`709bd0a6f26f4940b014c8d14b929584`, diagnostics show:
+
+```text
+candidate_dynamic_count = 37
+duplicate_candidate_count_max = 1
+candidate_target_in_candidate_set_rate = 1.0
+candidate_missing_target_rate = 0.0
+```
+
+This means the topology-local candidate axis effectively equals the old
+activity-label vocabulary. The loss path changed, but the model still answers
+mostly "which activity label?", not "which BPMN candidate node in this version?".
+
+Important methodology conclusion: for the dissertation claim about using a new
+topology before new logs arrive, the next architecture step must expose stable
+BPMN candidate ids and candidate-level diagnostics. Activity-label candidate
+scoring is useful as a compatibility bridge, but it is insufficient evidence for
+business-valid zero-shot adaptation under added/removed BPMN nodes.
+
+Trace evidence from drift run `709bd0a6f26f4940b014c8d14b929584`:
+
+```text
+v1/v2 sampled errors: mostly strict_error_but_allowed
+v3/v4 sampled errors: OOS appears strongly
+```
+
+Interpretation: topology/class candidates can keep predictions in a broadly
+valid area, but future-version route changes still cause exact-target failure
+and OOS when the candidate identity contract is collapsed to labels.
+
+**2026-05-26 topology-flow loss update:** after confirming that the tested loan
+versions have `duplicate_candidate_count_max=1` and a stable candidate count,
+the main failure hypothesis shifted from MIL/duplicate ambiguity to ignored
+flow changes. A new candidate-level topology-flow penalty was added for
+`EOPKGTopologyConditioned + candidate_id`.
+
+Key dissertation point:
+
+```text
+Topology as candidate set is necessary but not sufficient.
+The learning objective must also penalize probability mass on candidates
+forbidden by the current topology flow.
+```
+
+Metrics to report for this step:
+
+- `candidate_oos_rate`;
+- `candidate_invalid_probability_mass`;
+- `candidate_valid_probability_mass`;
+- `candidate_valid_invalid_logit_margin`;
+- `topology_conditioned_topology_flow_penalty_loss`.
+
+Interpretation for business framing: topology can be used not only as an
+additional feature, but as a validity surface over the candidate space. If the
+model remains close to baseline after this penalty, the next methodological
+step should focus on edge-aware candidate scoring / flow-conditioned routing,
+not on stronger late fusion.

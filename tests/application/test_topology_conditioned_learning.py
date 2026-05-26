@@ -5,6 +5,9 @@ import pytest
 from src.application.services.topology_conditioned_learning import (
     allowed_set_mass_leakage,
     allowed_set_loss,
+    candidate_allowed_flow_summary,
+    candidate_allowed_mask_from_global,
+    candidate_topology_flow_penalty_loss,
     margin_negative_loss,
     version_weighted_cross_entropy,
 )
@@ -61,3 +64,61 @@ def test_version_weighted_cross_entropy_applies_per_sample_weights():
     per_sample = F.cross_entropy(logits, targets, reduction="none")
 
     assert loss == torch.sum(per_sample * weights) / torch.sum(weights)
+
+
+def test_candidate_allowed_mask_projects_global_mask_to_candidate_axis():
+    allowed = torch.tensor([[True, False, True, False]])
+    candidate_class_index = torch.tensor([2, 0, 3])
+
+    mask = candidate_allowed_mask_from_global(allowed, candidate_class_index)
+
+    assert mask.tolist() == [[True, True, False]]
+
+
+def test_candidate_allowed_mask_rejects_out_of_range_class_index():
+    allowed = torch.ones((1, 2), dtype=torch.bool)
+    candidate_class_index = torch.tensor([0, 3])
+
+    with pytest.raises(ValueError, match="candidate_class_index"):
+        candidate_allowed_mask_from_global(allowed, candidate_class_index)
+
+
+def test_candidate_allowed_flow_summary_reports_invalid_mass_and_oos():
+    logits = torch.tensor([[3.0, 1.0, 4.0]], dtype=torch.float32)
+    candidate_allowed_mask = torch.tensor([[True, False, False]])
+
+    summary = candidate_allowed_flow_summary(logits, candidate_allowed_mask)
+
+    assert summary["candidate_oos_rate"] == 1.0
+    assert summary["candidate_invalid_probability_mass"] > 0.5
+    assert summary["candidate_valid_invalid_logit_margin"] < 0.0
+
+
+def test_candidate_topology_flow_penalty_invalid_probability_mass_is_bounded_and_differentiable():
+    logits = torch.tensor([[4.0, 0.0, 3.0]], dtype=torch.float32, requires_grad=True)
+    candidate_allowed_mask = torch.tensor([[True, False, False]])
+
+    loss = candidate_topology_flow_penalty_loss(
+        logits,
+        candidate_allowed_mask,
+        penalty_type="invalid_probability_mass",
+        margin=0.1,
+    )
+
+    assert 0.0 <= float(loss.detach().item()) <= 1.0
+    loss.backward()
+    assert logits.grad is not None
+
+
+def test_candidate_topology_flow_penalty_margin_penalizes_invalid_max():
+    logits = torch.tensor([[1.0, 3.0]], dtype=torch.float32, requires_grad=True)
+    candidate_allowed_mask = torch.tensor([[True, False]])
+
+    loss = candidate_topology_flow_penalty_loss(
+        logits,
+        candidate_allowed_mask,
+        penalty_type="margin",
+        margin=0.5,
+    )
+
+    assert float(loss.detach().item()) > 0.0

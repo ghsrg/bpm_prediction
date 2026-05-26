@@ -47,6 +47,9 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.struct_encoder = str(struct_encoder or "GATv2").strip().lower()
         self.candidate_scoring = str(candidate_scoring or "cosine").strip().lower()
         self.candidate_pooling = str(candidate_pooling or "logmeanexp").strip().lower()
+        self.structural_mode = True
+        self.fusion_mode = "TopologyConditionedCandidateScoring"
+        self.candidate_scoring_mode = self.candidate_scoring
         self.candidate_temperature_min = float(candidate_temperature_min)
         self.candidate_temperature_max = float(candidate_temperature_max)
         self.candidate_temperature_trainable = bool(candidate_temperature_trainable)

@@ -20,6 +20,7 @@ _SUPPORTED_FUSION_MODES = {
     "class_aware_structural_scoring",
     "topology_state_encoder",
     "topology_state_graph_encoder",
+    "topology_conditioned_candidate_scoring",
 }
 _ALLOWED_BUT_WEAK_FUSION_MODES = {
     "class_mean_attention",
@@ -37,6 +38,8 @@ _FUSION_ALIASES = {
     "concat": "class_mean_concat",
     "struct_pool_concat": "class_mean_concat",
     "structuralpriorencoder": "structural_prior_encoder",
+    "topologyconditionedcandidatescoring": "topology_conditioned_candidate_scoring",
+    "eopkgtopologyconditioned": "topology_conditioned_candidate_scoring",
 }
 
 

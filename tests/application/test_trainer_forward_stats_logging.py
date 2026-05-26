@@ -738,6 +738,31 @@ def test_candidate_contract_mode_accepts_candidate_id_and_default_topology_polic
     assert trainer.candidate_batch_topology_policy == "single_topology_required"
 
 
+def test_forward_stats_logs_candidate_target_mapping_metrics():
+    tracker = _RecordingTracker()
+    trainer = _make_trainer(model=_TrainableBinaryModel(), tracker=tracker)
+
+    trainer._log_forward_stats_summary(
+        "train",
+        {
+            "batches": 2,
+            "candidate_target_mapping_batches": 2,
+            "candidate_target_in_candidate_set_rate_sum": 2.0,
+            "candidate_missing_target_rate_sum": 0.0,
+            "candidate_target_duplicate_count_max_sum": 3.0,
+            "candidate_target_set_logit_variance_mean_sum": 0.4,
+            "candidate_target_set_entropy_mean_sum": 1.2,
+        },
+    )
+
+    metrics = {name: value for name, value, _ in tracker.metrics}
+    assert metrics["train_candidate_target_in_candidate_set_rate"] == pytest.approx(1.0)
+    assert metrics["train_candidate_missing_target_rate"] == pytest.approx(0.0)
+    assert metrics["train_candidate_target_duplicate_count_max"] == pytest.approx(1.5)
+    assert metrics["train_candidate_target_set_logit_variance_mean"] == pytest.approx(0.2)
+    assert metrics["train_candidate_target_set_entropy_mean"] == pytest.approx(0.6)
+
+
 def test_topology_homogeneous_sampler_groups_by_version_and_snapshot_when_shuffling():
     snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
     samples = [

@@ -14,7 +14,7 @@ details from `README.MD`.
 - `audience`: human-and-agent
 - `source_of_truth`: true
 - `language_policy`: keys and section headers in English, human descriptions in Ukrainian
-- `last_updated`: 2026-05-25
+- `last_updated`: 2026-05-26
 - `active_phase`: MVP2.5 Stage 4.2
 - `primary_interface`: CLI
 
@@ -158,6 +158,14 @@ direct gradient signal.
 
 `docs/GNN_LEARNING_STRATEGY.MD` defines the separation between `fusion_mode`,
 `training.learning_strategy`, and `experiment.mode`.
+
+`EOPKGTopologyConditioned` now supports a true `candidate_id` trainer path with
+topology-homogeneous batching and candidate-level topology-flow diagnostics.
+Optional `training.topology_flow_penalty_*` settings penalize probability mass
+on candidates disallowed by the current topology flow. This targets the current
+root-cause hypothesis: the model can see the candidate set, but may still ignore
+changed BPMN/EOPKG edges unless the training objective explicitly pressures
+flow-valid ranking.
 `docs/GNN_LEARNING_METODOLOGY.MD` defines the research roadmap beyond current
 fixed-head fusion ablations: topology-conditioned candidate scoring,
 semantic-topological candidate prototypes, calibration/audit requirements, and
@@ -188,18 +196,30 @@ for MLflow and selective traces. Stage 2 foundation adds
 `forward_candidate(contract)` and `CandidatePredictionOutput` with dynamic
 candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and
 `node_to_candidate_index`. With
-`training.dynamic_candidate_contract_enabled=true`, train/eval/drift consume
+`training.dynamic_candidate_contract_enabled=true` or
+`training.candidate_contract_mode=fixed_projection`, train/eval/drift consume
 `forward_candidate()` and project topology-local candidate logits back to sparse
 fixed-label logits for compatibility with existing CE, mask, calibration, and
-drift metrics. Pure candidate-id evaluation without fixed-vocab projection is
-still future work. `training.candidate_contract_mode` now separates
-`fixed_label`, `fixed_projection`, and reserved `candidate_id` runtime modes.
+drift metrics.
+
+`training.candidate_contract_mode=candidate_id` now enables the first true
+candidate-level trainer/evaluator path: training uses set-aware CE over
+topology-local `candidate_logits [B, C_v]`, where all topology candidates mapped
+to the target activity class are accepted as the target set. Evaluation and
+one-pass drift inference still map candidate probabilities/predictions back to
+global activity classes for the existing metric pipeline, but the loss no longer
+requires a fixed `[B, C_train]` projection. Candidate target diagnostics report
+`candidate_target_in_candidate_set_rate`, `candidate_missing_target_rate`,
+duplicate target count, and target-set logit variance/entropy. Training fails
+when `candidate_missing_target_rate` exceeds
+`training.candidate_missing_target_fail_threshold` because that indicates broken
+log/topology alignment.
+
 For `candidate_id`, the DataLoader uses topology-homogeneous batching by
 `process_version_idx + stats_snapshot_version_idx` for indexable graph sources,
 including in-memory datasets and `ShardedGraphDataset` disk-cache sources. A
-safety guard rejects mixed topology batches that still reach the trainer. This
-is a validity precondition for future true `[B, C_v]` candidate-level
-loss/evaluation. New sharded graph cache entries persist lightweight
+safety guard rejects mixed topology batches that still reach the trainer. New
+sharded graph cache entries persist lightweight
 `topology_segments` per shard, so candidate-id batching can form topology
 groups without hydrating every structural payload before inference.
 

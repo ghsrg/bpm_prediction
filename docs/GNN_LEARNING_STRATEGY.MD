@@ -616,6 +616,51 @@ wrong_version_ce_delta > 0 means correct topology helps more than wrong topology
 drop_edges_ce_delta > 0 means model reacts to topology damage
 ```
 
+### Candidate-Level Topology Flow Penalty
+
+For `model.type=EOPKGTopologyConditioned` with
+`training.candidate_contract_mode=candidate_id`, topology dependency is no
+longer trained only through fixed-label CE. The trainer can project the current
+topology `allowed_target_mask` into the dynamic candidate axis and penalize
+probability mass assigned to candidates that are invalid under the current
+process flow.
+
+Recommended first experiment:
+
+```yaml
+training.learning_strategy: topology_conditioned
+training.candidate_contract_mode: candidate_id
+training.candidate_batch_topology_policy: single_topology_required
+training.topology_conditioning_wrong_version_negative_enabled: false
+training.topology_conditioning_drop_edges_negative_enabled: false
+training.topology_flow_penalty_enabled: true
+training.topology_flow_penalty_weight: 0.03   # sweep: 0.01, 0.03, 0.05, 0.10
+training.topology_flow_penalty_type: invalid_probability_mass
+```
+
+Why this matters:
+
+- fixed-label CE answers "which activity label was next?";
+- candidate-level flow penalty asks "did the model put probability on
+  candidates forbidden by the current topology?";
+- this directly targets the observed failure mode where the candidate set is
+  present but edge/flow changes are ignored.
+
+Diagnostics:
+
+```text
+candidate_oos_rate
+candidate_invalid_probability_mass
+candidate_valid_probability_mass
+candidate_valid_invalid_logit_margin
+topology_conditioned_topology_flow_penalty_loss
+```
+
+For `candidate_id`, legacy `wrong_version` and `drop_edges` CE-negative losses
+are skipped and logged as skipped. They require a separate candidate-space
+implementation before they can be considered methodologically valid for true
+candidate-level training.
+
 ### Retention And Forgetting
 
 ```text

@@ -107,6 +107,14 @@ def build_structural_prediction_trace_payload(
         else "__unknown__"
     )
 
+    model_type = str(model.__class__.__name__)
+    fusion_mode = str(getattr(model, "fusion_mode", ""))
+    structural_mode = bool(getattr(model, "structural_mode", False))
+    if model_type == "EOPKGTopologyConditioned":
+        structural_mode = True
+        if not fusion_mode:
+            fusion_mode = "TopologyConditionedCandidateScoring"
+
     payload = {
         "schema_version": "1.0",
         "stage": str(stage),
@@ -120,9 +128,13 @@ def build_structural_prediction_trace_payload(
             "process_version": str(process_version or "__unknown__"),
         },
         "run": {
-            "model_type": str(model.__class__.__name__),
-            "fusion_mode": str(getattr(model, "fusion_mode", "")),
-            "structural_mode": bool(getattr(model, "structural_mode", False)),
+            "model_type": model_type,
+            "fusion_mode": fusion_mode,
+            "structural_mode": structural_mode,
+            "candidate_scoring_mode": _json_safe(
+                getattr(model, "candidate_scoring_mode", getattr(model, "candidate_scoring", None))
+            ),
+            "candidate_pooling": _json_safe(getattr(model, "candidate_pooling", None)),
         },
         "snapshot": _snapshot_payload(contract, row),
         "contract": _contract_payload(contract),
@@ -176,6 +188,10 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         "mask_cardinality": _safe_attr_float(mask.get("mask_cardinality")),
         "prediction_entropy": _safe_attr_float(generic.get("prediction_entropy")),
     }
+    if run.get("candidate_scoring_mode") is not None:
+        attrs["candidate_scoring_mode"] = str(run.get("candidate_scoring_mode", ""))
+    if run.get("candidate_pooling") is not None:
+        attrs["candidate_pooling"] = str(run.get("candidate_pooling", ""))
     if sample.get("prefix_last_activity_index") is not None:
         attrs["prefix_last_activity_index"] = int(sample.get("prefix_last_activity_index", -1))
     if "structural_to_observed_logit_ratio" in class_aware:

@@ -3244,6 +3244,22 @@ fields:
       group: advanced
       priority: 100
       order: 1016
+  training.candidate_missing_target_fail_threshold:
+    path: training.candidate_missing_target_fail_threshold
+    section: training
+    label: 'Training: Candidate missing-target fail threshold'
+    description: Maximum allowed missing-target rate for candidate_id training before failing as a log/topology mapping error.
+    affects: Protects true candidate-level loss from silently training on batches where target labels cannot be mapped to topology-local candidates.
+    default: 0.1
+    type: float
+    required_in_modes: []
+    required_when:
+      training.candidate_contract_mode: candidate_id
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1017
   training.topology_conditioning_wrong_version_negative_enabled:
     path: training.topology_conditioning_wrong_version_negative_enabled
     section: training
@@ -3394,6 +3410,92 @@ fields:
       group: advanced
       priority: 100
       order: 1022
+  training.topology_flow_penalty_enabled:
+    path: training.topology_flow_penalty_enabled
+    section: training
+    label: 'Training: topology flow penalty'
+    description: Enable candidate-level topology-flow penalty for candidate_id training. Uses topology-local candidates projected from the current allowed_target_mask.
+    affects: Adds direct pressure against assigning probability mass to candidates disallowed by the current process topology flow.
+    default: 'false'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.candidate_contract_mode: candidate_id
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1023
+  training.topology_flow_penalty_weight:
+    path: training.topology_flow_penalty_weight
+    section: training
+    label: 'Training: topology flow penalty weight'
+    description: Weight for candidate-level topology-flow penalty.
+    affects: Controls how strongly candidate_id training penalizes invalid topology-flow probability mass.
+    default: 0.0
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_flow_penalty_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1024
+  training.topology_flow_penalty_type:
+    path: training.topology_flow_penalty_type
+    section: training
+    label: 'Training: topology flow penalty type'
+    description: Penalty objective for invalid topology-flow candidates. invalid_probability_mass is bounded and stable; margin enforces invalid logits below valid logits.
+    affects: Changes the shape of candidate-level topology-flow learning pressure.
+    default: invalid_probability_mass
+    enum:
+    - invalid_probability_mass
+    - margin
+    required_in_modes: []
+    required_when:
+      training.topology_flow_penalty_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1025
+  training.topology_flow_penalty_margin:
+    path: training.topology_flow_penalty_margin
+    section: training
+    label: 'Training: topology flow penalty margin'
+    description: Margin used when topology_flow_penalty_type=margin.
+    affects: Minimum required separation between best valid and best invalid candidate logits.
+    default: 0.1
+    enum: []
+    required_in_modes: []
+    required_when:
+      training.topology_flow_penalty_type: margin
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1026
+  training.topology_flow_penalty_fail_on_missing_mask:
+    path: training.topology_flow_penalty_fail_on_missing_mask
+    section: training
+    label: 'Training: topology flow fail on missing mask'
+    description: Fail candidate_id training when topology_flow_penalty_enabled but allowed_target_mask is missing.
+    affects: Protects topology-flow loss from silently becoming a no-op because topology masks were not built.
+    default: 'true'
+    enum:
+    - 'false'
+    - 'true'
+    required_in_modes: []
+    required_when:
+      training.topology_flow_penalty_enabled: 'true'
+    ui:
+      tab: general
+      group: advanced
+      priority: 100
+      order: 1027
   training.topology_conditioning_retention_enabled:
     path: training.topology_conditioning_retention_enabled
     section: training
@@ -3411,7 +3513,7 @@ fields:
       tab: general
       group: advanced
       priority: 100
-      order: 1023
+      order: 1028
   training.topology_conditioning_retention_policy:
     path: training.topology_conditioning_retention_policy
     section: training
@@ -3428,7 +3530,7 @@ fields:
       tab: general
       group: advanced
       priority: 100
-      order: 1024
+      order: 1029
   training.topology_conditioning_current_version_policy:
     path: training.topology_conditioning_current_version_policy
     section: training
@@ -3445,7 +3547,7 @@ fields:
       tab: general
       group: advanced
       priority: 100
-      order: 1025
+      order: 1030
   training.topology_conditioning_retention_recent_versions:
     path: training.topology_conditioning_retention_recent_versions
     section: training

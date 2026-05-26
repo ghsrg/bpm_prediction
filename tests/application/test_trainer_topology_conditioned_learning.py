@@ -7,6 +7,7 @@ from torch import nn
 from torch.optim import Adam
 
 from src.application.use_cases.trainer import ModelTrainer
+from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.raw_trace import RawTrace
 
 
@@ -63,6 +64,30 @@ class _TopologySensitiveModel(nn.Module):
         return logits.repeat(graphs, 1) + (self.dummy * 0.0)
 
 
+class _CandidateFlowModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.fusion_mode = "TopologyConditionedCandidateScoring"
+        self.structural_mode = True
+        self.calls = 0
+
+    def forward_candidate(self, contract):
+        self.calls += 1
+        batch_size = int(contract["y"].view(-1).numel())
+        base = torch.tensor([[0.0, 0.0, 3.0]], dtype=torch.float32, device=contract["y"].device)
+        logits = base.repeat(batch_size, 1) + (self.dummy * 0.0)
+        candidate_class_index = torch.tensor([0, 1, 2], dtype=torch.long, device=logits.device)
+        return CandidatePredictionOutput(
+            candidate_logits=logits,
+            candidate_class_index=candidate_class_index,
+            node_logits=logits,
+            node_to_candidate_index=torch.tensor([0, 1, 2], dtype=torch.long, device=logits.device),
+            node_to_class_index=candidate_class_index,
+            fixed_label_logits=logits,
+        )
+
+
 def _sample(version_idx: int, *, edge_count: int = 4):
     from torch_geometric.data import Data
 
@@ -80,6 +105,24 @@ def _sample(version_idx: int, *, edge_count: int = 4):
         structural_edge_weight=torch.ones(edge_count, dtype=torch.float32),
         struct_node_to_class_index=torch.tensor([0, 1, 0, 1], dtype=torch.long),
         process_version_idx=torch.tensor([version_idx], dtype=torch.long),
+    )
+
+
+def _candidate_sample():
+    from torch_geometric.data import Data
+
+    return Data(
+        x_cat=torch.zeros((1, 0), dtype=torch.long),
+        x_num=torch.ones((1, 1), dtype=torch.float32),
+        edge_index=torch.zeros((2, 0), dtype=torch.long),
+        edge_type=torch.zeros((0,), dtype=torch.long),
+        y=torch.tensor([0], dtype=torch.long),
+        num_nodes=1,
+        allowed_target_mask=torch.tensor([[True, False, False]], dtype=torch.bool),
+        structural_edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
+        structural_edge_weight=torch.ones(2, dtype=torch.float32),
+        struct_node_to_class_index=torch.tensor([0, 1, 2], dtype=torch.long),
+        process_version_idx=torch.tensor([1], dtype=torch.long),
     )
 
 
@@ -182,3 +225,93 @@ def test_topology_conditioned_train_loader_prefers_version_homogeneous_batches()
     for batch in loader:
         versions = batch.process_version_idx.view(-1).long().tolist()
         assert len(set(versions)) == 1
+
+
+def test_candidate_id_training_logs_candidate_flow_metrics():
+    tracker = _RecordingTracker()
+    model = _CandidateFlowModel()
+    trainer = _trainer(
+        model=model,
+        tracker=tracker,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "topology_conditioning_allowed_set_loss_enabled": False,
+            "topology_conditioning_wrong_version_negative_enabled": False,
+            "topology_conditioning_drop_edges_negative_enabled": False,
+            "topology_conditioning_retention_enabled": False,
+            "topology_flow_penalty_enabled": False,
+        },
+    )
+    loader = trainer._build_loader_from_dataset([_candidate_sample()], shuffle=False)
+    optimizer = Adam(model.parameters(), lr=0.01)
+
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    metrics = {name: value for name, value, _ in tracker.metrics}
+    assert metrics["train_candidate_oos_rate"] == 1.0
+    assert metrics["train_candidate_invalid_probability_mass"] > 0.5
+    assert metrics["train_candidate_valid_invalid_logit_margin"] < 0.0
+
+
+def test_candidate_id_skips_legacy_negative_forwards_and_logs_flow_metrics():
+    tracker = _RecordingTracker()
+    model = _CandidateFlowModel()
+    trainer = _trainer(
+        model=model,
+        tracker=tracker,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "topology_conditioning_allowed_set_loss_enabled": True,
+            "topology_conditioning_allowed_set_loss_weight": 0.10,
+            "topology_conditioning_wrong_version_negative_enabled": True,
+            "topology_conditioning_wrong_version_negative_weight": 0.10,
+            "topology_conditioning_drop_edges_negative_enabled": True,
+            "topology_conditioning_drop_edges_negative_weight": 0.10,
+            "topology_conditioning_retention_enabled": False,
+            "topology_flow_penalty_enabled": False,
+        },
+    )
+    loader = trainer._build_loader_from_dataset([_candidate_sample()], shuffle=False)
+    optimizer = Adam(model.parameters(), lr=0.01)
+
+    trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    metrics = {name: value for name, value, _ in tracker.metrics}
+    assert model.calls == 1
+    assert metrics["train_candidate_oos_rate"] == 1.0
+    assert metrics["train_topology_conditioned_allowed_set_loss"] > 0.0
+    assert metrics["train_topology_conditioned_drop_edges_skipped_candidate_id_batches"] == 1.0
+    assert metrics["train_topology_conditioned_wrong_version_skipped_candidate_id_batches"] == 1.0
+
+
+def test_candidate_id_topology_flow_penalty_increases_train_loss_and_logs_objective():
+    tracker = _RecordingTracker()
+    model = _CandidateFlowModel()
+    trainer = _trainer(
+        model=model,
+        tracker=tracker,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "topology_conditioning_allowed_set_loss_enabled": False,
+            "topology_conditioning_wrong_version_negative_enabled": False,
+            "topology_conditioning_drop_edges_negative_enabled": False,
+            "topology_conditioning_retention_enabled": False,
+            "topology_flow_penalty_enabled": True,
+            "topology_flow_penalty_weight": 0.5,
+            "topology_flow_penalty_type": "invalid_probability_mass",
+        },
+    )
+    loader = trainer._build_loader_from_dataset([_candidate_sample()], shuffle=False)
+    optimizer = Adam(model.parameters(), lr=0.01)
+
+    train_loss, *_ = trainer._run_epoch(loader, optimizer=optimizer, training=True)
+    base_loss = float(
+        torch.nn.functional.cross_entropy(
+            torch.tensor([[0.0, 0.0, 3.0]], dtype=torch.float32),
+            torch.tensor([0], dtype=torch.long),
+        ).item()
+    )
+
+    metrics = {name: value for name, value, _ in tracker.metrics}
+    assert train_loss > base_loss
+    assert metrics["train_topology_conditioned_topology_flow_penalty_loss"] > 0.0

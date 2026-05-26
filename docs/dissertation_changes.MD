@@ -1370,3 +1370,32 @@ additional feature, but as a validity surface over the candidate space. If the
 model remains close to baseline after this penalty, the next methodological
 step should focus on edge-aware candidate scoring / flow-conditioned routing,
 not on stronger late fusion.
+
+**2026-05-26 topology-native candidate identity correction:** the latest audit
+showed that the current `candidate_id` path is still partially tied to the
+training activity vocabulary. With `version_scope_policy=train_cut`, future
+activities outside the training versions can be collapsed to `<UNK>`, and
+topology edges containing those activities can be skipped during topology
+compilation. This means the model is not yet forced to choose from the real
+candidate set of the new BPMN version.
+
+Methodology consequence:
+
+```text
+Fixed activity-vocab candidate scoring is not sufficient evidence for
+business-valid zero-shot topology transfer.
+```
+
+For the dissertation, the next architecture step should be described as a move
+from fixed-label classification to topology-native candidate scoring:
+
+```text
+prefix state z_t + current topology candidates K_v
+    -> score every BPMN candidate of version v
+    -> project to fixed labels only for compatibility metrics
+```
+
+This directly supports the main hypothesis: when a new process version appears,
+the model must be able to use the new topology before logs of that version are
+available. If future candidates are absent from the candidate universe, the
+hypothesis cannot be evaluated correctly.

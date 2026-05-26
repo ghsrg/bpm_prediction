@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status update 2026-05-26:** this plan was implemented as a P0/P1 diagnostic
+> and flow-penalty step. The next implementation plan superseding its
+> architecture assumptions is
+> `docs/worklogs/MVP2_5_Topology_Native_Candidate_Identity_Plan_2026-05-26.MD`.
+> Reason: latest audit showed that the current `candidate_id` path still depends
+> on the training activity vocabulary, so future topology candidates can be
+> collapsed to `<UNK>` or skipped before the model can score them.
+
 **Goal:** make `EOPKGTopologyConditioned` diagnostics truthful and add a topology-flow-aware training/evaluation layer that tests whether the model uses the current version's process flow, not only historical activity frequencies.
 
 **Architecture:** keep the existing `candidate_contract_mode=candidate_id` path. Do not rework candidate mapping or MIL for the current `loan_v1_v4_simulated` dataset because BPMN activity labels are currently 1:1 with prediction nodes inside each version. Add candidate-level allowed-flow diagnostics and an optional topology penalty loss driven by `allowed_target_mask`.

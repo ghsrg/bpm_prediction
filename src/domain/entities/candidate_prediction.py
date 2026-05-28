@@ -22,6 +22,9 @@ class CandidatePredictionOutput:
     node_to_candidate_index: torch.LongTensor
     node_to_class_index: torch.LongTensor
     fixed_label_logits: torch.Tensor | None = None
+    candidate_ids: tuple[str, ...] = ()
+    candidate_labels: tuple[str, ...] = ()
+    candidate_is_unseen: torch.BoolTensor | None = None
 
     @property
     def candidate_count(self) -> int:
@@ -43,3 +46,19 @@ class CandidatePredictionOutput:
         if bool(has_one.any()):
             mapped[has_one] = torch.argmax(mask[has_one].long(), dim=1)
         return mapped
+
+    def map_target_labels_to_candidate_mask(self, target_labels: list[str] | tuple[str, ...]) -> torch.BoolTensor:
+        """Map raw target labels to the local topology candidate axis."""
+
+        ids = [str(item).strip() for item in self.candidate_ids]
+        labels = [str(item).strip() for item in self.candidate_labels]
+        rows: list[list[bool]] = []
+        for raw_label in target_labels:
+            target = str(raw_label).strip()
+            row = []
+            for idx in range(len(labels)):
+                match_lbl = (labels[idx] == target)
+                match_id = (ids[idx] == target) if idx < len(ids) else False
+                row.append(match_lbl or match_id)
+            rows.append(row)
+        return torch.tensor(rows, dtype=torch.bool, device=self.candidate_logits.device)

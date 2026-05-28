@@ -175,6 +175,27 @@ def test_topology_conditioned_candidate_output_maps_global_targets_to_local_cand
     assert output.map_targets_to_candidate_index(batch["y"]).tolist() == [1, -1]
 
 
+def test_topology_conditioned_forward_candidate_uses_topology_candidate_axis_with_unseen_label():
+    model = _model(output_dim=6)
+    batch = _batch()
+    batch["struct_node_to_class_index"] = torch.tensor([-1, 1, 4], dtype=torch.long)
+    batch["struct_node_to_candidate_index"] = torch.tensor([0, 1, 2], dtype=torch.long)
+    batch["candidate_class_index"] = torch.tensor([-1, 1, 4], dtype=torch.long)
+    batch["candidate_ids"] = ("node_c", "node_a", "node_b")
+    batch["candidate_labels"] = ("C", "A", "B")
+    batch["candidate_is_unseen"] = torch.tensor([True, False, False], dtype=torch.bool)
+    batch["structural_edge_index"] = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
+    batch["struct_x"] = torch.eye(3, 3, dtype=torch.float32)
+
+    output = model.forward_candidate(batch)
+
+    assert output.candidate_logits.shape == torch.Size([1, 3])
+    assert output.candidate_class_index.tolist() == [-1, 1, 4]
+    assert output.candidate_ids == ("node_c", "node_a", "node_b")
+    assert output.candidate_is_unseen.tolist() == [True, False, False]
+    assert output.map_target_labels_to_candidate_mask(["C"]).tolist() == [[True, False, False]]
+
+
 def test_topology_conditioned_forward_remains_fixed_label_compatible_after_stage2():
     model = _model(output_dim=6)
     batch = _batch()
@@ -184,3 +205,16 @@ def test_topology_conditioned_forward_remains_fixed_label_compatible_after_stage
 
     assert logits.shape == torch.Size([1, 6])
     assert model.last_candidate_dynamic_count == 2
+
+
+def test_topology_conditioned_candidate_tuple_unpacks_nested_pyg_collation():
+    model = _model(output_dim=6)
+    contract = {
+        "candidate_labels": [("A", "B", "C"), ("A", "B", "C")],
+        "candidate_ids": [("node_a", "node_b", "node_c"), ("node_a", "node_b", "node_c")]
+    }
+    labels = model._candidate_tuple(contract, "candidate_labels")
+    ids = model._candidate_tuple(contract, "candidate_ids")
+    
+    assert labels == ("A", "B", "C")
+    assert ids == ("node_a", "node_b", "node_c")

@@ -169,6 +169,7 @@ class _TopologyConditionedCandidateDiagnosticModel(nn.Module):
         self.last_candidate_pred_score: float | None = None
         self.last_candidate_score_gap: float | None = None
         self.last_candidate_dynamic_count: int | None = None
+        self.last_candidate_is_unseen: list[bool] | None = None
 
     def forward(self, contract):
         batch = contract["batch"]
@@ -183,6 +184,7 @@ class _TopologyConditionedCandidateDiagnosticModel(nn.Module):
         self.last_candidate_pred_score = 0.9
         self.last_candidate_score_gap = 0.2
         self.last_candidate_dynamic_count = 2
+        self.last_candidate_is_unseen = [False, True]
         logits = torch.tensor([[1.0, -1.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
         return logits + (self.dummy * 0.0)
 
@@ -541,6 +543,7 @@ def test_trainer_logs_topology_conditioned_candidate_diagnostics(caplog):
     assert "candidate_prediction_entropy=1.200000" in caplog.text
     assert "candidate_score_gap=0.200000" in caplog.text
     assert "candidate_dynamic_count=2.000000" in caplog.text
+    assert "candidate_unseen_candidate_rate=0.500000" in caplog.text
     metric_names = {key for key, _, _ in tracker.metrics}
     assert "train_candidate_node_score_mean_abs" in metric_names
     assert "train_candidate_class_score_mean_abs" in metric_names
@@ -549,6 +552,7 @@ def test_trainer_logs_topology_conditioned_candidate_diagnostics(caplog):
     assert "train_candidate_prediction_entropy" in metric_names
     assert "train_candidate_score_gap" in metric_names
     assert "train_candidate_dynamic_count" in metric_names
+    assert "train_candidate_unseen_candidate_rate" in metric_names
 
 
 def test_structural_set_loss_rewards_any_allowed_target_candidate():
@@ -752,6 +756,7 @@ def test_forward_stats_logs_candidate_target_mapping_metrics():
             "candidate_target_duplicate_count_max_sum": 3.0,
             "candidate_target_set_logit_variance_mean_sum": 0.4,
             "candidate_target_set_entropy_mean_sum": 1.2,
+            "candidate_unseen_target_rate_sum": 0.5,
         },
     )
 
@@ -761,6 +766,7 @@ def test_forward_stats_logs_candidate_target_mapping_metrics():
     assert metrics["train_candidate_target_duplicate_count_max"] == pytest.approx(1.5)
     assert metrics["train_candidate_target_set_logit_variance_mean"] == pytest.approx(0.2)
     assert metrics["train_candidate_target_set_entropy_mean"] == pytest.approx(0.6)
+    assert metrics["train_candidate_unseen_target_rate"] == pytest.approx(0.25)
 
 
 def test_topology_homogeneous_sampler_groups_by_version_and_snapshot_when_shuffling():
@@ -1102,3 +1108,26 @@ def test_trainer_numeric_guard_keeps_run_epoch_finite_with_nan_logits():
     assert math.isfinite(float(avg_loss))
     assert math.isfinite(float(macro_f1))
     assert math.isfinite(float(weighted_f1))
+
+
+def test_trainer_target_labels_extraction_collated_by_pyg():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_TrainableBinaryModel(),
+        log_path="in_memory.xes",
+        config={"mode": "train", "device": "cpu", "show_progress": False, "tqdm_disable": True},
+    )
+    
+    # Simulate a collated target_label list from PyG DataLoader for batch_size=2
+    contract = {
+        "target_label": ["Approve", "Decline"],
+        "candidate_labels": [("Approve", "Decline", "End"), ("Approve", "Decline", "End")],
+        "candidate_ids": [("node1", "node2", "node3"), ("node1", "node2", "node3")],
+    }
+    
+    targets = torch.tensor([0, 1], dtype=torch.long)
+    
+    extracted_targets = trainer._target_labels_from_contract(contract, targets)
+    assert extracted_targets == ["Approve", "Decline"]

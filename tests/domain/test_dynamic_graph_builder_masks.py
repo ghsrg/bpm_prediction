@@ -258,6 +258,7 @@ def test_dynamic_graph_builder_strict_projection_alignment_raises_on_missing_voc
                 "on_fail": "raise",
             }
         },
+        cache_policy="none",
     )
 
     with pytest.raises(ValueError, match="Topology projection alignment failed"):

@@ -926,19 +926,33 @@ def _structural_payload_key_from_data(data: Data) -> str:
 
 def _strip_structural_payload(
     data: Data,
-    registry: dict[str, dict[str, torch.Tensor]],
-) -> tuple[Data, dict[str, dict[str, torch.Tensor]]]:
-    names = ("struct_x", "structural_edge_index", "structural_edge_weight", "struct_node_to_class_index")
-    has_payload = any(isinstance(getattr(data, name, None), torch.Tensor) for name in names)
+    registry: dict[str, dict[str, Any]],
+) -> tuple[Data, dict[str, dict[str, Any]]]:
+    names = (
+        "struct_x",
+        "structural_edge_index",
+        "structural_edge_weight",
+        "struct_node_to_class_index",
+        "struct_node_to_candidate_index",
+        "candidate_class_index",
+        "candidate_is_unseen",
+        "candidate_ids",
+        "candidate_labels",
+    )
+    has_payload = any(getattr(data, name, None) is not None for name in names)
     if not has_payload:
         return data, registry
     key = _structural_payload_key_from_data(data)
     if key not in registry:
-        registry[key] = {
-            name: getattr(data, name).detach().cpu()
-            for name in names
-            if isinstance(getattr(data, name, None), torch.Tensor)
-        }
+        payload = {}
+        for name in names:
+            val = getattr(data, name, None)
+            if val is not None:
+                if isinstance(val, torch.Tensor):
+                    payload[name] = val.detach().cpu()
+                else:
+                    payload[name] = val
+        registry[key] = payload
     stripped = data.clone()
     for name in names:
         if hasattr(stripped, name):
@@ -954,9 +968,8 @@ def _attach_structural_payload(data: Data, registry: dict[str, Any]) -> Data:
     payload = registry.get(str(key))
     if not isinstance(payload, dict):
         return data
-    for name, tensor in payload.items():
-        if isinstance(tensor, torch.Tensor):
-            setattr(data, name, tensor)
+    for name, value in payload.items():
+        setattr(data, name, value)
     if hasattr(data, "structural_payload_key"):
         delattr(data, "structural_payload_key")
     return data
@@ -1385,6 +1398,16 @@ def _build_graph_dataset_sharded(
                 payload["allowed_target_mask"] = (
                     allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
                 )
+            candidate_allowed_mask = contract.get("candidate_allowed_target_mask")
+            if isinstance(candidate_allowed_mask, torch.Tensor):
+                payload["candidate_allowed_target_mask"] = (
+                    candidate_allowed_mask.unsqueeze(0)
+                    if candidate_allowed_mask.dim() == 1
+                    else candidate_allowed_mask
+                )
+            target_label = contract.get("target_label")
+            if target_label is not None:
+                payload["target_label"] = str(target_label)
             struct_x = contract.get("struct_x")
             if isinstance(struct_x, torch.Tensor):
                 payload["struct_x"] = struct_x
@@ -1397,6 +1420,18 @@ def _build_graph_dataset_sharded(
             struct_node_to_class_index = contract.get("struct_node_to_class_index")
             if isinstance(struct_node_to_class_index, torch.Tensor):
                 payload["struct_node_to_class_index"] = struct_node_to_class_index
+            for tensor_key in (
+                "struct_node_to_candidate_index",
+                "candidate_class_index",
+                "candidate_is_unseen",
+            ):
+                tensor_value = contract.get(tensor_key)
+                if isinstance(tensor_value, torch.Tensor):
+                    payload[tensor_key] = tensor_value
+            for meta_key in ("candidate_ids", "candidate_labels"):
+                meta_value = contract.get(meta_key)
+                if isinstance(meta_value, (list, tuple)):
+                    payload[meta_key] = tuple(str(item) for item in meta_value)
             struct_prefix_state_x = contract.get("struct_prefix_state_x")
             if isinstance(struct_prefix_state_x, torch.Tensor):
                 payload["struct_prefix_state_x"] = struct_prefix_state_x
@@ -1557,6 +1592,16 @@ def _build_graph_dataset(
                 payload["allowed_target_mask"] = (
                     allowed_mask.unsqueeze(0) if allowed_mask.dim() == 1 else allowed_mask
                 )
+            candidate_allowed_mask = contract.get("candidate_allowed_target_mask")
+            if isinstance(candidate_allowed_mask, torch.Tensor):
+                payload["candidate_allowed_target_mask"] = (
+                    candidate_allowed_mask.unsqueeze(0)
+                    if candidate_allowed_mask.dim() == 1
+                    else candidate_allowed_mask
+                )
+            target_label = contract.get("target_label")
+            if target_label is not None:
+                payload["target_label"] = str(target_label)
             struct_x = contract.get("struct_x")
             if isinstance(struct_x, torch.Tensor):
                 payload["struct_x"] = struct_x
@@ -1569,6 +1614,18 @@ def _build_graph_dataset(
             struct_node_to_class_index = contract.get("struct_node_to_class_index")
             if isinstance(struct_node_to_class_index, torch.Tensor):
                 payload["struct_node_to_class_index"] = struct_node_to_class_index
+            for tensor_key in (
+                "struct_node_to_candidate_index",
+                "candidate_class_index",
+                "candidate_is_unseen",
+            ):
+                tensor_value = contract.get(tensor_key)
+                if isinstance(tensor_value, torch.Tensor):
+                    payload[tensor_key] = tensor_value
+            for meta_key in ("candidate_ids", "candidate_labels"):
+                meta_value = contract.get(meta_key)
+                if isinstance(meta_value, (list, tuple)):
+                    payload[meta_key] = tuple(str(item) for item in meta_value)
             struct_prefix_state_x = contract.get("struct_prefix_state_x")
             if isinstance(struct_prefix_state_x, torch.Tensor):
                 payload["struct_prefix_state_x"] = struct_prefix_state_x
@@ -2018,6 +2075,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         on_missing_asof_snapshot=on_missing_asof_snapshot,
         cache_policy=cache_policy,
         cache_dir=cache_dir,
+        candidate_identity_mode=training_cfg.get("candidate_identity_mode", "fixed_vocab_bridge"),
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

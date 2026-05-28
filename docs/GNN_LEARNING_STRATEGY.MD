@@ -817,3 +817,40 @@ When implementation changes learning behavior:
 4. update `configs/ui/config_catalog.yaml` for any new config key,
 5. update `docs/current/project-state.md` for current-state behavior,
 6. update `docs/current/architecture-debt.md` for deferred strategy debt.
+
+---
+
+## Topology-Native Candidate Learning
+
+For `EOPKGTopologyConditioned`, `candidate_id` training now has two identity
+modes:
+
+```yaml
+training.candidate_identity_mode: fixed_vocab_bridge | topology_native
+```
+
+`topology_native` is the intended mode for zero-shot topology experiments. It
+uses raw `target_label` and topology-local `candidate_labels` for the candidate
+loss, so future-version activities absent from the training activity vocabulary
+are not collapsed to `<UNK>` before scoring.
+
+Compatibility fixed-label metrics are still useful, but primary interpretation
+must use candidate-space diagnostics when `candidate_class_index=-1` appears.
+
+For `topology_conditioned` retention/rehearsal, `candidate_id` mode applies
+version weights to candidate-set cross entropy. Fixed-vocab `class_weights`
+must not be applied to topology-native logits because the candidate axis can be
+larger than the train activity vocabulary.
+
+Healthy zero-shot verification should show:
+
+```text
+candidate_dynamic_count changes with topology version
+candidate_class_index may contain -1 on future versions
+candidate_missing_target_rate remains near 0 for aligned topology/log pairs
+candidate_unseen_target_rate becomes visible when future labels are outside train vocab
+```
+
+If `candidate_dynamic_count` stays identical to the train vocabulary and no
+candidate has `candidate_class_index=-1`, the run is still testing the old
+fixed-vocab bridge, not topology-native transfer.

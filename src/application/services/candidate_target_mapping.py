@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -13,6 +13,7 @@ def candidate_set_cross_entropy(
     target_candidate_mask: torch.Tensor,
     *,
     missing_target_penalty: float = 0.0,
+    sample_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Set-aware CE where any candidate matching the target class is correct."""
 
@@ -27,11 +28,59 @@ def candidate_set_cross_entropy(
         return candidate_logits.sum() * 0.0 + float(missing_target_penalty)
     masked_log_probs = log_probs.masked_fill(~mask, float("-inf"))
     per_row_loss = -torch.logsumexp(masked_log_probs[has_target], dim=1)
-    loss = per_row_loss.mean()
+    if isinstance(sample_weights, torch.Tensor):
+        weights = sample_weights.to(device=candidate_logits.device, dtype=candidate_logits.dtype).view(-1)
+        if weights.numel() != candidate_logits.size(0):
+            raise ValueError("sample_weights length must match candidate_logits rows.")
+        active_weights = weights[has_target]
+        denom = active_weights.sum().clamp_min(torch.finfo(active_weights.dtype).eps)
+        loss = torch.sum(per_row_loss * active_weights) / denom
+    else:
+        loss = per_row_loss.mean()
     missing_rate = 1.0 - float(has_target.float().mean().detach().cpu().item())
     if missing_rate > 0.0 and float(missing_target_penalty) > 0.0:
         loss = loss + candidate_logits.new_tensor(float(missing_target_penalty) * missing_rate)
     return loss
+
+
+def candidate_target_mask_from_labels(
+    *,
+    target_labels: Sequence[str],
+    candidate_labels: Sequence[str],
+    candidate_ids: Sequence[str] | None = None,
+    device: torch.device,
+) -> torch.BoolTensor:
+    """Build `[B, C_v]` target mask from raw labels and topology candidate labels/ids."""
+
+    normalized_candidates = [str(label).strip() for label in candidate_labels]
+    normalized_ids = [str(i).strip() for i in candidate_ids] if candidate_ids is not None else []
+    rows: list[list[bool]] = []
+    for raw_label in target_labels:
+        target = str(raw_label).strip()
+        row = []
+        for idx, candidate in enumerate(normalized_candidates):
+            match_lbl = (candidate == target)
+            match_id = (normalized_ids[idx] == target) if normalized_ids else False
+            row.append(match_lbl or match_id)
+        rows.append(row)
+    return torch.tensor(rows, dtype=torch.bool, device=device)
+
+
+def candidate_set_cross_entropy_from_mask(
+    candidate_logits: torch.Tensor,
+    target_candidate_mask: torch.Tensor,
+    *,
+    missing_target_penalty: float = 0.0,
+    sample_weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Set-aware CE over topology-local candidates."""
+
+    return candidate_set_cross_entropy(
+        candidate_logits,
+        target_candidate_mask,
+        missing_target_penalty=missing_target_penalty,
+        sample_weights=sample_weights,
+    )
 
 
 def candidate_target_summary(candidate_logits: torch.Tensor, target_candidate_mask: torch.Tensor) -> Dict[str, Any]:

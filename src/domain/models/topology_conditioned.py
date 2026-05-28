@@ -130,6 +130,9 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.last_candidate_score_gap = None
         self.last_candidate_dynamic_count = None
         self.last_candidate_class_index = None
+        self.last_candidate_ids = None
+        self.last_candidate_labels = None
+        self.last_candidate_is_unseen = None
 
     def _encode_observed_input(self, contract: GraphTensorContract) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_cat = contract["x_cat"]
@@ -207,6 +210,59 @@ class EOPKGTopologyConditioned(BaseGNN):
         h = self.dropout(h)
         return self.struct_norm(h), node_to_class
 
+    @staticmethod
+    def _candidate_tuple(contract: GraphTensorContract, key: str) -> tuple[str, ...]:
+        raw = contract.get(key)  # type: ignore[typeddict-item]
+        if raw is None:
+            return ()
+        if isinstance(raw, (list, tuple)) and len(raw) > 0 and isinstance(raw[0], (list, tuple)):
+            raw = raw[0]
+        if isinstance(raw, str):
+            return (raw,)
+        if isinstance(raw, (list, tuple)):
+            return tuple(str(item) for item in raw)
+        return ()
+
+    def _candidate_class_index(self, contract: GraphTensorContract, node_to_class: torch.Tensor) -> torch.LongTensor:
+        raw = contract.get("candidate_class_index")
+        if isinstance(raw, torch.Tensor):
+            return raw.to(device=node_to_class.device, dtype=torch.long).view(-1)
+        valid = node_to_class[(node_to_class >= 0) & (node_to_class < self.output_dim)]
+        return torch.unique(valid, sorted=True)
+
+    def _candidate_unseen(self, contract: GraphTensorContract, candidate_class_index: torch.Tensor) -> torch.BoolTensor:
+        raw = contract.get("candidate_is_unseen")
+        if isinstance(raw, torch.Tensor):
+            return raw.to(device=candidate_class_index.device, dtype=torch.bool).view(-1)
+        return candidate_class_index < 0
+
+    def _fixed_logits_from_candidates(
+        self,
+        candidate_logits: torch.Tensor,
+        candidate_class_index: torch.Tensor,
+    ) -> torch.Tensor:
+        fixed = candidate_logits.new_full((candidate_logits.size(0), self.output_dim), float("-inf"))
+        class_index = candidate_class_index.to(device=candidate_logits.device, dtype=torch.long).view(-1)
+        valid = (class_index >= 0) & (class_index < self.output_dim)
+        if not bool(valid.any()):
+            return torch.nan_to_num(fixed, neginf=-1e6)
+
+        valid_logits = candidate_logits[:, valid]
+        valid_classes = class_index[valid]
+
+        import math
+        for class_idx in torch.unique(valid_classes).tolist():
+            class_int = int(class_idx)
+            values = valid_logits[:, valid_classes == class_int]
+            if self.candidate_pooling == "logmeanexp":
+                fixed[:, class_int] = torch.logsumexp(values, dim=1) - math.log(values.size(1))
+            elif self.candidate_pooling == "mean":
+                fixed[:, class_int] = values.mean(dim=1)
+            elif self.candidate_pooling == "max":
+                fixed[:, class_int] = values.max(dim=1).values
+
+        return torch.nan_to_num(fixed, neginf=-1e6)
+
     def _temperature(self) -> torch.Tensor:
         return torch.clamp(
             self.candidate_temperature,
@@ -258,9 +314,9 @@ class EOPKGTopologyConditioned(BaseGNN):
         candidate_logits, candidate_class_index, node_to_candidate_index = self._pool_node_scores_to_dynamic_candidates(
             node_scores,
             node_to_class,
+            contract=contract,
         )
-        fixed_label_logits = self._pool_node_scores_to_classes(node_scores, node_to_class)
-        fixed_label_logits = torch.nan_to_num(fixed_label_logits, neginf=-1e6)
+        fixed_label_logits = self._fixed_logits_from_candidates(candidate_logits, candidate_class_index)
         self._record_candidate_diagnostics(
             node_scores=node_scores,
             class_scores=fixed_label_logits,
@@ -269,6 +325,12 @@ class EOPKGTopologyConditioned(BaseGNN):
         )
         self.last_candidate_dynamic_count = int(candidate_class_index.numel())
         self.last_candidate_class_index = candidate_class_index.detach().cpu().tolist()
+        candidate_ids = self._candidate_tuple(contract, "candidate_ids")
+        candidate_labels = self._candidate_tuple(contract, "candidate_labels")
+        candidate_is_unseen = self._candidate_unseen(contract, candidate_class_index)
+        self.last_candidate_ids = list(candidate_ids)
+        self.last_candidate_labels = list(candidate_labels)
+        self.last_candidate_is_unseen = candidate_is_unseen.detach().cpu().tolist()
         return CandidatePredictionOutput(
             candidate_logits=candidate_logits,
             candidate_class_index=candidate_class_index,
@@ -276,28 +338,40 @@ class EOPKGTopologyConditioned(BaseGNN):
             node_to_candidate_index=node_to_candidate_index,
             node_to_class_index=node_to_class,
             fixed_label_logits=fixed_label_logits,
+            candidate_ids=candidate_ids,
+            candidate_labels=candidate_labels,
+            candidate_is_unseen=candidate_is_unseen,
         )
 
     def _pool_node_scores_to_dynamic_candidates(
         self,
         node_scores: torch.Tensor,
         node_to_class: torch.Tensor,
+        *,
+        contract: GraphTensorContract | None = None,
     ) -> tuple[torch.Tensor, torch.LongTensor, torch.LongTensor]:
         node_to_class = node_to_class.to(device=node_scores.device, dtype=torch.long)
-        valid = (node_to_class >= 0) & (node_to_class < self.output_dim)
-        candidate_class_index = torch.unique(node_to_class[valid], sorted=True)
-        node_to_candidate_index = torch.full_like(node_to_class, -1, dtype=torch.long)
+        raw_node_to_candidate = contract.get("struct_node_to_candidate_index") if contract is not None else None
+        if isinstance(raw_node_to_candidate, torch.Tensor):
+            node_to_candidate_index = raw_node_to_candidate.to(device=node_scores.device, dtype=torch.long).view(-1)
+            candidate_class_index = self._candidate_class_index(contract, node_to_class)  # type: ignore[arg-type]
+            valid = (node_to_candidate_index >= 0) & (node_to_candidate_index < int(candidate_class_index.numel()))
+        else:
+            valid = (node_to_class >= 0) & (node_to_class < self.output_dim)
+            candidate_class_index = torch.unique(node_to_class[valid], sorted=True)
+            node_to_candidate_index = torch.full_like(node_to_class, -1, dtype=torch.long)
+            for local_idx, class_idx in enumerate(candidate_class_index.tolist()):
+                node_to_candidate_index[(node_to_class == int(class_idx)) & valid] = int(local_idx)
         candidate_logits = node_scores.new_empty((node_scores.size(0), int(candidate_class_index.numel())))
         if candidate_class_index.numel() == 0:
             return candidate_logits, candidate_class_index, node_to_candidate_index
 
-        valid_scores = node_scores[:, valid]
-        valid_classes = node_to_class[valid]
-        for local_idx, class_idx in enumerate(candidate_class_index.tolist()):
-            class_int = int(class_idx)
-            class_mask = valid_classes == class_int
-            node_to_candidate_index[(node_to_class == class_int) & valid] = int(local_idx)
-            values = valid_scores[:, class_mask]
+        for local_idx in range(int(candidate_class_index.numel())):
+            class_mask = valid & (node_to_candidate_index == int(local_idx))
+            if not bool(class_mask.any()):
+                candidate_logits[:, local_idx] = float("-inf")
+                continue
+            values = node_scores[:, class_mask]
             if self.candidate_pooling == "logmeanexp":
                 candidate_logits[:, local_idx] = torch.logsumexp(values, dim=1) - math.log(values.size(1))
             elif self.candidate_pooling == "mean":

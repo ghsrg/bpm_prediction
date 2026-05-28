@@ -1,4 +1,4 @@
-﻿# Project State
+# Project State
 
 Active project state for `bpm_prediction`.
 
@@ -607,5 +607,30 @@ When current runtime behavior changes:
 2. update related ADR if an architectural decision changed,
 3. update `docs/current/architecture-debt.md` if debt changed,
 4. update `AGENTS.MD` only if routing or hard rules changed.
+
+---
+
+## Runtime Update 2026-05-26
+
+`EOPKGTopologyConditioned` candidate-id mode now has a topology-native candidate
+identity path:
+
+```yaml
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+```
+
+The graph contract can carry topology-local `candidate_ids`,
+`candidate_labels`, `candidate_class_index`, `candidate_is_unseen`,
+`struct_node_to_candidate_index`, `candidate_allowed_target_mask`, and raw
+`target_label`.
+
+This prevents future topology candidates from being removed only because they
+are absent from the training activity vocabulary. Fixed-label metrics remain
+compatibility diagnostics when candidates map to `candidate_class_index=-1`.
+
+## Runtime Update 2026-05-27
+
+Fixed a target-to-candidate alignment mismatch during `candidate_id` training with `topology_native` identity mode. Previously, raw target labels (usually node IDs like `t_approve_loan` from log `concept:name`) were compared only against human-readable `candidate_labels` (like `Approve Loan`), resulting in a 100% missing target rate and training failure. The target mapping helper `candidate_target_mask_from_labels` and the prediction model's `map_target_labels_to_candidate_mask` now match targets against both `candidate_ids` and `candidate_labels`.
 
 

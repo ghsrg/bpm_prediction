@@ -550,6 +550,47 @@ keys. Add catalog entries in the same change whenever config keys are added.
 
 ## P2 Future MVP Debt
 
+### topology_native_candidate_semantic_grounding
+
+- `status`: open
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: topology-native candidate identity preserves unseen BPMN candidates, but unseen candidates use shared/structural representation rather than semantic text prototypes
+- `target_state`: candidate embeddings include semantic BPMN metadata/name grounding or a non-parametric retrieval head so unseen labels can be ranked with stronger prior meaning
+
+**Description (ukr):**
+
+Поточний topology-native candidate contract вже не викидає future-вузли через
+відсутність у train vocabulary. Але для повної бізнес-валідної zero-shot
+адаптації цього мало: нові активності ще не мають семантичного прототипу, тому
+модель може бачити їх як допустимі topology candidates, але слабко розуміти їх
+зміст.
+
+**Next direction:**
+
+Add semantic/topological candidate prototypes after candidate-native metrics
+confirm that the candidate universe is wired correctly.
+
+### topology_native_exact_bpmn_node_supervision
+
+- `status`: open
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: XES targets are mapped by activity label to candidate sets
+- `target_state`: Camunda-like sources can train exact BPMN node ids when logs contain stable node/activity-instance identity
+
+**Description (ukr):**
+
+Для XES логів target є label, а не конкретний BPMN node id. Якщо в майбутніх
+процесах з'являться duplicate activity labels, loss прийматиме всі candidate
+nodes з цим label як target set. Це коректно для XES, але не вирішує точне
+розрізнення дублікатів.
+
+**Next direction:**
+
+For Camunda-like logs, add exact node-id target mapping when source data can
+provide it.
+
 ### mvp3_reliability_semaphore_not_ready
 
 - `status`: deferred

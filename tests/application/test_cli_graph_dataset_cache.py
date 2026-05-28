@@ -15,6 +15,7 @@ from src.cli import (
     _save_graph_dataset_cache_sharded,
     _strip_structural_payload,
     _structural_payload_key_from_data,
+    _attach_structural_payload,
 )
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
@@ -428,3 +429,31 @@ def test_build_graph_dataset_preserves_topology_state_prefix_tensor():
     assert len(items) == 1
     assert torch.equal(items[0].struct_node_to_class_index, torch.tensor([0, 1], dtype=torch.long))
     assert items[0].struct_prefix_state_x.shape == torch.Size([2, 6])
+
+
+def test_sharded_cache_deduplicates_candidate_fields():
+    graph = Data(y=torch.tensor([1]))
+    graph.struct_x = torch.tensor([[1.0], [2.0]], dtype=torch.float32)
+    graph.struct_node_to_candidate_index = torch.tensor([0, 1], dtype=torch.long)
+    graph.candidate_class_index = torch.tensor([1, -1], dtype=torch.long)
+    graph.candidate_is_unseen = torch.tensor([False, True], dtype=torch.bool)
+    graph.candidate_ids = ("A", "B")
+    graph.candidate_labels = ("Task A", "Task B")
+
+    payload_key = _structural_payload_key_from_data(graph)
+    stripped, payloads = _strip_structural_payload(graph, {})
+
+    assert payload_key in payloads
+    payload = payloads[payload_key]
+    assert "struct_node_to_candidate_index" in payload
+    assert "candidate_ids" in payload
+    assert payload["candidate_ids"] == ("A", "B")
+    assert payload["candidate_labels"] == ("Task A", "Task B")
+
+    assert not hasattr(stripped, "struct_node_to_candidate_index")
+    assert not hasattr(stripped, "candidate_ids")
+
+    restored = _attach_structural_payload(stripped, payloads)
+    assert restored.candidate_ids == ("A", "B")
+    assert restored.candidate_labels == ("Task A", "Task B")
+    assert torch.equal(restored.struct_node_to_candidate_index, torch.tensor([0, 1], dtype=torch.long))

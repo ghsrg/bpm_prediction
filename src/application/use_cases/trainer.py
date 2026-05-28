@@ -205,9 +205,8 @@ class ShardedGraphDataset(Dataset[Data]):
                 key = getattr(graph, "structural_payload_key", None)
                 payload = registry.get(str(key)) if key is not None else None
                 if isinstance(payload, dict):
-                    for name, tensor in payload.items():
-                        if isinstance(tensor, torch.Tensor):
-                            setattr(graph, name, tensor)
+                    for name, value in payload.items():
+                        setattr(graph, name, value)
                     if hasattr(graph, "structural_payload_key"):
                         delattr(graph, "structural_payload_key")
                 hydrated.append(graph)
@@ -216,9 +215,14 @@ class ShardedGraphDataset(Dataset[Data]):
             raise ValueError(f"Invalid shard payload type for {shard_path}.")
         self._cached_shards[shard_idx] = loaded
         self._cache_lru_order.append(shard_idx)
+        evicted = False
         while len(self._cache_lru_order) > self._max_cached_shards:
             evict_idx = self._cache_lru_order.pop(0)
             self._cached_shards.pop(evict_idx, None)
+            evicted = True
+        if evicted:
+            import gc
+            gc.collect()
         return loaded
 
     def shard_index_ranges(self) -> List[Tuple[int, int]]:
@@ -260,8 +264,9 @@ class ShardedGraphDataset(Dataset[Data]):
             self._topology_index = tuple(indexed)
             return self._topology_index
 
+        import gc
         indexed = []
-        for row in self._shards:
+        for i, row in enumerate(self._shards):
             shard_path = self.entry_dir / str(row["path"])
             loaded = load_trusted_torch_artifact(shard_path, map_location="cpu")
             graphs = loaded.get("graphs", []) if isinstance(loaded, dict) and loaded.get("format") == "dedup_structural_payloads" else loaded
@@ -271,9 +276,14 @@ class ShardedGraphDataset(Dataset[Data]):
                 if not isinstance(graph, Data):
                     raise ValueError(f"Invalid graph item in {shard_path}.")
                 indexed.append(_data_topology_key(graph))
+            loaded = None
+            graphs = None
+            if (i + 1) % 5 == 0:
+                gc.collect()
         if len(indexed) != self._size:
             raise ValueError(f"Invalid sharded topology index size: expected {self._size}, got {len(indexed)}.")
         self._topology_index = tuple(indexed)
+        gc.collect()
         return self._topology_index
 
 
@@ -2150,11 +2160,12 @@ class ModelTrainer:
                         and str(self.learning_strategy_config.retention_policy) == "version_decay"
                     ):
                         sample_weights = self._retention_sample_weights(contract, targets)
+                        retention_class_weights = None if candidate_output is not None else self.class_weights
                         retention_loss = version_weighted_cross_entropy(
                             effective_logits,
                             targets,
                             sample_weights=sample_weights,
-                            class_weights=self.class_weights,
+                            class_weights=retention_class_weights,
                         )
                         loss = loss + retention_loss
                         self._accumulate_topology_conditioned_stats(
@@ -3121,6 +3132,9 @@ class ModelTrainer:
                         },
                         force=True,
                     )
+                    if processed_batches % 50 == 0:
+                        import gc
+                        gc.collect()
         except Exception as exc:
             progress_reporter.error(message=f"Drift one-pass inference failed: {exc}")
             raise
@@ -3150,6 +3164,8 @@ class ModelTrainer:
         self._log_forward_stats_summary("eval_drift_one_pass", forward_stats)
         self._log_trace_overhead_metrics()
 
+        import gc
+        gc.collect()
         return DriftInferenceRecords(
             trace_idx=np.asarray(all_trace_idx, dtype=np.int64),
             y_true=np.asarray(all_true, dtype=np.int64),
@@ -4461,6 +4477,13 @@ class ModelTrainer:
                 float(duplicate_count_max),
             )
 
+        candidate_is_unseen = getattr(self.model, "last_candidate_is_unseen", None)
+        if isinstance(candidate_is_unseen, (list, tuple)) and len(candidate_is_unseen) > 0:
+            unseen_rate = float(sum(1 for u in candidate_is_unseen if u)) / float(len(candidate_is_unseen))
+            bucket["candidate_unseen_candidate_rate_sum"] = float(
+                bucket.get("candidate_unseen_candidate_rate_sum", 0.0)
+            ) + unseen_rate
+
     def _accumulate_topology_graph_stats(self, bucket: Dict[str, Any]) -> None:
         context = getattr(self.model, "last_topology_graph_context", None)
         logits = getattr(self.model, "last_topology_graph_logits", None)
@@ -4886,6 +4909,7 @@ class ModelTrainer:
         candidate_pred_score = _candidate_average("pred_score")
         candidate_score_gap = _candidate_average("score_gap")
         candidate_dynamic_count = _candidate_average("dynamic_count")
+        candidate_unseen_candidate_rate = _candidate_average("unseen_candidate_rate")
         candidate_target_mapping_batches = int(bucket.get("candidate_target_mapping_batches", 0))
 
         def _candidate_target_average(name: str) -> float:
@@ -4898,6 +4922,7 @@ class ModelTrainer:
         candidate_target_duplicate_count_max = _candidate_target_average("target_duplicate_count_max")
         candidate_target_set_logit_variance_mean = _candidate_target_average("target_set_logit_variance_mean")
         candidate_target_set_entropy_mean = _candidate_target_average("target_set_entropy_mean")
+        candidate_unseen_target_rate = _candidate_target_average("unseen_target_rate")
         candidate_flow_batches = int(bucket.get("candidate_flow_batches", 0))
 
         def _candidate_flow_average(name: str) -> float:
@@ -4945,9 +4970,11 @@ class ModelTrainer:
             "candidate_prediction_entropy=%.6f candidate_target_score=%.6f "
             "candidate_pred_score=%.6f candidate_score_gap=%.6f "
             "candidate_dynamic_count=%.6f "
+            "candidate_unseen_candidate_rate=%.6f "
             "candidate_target_in_candidate_set_rate=%.6f candidate_missing_target_rate=%.6f "
             "candidate_target_duplicate_count_max=%.6f candidate_target_set_logit_variance_mean=%.6f "
             "candidate_target_set_entropy_mean=%.6f "
+            "candidate_unseen_target_rate=%.6f "
             "candidate_oos_rate=%.6f candidate_invalid_probability_mass=%.6f "
             "candidate_valid_probability_mass=%.6f candidate_valid_invalid_logit_margin=%.6f",
             stage_label,
@@ -5023,11 +5050,13 @@ class ModelTrainer:
             candidate_pred_score,
             candidate_score_gap,
             candidate_dynamic_count,
+            candidate_unseen_candidate_rate,
             candidate_target_in_candidate_set_rate,
             candidate_missing_target_rate,
             candidate_target_duplicate_count_max,
             candidate_target_set_logit_variance_mean,
             candidate_target_set_entropy_mean,
+            candidate_unseen_target_rate,
             candidate_oos_rate,
             candidate_invalid_probability_mass,
             candidate_valid_probability_mass,
@@ -5166,6 +5195,7 @@ class ModelTrainer:
             self.tracker.log_metric(f"{metric_prefix}_candidate_pred_score", candidate_pred_score)
             self.tracker.log_metric(f"{metric_prefix}_candidate_score_gap", candidate_score_gap)
             self.tracker.log_metric(f"{metric_prefix}_candidate_dynamic_count", candidate_dynamic_count)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_unseen_candidate_rate", candidate_unseen_candidate_rate)
         if self.tracker is not None and candidate_target_mapping_batches > 0:
             self.tracker.log_metric(
                 f"{metric_prefix}_candidate_target_in_candidate_set_rate",
@@ -5183,6 +5213,10 @@ class ModelTrainer:
             self.tracker.log_metric(
                 f"{metric_prefix}_candidate_target_set_entropy_mean",
                 candidate_target_set_entropy_mean,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_unseen_target_rate",
+                candidate_unseen_target_rate,
             )
         if self.tracker is not None and candidate_flow_batches > 0:
             self.tracker.log_metric(f"{metric_prefix}_candidate_oos_rate", candidate_oos_rate)
@@ -5418,32 +5452,42 @@ class ModelTrainer:
         """Select structural payload for forward; use first graph payload on batched input."""
         self._warn_if_mixed_snapshot_versions(data)
 
-        to_data_list = getattr(data, "to_data_list", None)
-        if callable(to_data_list):
+        get_example = getattr(data, "get_example", None)
+        first = None
+        if callable(get_example):
             try:
-                data_list = list(to_data_list())
+                first = get_example(0)
             except Exception:
-                data_list = []
-            if data_list:
-                first = data_list[0]
-                struct_x = first.struct_x if hasattr(first, "struct_x") and isinstance(first.struct_x, torch.Tensor) else None
-                structural_edge_index = (
-                    first.structural_edge_index
-                    if hasattr(first, "structural_edge_index") and isinstance(first.structural_edge_index, torch.Tensor)
-                    else None
-                )
-                structural_edge_weight = (
-                    first.structural_edge_weight
-                    if hasattr(first, "structural_edge_weight") and isinstance(first.structural_edge_weight, torch.Tensor)
-                    else None
-                )
-                struct_node_to_class_index = (
-                    first.struct_node_to_class_index
-                    if hasattr(first, "struct_node_to_class_index")
-                    and isinstance(first.struct_node_to_class_index, torch.Tensor)
-                    else None
-                )
-                return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
+                first = None
+        if first is None:
+            to_data_list = getattr(data, "to_data_list", None)
+            if callable(to_data_list):
+                try:
+                    data_list = list(to_data_list())
+                except Exception:
+                    data_list = []
+                if data_list:
+                    first = data_list[0]
+
+        if first is not None:
+            struct_x = first.struct_x if hasattr(first, "struct_x") and isinstance(first.struct_x, torch.Tensor) else None
+            structural_edge_index = (
+                first.structural_edge_index
+                if hasattr(first, "structural_edge_index") and isinstance(first.structural_edge_index, torch.Tensor)
+                else None
+            )
+            structural_edge_weight = (
+                first.structural_edge_weight
+                if hasattr(first, "structural_edge_weight") and isinstance(first.structural_edge_weight, torch.Tensor)
+                else None
+            )
+            struct_node_to_class_index = (
+                first.struct_node_to_class_index
+                if hasattr(first, "struct_node_to_class_index")
+                and isinstance(first.struct_node_to_class_index, torch.Tensor)
+                else None
+            )
+            return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
         struct_x = data.struct_x if hasattr(data, "struct_x") and isinstance(data.struct_x, torch.Tensor) else None
         structural_edge_index = (
@@ -5478,6 +5522,18 @@ class ModelTrainer:
         struct_node_count: int | None,
     ) -> torch.Tensor | None:
         """Return per-graph topology prefix state as [B, V, F]."""
+        raw = data.struct_prefix_state_x if hasattr(data, "struct_prefix_state_x") and isinstance(data.struct_prefix_state_x, torch.Tensor) else None
+        if raw is not None:
+            raw = raw.float()
+            if raw.dim() == 3:
+                return raw
+            if raw.dim() == 2:
+                if graph_count <= 1:
+                    return raw.unsqueeze(0)
+                if struct_node_count is not None and struct_node_count > 0:
+                    if int(raw.size(0)) == int(graph_count) * int(struct_node_count):
+                        return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
+
         to_data_list = getattr(data, "to_data_list", None)
         if callable(to_data_list):
             try:
@@ -5519,12 +5575,132 @@ class ModelTrainer:
             )
         return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
 
+    def _select_candidate_payload_for_forward(
+        self,
+        data: Data,
+    ) -> tuple[
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        tuple[str, ...] | None,
+        tuple[str, ...] | None,
+    ]:
+        """Select candidate payload for forward; use first graph payload on batched input."""
+        get_example = getattr(data, "get_example", None)
+        first = None
+        if callable(get_example):
+            try:
+                first = get_example(0)
+            except Exception:
+                first = None
+        if first is None:
+            to_data_list = getattr(data, "to_data_list", None)
+            if callable(to_data_list):
+                try:
+                    data_list = list(to_data_list())
+                except Exception:
+                    data_list = []
+                if data_list:
+                    first = data_list[0]
+
+        if first is not None:
+            struct_node_to_candidate_index = (
+                first.struct_node_to_candidate_index
+                if hasattr(first, "struct_node_to_candidate_index")
+                and isinstance(first.struct_node_to_candidate_index, torch.Tensor)
+                else None
+            )
+            candidate_class_index = (
+                first.candidate_class_index
+                if hasattr(first, "candidate_class_index")
+                and isinstance(first.candidate_class_index, torch.Tensor)
+                else None
+            )
+            candidate_is_unseen = (
+                first.candidate_is_unseen
+                if hasattr(first, "candidate_is_unseen")
+                and isinstance(first.candidate_is_unseen, torch.Tensor)
+                else None
+            )
+            candidate_allowed_target_mask = (
+                first.candidate_allowed_target_mask
+                if hasattr(first, "candidate_allowed_target_mask")
+                and isinstance(first.candidate_allowed_target_mask, torch.Tensor)
+                else None
+            )
+            candidate_ids = (
+                first.candidate_ids
+                if hasattr(first, "candidate_ids")
+                and isinstance(first.candidate_ids, (list, tuple))
+                else None
+            )
+            candidate_labels = (
+                first.candidate_labels
+                if hasattr(first, "candidate_labels")
+                and isinstance(first.candidate_labels, (list, tuple))
+                else None
+            )
+            return (
+                struct_node_to_candidate_index,
+                candidate_class_index,
+                candidate_is_unseen,
+                candidate_allowed_target_mask,
+                candidate_ids,
+                candidate_labels,
+            )
+
+        struct_node_to_candidate_index = (
+            data.struct_node_to_candidate_index
+            if hasattr(data, "struct_node_to_candidate_index")
+            and isinstance(data.struct_node_to_candidate_index, torch.Tensor)
+            else None
+        )
+        candidate_class_index = (
+            data.candidate_class_index
+            if hasattr(data, "candidate_class_index")
+            and isinstance(data.candidate_class_index, torch.Tensor)
+            else None
+        )
+        candidate_is_unseen = (
+            data.candidate_is_unseen
+            if hasattr(data, "candidate_is_unseen")
+            and isinstance(data.candidate_is_unseen, torch.Tensor)
+            else None
+        )
+        candidate_allowed_target_mask = (
+            data.candidate_allowed_target_mask
+            if hasattr(data, "candidate_allowed_target_mask")
+            and isinstance(data.candidate_allowed_target_mask, torch.Tensor)
+            else None
+        )
+        candidate_ids = (
+            data.candidate_ids
+            if hasattr(data, "candidate_ids")
+            and isinstance(data.candidate_ids, (list, tuple))
+            else None
+        )
+        candidate_labels = (
+            data.candidate_labels
+            if hasattr(data, "candidate_labels")
+            and isinstance(data.candidate_labels, (list, tuple))
+            else None
+        )
+        return (
+            struct_node_to_candidate_index,
+            candidate_class_index,
+            candidate_is_unseen,
+            candidate_allowed_target_mask,
+            candidate_ids,
+            candidate_labels,
+        )
+
     def _data_to_contract(self, data: Data) -> GraphTensorContract:
         """Convert PyG batch Data to GraphTensorContract for model forward."""
         edge_type = data.edge_type if hasattr(data, "edge_type") else torch.zeros(data.edge_index.shape[1], dtype=torch.long)
         num_nodes = int(data.x_cat.size(0))
-        batch_tensor = data.batch if hasattr(data, "batch") else torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
-        if batch_tensor.numel() != num_nodes:
+        batch_tensor = data.batch if hasattr(data, "batch") and isinstance(data.batch, torch.Tensor) else None
+        if batch_tensor is None or batch_tensor.numel() != num_nodes:
             batch_tensor = torch.zeros(num_nodes, dtype=torch.long, device=data.x_cat.device)
         contract = GraphTensorContract(
             x_cat=data.x_cat,
@@ -5553,6 +5729,30 @@ class ModelTrainer:
             contract["structural_edge_weight"] = structural_edge_weight
         if isinstance(struct_node_to_class_index, torch.Tensor):
             contract["struct_node_to_class_index"] = struct_node_to_class_index.long()
+
+        (
+            struct_node_to_candidate_index,
+            candidate_class_index,
+            candidate_is_unseen,
+            candidate_allowed_target_mask,
+            candidate_ids,
+            candidate_labels,
+        ) = self._select_candidate_payload_for_forward(data)
+
+        if isinstance(struct_node_to_candidate_index, torch.Tensor):
+            contract["struct_node_to_candidate_index"] = struct_node_to_candidate_index.long()
+        if isinstance(candidate_class_index, torch.Tensor):
+            contract["candidate_class_index"] = candidate_class_index.long()
+        if isinstance(candidate_is_unseen, torch.Tensor):
+            contract["candidate_is_unseen"] = candidate_is_unseen.bool()
+        if isinstance(candidate_allowed_target_mask, torch.Tensor):
+            contract["candidate_allowed_target_mask"] = candidate_allowed_target_mask.bool()
+        if candidate_ids is not None:
+            contract["candidate_ids"] = candidate_ids
+        if candidate_labels is not None:
+            contract["candidate_labels"] = candidate_labels
+        if hasattr(data, "target_label"):
+            contract["target_label"] = data.target_label
         graph_count = int(batch_tensor.max().item()) + 1 if batch_tensor.numel() > 0 else int(data.y.view(-1).shape[0])
         struct_node_count = (
             int(struct_node_to_class_index.numel())
@@ -5634,6 +5834,26 @@ class ModelTrainer:
                     contract["process_version_labels"] = labels  # type: ignore[typeddict-unknown-key]
         self._guard_candidate_batch_topology(data, contract)
         return contract
+
+    def _target_labels_from_contract(
+        self,
+        contract: dict,
+        targets: torch.Tensor,
+    ) -> List[str]:
+        """Extract per-sample target labels from the collated contract.
+
+        PyG DataLoader collates ``target_label`` into a flat list when samples
+        carry this attribute.  Returns a list with one label per sample in the
+        batch, or an empty list when the contract does not contain target labels.
+        """
+        raw = contract.get("target_label")
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, (list, tuple)):
+            return [str(item) for item in raw]
+        return []
 
     def _log_model_and_system_context(self) -> None:
         """Log model size and runtime memory/device metadata via tracker port."""

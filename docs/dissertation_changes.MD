@@ -1399,3 +1399,22 @@ This directly supports the main hypothesis: when a new process version appears,
 the model must be able to use the new topology before logs of that version are
 available. If future candidates are absent from the candidate universe, the
 hypothesis cannot be evaluated correctly.
+
+**2026-05-26 implementation note:** topology-native candidate identity was
+implemented as the next experimental contract. The model can now expose
+topology-local candidates whose labels are absent from the train activity
+vocabulary:
+
+```text
+candidate_class_index = -1
+```
+
+This changes the interpretation of experiments:
+
+- fixed-label F1 remains a compatibility metric;
+- candidate-space metrics become primary for zero-shot claims;
+- unseen candidates must be visible in traces/MLflow before discussing whether
+  the model transfers topology knowledge;
+- if unseen candidates are visible but never selected, the next blocker is
+  semantic grounding / retrieval-style candidate prototypes, not basic topology
+  wiring.

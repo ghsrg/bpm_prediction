@@ -369,6 +369,9 @@ def _diagnostics_payload(
         "candidate_score_gap": tensor_scalar(getattr(model, "last_candidate_score_gap", None)),
         "candidate_dynamic_count": tensor_scalar(getattr(model, "last_candidate_dynamic_count", None)),
         "candidate_class_index": _json_safe(getattr(model, "last_candidate_class_index", None)),
+        "candidate_ids": _json_safe(getattr(model, "last_candidate_ids", None)),
+        "candidate_labels": _json_safe(getattr(model, "last_candidate_labels", None)),
+        "candidate_is_unseen": _json_safe(getattr(model, "last_candidate_is_unseen", None)),
     }
     topology_conditioned_values = {
         key: value for key, value in topology_conditioned_values.items() if value is not None
@@ -441,6 +444,9 @@ def _contract_payload(contract: dict[str, Any]) -> dict[str, Any]:
         "struct_edge_count": _edge_count(structural_edge_index),
         "struct_feature_dim": _tensor_cols(struct_x),
         "has_allowed_target_mask": isinstance(contract.get("allowed_target_mask"), torch.Tensor),
+        "candidate_ids": _json_safe(contract.get("candidate_ids")),
+        "candidate_labels": _json_safe(contract.get("candidate_labels")),
+        "has_candidate_allowed_target_mask": isinstance(contract.get("candidate_allowed_target_mask"), torch.Tensor),
     }
 
 

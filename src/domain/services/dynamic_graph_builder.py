@@ -43,6 +43,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         on_missing_asof_snapshot: str = "disable_stats",
         cache_policy: str = "full",
         cache_dir: str | None = None,
+        candidate_identity_mode: str = "fixed_vocab_bridge",
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -70,8 +71,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._resolved_snapshot_identities: set[tuple[str, str, str | None, str | None]] = set()
         self._dto_cache_max_entries = 32768
         self._topology_cache_max_entries = 512
-        self._topology_disk_cache_schema = 1
+        self._topology_disk_cache_schema = 3
         self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
+        self.candidate_identity_mode = str(candidate_identity_mode or "fixed_vocab_bridge").strip().lower()
 
     def cache_diagnostics(self) -> dict[str, int]:
         return {
@@ -84,7 +86,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
     def build_graph(self, prefix: PrefixSlice) -> GraphTensorContract:
         """Build baseline contract and inject OOS mask when topology is available."""
         contract = super().build_graph(prefix)
-        as_of_ts = self._resolve_as_of_timestamp(prefix) if self.stats_time_policy == "strict_asof" else None
+        mapping = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
+        stats_enabled = bool(mapping.get("enabled", False))
+        as_of_ts = (
+            self._resolve_as_of_timestamp(prefix)
+            if self.stats_time_policy == "strict_asof"
+            else None
+        )
 
         raw_version = str(prefix.process_version).strip() or "default"
         candidate_versions = [raw_version]
@@ -135,6 +143,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         )
         num_classes = len(activity_vocab)
         allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
+        candidate_allowed_mask = torch.zeros(
+            int(compiled.get("candidate_count", 0) or 0),
+            dtype=torch.bool,
+        )
         active_mask = torch.zeros(num_classes, dtype=torch.bool)
         active_candidates = self._extract_active_candidates(
             prefix.prefix_events[-1].extra if prefix.prefix_events else {},
@@ -156,7 +168,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             cached_mask = compiled["allowed_masks_by_src"].get(int(last_activity_idx))
             if isinstance(cached_mask, torch.Tensor):
                 allowed_mask = cached_mask.clone()
+        for src_idx in self._candidate_indices_for_token(compiled=compiled, token=last_activity):
+            cached_candidate_mask = compiled.get("candidate_allowed_masks_by_src", {}).get(int(src_idx))
+            if isinstance(cached_candidate_mask, torch.Tensor):
+                candidate_allowed_mask = torch.logical_or(candidate_allowed_mask, cached_candidate_mask)
         allowed_mask = torch.logical_or(allowed_mask, active_mask)
+        for token in active_candidates:
+            for candidate_idx in self._candidate_indices_for_token(compiled=compiled, token=token):
+                if 0 <= int(candidate_idx) < int(candidate_allowed_mask.numel()):
+                    candidate_allowed_mask[int(candidate_idx)] = True
 
         # Reuse cached structural tensors across prefixes to avoid per-prefix RAM duplication.
         contract["structural_edge_index"] = compiled["structural_edge_index"]
@@ -169,6 +189,17 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 activity_vocab=activity_vocab,
                 struct_node_to_class_index=struct_node_to_class_index,
             )
+        struct_node_to_candidate_index = compiled.get("struct_node_to_candidate_index")
+        if isinstance(struct_node_to_candidate_index, torch.Tensor):
+            contract["struct_node_to_candidate_index"] = struct_node_to_candidate_index
+        candidate_class_index = compiled.get("candidate_class_index")
+        if isinstance(candidate_class_index, torch.Tensor):
+            contract["candidate_class_index"] = candidate_class_index
+        candidate_is_unseen = compiled.get("candidate_is_unseen")
+        if isinstance(candidate_is_unseen, torch.Tensor):
+            contract["candidate_is_unseen"] = candidate_is_unseen
+        contract["candidate_ids"] = tuple(compiled.get("candidate_ids", ()))
+        contract["candidate_labels"] = tuple(compiled.get("candidate_labels", ()))
         struct_x = compiled.get("struct_x")
         if isinstance(struct_x, torch.Tensor):
             contract["struct_x"] = struct_x
@@ -181,7 +212,24 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 diagnostics=TopologyProjectionDiagnostics.from_dict(diagnostics),
             )
         contract["allowed_target_mask"] = allowed_mask
+        contract["candidate_allowed_target_mask"] = candidate_allowed_mask
+        if prefix.target_event is not None:
+            contract["target_label"] = str(prefix.target_event.activity_id)
         return contract
+
+    @staticmethod
+    def _candidate_indices_for_token(*, compiled: Dict[str, Any], token: str) -> list[int]:
+        normalized = str(token).strip()
+        if not normalized:
+            return []
+        by_label = compiled.get("candidate_indices_by_label", {})
+        by_id = compiled.get("candidate_indices_by_id", {})
+        result: list[int] = []
+        if isinstance(by_label, dict):
+            result.extend(int(item) for item in by_label.get(normalized, []))
+        if isinstance(by_id, dict):
+            result.extend(int(item) for item in by_id.get(normalized, []))
+        return sorted(set(result))
 
     def _build_struct_prefix_state_x(
         self,
@@ -492,10 +540,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
     ) -> ProcessStructureDTO | None:
         cache_key: tuple[Any, ...] | None = None
         if self._should_cache_dto_lookup(as_of_ts=as_of_ts):
+            mapping = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
+            stats_enabled = bool(mapping.get("enabled", False))
+            resolved_as_of = as_of_ts if stats_enabled else None
             cache_key = (
                 self.process_name or "__auto__",
                 tuple(str(item).strip() for item in candidate_versions),
-                as_of_ts.isoformat() if isinstance(as_of_ts, datetime) else None,
+                resolved_as_of.isoformat() if isinstance(resolved_as_of, datetime) else None,
             )
             if cache_key in self._dto_cache:
                 self._cache_diagnostics["dto_cache_hits"] += 1
@@ -582,7 +633,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         vocab_fingerprint = self._activity_vocab_fingerprint(activity_vocab)
         return (
             self.process_name or "__auto__",
+            "topology_native_candidate_identity_v1",
             str(dto.version),
+            self.candidate_identity_mode,
             self._clean_optional_text(snapshot.get("knowledge_version")),
             self._clean_optional_text(snapshot.get("as_of_ts")),
             bool(stats_allowed),
@@ -706,7 +759,20 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             self._cache_diagnostics["topology_cache_misses"] += 1
 
         num_classes = len(activity_vocab)
+        candidate_ids, candidate_labels, candidate_class_values = self._topology_native_candidates(
+            dto=dto,
+            activity_vocab=activity_vocab,
+        )
+        candidate_count = len(candidate_ids)
+        candidate_id_to_index = {candidate_id: idx for idx, candidate_id in enumerate(candidate_ids)}
+        candidate_indices_by_label: dict[str, list[int]] = {}
+        candidate_indices_by_id: dict[str, list[int]] = {}
+        for idx, (candidate_id, candidate_label) in enumerate(zip(candidate_ids, candidate_labels)):
+            candidate_indices_by_id.setdefault(candidate_id, []).append(idx)
+            candidate_indices_by_label.setdefault(candidate_label, []).append(idx)
+        
         allowed_masks_by_src: Dict[int, torch.Tensor] = {}
+        candidate_allowed_masks_by_src: Dict[int, torch.Tensor] = {}
         structural_src: list[int] = []
         structural_dst: list[int] = []
         structural_weight: list[float] = []
@@ -716,22 +782,41 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if not stats_allowed:
             edge_stats = {}
 
-        projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
-            dto=dto,
-            activity_vocab=activity_vocab,
-        )
+        if self.candidate_identity_mode == "topology_native":
+            projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
+                dto=dto,
+                activity_vocab={candidate_id: idx for idx, candidate_id in enumerate(candidate_ids)},
+            )
+        else:
+            projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
+                dto=dto,
+                activity_vocab=activity_vocab,
+            )
+
         projected_edge_paths = projection_result.projected_edge_paths
         for src, dst in projected_edge_paths:
             src_token = str(src).strip()
             dst_token = str(dst).strip()
             src_idx = activity_vocab.get(src_token)
             dst_idx = activity_vocab.get(dst_token)
-            if src_idx is None or dst_idx is None:
-                continue
-            src_idx_int = int(src_idx)
-            dst_idx_int = int(dst_idx)
-            structural_src.append(src_idx_int)
-            structural_dst.append(dst_idx_int)
+            src_candidate_idx = candidate_id_to_index.get(src_token)
+            dst_candidate_idx = candidate_id_to_index.get(dst_token)
+
+            if self.candidate_identity_mode == "topology_native":
+                if src_candidate_idx is None or dst_candidate_idx is None:
+                    continue
+                src_idx_int = int(src_idx) if src_idx is not None else -1
+                dst_idx_int = int(dst_idx) if dst_idx is not None else -1
+                structural_src.append(int(src_candidate_idx))
+                structural_dst.append(int(dst_candidate_idx))
+            else:
+                if src_idx is None or dst_idx is None:
+                    continue
+                src_idx_int = int(src_idx)
+                dst_idx_int = int(dst_idx)
+                structural_src.append(src_idx_int)
+                structural_dst.append(dst_idx_int)
+
             if edge_weight_spec is not None:
                 edge_key = f"{src_token}|||{dst_token}"
                 if edge_key in edge_weight_index:
@@ -747,11 +832,20 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             else:
                 stats = edge_stats.get((src, dst), {})
                 structural_weight.append(float(stats.get("count", 1.0)))
-            row_mask = allowed_masks_by_src.get(src_idx_int)
-            if row_mask is None:
-                row_mask = torch.zeros(num_classes, dtype=torch.bool)
-                allowed_masks_by_src[src_idx_int] = row_mask
-            row_mask[dst_idx_int] = True
+
+            if src_idx_int >= 0 and dst_idx_int >= 0:
+                row_mask = allowed_masks_by_src.get(src_idx_int)
+                if row_mask is None:
+                    row_mask = torch.zeros(num_classes, dtype=torch.bool)
+                    allowed_masks_by_src[src_idx_int] = row_mask
+                row_mask[dst_idx_int] = True
+
+            if src_candidate_idx is not None and dst_candidate_idx is not None:
+                candidate_row_mask = candidate_allowed_masks_by_src.get(int(src_candidate_idx))
+                if candidate_row_mask is None:
+                    candidate_row_mask = torch.zeros(candidate_count, dtype=torch.bool)
+                    candidate_allowed_masks_by_src[int(src_candidate_idx)] = candidate_row_mask
+                candidate_row_mask[int(dst_candidate_idx)] = True
 
         if structural_src:
             structural_edge_index = torch.tensor([structural_src, structural_dst], dtype=torch.long)
@@ -765,8 +859,27 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             structural_edge_index = torch.zeros((2, 0), dtype=torch.long)
             structural_edge_weight = torch.zeros((0,), dtype=torch.float32)
 
-        struct_node_to_class_index = torch.arange(num_classes, dtype=torch.long)
-        struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
+        candidate_class_index = torch.tensor(candidate_class_values, dtype=torch.long)
+        candidate_is_unseen = candidate_class_index < 0
+
+        if self.candidate_identity_mode == "topology_native":
+            struct_node_to_class_index = candidate_class_index.clone()
+            struct_node_to_candidate_index = torch.arange(candidate_count, dtype=torch.long)
+            struct_x = (
+                self._build_candidate_struct_x(
+                    dto=dto,
+                    candidate_labels=candidate_labels,
+                    candidate_class_index=candidate_class_index,
+                    activity_vocab=activity_vocab,
+                )
+                if stats_allowed
+                else None
+            )
+        else:
+            struct_node_to_class_index = torch.arange(num_classes, dtype=torch.long)
+            struct_node_to_candidate_index = torch.arange(num_classes, dtype=torch.long)
+            struct_x = self._build_struct_x(dto=dto, activity_vocab=activity_vocab) if stats_allowed else None
+
         structural_edge_index_max = (
             int(structural_edge_index.max().item())
             if isinstance(structural_edge_index, torch.Tensor) and structural_edge_index.numel() > 0
@@ -793,9 +906,18 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             struct_x = None
         compiled = {
             "allowed_masks_by_src": allowed_masks_by_src,
+            "candidate_allowed_masks_by_src": candidate_allowed_masks_by_src,
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
             "struct_node_to_class_index": struct_node_to_class_index,
+            "struct_node_to_candidate_index": struct_node_to_candidate_index,
+            "candidate_ids": tuple(candidate_ids),
+            "candidate_labels": tuple(candidate_labels),
+            "candidate_class_index": candidate_class_index,
+            "candidate_is_unseen": candidate_is_unseen,
+            "candidate_indices_by_label": candidate_indices_by_label,
+            "candidate_indices_by_id": candidate_indices_by_id,
+            "candidate_count": int(candidate_count),
             "struct_x": struct_x,
             "topology_projection_diagnostics": diagnostics,
         }
@@ -808,6 +930,71 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
             self._save_compiled_topology_to_disk(cache_key=cache_key, compiled=compiled)
         return compiled
+
+    @staticmethod
+    def _node_label(node: Dict[str, Any]) -> str:
+        for key in ("activity_label", "label", "name", "id"):
+            value = str(node.get(key, "")).strip()
+            if value:
+                return value
+        return ""
+
+    def _topology_native_candidates(
+        self,
+        *,
+        dto: ProcessStructureDTO,
+        activity_vocab: Dict[str, int],
+    ) -> tuple[list[str], list[str], list[int]]:
+        nodes = list(dto.nodes or [])
+        node_by_id = {str(node.get("id", "")).strip(): node for node in nodes if isinstance(node, dict)}
+        projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
+            dto=dto,
+            activity_vocab={},
+        )
+        candidate_ids: set[str] = set()
+        if self.topology_gateway_mode == "collapse_for_prediction" and projection_result.prediction_nodes:
+            candidate_ids.update(projection_result.prediction_nodes)
+        else:
+            for src, dst in projection_result.projected_edge_paths:
+                if str(src).strip():
+                    candidate_ids.add(str(src).strip())
+                if str(dst).strip():
+                    candidate_ids.add(str(dst).strip())
+        if not candidate_ids:
+            for src, dst in dto.allowed_edges:
+                if str(src).strip():
+                    candidate_ids.add(str(src).strip())
+                if str(dst).strip():
+                    candidate_ids.add(str(dst).strip())
+
+        ordered_ids = sorted(candidate_ids)
+        labels: list[str] = []
+        class_values: list[int] = []
+        for candidate_id in ordered_ids:
+            label = self._node_label(node_by_id.get(candidate_id, {"id": candidate_id})) or candidate_id
+            labels.append(label)
+            class_idx = activity_vocab.get(candidate_id, -1)
+            if class_idx == -1:
+                class_idx = activity_vocab.get(label, -1)
+            class_values.append(int(class_idx))
+        return ordered_ids, labels, class_values
+
+    def _build_candidate_struct_x(
+        self,
+        *,
+        dto: ProcessStructureDTO,
+        candidate_labels: list[str],
+        candidate_class_index: torch.Tensor,
+        activity_vocab: Dict[str, int],
+    ) -> torch.Tensor | None:
+        base = self._build_struct_x(dto=dto, activity_vocab=activity_vocab)
+        if not isinstance(base, torch.Tensor):
+            return None
+        out = torch.zeros((len(candidate_labels), int(base.size(1))), dtype=torch.float32)
+        for row_idx, class_idx in enumerate(candidate_class_index.view(-1).tolist()):
+            if 0 <= int(class_idx) < int(base.size(0)):
+                out[row_idx] = base[int(class_idx)]
+        return out
 
     def _handle_topology_projection_diagnostics(self, *, diagnostics: TopologyProjectionDiagnostics) -> None:
         if diagnostics.is_aligned:
@@ -956,6 +1143,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         structural_edge_index = compiled.get("structural_edge_index")
         structural_edge_weight = compiled.get("structural_edge_weight")
         struct_node_to_class_index = compiled.get("struct_node_to_class_index")
+        struct_node_to_candidate_index = compiled.get("struct_node_to_candidate_index")
+        candidate_class_index = compiled.get("candidate_class_index")
+        candidate_is_unseen = compiled.get("candidate_is_unseen")
         struct_x = compiled.get("struct_x")
         diagnostics = compiled.get("topology_projection_diagnostics")
         if not isinstance(allowed_masks_by_src, dict):
@@ -966,15 +1156,30 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             return None
         if not isinstance(struct_node_to_class_index, torch.Tensor):
             return None
+        if not isinstance(struct_node_to_candidate_index, torch.Tensor):
+            return None
+        if not isinstance(candidate_class_index, torch.Tensor):
+            return None
+        if not isinstance(candidate_is_unseen, torch.Tensor):
+            return None
         if struct_x is not None and (not isinstance(struct_x, torch.Tensor)):
             return None
         if diagnostics is not None and not isinstance(diagnostics, dict):
             return None
         return {
             "allowed_masks_by_src": allowed_masks_by_src,
+            "candidate_allowed_masks_by_src": compiled.get("candidate_allowed_masks_by_src", {}),
             "structural_edge_index": structural_edge_index,
             "structural_edge_weight": structural_edge_weight,
             "struct_node_to_class_index": struct_node_to_class_index,
+            "struct_node_to_candidate_index": struct_node_to_candidate_index,
+            "candidate_ids": tuple(str(item) for item in compiled.get("candidate_ids", ())),
+            "candidate_labels": tuple(str(item) for item in compiled.get("candidate_labels", ())),
+            "candidate_class_index": candidate_class_index,
+            "candidate_is_unseen": candidate_is_unseen,
+            "candidate_indices_by_label": compiled.get("candidate_indices_by_label", {}),
+            "candidate_indices_by_id": compiled.get("candidate_indices_by_id", {}),
+            "candidate_count": int(compiled.get("candidate_count", int(candidate_class_index.numel()))),
             "struct_x": struct_x,
             "topology_projection_diagnostics": diagnostics,
         }

@@ -1428,3 +1428,38 @@ Stage 4.2 uses transitional Option-A behavior for structural payload selection:
 
 Target direction is tracked in
 `docs/adr/0005-snapshot-homogeneous-batching.md`.
+
+## 10. Topology-Native Candidate Identity
+
+`EOPKGTopologyConditioned` now supports a topology-native candidate axis for:
+
+```yaml
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+```
+
+Runtime contract:
+
+```text
+candidate_logits: [B, K_v]
+candidate_ids: topology-local BPMN candidate ids
+candidate_labels: labels used to match XES targets
+candidate_class_index: compatibility mapping to train activity vocab, -1 for unseen labels
+candidate_allowed_target_mask: topology-local allowed-candidate mask
+```
+
+`candidate_class_index=-1` no longer removes a candidate from the topology
+candidate axis. It only means fixed-label compatibility metrics cannot represent
+that candidate as a known train-vocab class.
+
+For XES logs, the target is still a label, not a unique BPMN node id. Therefore
+candidate-native loss maps `target_label` to all candidates with the same
+`candidate_label`. Exact BPMN-node target supervision remains future work.
+
+`gateway_mode` remains a data/topology alignment setting:
+
+- `collapse_for_prediction`: canonical for XES task-label prediction;
+- `preserve`: for Camunda-like logs that include technical/service nodes.
+
+Changing the gateway mode changes the candidate universe and must match the log
+source semantics.

@@ -88,6 +88,30 @@ class _CandidateFlowModel(nn.Module):
         )
 
 
+class _DynamicCandidateFlowModel(nn.Module):
+    def __init__(self, candidate_count: int = 41) -> None:
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.fusion_mode = "TopologyConditionedCandidateScoring"
+        self.structural_mode = True
+        self.candidate_count = int(candidate_count)
+
+    def forward_candidate(self, contract):
+        batch_size = int(contract["y"].view(-1).numel())
+        logits = torch.zeros((batch_size, self.candidate_count), dtype=torch.float32, device=contract["y"].device)
+        logits[:, 0] = 2.0
+        return CandidatePredictionOutput(
+            candidate_logits=logits + (self.dummy * 0.0),
+            candidate_class_index=torch.arange(self.candidate_count, dtype=torch.long, device=logits.device),
+            node_logits=logits + (self.dummy * 0.0),
+            node_to_candidate_index=torch.arange(self.candidate_count, dtype=torch.long, device=logits.device),
+            node_to_class_index=torch.arange(self.candidate_count, dtype=torch.long, device=logits.device),
+            fixed_label_logits=logits + (self.dummy * 0.0),
+            candidate_ids=tuple(f"node_{idx}" for idx in range(self.candidate_count)),
+            candidate_labels=tuple("A" if idx == 0 else f"Activity {idx}" for idx in range(self.candidate_count)),
+        )
+
+
 def _sample(version_idx: int, *, edge_count: int = 4):
     from torch_geometric.data import Data
 
@@ -111,6 +135,10 @@ def _sample(version_idx: int, *, edge_count: int = 4):
 def _candidate_sample():
     from torch_geometric.data import Data
 
+    candidate_allowed_target_mask = torch.zeros((1, 41), dtype=torch.bool)
+    candidate_allowed_target_mask[0, 0] = True
+    allowed_target_mask = torch.zeros((1, 41), dtype=torch.bool)
+    allowed_target_mask[0, 0] = True
     return Data(
         x_cat=torch.zeros((1, 0), dtype=torch.long),
         x_num=torch.ones((1, 1), dtype=torch.float32),
@@ -118,11 +146,13 @@ def _candidate_sample():
         edge_type=torch.zeros((0,), dtype=torch.long),
         y=torch.tensor([0], dtype=torch.long),
         num_nodes=1,
-        allowed_target_mask=torch.tensor([[True, False, False]], dtype=torch.bool),
+        allowed_target_mask=allowed_target_mask,
+        candidate_allowed_target_mask=candidate_allowed_target_mask,
         structural_edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
         structural_edge_weight=torch.ones(2, dtype=torch.float32),
         struct_node_to_class_index=torch.tensor([0, 1, 2], dtype=torch.long),
         process_version_idx=torch.tensor([1], dtype=torch.long),
+        target_label="A",
     )
 
 
@@ -315,3 +345,80 @@ def test_candidate_id_topology_flow_penalty_increases_train_loss_and_logs_object
     metrics = {name: value for name, value, _ in tracker.metrics}
     assert train_loss > base_loss
     assert metrics["train_topology_conditioned_topology_flow_penalty_loss"] > 0.0
+
+
+def test_candidate_id_retention_uses_candidate_loss_without_fixed_vocab_class_weights():
+    model = _DynamicCandidateFlowModel(candidate_count=41)
+    trainer = _trainer(
+        model=model,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "topology_conditioning_allowed_set_loss_enabled": False,
+            "topology_conditioning_wrong_version_negative_enabled": False,
+            "topology_conditioning_drop_edges_negative_enabled": False,
+            "topology_conditioning_retention_enabled": True,
+        },
+    )
+    trainer.class_weights = torch.ones(37, dtype=torch.float32)
+    loader = trainer._build_loader_from_dataset([_candidate_sample()], shuffle=False)
+    optimizer = Adam(model.parameters(), lr=0.01)
+
+    train_loss, *_ = trainer._run_epoch(loader, optimizer=optimizer, training=True)
+
+    assert train_loss > 0.0
+
+
+def test_candidate_id_fields_propagation_in_data_to_contract():
+    from torch_geometric.data import Data
+
+    # Create a Data object with all candidate fields
+    candidate_ids = ("node_0", "node_1", "node_2")
+    candidate_labels = ("Label 0", "Label 1", "Label 2")
+    candidate_class_index = torch.tensor([0, 1, 2], dtype=torch.long)
+    candidate_is_unseen = torch.tensor([False, False, True], dtype=torch.bool)
+    struct_node_to_candidate_index = torch.tensor([0, 1, 2], dtype=torch.long)
+    candidate_allowed_target_mask = torch.tensor([True, True, False], dtype=torch.bool)
+    allowed_target_mask = torch.tensor([True, True, False], dtype=torch.bool)
+
+    data = Data(
+        x_cat=torch.zeros((1, 0), dtype=torch.long),
+        x_num=torch.ones((1, 1), dtype=torch.float32),
+        edge_index=torch.zeros((2, 0), dtype=torch.long),
+        edge_type=torch.zeros((0,), dtype=torch.long),
+        y=torch.tensor([0], dtype=torch.long),
+        num_nodes=1,
+        allowed_target_mask=allowed_target_mask,
+        candidate_allowed_target_mask=candidate_allowed_target_mask,
+        structural_edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
+        structural_edge_weight=torch.ones(2, dtype=torch.float32),
+        struct_node_to_class_index=torch.tensor([0, 1, 2], dtype=torch.long),
+        process_version_idx=torch.tensor([1], dtype=torch.long),
+        target_label="A",
+        candidate_ids=candidate_ids,
+        candidate_labels=candidate_labels,
+        candidate_class_index=candidate_class_index,
+        candidate_is_unseen=candidate_is_unseen,
+        struct_node_to_candidate_index=struct_node_to_candidate_index,
+    )
+
+    model = _DynamicCandidateFlowModel(candidate_count=3)
+    trainer = _trainer(
+        model=model,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+        },
+    )
+
+    # Directly call _data_to_contract
+    contract = trainer._data_to_contract(data)
+
+    # Assert all fields are correctly placed in the contract
+    assert contract.get("candidate_ids") == candidate_ids
+    assert contract.get("candidate_labels") == candidate_labels
+    assert torch.equal(contract.get("candidate_class_index"), candidate_class_index)
+    assert torch.equal(contract.get("candidate_is_unseen"), candidate_is_unseen)
+    assert torch.equal(contract.get("struct_node_to_candidate_index"), struct_node_to_candidate_index)
+    assert torch.equal(contract.get("candidate_allowed_target_mask"), candidate_allowed_target_mask)
+    assert contract.get("target_label") == "A"

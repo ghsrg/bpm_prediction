@@ -56,6 +56,9 @@ def test_dynamic_graph_builder_contract_contains_only_tensors_and_scalars(mock_f
     tensor_keys = {"x_cat", "x_num", "edge_index", "edge_type", "y", "batch", "allowed_target_mask"}
 
     for key, value in contract.items():
+        if key in {"candidate_ids", "candidate_labels", "target_label"}:
+            assert isinstance(value, (tuple, str)), f"{key} metadata is expected type, got {type(value)}"
+            continue
         if key in tensor_keys:
             if key == "allowed_target_mask" and value is None:
                 continue

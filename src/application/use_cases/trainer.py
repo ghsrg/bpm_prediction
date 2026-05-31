@@ -1558,19 +1558,29 @@ class ModelTrainer:
                 graphs.append(Data(**payload))
         return self._create_data_loader(graphs, shuffle=shuffle)
 
+    def _create_lazy_dataset_from_payload(self, payload: Dict[str, Any]) -> ShardedGraphDataset:
+        """Create a ShardedGraphDataset from payload with smart default for max_cached_shards."""
+        shards_list = payload.get("shards", [])
+        shards_count = len(shards_list) if isinstance(shards_list, list) else 0
+        max_cached = max(self.sharded_dataset_cached_shards, shards_count)
+        if max_cached > self.sharded_dataset_cached_shards:
+            logger.info(
+                "Auto-scaling ShardedGraphDataset cache size from %d to %d to match shard count.",
+                int(self.sharded_dataset_cached_shards),
+                int(max_cached),
+            )
+        return ShardedGraphDataset.from_payload(payload, max_cached_shards=max_cached)
+
     def _build_loader_from_dataset(self, dataset: Optional[Any], shuffle: bool) -> DataLoader:
         """Wrap prebuilt graph dataset into DataLoader and collect topology diagnostics."""
         if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
-            lazy_dataset = ShardedGraphDataset.from_payload(
-                dataset,
-                max_cached_shards=self.sharded_dataset_cached_shards,
-            )
+            lazy_dataset = self._create_lazy_dataset_from_payload(dataset)
             logger.info(
                 "Using sharded on-disk dataset: split=%s graphs=%d shards=%d cached_shards=%d",
                 str(dataset.get("split", "unknown")),
                 int(dataset.get("graphs", len(lazy_dataset))),
                 int(len(dataset.get("shards", []))) if isinstance(dataset.get("shards", []), list) else 0,
-                int(self.sharded_dataset_cached_shards),
+                int(lazy_dataset._max_cached_shards),
             )
             return self._create_data_loader_from_source(lazy_dataset, shuffle=shuffle)
 
@@ -3557,10 +3567,7 @@ class ModelTrainer:
             return False
         try:
             if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
-                lazy_dataset = ShardedGraphDataset.from_payload(
-                    dataset,
-                    max_cached_shards=self.sharded_dataset_cached_shards,
-                )
+                lazy_dataset = self._create_lazy_dataset_from_payload(dataset)
                 return len(lazy_dataset) > 0 and hasattr(lazy_dataset[0], "trace_idx")
             if isinstance(dataset, Sequence) and not isinstance(dataset, (str, bytes, dict)):
                 if len(dataset) <= 0:
@@ -5444,6 +5451,22 @@ class ModelTrainer:
                 "or implement candidate_batch_topology_policy=group_by_topology."
             )
 
+    @staticmethod
+    def _slice_first(tensor: torch.Tensor | None, key: str, slice_dict: dict | None, dim: int = 0) -> torch.Tensor | None:
+        if tensor is None:
+            return None
+        if not isinstance(tensor, torch.Tensor):
+            return tensor
+        if slice_dict is not None and key in slice_dict:
+            slices = slice_dict[key]
+            if isinstance(slices, torch.Tensor) and slices.numel() > 1:
+                end_idx = int(slices[1].item())
+                if dim == 0:
+                    return tensor[:end_idx]
+                elif dim == 1:
+                    return tensor[:, :end_idx]
+        return tensor
+
     def _select_structural_payload_for_forward(
         self,
         data: Data,
@@ -5451,43 +5474,6 @@ class ModelTrainer:
     ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         """Select structural payload for forward; use first graph payload on batched input."""
         self._warn_if_mixed_snapshot_versions(data)
-
-        get_example = getattr(data, "get_example", None)
-        first = None
-        if callable(get_example):
-            try:
-                first = get_example(0)
-            except Exception:
-                first = None
-        if first is None:
-            to_data_list = getattr(data, "to_data_list", None)
-            if callable(to_data_list):
-                try:
-                    data_list = list(to_data_list())
-                except Exception:
-                    data_list = []
-                if data_list:
-                    first = data_list[0]
-
-        if first is not None:
-            struct_x = first.struct_x if hasattr(first, "struct_x") and isinstance(first.struct_x, torch.Tensor) else None
-            structural_edge_index = (
-                first.structural_edge_index
-                if hasattr(first, "structural_edge_index") and isinstance(first.structural_edge_index, torch.Tensor)
-                else None
-            )
-            structural_edge_weight = (
-                first.structural_edge_weight
-                if hasattr(first, "structural_edge_weight") and isinstance(first.structural_edge_weight, torch.Tensor)
-                else None
-            )
-            struct_node_to_class_index = (
-                first.struct_node_to_class_index
-                if hasattr(first, "struct_node_to_class_index")
-                and isinstance(first.struct_node_to_class_index, torch.Tensor)
-                else None
-            )
-            return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
         struct_x = data.struct_x if hasattr(data, "struct_x") and isinstance(data.struct_x, torch.Tensor) else None
         structural_edge_index = (
@@ -5506,11 +5492,11 @@ class ModelTrainer:
             else None
         )
 
-        if isinstance(struct_x, torch.Tensor):
-            graph_count = int(batch_tensor.max().item()) + 1 if batch_tensor.numel() > 0 else int(data.y.view(-1).shape[0])
-            if graph_count > 1 and struct_x.dim() == 2 and int(struct_x.size(0)) % graph_count == 0:
-                cls_rows = int(struct_x.size(0)) // graph_count
-                struct_x = struct_x.view(graph_count, cls_rows, int(struct_x.size(1)))[0]
+        slice_dict = getattr(data, "_slice_dict", None)
+        struct_x = self._slice_first(struct_x, "struct_x", slice_dict, dim=0)
+        structural_edge_index = self._slice_first(structural_edge_index, "structural_edge_index", slice_dict, dim=1)
+        structural_edge_weight = self._slice_first(structural_edge_weight, "structural_edge_weight", slice_dict, dim=0)
+        struct_node_to_class_index = self._slice_first(struct_node_to_class_index, "struct_node_to_class_index", slice_dict, dim=0)
 
         return struct_x, structural_edge_index, structural_edge_weight, struct_node_to_class_index
 
@@ -5523,41 +5509,6 @@ class ModelTrainer:
     ) -> torch.Tensor | None:
         """Return per-graph topology prefix state as [B, V, F]."""
         raw = data.struct_prefix_state_x if hasattr(data, "struct_prefix_state_x") and isinstance(data.struct_prefix_state_x, torch.Tensor) else None
-        if raw is not None:
-            raw = raw.float()
-            if raw.dim() == 3:
-                return raw
-            if raw.dim() == 2:
-                if graph_count <= 1:
-                    return raw.unsqueeze(0)
-                if struct_node_count is not None and struct_node_count > 0:
-                    if int(raw.size(0)) == int(graph_count) * int(struct_node_count):
-                        return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
-
-        to_data_list = getattr(data, "to_data_list", None)
-        if callable(to_data_list):
-            try:
-                data_list = list(to_data_list())
-            except Exception:
-                data_list = []
-            prefix_states: list[torch.Tensor] = []
-            for item in data_list:
-                value = (
-                    item.struct_prefix_state_x
-                    if hasattr(item, "struct_prefix_state_x") and isinstance(item.struct_prefix_state_x, torch.Tensor)
-                    else None
-                )
-                if value is None:
-                    continue
-                prefix_states.append(value.float())
-            if prefix_states:
-                first_shape = tuple(prefix_states[0].shape)
-                if any(tuple(value.shape) != first_shape for value in prefix_states):
-                    raise ValueError("struct_prefix_state_x shapes must match within one batch.")
-                stacked = torch.stack(prefix_states, dim=0)
-                return stacked
-
-        raw = data.struct_prefix_state_x if hasattr(data, "struct_prefix_state_x") and isinstance(data.struct_prefix_state_x, torch.Tensor) else None
         if raw is None:
             return None
         raw = raw.float()
@@ -5567,13 +5518,16 @@ class ModelTrainer:
             raise ValueError("struct_prefix_state_x must have shape [V, F] or [B, V, F].")
         if graph_count <= 1:
             return raw.unsqueeze(0)
-        if struct_node_count is None or struct_node_count <= 0:
-            raise ValueError("struct_node_to_class_index is required to reshape batched struct_prefix_state_x.")
-        if int(raw.size(0)) != int(graph_count) * int(struct_node_count):
-            raise ValueError(
-                "Batched struct_prefix_state_x row count must equal graph_count * structural_node_count."
-            )
-        return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
+
+        # If graph_count > 1, try to reshape directly first
+        if struct_node_count is not None and struct_node_count > 0:
+            if int(raw.size(0)) == int(graph_count) * int(struct_node_count):
+                return raw.view(int(graph_count), int(struct_node_count), int(raw.size(1)))
+
+        # Slicing fallback without calling to_data_list()
+        # Since we are homogeneous, each graph's prefix state has shape [struct_node_count, feature_dim]
+        derived_node_count = raw.size(0) // graph_count
+        return raw.view(int(graph_count), int(derived_node_count), int(raw.size(1)))
 
     def _select_candidate_payload_for_forward(
         self,
@@ -5587,68 +5541,8 @@ class ModelTrainer:
         tuple[str, ...] | None,
     ]:
         """Select candidate payload for forward; use first graph payload on batched input."""
-        get_example = getattr(data, "get_example", None)
-        first = None
-        if callable(get_example):
-            try:
-                first = get_example(0)
-            except Exception:
-                first = None
-        if first is None:
-            to_data_list = getattr(data, "to_data_list", None)
-            if callable(to_data_list):
-                try:
-                    data_list = list(to_data_list())
-                except Exception:
-                    data_list = []
-                if data_list:
-                    first = data_list[0]
-
-        if first is not None:
-            struct_node_to_candidate_index = (
-                first.struct_node_to_candidate_index
-                if hasattr(first, "struct_node_to_candidate_index")
-                and isinstance(first.struct_node_to_candidate_index, torch.Tensor)
-                else None
-            )
-            candidate_class_index = (
-                first.candidate_class_index
-                if hasattr(first, "candidate_class_index")
-                and isinstance(first.candidate_class_index, torch.Tensor)
-                else None
-            )
-            candidate_is_unseen = (
-                first.candidate_is_unseen
-                if hasattr(first, "candidate_is_unseen")
-                and isinstance(first.candidate_is_unseen, torch.Tensor)
-                else None
-            )
-            candidate_allowed_target_mask = (
-                first.candidate_allowed_target_mask
-                if hasattr(first, "candidate_allowed_target_mask")
-                and isinstance(first.candidate_allowed_target_mask, torch.Tensor)
-                else None
-            )
-            candidate_ids = (
-                first.candidate_ids
-                if hasattr(first, "candidate_ids")
-                and isinstance(first.candidate_ids, (list, tuple))
-                else None
-            )
-            candidate_labels = (
-                first.candidate_labels
-                if hasattr(first, "candidate_labels")
-                and isinstance(first.candidate_labels, (list, tuple))
-                else None
-            )
-            return (
-                struct_node_to_candidate_index,
-                candidate_class_index,
-                candidate_is_unseen,
-                candidate_allowed_target_mask,
-                candidate_ids,
-                candidate_labels,
-            )
+        batch_tensor = getattr(data, "batch", None)
+        graph_count = int(batch_tensor.max().item()) + 1 if (isinstance(batch_tensor, torch.Tensor) and batch_tensor.numel() > 0) else 1
 
         struct_node_to_candidate_index = (
             data.struct_node_to_candidate_index
@@ -5686,13 +5580,35 @@ class ModelTrainer:
             and isinstance(data.candidate_labels, (list, tuple))
             else None
         )
+
+        slice_dict = getattr(data, "_slice_dict", None)
+        struct_node_to_candidate_index = self._slice_first(struct_node_to_candidate_index, "struct_node_to_candidate_index", slice_dict, dim=0)
+        candidate_class_index = self._slice_first(candidate_class_index, "candidate_class_index", slice_dict, dim=0)
+        candidate_is_unseen = self._slice_first(candidate_is_unseen, "candidate_is_unseen", slice_dict, dim=0)
+
+        if isinstance(candidate_allowed_target_mask, torch.Tensor):
+            if candidate_allowed_target_mask.dim() == 2:
+                candidate_allowed_target_mask = candidate_allowed_target_mask[0:1]
+            else:
+                candidate_allowed_target_mask = self._slice_first(candidate_allowed_target_mask, "candidate_allowed_target_mask", slice_dict, dim=0)
+
+        def get_first_list_attr(val):
+            if val is not None:
+                if len(val) > 0 and isinstance(val[0], (list, tuple)):
+                    return tuple(val[0])
+                return tuple(val)
+            return None
+
+        first_candidate_ids = get_first_list_attr(candidate_ids)
+        first_candidate_labels = get_first_list_attr(candidate_labels)
+
         return (
             struct_node_to_candidate_index,
             candidate_class_index,
             candidate_is_unseen,
             candidate_allowed_target_mask,
-            candidate_ids,
-            candidate_labels,
+            first_candidate_ids,
+            first_candidate_labels,
         )
 
     def _data_to_contract(self, data: Data) -> GraphTensorContract:

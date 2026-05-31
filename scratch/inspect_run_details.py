@@ -1,40 +1,54 @@
-import mlflow
 import os
-import json
+from pathlib import Path
 
-mlflow.set_tracking_uri("file:./mlruns")
-client = mlflow.tracking.MlflowClient()
+run_ids = ["5b421c1a35e7415aaf80593220efeae8", "0a485575e8374637b59a4fb800d1005a"]
+mlruns_dir = Path("mlruns")
 
-run_id = "d75a2bd540fe4fc8b8b4ff71ed7483ca"
-try:
-    run = client.get_run(run_id)
-except Exception as e:
-    print(f"Error fetching run {run_id}: {e}")
-    # Let's list all runs in all experiments to see if the ID is slightly different or check what runs exist.
-    print("Listing all available run IDs:")
-    for exp in client.search_experiments():
-        for r in client.search_runs(exp.experiment_id):
-            print(f"Experiment {exp.name} ({exp.experiment_id}): Run {r.info.run_id} ({r.info.run_name})")
-    sys.exit(1)
-
-print("=== Run Info ===")
-print(f"Run ID: {run.info.run_id}")
-print(f"Run Name: {run.info.run_name}")
-print(f"Status: {run.info.status}")
-print(f"Start Time: {run.info.start_time}")
-
-print("\n=== Parameters ===")
-for k, v in sorted(run.data.params.items()):
-    print(f"  {k}: {v}")
-
-print("\n=== Metrics ===")
-for k, v in sorted(run.data.metrics.items()):
-    print(f"  {k}: {v}")
-
-print("\n=== Logged Artifacts ===")
-artifacts = client.list_artifacts(run_id)
-for art in artifacts:
-    print(f"  {art.path} (is_dir: {art.is_dir}, size: {art.file_size if hasattr(art, 'file_size') else 'unknown'})")
-    if not art.is_dir and art.path.endswith(".json") or art.path.endswith(".jsonl") or art.path.endswith(".txt"):
-        # We can download it later if needed
-        pass
+for rid in run_ids:
+    print(f"=== Run {rid} ===")
+    run_dir = None
+    for exp_dir in mlruns_dir.iterdir():
+        if not exp_dir.is_dir() or exp_dir.name in (".trash", "models", "0"):
+            continue
+        candidate = exp_dir / rid
+        if candidate.exists():
+            run_dir = candidate
+            break
+    
+    if not run_dir:
+        print("Run dir not found")
+        continue
+    
+    # Check params
+    params_dir = run_dir / "params"
+    if params_dir.exists():
+        params = os.listdir(params_dir)
+        print("Number of params:", len(params))
+        # Print a few key params
+        key_params = ["experiment.fraction", "training.device", "model.type", "experiment.mode", "training.epochs"]
+        for kp in key_params:
+            kp_path = params_dir / kp
+            if kp_path.exists():
+                print(f"  {kp}: {kp_path.read_text().strip()}")
+    
+    # Check metrics
+    metrics_dir = run_dir / "metrics"
+    if metrics_dir.exists():
+        metrics = os.listdir(metrics_dir)
+        print("Metrics:", metrics)
+        # Print the last value of each metric
+        for m in metrics:
+            m_path = metrics_dir / m
+            if m_path.exists():
+                lines = m_path.read_text().splitlines()
+                if lines:
+                    print(f"  {m} (last line): {lines[-1]}")
+    
+    # Check artifacts
+    artifacts_dir = run_dir / "artifacts"
+    if artifacts_dir.exists():
+        print("Artifacts structure:")
+        for root, dirs, files in os.walk(artifacts_dir):
+            for f in files:
+                rel_path = os.path.relpath(os.path.join(root, f), artifacts_dir)
+                print(f"  - {rel_path} ({os.path.getsize(os.path.join(root, f))} bytes)")

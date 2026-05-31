@@ -3460,6 +3460,21 @@ fields:
       order: 9999
       priority: 999
       tab: legacy
+  training.sharded_dataset_cached_shards:
+    affects: Memory usage and disk read thrashing during sharded dataset training.
+    default: 2
+    description: Maximum number of shards cached in memory simultaneously. Optimal size is automatically calculated at run time if not configured.
+    enum: []
+    label: Sharded dataset cached shards
+    path: training.sharded_dataset_cached_shards
+    required_in_modes: []
+    required_when: {}
+    section: training
+    ui:
+      group: advanced
+      order: 1000
+      priority: 100
+      tab: general
   training.show_progress:
     affects: Training stability, speed, and final quality metrics.
     default: ''

@@ -14760,7 +14760,7 @@
     }
   },
   "_EOPKGTC-UN": {
-    "last_saved_at": "2026-05-28T13:07:42.073284+00:00",
+    "last_saved_at": "2026-05-30T19:57:04.565220+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -14788,14 +14788,14 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
         "experiment.drift_window_sliding": "10",
         "experiment.graph_dataset_disk_spill_enabled": "true",
         "experiment.graph_dataset_shard_size": "10000",
-        "experiment.load_checkpoint": "checkpoints/_EOPKGTC-UN-42_loan_v1_v4_simulated_GATv2_last.pth",
+        "experiment.load_checkpoint": "",
         "experiment.mask_guided_enabled": "false",
         "experiment.max_ram_gb": "10",
         "experiment.retrain": "true",
@@ -14822,7 +14822,7 @@
         "tracking.uri": "file:./mlruns"
       },
       "general_training_form": {
-        "training.batch_size": "128",
+        "training.batch_size": "64",
         "training.candidate_batch_topology_policy": "single_topology_required",
         "training.candidate_contract_mode": "candidate_id",
         "training.candidate_identity_mode": "topology_native",
@@ -14836,7 +14836,7 @@
         "training.device": "cpu",
         "training.dynamic_candidate_contract_enabled": "true",
         "training.ece_bins": "10",
-        "training.epochs": "50",
+        "training.epochs": "80",
         "training.learning_rate": "0.001",
         "training.learning_strategy": "topology_conditioned",
         "training.loss_function": "cross_entropy",
@@ -14845,6 +14845,7 @@
         "training.mask_guided_min_samples_for_hard": "1",
         "training.mask_guided_soft_penalty": "2.0",
         "training.patience": "20",
+        "training.sharded_dataset_cached_shards": "2",
         "training.show_progress": "True",
         "training.struct_xattn_contrastive_enabled": "false",
         "training.struct_xattn_contrastive_margin": "0.05",
@@ -14859,10 +14860,10 @@
         "training.structural_aux_loss_enabled": "true",
         "training.structural_aux_loss_weight": "0.05",
         "training.topology_conditioning_allowed_set_loss_enabled": "true",
-        "training.topology_conditioning_allowed_set_loss_weight": "0.02",
+        "training.topology_conditioning_allowed_set_loss_weight": "0.25",
         "training.topology_conditioning_current_version_policy": "latest_in_train",
         "training.topology_conditioning_drop_edges_margin": "0.1",
-        "training.topology_conditioning_drop_edges_negative_enabled": "false",
+        "training.topology_conditioning_drop_edges_negative_enabled": "true",
         "training.topology_conditioning_drop_edges_negative_weight": "0.05",
         "training.topology_conditioning_drop_edges_ratio": "0.15",
         "training.topology_conditioning_retention_enabled": "true",
@@ -14873,18 +14874,18 @@
         "training.topology_conditioning_retention_recent_weight": "0.5",
         "training.topology_conditioning_wrong_version_margin": "0.2",
         "training.topology_conditioning_wrong_version_negative_enabled": "false",
-        "training.topology_conditioning_wrong_version_negative_weight": "0.1",
+        "training.topology_conditioning_wrong_version_negative_weight": "0.15",
         "training.topology_flow_penalty_enabled": "true",
         "training.topology_flow_penalty_fail_on_missing_mask": "true",
         "training.topology_flow_penalty_margin": "0.1",
         "training.topology_flow_penalty_type": "invalid_probability_mass",
-        "training.topology_flow_penalty_weight": "0.03",
+        "training.topology_flow_penalty_weight": "0.4",
         "training.torch_num_interop_threads": "2",
         "training.torch_num_threads": "8",
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -14934,7 +14935,7 @@
         "model.dropout": "0.2",
         "model.fusion_mode": "StructXAttn",
         "model.graph_strategy": "sequential_prefix",
-        "model.hidden_dim": "32",
+        "model.hidden_dim": "64",
         "model.model_label": "GATv2",
         "model.observed_encoder": "GATv2",
         "model.pooling_strategy": "last_node",
@@ -14968,7 +14969,7 @@
         "model.topology_state_gate_init_bias": "-2.0",
         "model.type": "EOPKGTopologyConditioned"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.alignment_gate.candidate_node_fields": "- id",
         "sync_stats.alignment_gate.collapse_separators": "false",
@@ -15035,7 +15036,7 @@
     }
   },
   "_EOPKGTC-UN-drift": {
-    "last_saved_at": "2026-05-28T16:19:28.678376+00:00",
+    "last_saved_at": "2026-05-31T08:28:12.472253+00:00",
     "payload": {
       "eopkg_backend_form": {
         "mapping.knowledge_graph.backend": "neo4j",
@@ -15063,14 +15064,14 @@
         "mapping.camunda_adapter.structure.version_key_format": "",
         "mapping.camunda_adapter.subprocess_graph_mode": ""
       },
-      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "features_text": "- name: concept:name\n  role: activity\n  source: event\n  dtype: string\n  fill_na: <UNK>\n  encoding:\n  - embedding\n- name: org:resource\n  role: resource\n  source: event\n  dtype: string\n  fill_na: UNKNOWN\n  encoding:\n  - embedding\n- name: time:timestamp\n  role: timestamp\n  source: event\n  dtype: timestamp\n  fill_na: 0.0\n  encoding:\n  - z-score\n  - time2vec_dayofweek\n  - time2vec_month\n  - time2vec_hour\n  - time2vec_work_hours\n- name: duration\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_case_start\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n- name: time_since_previous_event\n  source: event\n  dtype: float\n  fill_na: 0.0\n  encoding:\n  - z-score\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "general_experiment_form": {
         "experiment.cache_dir": ".cache/dynamic_graph_builder",
         "experiment.drift_window_size": "100",
         "experiment.drift_window_sliding": "10",
         "experiment.graph_dataset_disk_spill_enabled": "true",
         "experiment.graph_dataset_shard_size": "10000",
-        "experiment.load_checkpoint": "checkpoints/_EOPKGTC-UN-42_loan_v1_v4_simulated_GATv2_last.pth",
+        "experiment.load_checkpoint": "checkpoints/_EOPKGTC-UN-42_loan_v1_v4_simulated_GATv2_best.pth",
         "experiment.mask_guided_enabled": "false",
         "experiment.max_ram_gb": "10",
         "experiment.retrain": "true",
@@ -15097,7 +15098,7 @@
         "tracking.uri": "file:./mlruns"
       },
       "general_training_form": {
-        "training.batch_size": "128",
+        "training.batch_size": "64",
         "training.candidate_batch_topology_policy": "single_topology_required",
         "training.candidate_contract_mode": "candidate_id",
         "training.candidate_identity_mode": "topology_native",
@@ -15111,7 +15112,7 @@
         "training.device": "cpu",
         "training.dynamic_candidate_contract_enabled": "true",
         "training.ece_bins": "10",
-        "training.epochs": "50",
+        "training.epochs": "80",
         "training.learning_rate": "0.001",
         "training.learning_strategy": "topology_conditioned",
         "training.loss_function": "cross_entropy",
@@ -15120,6 +15121,7 @@
         "training.mask_guided_min_samples_for_hard": "1",
         "training.mask_guided_soft_penalty": "2.0",
         "training.patience": "20",
+        "training.sharded_dataset_cached_shards": "2",
         "training.show_progress": "True",
         "training.struct_xattn_contrastive_enabled": "false",
         "training.struct_xattn_contrastive_margin": "0.05",
@@ -15134,12 +15136,12 @@
         "training.structural_aux_loss_enabled": "true",
         "training.structural_aux_loss_weight": "0.05",
         "training.topology_conditioning_allowed_set_loss_enabled": "true",
-        "training.topology_conditioning_allowed_set_loss_weight": "0.02",
+        "training.topology_conditioning_allowed_set_loss_weight": "0.25",
         "training.topology_conditioning_current_version_policy": "latest_in_train",
         "training.topology_conditioning_drop_edges_margin": "0.1",
-        "training.topology_conditioning_drop_edges_negative_enabled": "false",
-        "training.topology_conditioning_drop_edges_negative_weight": "0.05",
-        "training.topology_conditioning_drop_edges_ratio": "0.15",
+        "training.topology_conditioning_drop_edges_negative_enabled": "true",
+        "training.topology_conditioning_drop_edges_negative_weight": "0.15",
+        "training.topology_conditioning_drop_edges_ratio": "0.25",
         "training.topology_conditioning_retention_enabled": "true",
         "training.topology_conditioning_retention_obsolete_weight": "0.0",
         "training.topology_conditioning_retention_old_weight": "0.15",
@@ -15148,18 +15150,18 @@
         "training.topology_conditioning_retention_recent_weight": "0.5",
         "training.topology_conditioning_wrong_version_margin": "0.2",
         "training.topology_conditioning_wrong_version_negative_enabled": "false",
-        "training.topology_conditioning_wrong_version_negative_weight": "0.1",
+        "training.topology_conditioning_wrong_version_negative_weight": "0.15",
         "training.topology_flow_penalty_enabled": "true",
         "training.topology_flow_penalty_fail_on_missing_mask": "true",
         "training.topology_flow_penalty_margin": "0.1",
         "training.topology_flow_penalty_type": "invalid_probability_mass",
-        "training.topology_flow_penalty_weight": "0.03",
+        "training.topology_flow_penalty_weight": "0.4",
         "training.torch_num_interop_threads": "2",
         "training.torch_num_threads": "8",
         "training.tqdm_disable": "False",
         "training.tqdm_leave": "False"
       },
-      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "graph_mapping_text": "node_numeric:\n- name: node_exec_count_v_all\n  metric: exec_count\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_v_all\n  metric: duration_median\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_v_all\n  metric: duration_p95\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_v_all\n  metric: loop_density\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_v_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_v_all\n  metric: freshness_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_v_all\n  metric: confidence_score\n  window: all_time\n  scope: version\n  default: 0.0\n  encoding:\n  - identity\n- name: node_exec_count_p_all\n  metric: exec_count\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_median_p_all\n  metric: duration_median\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_duration_p95_p_all\n  metric: duration_p95\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_loop_density_p_all\n  metric: loop_density\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_parallel_var_p_all\n  metric: parallel_token_variance\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_freshness_p_all\n  metric: freshness_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\n- name: node_confidence_p_all\n  metric: confidence_score\n  window: all_time\n  scope: process\n  default: 0.0\n  encoding:\n  - identity\nedge_weight:\n  metric: transition_probability\n  window: all_time\n  scope: version\n  default: 1.0\n  encoding:\n  - identity\nstats_quality_gate:\n  enabled: true\n  on_fail: allow_with_warning\n  warn_on_fail: true\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "input_camunda_mapping_form": {
         "mapping.camunda_adapter.lookback_hours": "",
         "mapping.camunda_adapter.process_filters": "",
@@ -15209,7 +15211,7 @@
         "model.dropout": "0.2",
         "model.fusion_mode": "StructXAttn",
         "model.graph_strategy": "sequential_prefix",
-        "model.hidden_dim": "32",
+        "model.hidden_dim": "64",
         "model.model_label": "GATv2",
         "model.observed_encoder": "GATv2",
         "model.pooling_strategy": "last_node",
@@ -15243,7 +15245,7 @@
         "model.topology_state_gate_init_bias": "-2.0",
         "model.type": "EOPKGTopologyConditioned"
       },
-      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "policies_text": "profile: mvp1_default\nactivity_fallback_feature: concept:name\nzscore_clip:\n  enabled: true\n  min: -3.0\n  max: 3.0\ntime2vec:\n  work_hours:\n    timezone: UTC\n    working_days:\n    - 0\n    - 1\n    - 2\n    - 3\n    - 4\n    start_hour: 9\n    end_hour: 18\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
       "sync_stats_form": {
         "sync_stats.alignment_gate.candidate_node_fields": "- id",
         "sync_stats.alignment_gate.collapse_separators": "false",

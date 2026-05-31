@@ -111,8 +111,12 @@ def candidate_target_summary(candidate_logits: torch.Tensor, target_candidate_ma
 
 
 def candidate_predictions_to_global(candidate_logits: torch.Tensor, candidate_class_index: torch.Tensor) -> torch.Tensor:
-    pred_candidate = torch.argmax(candidate_logits, dim=1).long()
+    masked_logits = candidate_logits.clone()
     class_index = candidate_class_index.to(device=candidate_logits.device, dtype=torch.long)
+    unseen_mask = (class_index < 0)
+    if unseen_mask.any():
+        masked_logits[:, unseen_mask] = float("-inf")
+    pred_candidate = torch.argmax(masked_logits, dim=1).long()
     return class_index[pred_candidate]
 
 

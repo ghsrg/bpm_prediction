@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict
+from typing import Dict, Any
 
 import torch
 import torch.nn.functional as F
@@ -75,6 +75,10 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.struct_non_target_emb = nn.Parameter(torch.zeros(self.hidden_dim))
         self.struct_norm = nn.LayerNorm(self.hidden_dim)
         self.struct_conv1 = GATv2Conv(self.hidden_dim, self.hidden_dim, heads=1, concat=True, dropout=dropout)
+
+        self.hash_vocab_size = 1000
+        self.unseen_grounding_emb = nn.Embedding(self.hash_vocab_size, self.hidden_dim)
+        nn.init.normal_(self.unseen_grounding_emb.weight, std=0.01)
 
         self.bilinear = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
         self.activation = nn.ReLU()
@@ -171,12 +175,36 @@ class EOPKGTopologyConditioned(BaseGNN):
             return x[last_indices]
         raise ValueError(f"Unsupported pooling_strategy '{self.pooling_strategy}'.")
 
-    def _node_identity_features(self, node_to_class: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def _node_identity_features(
+        self,
+        node_to_class: torch.Tensor,
+        device: torch.device,
+        contract: GraphTensorContract | None = None,
+    ) -> torch.Tensor:
         node_to_class = node_to_class.to(device=device, dtype=torch.long)
         h_id = self.struct_non_target_emb.to(device=device).unsqueeze(0).expand(node_to_class.numel(), -1).clone()
         valid = (node_to_class >= 0) & (node_to_class < self.output_dim)
         if bool(valid.any()):
             h_id[valid] = self.struct_node_emb(node_to_class[valid])
+
+        if contract is not None:
+            struct_node_to_candidate = contract.get("struct_node_to_candidate_index")
+            candidate_ids = self._candidate_tuple(contract, "candidate_ids")
+            if isinstance(struct_node_to_candidate, torch.Tensor) and len(candidate_ids) > 0:
+                unseen_mask = (node_to_class == -1)
+                if unseen_mask.any():
+                    candidate_indices = struct_node_to_candidate[unseen_mask].tolist()
+                    hash_indices = []
+                    import hashlib
+                    for i, cand_idx in enumerate(candidate_indices):
+                        if 0 <= cand_idx < len(candidate_ids):
+                            cand_id = str(candidate_ids[cand_idx])
+                        else:
+                            cand_id = f"fallback_{i}"
+                        h_val = int(hashlib.md5(cand_id.encode('utf-8')).hexdigest(), 16) % self.hash_vocab_size
+                        hash_indices.append(h_val)
+                    hash_tensor = torch.tensor(hash_indices, dtype=torch.long, device=device)
+                    h_id[unseen_mask] = h_id[unseen_mask] + self.unseen_grounding_emb(hash_tensor)
         return h_id
 
     def _struct_input(self, contract: GraphTensorContract, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
@@ -184,7 +212,7 @@ class EOPKGTopologyConditioned(BaseGNN):
         if not isinstance(node_to_class, torch.Tensor):
             raise ValueError("EOPKGTopologyConditioned requires struct_node_to_class_index.")
         node_to_class = node_to_class.to(device=device, dtype=torch.long)
-        identity = self._node_identity_features(node_to_class, device)
+        identity = self._node_identity_features(node_to_class, device, contract)
         struct_x = contract.get("struct_x")
         if not isinstance(struct_x, torch.Tensor):
             return self.struct_norm(identity), node_to_class
@@ -378,6 +406,7 @@ class EOPKGTopologyConditioned(BaseGNN):
                 candidate_logits[:, local_idx] = values.mean(dim=1)
             elif self.candidate_pooling == "max":
                 candidate_logits[:, local_idx] = values.max(dim=1).values
+
         return candidate_logits, candidate_class_index, node_to_candidate_index
 
     def _record_candidate_diagnostics(
@@ -419,3 +448,10 @@ class EOPKGTopologyConditioned(BaseGNN):
                 self.last_candidate_target_score = float(target_values.mean().item())
                 self.last_candidate_pred_score = float(pred_values.mean().item())
                 self.last_candidate_score_gap = float((pred_values - target_values).mean().item())
+
+    def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True):
+        """Restore model state with backward compatibility for grounding embeddings."""
+        key = "unseen_grounding_emb.weight"
+        if key not in state_dict and hasattr(self, "unseen_grounding_emb"):
+            state_dict[key] = self.unseen_grounding_emb.weight.data
+        return super().load_state_dict(state_dict, strict=strict)

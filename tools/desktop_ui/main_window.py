@@ -1,12 +1,39 @@
+# tools/desktop_ui/main_window.py
 from __future__ import annotations
 
+import os
+import yaml
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QStatusBar,
+    QTextEdit,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .checkpoint_resolver import DEFAULT_CHECKPOINT_VALUE, resolve_checkpoint_candidates
 from .field_registry import DesktopFieldMeta, DesktopFieldRegistry
 from .field_widgets import create_field_widget
-
+from .preset_manager import PresetDrawer
+from .run_monitor import RunMonitorWidget
+from .styles import DARK_SLATE_THEME
 
 START_MAXIMIZED = True
 DEFAULT_NAV_MIN_WIDTH = 50
@@ -198,23 +225,6 @@ def _group_project_setup_fields(registry: DesktopFieldRegistry) -> dict[str, lis
 
 class DesktopPrototypeWindow:
     def __init__(self, *, registry: DesktopFieldRegistry, root_dir: Path) -> None:
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QAction, QKeySequence
-        from PySide6.QtWidgets import (
-            QHBoxLayout,
-            QLabel,
-            QLineEdit,
-            QListWidget,
-            QMainWindow,
-            QPushButton,
-            QSplitter,
-            QStackedWidget,
-            QStatusBar,
-            QToolBar,
-            QVBoxLayout,
-            QWidget,
-        )
-
         self.registry = registry
         self.root_dir = root_dir
         self.values: dict[str, Any] = {field.path: field.default for field in registry}
@@ -226,17 +236,46 @@ class DesktopPrototypeWindow:
             self.values["experiment.load_checkpoint"] = DEFAULT_CHECKPOINT_VALUE
 
         self.window = QMainWindow()
-        self.window.setWindowTitle("BPM Experiment UI Prototype")
+        self.window.setWindowTitle("BPM Experiment UI (PySide6)")
         self.window.resize(1720, 960)
+        self.window.setStyleSheet(DARK_SLATE_THEME)
 
+        self._build_ui()
+        self._update_field_visibilities()
+
+    def _build_ui(self) -> None:
+        # Toolbar
         toolbar = QToolBar("Main")
         self.window.addToolBar(toolbar)
-        for text in ["Save", "Load", "Validate", "Build YAML", "Run", "Stop"]:
-            action = QAction(text, self.window)
-            toolbar.addAction(action)
+
+        # Show Hidden fields checkbox
+        self.show_hidden_cb = QCheckBox("Show Hidden (RO)")
+        self.show_hidden_cb.stateChanged.connect(self._update_field_visibilities)
+        toolbar.addWidget(self.show_hidden_cb)
+
+        # Preset Toggle Button
+        preset_toggle_btn = QPushButton("Presets 📁")
+        preset_toggle_btn.clicked.connect(self._toggle_presets_drawer)
+        toolbar.addWidget(preset_toggle_btn)
+
+        toolbar.addSeparator()
+
+        # Save/Load UI Buttons
+        self.run_btn = QPushButton("Run")
+        self.run_btn.setObjectName("runBtn")
+        self.run_btn.clicked.connect(self._on_run_clicked)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setObjectName("stopBtn")
+        self.stop_btn.clicked.connect(self._on_stop_clicked)
+        self.validate_btn = QPushButton("Validate")
+        self.validate_btn.clicked.connect(self._on_validate_clicked)
+
+        toolbar.addWidget(self.run_btn)
+        toolbar.addWidget(self.stop_btn)
+        toolbar.addWidget(self.validate_btn)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search fields")
+        self.search.setPlaceholderText("Search fields...")
         self.search.textChanged.connect(self._apply_search_filter)
         toolbar.addWidget(self.search)
 
@@ -245,33 +284,60 @@ class DesktopPrototypeWindow:
         focus_search.triggered.connect(self.search.setFocus)
         self.window.addAction(focus_search)
 
-        main = QWidget()
-        main_layout = QHBoxLayout(main)
+        # Main splitter layout
+        main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.splitter = QSplitter(Qt.Horizontal)
+
+        # Navigation List
         self.nav = QListWidget()
         self.nav.addItems(["Project Setup", "Experiment Run", "Run Status / Logs", "Advanced"])
         self.nav.setMinimumWidth(DEFAULT_NAV_MIN_WIDTH)
         self.nav.setMaximumWidth(16777215)
-        self.stack = QStackedWidget()
-        self.inspector = self._build_inspector()
-
-        self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.nav)
+
+        # Preset sliding drawer
+        self.preset_drawer = PresetDrawer(
+            presets_path=self.root_dir / "outputs" / "ui" / "experiment_ui_presets.json",
+            on_save_callback=self._get_flat_values,
+        )
+        self.preset_drawer.preset_loaded.connect(self._apply_preset_values)
+        self.preset_drawer.setFixedWidth(0)
+        self.preset_drawer.hide()
+        self.splitter.addWidget(self.preset_drawer)
+
+        # Stacked Pages
+        self.stack = QStackedWidget()
         self.splitter.addWidget(self.stack)
+
+        # Inspector Panel
+        self.inspector = self._build_inspector()
         self.splitter.addWidget(self.inspector)
+
+        # Ensure elements are not collapsible via splitter drag
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setCollapsible(0, False)
         self.splitter.setCollapsible(1, False)
         self.splitter.setCollapsible(2, False)
-        self.splitter.setSizes(DEFAULT_SPLITTER_SIZES)
+        self.splitter.setCollapsible(3, False)
+        
+        self.splitter.setSizes([DEFAULT_NAV_INITIAL_WIDTH, 0, 1180, DEFAULT_INSPECTOR_WIDTH])
         main_layout.addWidget(self.splitter)
-        self.window.setCentralWidget(main)
+        self.window.setCentralWidget(main_widget)
         self.window.setStatusBar(QStatusBar())
-        self.window.statusBar().showMessage("Prototype mode: layout and field registry validation only.")
 
+        # Load Dynamic Form Pages
         self.stack.addWidget(self._build_registry_page("project_setup", "Project Setup"))
-        self.stack.addWidget(self._build_registry_page("experiment_run", "Experiment Run", compact=True))
-        self.stack.addWidget(self._build_status_page())
+        self.stack.addWidget(self._build_registry_page("experiment_run", "Experiment Run"))
+        
+        # Run Monitor Integration (Page 2)
+        self.run_monitor = RunMonitorWidget(self.root_dir)
+        self.stack.addWidget(self.run_monitor)
+        
         self.stack.addWidget(self._build_registry_page("advanced", "Advanced"))
+
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(1)
 
@@ -281,8 +347,12 @@ class DesktopPrototypeWindow:
         else:
             self.window.show()
 
-    def _build_registry_page(self, ui_level: str, title: str, compact: bool = False):
-        from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget
+    def _toggle_presets_drawer(self) -> None:
+        is_visible = self.preset_drawer.width() > 0
+        self.preset_drawer.set_drawer_visible(not is_visible)
+
+    def _build_registry_page(self, ui_level: str, title: str) -> QWidget:
+        from PySide6.QtWidgets import QScrollArea, QTabWidget
 
         tab = QTabWidget()
         grouped = group_fields_for_page(self.registry, ui_level)
@@ -295,7 +365,6 @@ class DesktopPrototypeWindow:
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
-                row_layout.setSpacing(8)
                 label = self._make_field_label(field)
                 widget = create_field_widget(
                     field,
@@ -315,13 +384,9 @@ class DesktopPrototypeWindow:
                 row_layout.addStretch(1)
                 page_layout.addWidget(row)
             page_layout.addStretch(1)
-            wrapper = QWidget()
-            wrapper_layout = QVBoxLayout(wrapper)
-            wrapper_layout.addWidget(page)
-            wrapper_layout.addStretch(1)
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
-            scroll.setWidget(wrapper)
+            scroll.setWidget(page)
             tab.addTab(scroll, group_name)
         if tab.count() == 0:
             empty = QWidget()
@@ -330,10 +395,7 @@ class DesktopPrototypeWindow:
             tab.addTab(empty, title)
         return tab
 
-    def _build_inspector(self):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget
-
+    def _build_inspector(self) -> QWidget:
         panel = QWidget()
         panel.setMinimumWidth(DEFAULT_INSPECTOR_WIDTH)
         layout = QVBoxLayout(panel)
@@ -363,10 +425,7 @@ class DesktopPrototypeWindow:
         layout.addStretch(1)
         return panel
 
-    def _make_field_label(self, field: DesktopFieldMeta):
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel
-
+    def _make_field_label(self, field: DesktopFieldMeta) -> QLabel:
         label = QLabel(field.path)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         label.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -381,25 +440,6 @@ class DesktopPrototypeWindow:
             original(event),
         )
         return label
-
-    def _build_status_page(self):
-        from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
-
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.addWidget(QLabel("Run Status / Logs prototype"))
-        layout.addWidget(QLabel("Mode-aware progress bars and process control are planned for Phase 2."))
-        pause = QCheckBox("Pause autoscroll")
-        pause.setChecked(False)
-        layout.addWidget(pause)
-        filters = QComboBox()
-        filters.addItems(["All", "Progress", "Warnings", "Errors"])
-        layout.addWidget(filters)
-        log = QTextEdit()
-        log.setPlainText("Execution log preview. Full run integration is intentionally not wired in Phase 1.")
-        layout.addWidget(log)
-        layout.addWidget(QPushButton("Copy All"))
-        return page
 
     def _inspect_field(self, field: DesktopFieldMeta) -> None:
         self.selected_field = field
@@ -427,19 +467,38 @@ class DesktopPrototypeWindow:
             )
         )
 
+        # Trigger checkpoint autocomplete candidates
+        if field.path == "experiment.load_checkpoint":
+            exp_name = self.values.get("experiment.name", "")
+            model_type = self.values.get("model.type", "")
+            candidates = resolve_checkpoint_candidates(
+                checkpoint_root=self.root_dir / "checkpoints",
+                experiment_name=exp_name,
+                model_type=model_type,
+            )
+            if candidates:
+                cand_info = "\n\nResolved Checkpoint Candidates (Newest first):\n"
+                for c in candidates[:5]:
+                    cand_info += f"- {c['filename']} ({c['size_mb']:.2f} MB)\n"
+                self.inspector_text.append(cand_info)
+
     def _set_value(self, path: str, value: Any) -> None:
         self.values[path] = value
+        self._update_field_visibilities()
 
     def _fill_checkpoint_from_experiment_name(self) -> None:
         experiment_name = str(self.values.get("experiment.name") or "")
+        model_type = str(self.values.get("model.type") or "")
         candidates = resolve_checkpoint_candidates(
             checkpoint_root=self.root_dir / "checkpoints",
             experiment_name=experiment_name,
+            model_type=model_type,
         )
         if candidates:
-            self.values["experiment.load_checkpoint"] = str(candidates[0])
-            self._set_widget_value("experiment.load_checkpoint", str(candidates[0]))
-            self.window.statusBar().showMessage(f"Checkpoint selected: {candidates[0]}")
+            first_path = str(candidates[0]["path"])
+            self.values["experiment.load_checkpoint"] = first_path
+            self._set_widget_value("experiment.load_checkpoint", first_path)
+            self.window.statusBar().showMessage(f"Checkpoint selected: {candidates[0]['filename']}")
         else:
             self.values["experiment.load_checkpoint"] = DEFAULT_CHECKPOINT_VALUE
             self._set_widget_value("experiment.load_checkpoint", DEFAULT_CHECKPOINT_VALUE)
@@ -449,13 +508,15 @@ class DesktopPrototypeWindow:
         widget = self.field_widgets.get(path)
         if widget is None:
             return
-        if hasattr(widget, "setText"):
+        if hasattr(widget, "setChecked"):
+            widget.setChecked(str(value).lower() == "true" or value is True)
+        elif hasattr(widget, "setText"):
             widget.setText(str(value))
         elif hasattr(widget, "setCurrentText"):
             widget.setCurrentText(str(value))
 
     def _show_field_menu(self, field: DesktopFieldMeta, source: Any, point: Any) -> None:
-        from PySide6.QtWidgets import QApplication, QMenu
+        from PySide6.QtWidgets import QMenu
 
         menu = QMenu(source)
         copy_path = menu.addAction("Copy field path")
@@ -468,22 +529,102 @@ class DesktopPrototypeWindow:
             clipboard.setText(str(self.values.get(field.path, field.default)))
 
     def _copy_selected_path(self) -> None:
-        from PySide6.QtWidgets import QApplication
-
         if self.selected_field is not None:
             QApplication.clipboard().setText(self.selected_field.path)
             self.window.statusBar().showMessage(f"Copied path: {self.selected_field.path}")
 
     def _copy_selected_value(self) -> None:
-        from PySide6.QtWidgets import QApplication
-
         if self.selected_field is not None:
             value = str(self.values.get(self.selected_field.path, self.selected_field.default))
             QApplication.clipboard().setText(value)
             self.window.statusBar().showMessage(f"Copied value for {self.selected_field.path}")
+
+    def _update_field_visibilities(self) -> None:
+        show_hidden = self.show_hidden_cb.isChecked()
+        flat_values = self._get_flat_values()
+
+        for field, row, widget in self.field_rows:
+            active = self.registry.is_active(field.path, flat_values)
+            if active:
+                row.setVisible(True)
+                widget.setEnabled(True)
+            else:
+                if show_hidden:
+                    row.setVisible(True)
+                    widget.setEnabled(False)  # Read-only
+                else:
+                    row.setVisible(False)
+
+    def _get_flat_values(self) -> dict[str, Any]:
+        return {k: v for k, v in self.values.items()}
+
+    def _apply_preset_values(self, values: dict[str, Any]) -> None:
+        for k, v in values.items():
+            if k in self.field_widgets:
+                self.values[k] = v
+                self._set_widget_value(k, v)
+        self._update_field_visibilities()
 
     def _apply_search_filter(self, text: str) -> None:
         needle = text.strip().lower()
         for field, row, widget in self.field_rows:
             visible = not needle or needle in field.path.lower() or needle in field.label.lower() or needle in field.description.lower()
             row.setVisible(visible)
+
+    def _on_validate_clicked(self) -> None:
+        mode = self.values.get("experiment.mode", "")
+        stats_policy = self.values.get("experiment.stats_time_policy", "")
+        lr_strategy = self.values.get("training.learning_strategy", "")
+        model_type = self.values.get("model.type", "")
+
+        # 1. Temporal Drift Data Leakage Warning
+        if mode in ["eval_drift", "eval_cross_dataset"] and stats_policy == "latest":
+            QMessageBox.warning(
+                self.window,
+                "Validation Warning",
+                "Using stats_time_policy='latest' with drift eval causes data leakage. Please use 'strict_asof' for scientific runs.",
+            )
+            return
+
+        # 2. Topology Conditioned model constraint checks
+        if lr_strategy == "topology_conditioned" and model_type != "EOPKGTopologyConditioned":
+            QMessageBox.critical(
+                self.window,
+                "Validation Failed",
+                f"training.learning_strategy='topology_conditioned' requires model.type='EOPKGTopologyConditioned', got '{model_type}'.",
+            )
+            return
+
+        QMessageBox.information(self.window, "Validation Successful", "Configuration constraints validation passed.")
+
+    def _on_run_clicked(self) -> None:
+        # Write active fields to formatted YAML config
+        flat_values = self._get_flat_values()
+        active_config = {}
+        for path, val in flat_values.items():
+            if self.registry.is_active(path, flat_values):
+                parts = path.split(".")
+                curr = active_config
+                for part in parts[:-1]:
+                    curr = curr.setdefault(part, {})
+                curr[parts[-1]] = val
+
+        project_name = flat_values.get("experiment.project", "default_project")
+        run_name = flat_values.get("experiment.name", "run")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        out_dir = self.root_dir / "outputs" / "ui" / "generated_configs" / project_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{run_name}_{timestamp}.yaml"
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(active_config, f, default_flow_style=False)
+
+        # Switch to Logs tab
+        self.nav.setCurrentRow(2)
+
+        # Trigger QProcess run monitor
+        self.run_monitor.start_run(flat_values.get("experiment.mode", "train"), out_path)
+
+    def _on_stop_clicked(self) -> None:
+        self.run_monitor.stop_run()

@@ -473,10 +473,10 @@ have one implementation and both CLI and trainer should delegate to it.
 
 ### desktop_ui_catalog_contract_drift
 
-- `status`: active
+- `status`: closed
 - `priority`: P1
 - `adr`: none
-- `current_behavior`: legacy Tkinter desktop Experiment UI mixes catalog-driven dynamic forms with manually rendered Core fields; a parallel PySide6 registry-driven prototype exists but is not production run UI yet
+- `current_behavior`: Resolved. The parallel PySide6 desktop UI was refactored and completed, integrating styling system, sliding preset manager, run monitor with live subprocess tracking and logs, custom autocomplete checkpoint resolution, dynamic visibility engine, and warning constraints. It renders Project Setup, Experiment Run, and Advanced pages entirely from the field registry derived from configs/ui/config_catalog.yaml.
 - `target_state`: desktop UI renders Project Setup, Experiment Run, and Advanced fields from one field registry derived from `configs/ui/config_catalog.yaml`
 - `audit`: `docs/worklogs/MVP2_5_Desktop_UI_Field_Dependency_Audit_2026-05-22.MD`
 - `matrix`: `outputs/ui/desktop_ui_field_dependency_matrix.csv`

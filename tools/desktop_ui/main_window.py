@@ -349,8 +349,7 @@ class DesktopPrototypeWindow:
             self.window.show()
 
     def _toggle_presets_drawer(self) -> None:
-        is_visible = not self.preset_drawer.isHidden()
-        self.preset_drawer.set_drawer_visible(not is_visible)
+        self.preset_drawer.set_drawer_visible(not self.preset_drawer.drawer_visible)
 
     def _build_registry_page(self, ui_level: str, title: str) -> QWidget:
         from PySide6.QtWidgets import QScrollArea, QTabWidget

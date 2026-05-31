@@ -17,9 +17,9 @@ def create_field_widget(
 
     if field.enum:
         widget = QComboBox()
+        widget.setEditable(True)
         widget.addItems(list(field.enum))
-        if str(value) in field.enum:
-            widget.setCurrentText(str(value))
+        widget.setCurrentText(str(value) if value is not None else "")
         if max_width:
             widget.setMaximumWidth(max_width)
         widget.currentTextChanged.connect(lambda text: on_change(field.path, text))

@@ -73,6 +73,95 @@ This plan aligns with three external research directions:
 
 ## Proposed Changes
 
+### Mandatory Stability Guardrails
+
+These guardrails must be implemented before the first experiment. They are not
+optional tuning details.
+
+1. **Pre-LN impulse merge, not Post-LN**
+
+   Do not use:
+
+   ```text
+   h0 = layer_norm(base + impulse)
+   ```
+
+   Use:
+
+   ```text
+   base = layer_norm(base)
+   impulse = layer_norm(impulse_proj(struct_prefix_state_x))
+   h0 = base + impulse_scale * impulse
+   ```
+
+   Rationale: previous StructXAttn experiments showed that Post-LN residual
+   merges can create pathological rescaling and hide the true contribution of
+   the structural signal.
+
+2. **Limit impulse diffusion depth**
+
+   The execution pointer normally needs to activate 1-2 hop downstream
+   candidates. Deeper structural message passing can over-smooth the impulse
+   across the full topology.
+
+   Required config:
+
+   ```yaml
+   model.impulse_gnn_layers: 1
+   model.impulse_residual_h0: true
+   ```
+
+   Required formula:
+
+   ```text
+   h_gnn = struct_gnn(h0, structural_edge_index)
+   h_nodes = h_gnn + h0
+   ```
+
+3. **Explicit unseen candidate initialization**
+
+   Do not give unseen topology candidates random trainable label identity as
+   their primary signal. For the first implementation:
+
+   ```text
+   known candidates: known class embedding + topology/prefix features
+   unseen candidates: shared unseen embedding or zero identity component
+   ```
+
+   The useful zero-shot signal for unseen nodes must come from topology
+   position, impulse propagation, and candidate features. Semantic/text
+   prototypes are deferred to a later stage.
+
+4. **Temperature clamp**
+
+   Candidate cosine scoring must not allow the temperature to collapse toward
+   zero.
+
+   Required config:
+
+   ```yaml
+   model.candidate_temperature_init: 0.1
+   model.candidate_temperature_min: 0.05
+   model.candidate_temperature_max: 2.0
+   model.candidate_temperature_trainable: false
+   ```
+
+   Trainable temperature can be evaluated later, after the fixed-temperature
+   baseline is stable.
+
+Required diagnostics:
+
+```text
+impulse_activation_mean_abs
+impulse_activation_max_abs
+impulse_to_base_node_ratio
+impulse_gnn_oversmoothing_ratio
+candidate_temperature_value
+candidate_unseen_score_mean
+candidate_seen_score_mean
+candidate_seen_unseen_score_gap
+```
+
 ### Domain Model
 
 #### [MODIFY] `src/domain/models/eopkg_topology_conditioned.py` or existing `EOPKGTopologyConditioned` source
@@ -98,15 +187,16 @@ The implementation must:
 3. Build dynamic topology node initial states:
 
    ```text
-   h0_j = base_candidate_features_j
-          + known_or_unseen_label_embedding_j
-          + impulse_proj(struct_prefix_state_x[:, j, :])
+   base_j = layer_norm(base_candidate_features_j + known_or_unseen_label_component_j)
+   impulse_j = layer_norm(impulse_proj(struct_prefix_state_x[:, j, :]))
+   h0_j = base_j + impulse_scale * impulse_j
    ```
 
 4. Run structural message passing over the current topology:
 
    ```text
-   h_nodes = struct_encoder(h0, structural_edge_index, edge_weight?)
+   h_gnn = struct_encoder(h0, structural_edge_index, edge_weight?)
+   h_nodes = h_gnn + h0
    ```
 
 5. Score topology-local candidates:
@@ -142,6 +232,12 @@ model.impulse_state_channels:
   - prefix_recency_norm
 model.impulse_scale_init: 0.1
 model.impulse_scale_max: 2.0
+model.impulse_gnn_layers: 1
+model.impulse_residual_h0: true
+model.candidate_temperature_init: 0.1
+model.candidate_temperature_min: 0.05
+model.candidate_temperature_max: 2.0
+model.candidate_temperature_trainable: false
 ```
 
 Recommended default for this experimental branch:
@@ -280,12 +376,12 @@ impulse_scale: learnable bounded scalar
 
 - [ ] **Step 3: Combine base candidate state and impulse**
 
-Use a stable residual merge:
+Use the mandatory Pre-LN residual merge:
 
 ```text
-base = candidate_base_projection(...)
-impulse = impulse_scale * impulse_proj(struct_prefix_state_x)
-h0 = layer_norm(base + impulse)
+base = layer_norm(candidate_base_projection(...))
+impulse = layer_norm(impulse_proj(struct_prefix_state_x))
+h0 = base + impulse_scale * impulse
 ```
 
 Track diagnostics before and after normalization.
@@ -309,8 +405,12 @@ Track diagnostics before and after normalization.
 The structural encoder must run over the current topology-local candidate graph:
 
 ```text
-h_nodes = struct_encoder(h0, structural_edge_index, edge_weight)
+h_gnn = struct_encoder(h0, structural_edge_index, edge_weight)
+h_nodes = h_gnn + h0
 ```
+
+Limit the first implementation to 1-2 structural GNN layers. Default to one
+layer for the initial experiment.
 
 Do not rebuild topology inside the model.
 
@@ -329,6 +429,7 @@ candidate_dynamic_count
 topology_identity
 structural_edge_count
 impulse_to_base_node_ratio
+impulse_gnn_oversmoothing_ratio
 ```
 
 ---
@@ -347,6 +448,12 @@ Supported scoring:
 ```text
 cosine(obs_context, h_nodes[j]) / temperature
 bilinear(obs_context, h_nodes[j])
+```
+
+For cosine scoring, use fixed clamped temperature in the first implementation:
+
+```text
+temperature = clamp(candidate_temperature, min=0.05, max=2.0)
 ```
 
 - [ ] **Step 2: Return candidate-native output**

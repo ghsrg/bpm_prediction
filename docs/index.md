@@ -84,6 +84,10 @@ entire repository.
 - `docs/adr/0008-cli-composition-root-boundary.md`
   - **Description (ukr):** proposed target для декомпозиції `src/cli.py`.
 
+- `docs/adr/0009-impulse-activation-topology-state-routing.md` (`Status: Proposed`)
+  - **Description (ukr):** proposed hypothesis / planned rework для `EOPKGTopologyConditioned`: динамічна імпульсна активація topology-native candidate graph через GNN індуктивності та топологічне трасування стану (Topology State Routing). Не є прийнятим рішенням, доки ADR має статус `Proposed`.
+
+
 ---
 
 ## Architecture Canon

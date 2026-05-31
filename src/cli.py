@@ -2075,7 +2075,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         on_missing_asof_snapshot=on_missing_asof_snapshot,
         cache_policy=cache_policy,
         cache_dir=cache_dir,
-        candidate_identity_mode=training_cfg.get("candidate_identity_mode", "fixed_vocab_bridge"),
+        candidate_identity_mode=training_cfg.get("candidate_identity_mode", "topology_native"),
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

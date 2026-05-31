@@ -4,6 +4,29 @@ Short checklist of project changes that should be reflected in the dissertation.
 
 ---
 
+## 2026-05-31 - EOPKGTopologyConditioned Impulse Activation and Topology State Routing
+
+- `topic`: dynamic execution pointer conditioning and impulse activation in structural GNN
+- `impact`: proposed hypothesis for aligning EOPKGTopologyConditioned with dissertation theoretical methodology; planned rework for investigating structural concept drift degradation in topology-native candidate space, not a validated solution
+- `status`: proposed hypothesis / planned rework (awaiting review and empirical validation)
+- `related_concepts`:
+  - `impulse_activation_routing`
+  - `struct_prefix_state_x` (`is_last_event`)
+  - `inductance_message_passing`
+  - `topology_state_routing`
+  - `bilinear_candidate_matching`
+  - `latent_flow_space` (Stage 2)
+
+**Dissertation notes (ukr):**
+- Попередні EOPKG fusion-підходи варто описати як ablation path: структура як late/static prior або як early topology-only branch не дала стабільного zero-shot перенесення.
+- Нова гіпотеза: `EOPKGTopologyConditioned` має прогнозувати в topology-native candidate space (`candidate_logits [B, K_v]`), а не через fixed-label logits `[B, C_train]`.
+- `struct_prefix_state_x.is_last_event` треба трактувати як execution pointer / impulse source, який активує поточну topology перед candidate scoring.
+- `ObservedEncoder` має залишатися активним: topology routing не замінює sequential evidence, а умовлює candidate ranking поточною структурою.
+- `latent_flow_space` для статистики переходів лишається наступним planned stage, не частиною вже доведеного результату.
+
+---
+
+
 ## 2026-05-21 - Training Layer Separation And Topology-Conditioned Methodology
 
 - `topic`: separation of model fusion mechanism from training methodology

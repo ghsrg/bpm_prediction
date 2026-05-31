@@ -113,12 +113,16 @@ class PresetDrawer(QWidget):
 
     def set_drawer_visible(self, visible: bool) -> None:
         self.anim.stop()
+        try:
+            self.anim.finished.disconnect()
+        except (RuntimeError, TypeError):
+            pass
         if visible:
             self.show()
-            self.anim.setStartValue(0)
+            self.anim.setStartValue(self.minimumWidth())
             self.anim.setEndValue(320)
         else:
-            self.anim.setStartValue(self.width())
+            self.anim.setStartValue(self.minimumWidth())
             self.anim.setEndValue(0)
             self.anim.finished.connect(self.hide)
         self.anim.start()

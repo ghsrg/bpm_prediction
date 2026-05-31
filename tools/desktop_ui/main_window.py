@@ -304,7 +304,8 @@ class DesktopPrototypeWindow:
             on_save_callback=self._get_flat_values,
         )
         self.preset_drawer.preset_loaded.connect(self._apply_preset_values)
-        self.preset_drawer.setFixedWidth(0)
+        self.preset_drawer.setMinimumWidth(0)
+        self.preset_drawer.setMaximumWidth(320)
         self.preset_drawer.hide()
         self.splitter.addWidget(self.preset_drawer)
 
@@ -348,7 +349,7 @@ class DesktopPrototypeWindow:
             self.window.show()
 
     def _toggle_presets_drawer(self) -> None:
-        is_visible = self.preset_drawer.width() > 0
+        is_visible = not self.preset_drawer.isHidden()
         self.preset_drawer.set_drawer_visible(not is_visible)
 
     def _build_registry_page(self, ui_level: str, title: str) -> QWidget:

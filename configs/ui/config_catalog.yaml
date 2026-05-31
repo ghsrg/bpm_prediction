@@ -146,10 +146,7 @@ fields:
     affects: Execution route, data split, and evaluation mode behavior.
     default: ''
     description: Trace fraction after cascade filtering (0..1].
-    enum:
-    - '0.1'
-    - '1'
-    - '1.0'
+    enum: []
     label: Частка даних (fraction)
     path: experiment.fraction
     required_in_modes: []
@@ -257,13 +254,7 @@ fields:
     default: ''
     description: Шлях до checkpoint (.pth), який використовується для оцінки (eval_*)
       або дрейфу (eval_drift).
-    enum:
-    - checkpoints/MVP1_Baseline_train_05_bpi2012_GATv2_best.pth
-    - checkpoints/MVP1_Baseline_train_bpi2012_GATv2_best.pth
-    - checkpoints/MVP1_train_DataDrift_1_synthetic_drift_4tu_GATv2_best.pth
-    - checkpoints/MVP2_5_Stage3_1_Baseline_Files_camunda_procurement_GATv2_best.pth
-    - checkpoints/MVP2_5_Stage3_1_EOPKG_Files_camunda_procurement_GATv2_best.pth
-    - checkpoints/MVP2_EOPKG_Attention_train_05_bpi2012_GATv2_best.pth
+    enum: []
     label: Завантаження checkpoint
     path: experiment.load_checkpoint
     required_in_modes: []

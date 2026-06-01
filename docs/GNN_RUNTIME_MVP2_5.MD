@@ -875,13 +875,82 @@ flowchart LR
 
 Purpose:
 
-1. make topology the candidate space, not only a hint added to a fixed
-   classifier;
-2. score observed prefix representation against topology node candidates;
-3. keep Stage 1 compatible with the current trainer by returning fixed
-   label-level logits `[B, C_train]`;
-4. expose the Stage 2 model-level dynamic candidate contract through
-   `forward_candidate(contract)`.
+1. make topology the prediction candidate space, not only a hint added to a
+   fixed classifier;
+2. score observed prefix representation against topology-local BPMN/EOPKG
+   candidates;
+3. support backward-compatible fixed-label projection for old metrics;
+4. support the current true candidate-level trainer path through
+   `forward_candidate(contract)` and `training.candidate_contract_mode:
+   candidate_id`.
+
+**Робоча інтерпретація (ukr):** ця модель відповідає не на питання
+"який клас із train vocabulary вибрати?", а на питання "який candidate з
+поточної topology version найкраще відповідає observed prefix?". Projection
+назад у fixed labels потрібен лише для сумісності старих метрик.
+
+Current candidate-id runtime:
+
+```mermaid
+flowchart TD
+    subgraph IG["Observed prefix / IG"]
+        XCAT["x_cat, x_num, edge_index"]:::common
+        OENC["Observed encoder\nGATv2 over prefix graph"]:::common
+        POOL["pooling_strategy\nlast_node / global"]:::common
+        Z["obs_context z_prefix [B,D]"]:::output
+        XCAT --> OENC --> POOL --> Z
+    end
+
+    subgraph TG["Topology candidate graph"]
+        CID["candidate_ids / labels\ncurrent topology v"]:::candidate
+        CIDX["candidate_class_index\n-1 for unseen labels"]:::candidate
+        EDGE["structural_edge_index\ncurrent topology flow"]:::candidate
+        SX["struct_x optional\nstats/topology features"]:::optional
+        PS["struct_prefix_state_x\nlast/count/recency"]:::state
+        BASE["candidate identity + optional struct_x"]:::candidate
+        IMP["Impulse projection\nPre-LN + scale"]:::state
+        H0["h0 = LN(base) + scale * LN(impulse)"]:::state
+        SGNN["Structural GNN\nimpulse_gnn_layers"]:::candidate
+        HN["candidate embeddings h_j [K_v,D]"]:::output
+
+        CID --> BASE
+        CIDX --> BASE
+        SX --> BASE
+        PS --> IMP
+        BASE --> H0
+        IMP --> H0
+        EDGE --> SGNN
+        H0 --> SGNN --> HN
+    end
+
+    Z --> SCORE["candidate scoring\ncosine / bilinear"]:::variable
+    HN --> SCORE
+    SCORE --> TEMP["candidate_temperature\nfixed by default"]:::variable
+    TEMP --> CLOGITS["candidate_logits [B,K_v]"]:::output
+
+    CLOGITS --> LOSS["candidate_id set-aware CE\nlabel-to-candidate target mask"]:::loss
+    CLOGITS --> FLOW["optional topology_flow_penalty\ninvalid probability mass"]:::loss
+    CLOGITS --> PROJ["fixed-label projection\nlegacy metrics only"]:::compat
+
+    classDef common fill:#E8F1FF,stroke:#3B6EA8,color:#111;
+    classDef candidate fill:#E6FFFA,stroke:#2C7A7B,color:#111;
+    classDef state fill:#FFF2CC,stroke:#B7791F,color:#111;
+    classDef optional fill:#F3F4F6,stroke:#9CA3AF,color:#111;
+    classDef variable fill:#FDF2F8,stroke:#BE185D,color:#111;
+    classDef output fill:#DCFCE7,stroke:#15803D,color:#111;
+    classDef loss fill:#FFE4E6,stroke:#B91C1C,color:#111;
+    classDef compat fill:#EDE9FE,stroke:#6D28D9,color:#111;
+```
+
+Key distinction:
+
+```text
+BaselineGATv2:
+    observed prefix -> fixed classifier -> logits [B, C_train]
+
+EOPKGTopologyConditioned candidate_id:
+    observed prefix + current topology candidates -> candidate_logits [B, K_v]
+```
 
 Stage 1 architecture:
 
@@ -1060,16 +1129,39 @@ Supported config keys:
 model.type: EOPKGTopologyConditioned
 model.observed_encoder: GATv2
 model.struct_encoder: GATv2
+model.topology_conditioning_mode: static_candidates | impulse_activation_routing
 model.candidate_scoring: cosine       # cosine | bilinear
 model.candidate_pooling: logmeanexp   # logmeanexp | mean | max
 model.candidate_temperature_init: 0.1
 model.candidate_temperature_min: 0.05
-model.candidate_temperature_max: 10.0
+model.candidate_temperature_max: 2.0
 model.candidate_temperature_trainable: false
+model.impulse_activation_enabled: true
+model.impulse_scale_init: 0.1
+model.impulse_gnn_layers: 1
+model.impulse_residual_h0: true
 training.dynamic_candidate_contract_enabled: false
-training.candidate_contract_mode: fixed_label
+training.candidate_contract_mode: fixed_label | fixed_projection | candidate_id
+training.candidate_identity_mode: fixed_vocab_bridge | topology_native
 training.topology_flow_penalty_enabled: false
 ```
+
+`candidate_temperature` is a score-sharpness parameter:
+
+```text
+candidate_logit_j = candidate_score_j / candidate_temperature
+```
+
+Lower values make candidate ranking sharper and more confident. Current
+research presets keep it fixed (`candidate_temperature_trainable=false`) to
+avoid overconfidence shortcuts during drift experiments.
+
+`impulse_gnn_layers` is the propagation depth of the current execution pointer:
+
+- `1`: default for `XES + gateway_mode=collapse_for_prediction`;
+- `2`: meaningful ablation for Camunda-like `gateway_mode=preserve`, where
+  technical/gateway nodes can sit between two business activities;
+- `3+`: high over-smoothing risk and should not be a default research setting.
 
 Diagnostics logged by trainer and exposed to selective traces:
 

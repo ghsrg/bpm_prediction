@@ -34,8 +34,15 @@ class EOPKGTopologyConditioned(BaseGNN):
         candidate_pooling: str = "logmeanexp",
         candidate_temperature_init: float = 0.1,
         candidate_temperature_min: float = 0.05,
-        candidate_temperature_max: float = 10.0,
+        candidate_temperature_max: float = 2.0,
         candidate_temperature_trainable: bool = False,
+        topology_conditioning_mode: str = "static_candidates",
+        impulse_activation_enabled: bool = False,
+        impulse_state_channels: list[str] | tuple[str, ...] | None = None,
+        impulse_scale_init: float = 0.1,
+        impulse_scale_max: float = 2.0,
+        impulse_gnn_layers: int = 1,
+        impulse_residual_h0: bool = True,
     ) -> None:
         super().__init__()
         self.feature_layout = feature_layout
@@ -53,6 +60,25 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.candidate_temperature_min = float(candidate_temperature_min)
         self.candidate_temperature_max = float(candidate_temperature_max)
         self.candidate_temperature_trainable = bool(candidate_temperature_trainable)
+        requested_mode = str(topology_conditioning_mode or "static_candidates").strip().lower()
+        self.impulse_activation_enabled = bool(impulse_activation_enabled) or requested_mode == "impulse_activation_routing"
+        self.topology_conditioning_mode = (
+            "impulse_activation_routing" if self.impulse_activation_enabled else requested_mode
+        )
+        self.impulse_state_channels = tuple(
+            impulse_state_channels
+            or (
+                "prefix_executed_count_log1p",
+                "was_executed",
+                "is_last_event",
+                "last_position_norm",
+                "prefix_recency_norm",
+                "active_after_complete",
+            )
+        )
+        self.impulse_scale_max = float(impulse_scale_max)
+        self.impulse_gnn_layers = int(impulse_gnn_layers)
+        self.impulse_residual_h0 = bool(impulse_residual_h0)
 
         self._validate_config()
 
@@ -75,6 +101,9 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.struct_non_target_emb = nn.Parameter(torch.zeros(self.hidden_dim))
         self.struct_norm = nn.LayerNorm(self.hidden_dim)
         self.struct_conv1 = GATv2Conv(self.hidden_dim, self.hidden_dim, heads=1, concat=True, dropout=dropout)
+        self.impulse_proj = nn.LazyLinear(self.hidden_dim)
+        self.impulse_norm = nn.LayerNorm(self.hidden_dim)
+        self.impulse_scale_raw = nn.Parameter(torch.tensor(float(impulse_scale_init), dtype=torch.float32))
 
         self.hash_vocab_size = 1000
         self.unseen_grounding_emb = nn.Embedding(self.hash_vocab_size, self.hidden_dim)
@@ -101,6 +130,15 @@ class EOPKGTopologyConditioned(BaseGNN):
             raise ValueError("Unsupported model.candidate_scoring. Available: ['cosine', 'bilinear']")
         if self.candidate_pooling not in {"logmeanexp", "mean", "max"}:
             raise ValueError("Unsupported model.candidate_pooling. Available: ['logmeanexp', 'mean', 'max']")
+        if self.topology_conditioning_mode not in {"static_candidates", "impulse_activation_routing"}:
+            raise ValueError(
+                "Unsupported model.topology_conditioning_mode. "
+                "Available: ['static_candidates', 'impulse_activation_routing']"
+            )
+        if self.impulse_scale_max <= 0.0:
+            raise ValueError("model.impulse_scale_max must be positive.")
+        if self.impulse_gnn_layers < 1 or self.impulse_gnn_layers > 2:
+            raise ValueError("model.impulse_gnn_layers must be 1 or 2 for the initial implementation.")
         if self.candidate_temperature_min <= 0.0:
             raise ValueError("model.candidate_temperature_min must be positive.")
         if self.candidate_temperature_max < self.candidate_temperature_min:
@@ -137,6 +175,16 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.last_candidate_ids = None
         self.last_candidate_labels = None
         self.last_candidate_is_unseen = None
+        self.last_candidate_logits = None
+        self.last_topology_conditioning_mode = self.topology_conditioning_mode
+        self.last_impulse_activation_mean_abs = None
+        self.last_impulse_activation_max_abs = None
+        self.last_impulse_to_base_node_ratio = None
+        self.last_impulse_gnn_oversmoothing_ratio = None
+        self.last_candidate_unseen_score_mean = None
+        self.last_candidate_seen_score_mean = None
+        self.last_candidate_seen_unseen_score_gap = None
+        self.last_structural_edge_count = None
 
     def _encode_observed_input(self, contract: GraphTensorContract) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_cat = contract["x_cat"]
@@ -207,7 +255,7 @@ class EOPKGTopologyConditioned(BaseGNN):
                     h_id[unseen_mask] = h_id[unseen_mask] + self.unseen_grounding_emb(hash_tensor)
         return h_id
 
-    def _struct_input(self, contract: GraphTensorContract, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    def _struct_base_input(self, contract: GraphTensorContract, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
         node_to_class = contract.get("struct_node_to_class_index")
         if not isinstance(node_to_class, torch.Tensor):
             raise ValueError("EOPKGTopologyConditioned requires struct_node_to_class_index.")
@@ -221,7 +269,11 @@ class EOPKGTopologyConditioned(BaseGNN):
         if struct_x.size(0) != node_to_class.numel():
             raise ValueError("struct_x and struct_node_to_class_index must describe the same number of nodes.")
         projected = self.struct_input_proj(struct_x)
-        return self.struct_norm(projected + identity), node_to_class
+        return projected + identity, node_to_class
+
+    def _struct_input(self, contract: GraphTensorContract, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+        base, node_to_class = self._struct_base_input(contract, device)
+        return self.struct_norm(base), node_to_class
 
     def _encode_candidates(
         self,
@@ -231,12 +283,64 @@ class EOPKGTopologyConditioned(BaseGNN):
         structural_edge_index = contract.get("structural_edge_index")
         if not isinstance(structural_edge_index, torch.Tensor):
             raise ValueError("EOPKGTopologyConditioned requires structural_edge_index.")
+        if self.topology_conditioning_mode == "impulse_activation_routing":
+            return self._encode_impulse_candidates(contract, device)
         h0, node_to_class = self._struct_input(contract, device)
         edge_index = structural_edge_index.to(device=device, dtype=torch.long)
         h = self.struct_conv1(h0, edge_index)
         h = self.activation(h)
         h = self.dropout(h)
         return self.struct_norm(h), node_to_class
+
+    def _impulse_scale(self) -> torch.Tensor:
+        return torch.clamp(self.impulse_scale_raw, min=0.0, max=float(self.impulse_scale_max))
+
+    def _encode_impulse_candidates(
+        self,
+        contract: GraphTensorContract,
+        device: torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        structural_edge_index = contract.get("structural_edge_index")
+        if not isinstance(structural_edge_index, torch.Tensor):
+            raise ValueError("EOPKGTopologyConditioned requires structural_edge_index.")
+        prefix_state = contract.get("struct_prefix_state_x")
+        if not isinstance(prefix_state, torch.Tensor):
+            raise ValueError("impulse_activation_routing requires struct_prefix_state_x.")
+
+        base_raw, node_to_class = self._struct_base_input(contract, device)
+        prefix_state = prefix_state.to(device=device, dtype=torch.float32)
+        if prefix_state.dim() == 2:
+            prefix_state = prefix_state.unsqueeze(0)
+        if prefix_state.dim() != 3:
+            raise ValueError("struct_prefix_state_x must have shape [V, F] or [B, V, F].")
+        if prefix_state.size(1) != node_to_class.numel():
+            raise ValueError("struct_prefix_state_x node dimension must match struct_node_to_class_index.")
+
+        base = self.struct_norm(base_raw).unsqueeze(0).expand(prefix_state.size(0), -1, -1)
+        impulse = self.impulse_norm(self.impulse_proj(prefix_state))
+        h0 = base + self._impulse_scale().to(device=device, dtype=base.dtype) * impulse
+
+        edge_index = structural_edge_index.to(device=device, dtype=torch.long)
+        propagated = []
+        for row in range(h0.size(0)):
+            h = h0[row]
+            for _ in range(self.impulse_gnn_layers):
+                h = self.struct_conv1(h, edge_index)
+                h = self.activation(h)
+                h = self.dropout(h)
+            if self.impulse_residual_h0:
+                h = h + h0[row]
+            propagated.append(h)
+        h_nodes = self.struct_norm(torch.stack(propagated, dim=0))
+
+        self._record_impulse_diagnostics(
+            base=base,
+            impulse=impulse,
+            h0=h0,
+            h_nodes=h_nodes,
+            edge_index=edge_index,
+        )
+        return h_nodes, node_to_class
 
     @staticmethod
     def _candidate_tuple(contract: GraphTensorContract, key: str) -> tuple[str, ...]:
@@ -300,11 +404,40 @@ class EOPKGTopologyConditioned(BaseGNN):
 
     def _score_candidates(self, obs_context: torch.Tensor, candidate_embeddings: torch.Tensor) -> torch.Tensor:
         if self.candidate_scoring == "cosine":
+            if candidate_embeddings.dim() == 3:
+                scores = torch.sum(
+                    F.normalize(obs_context, dim=1).unsqueeze(1)
+                    * F.normalize(candidate_embeddings, dim=2),
+                    dim=2,
+                )
+                return scores / self._temperature().to(device=obs_context.device, dtype=obs_context.dtype)
             scores = F.normalize(obs_context, dim=1) @ F.normalize(candidate_embeddings, dim=1).T
             return scores / self._temperature().to(device=obs_context.device, dtype=obs_context.dtype)
 
         transformed = self.bilinear(obs_context)
+        if candidate_embeddings.dim() == 3:
+            return torch.sum(transformed.unsqueeze(1) * candidate_embeddings, dim=2)
         return transformed @ candidate_embeddings.T
+
+    def _record_impulse_diagnostics(
+        self,
+        *,
+        base: torch.Tensor,
+        impulse: torch.Tensor,
+        h0: torch.Tensor,
+        h_nodes: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> None:
+        with torch.no_grad():
+            safe_impulse = torch.abs(torch.nan_to_num(impulse.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6))
+            safe_base = torch.abs(torch.nan_to_num(base.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6))
+            delta = torch.abs(torch.nan_to_num((h_nodes - h0).detach().float(), nan=0.0, posinf=1e6, neginf=-1e6))
+            h0_abs = torch.abs(torch.nan_to_num(h0.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6))
+            self.last_impulse_activation_mean_abs = float(safe_impulse.mean().item())
+            self.last_impulse_activation_max_abs = float(safe_impulse.max().item())
+            self.last_impulse_to_base_node_ratio = float(safe_impulse.mean().item() / max(float(safe_base.mean().item()), 1e-12))
+            self.last_impulse_gnn_oversmoothing_ratio = float(delta.mean().item() / max(float(h0_abs.mean().item()), 1e-12))
+            self.last_structural_edge_count = int(edge_index.size(1))
 
     def _pool_node_scores_to_classes(self, node_scores: torch.Tensor, node_to_class: torch.Tensor) -> torch.Tensor:
         node_to_class = node_to_class.to(device=node_scores.device, dtype=torch.long)
@@ -359,6 +492,8 @@ class EOPKGTopologyConditioned(BaseGNN):
         self.last_candidate_ids = list(candidate_ids)
         self.last_candidate_labels = list(candidate_labels)
         self.last_candidate_is_unseen = candidate_is_unseen.detach().cpu().tolist()
+        self.last_candidate_logits = candidate_logits.detach().cpu()
+        self._record_seen_unseen_candidate_diagnostics(candidate_logits, candidate_is_unseen)
         return CandidatePredictionOutput(
             candidate_logits=candidate_logits,
             candidate_class_index=candidate_class_index,
@@ -370,6 +505,25 @@ class EOPKGTopologyConditioned(BaseGNN):
             candidate_labels=candidate_labels,
             candidate_is_unseen=candidate_is_unseen,
         )
+
+    def _record_seen_unseen_candidate_diagnostics(
+        self,
+        candidate_logits: torch.Tensor,
+        candidate_is_unseen: torch.Tensor | None,
+    ) -> None:
+        if not isinstance(candidate_is_unseen, torch.Tensor) or candidate_is_unseen.numel() <= 0:
+            return
+        with torch.no_grad():
+            unseen = candidate_is_unseen.to(device=candidate_logits.device, dtype=torch.bool).view(-1)
+            finite_logits = torch.nan_to_num(candidate_logits.detach().float(), nan=0.0, posinf=1e6, neginf=-1e6)
+            if bool(unseen.any()):
+                self.last_candidate_unseen_score_mean = float(finite_logits[:, unseen].mean().item())
+            if bool((~unseen).any()):
+                self.last_candidate_seen_score_mean = float(finite_logits[:, ~unseen].mean().item())
+            if self.last_candidate_seen_score_mean is not None and self.last_candidate_unseen_score_mean is not None:
+                self.last_candidate_seen_unseen_score_gap = float(
+                    self.last_candidate_seen_score_mean - self.last_candidate_unseen_score_mean
+                )
 
     def _pool_node_scores_to_dynamic_candidates(
         self,

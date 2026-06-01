@@ -20,6 +20,7 @@ def create_field_widget(
         widget.setEditable(True)
         widget.addItems(list(field.enum))
         widget.setCurrentText(str(value) if value is not None else "")
+        widget.setMinimumWidth(260)
         if max_width:
             widget.setMaximumWidth(max_width)
         widget.currentTextChanged.connect(lambda text: on_change(field.path, text))

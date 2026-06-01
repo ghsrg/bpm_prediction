@@ -172,6 +172,42 @@ PROJECT_SETUP_GROUP_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+PROJECT_SETUP_TABS = {
+    "Data & Adapters": [
+        ("Dataset / Adapter", "Dataset & Adapter Configuration"),
+        ("XES Source", "XES Log Source Settings"),
+        ("Camunda Runtime", "Camunda Process Engine Runtime Configuration"),
+        ("Camunda Structure", "Camunda Process Model Structure Configuration"),
+    ],
+    "Knowledge Graph & Stats": [
+        ("Knowledge Graph", "Knowledge Graph Connection Settings"),
+        ("Stats / Mapping", "Historical Statistics & Feature Mapping"),
+        ("Other", "Other Connection Settings"),
+    ]
+}
+
+EXPERIMENT_RUN_TABS = {
+    "Experiment Parameters": [
+        ("Run Identity", "Experiment & Run Identity"),
+        ("Data Slice", "Data Split & Cascade Sampling Strategy"),
+        ("Checkpoint / Tracking", "Model Checkpoints & MLflow Tracking"),
+    ],
+    "Model & Training": [
+        ("Structure Signal", "Knowledge Graph Structural Signals"),
+        ("Model / Fusion", "Model Architecture & Structural Fusion Modes"),
+        ("Learning", "Learning Strategy & Training Hyperparameters"),
+        ("Other", "Other Run Settings"),
+    ]
+}
+
+ADVANCED_TABS = {
+    "System & Performance": [
+        ("General", "Performance, Cache & Memory Limits"),
+        ("Other", "Other Advanced Settings"),
+    ]
+}
+
+
 def group_fields_for_page(registry: DesktopFieldRegistry, ui_level: str) -> dict[str, list[DesktopFieldMeta]]:
     if ui_level == "project_setup":
         return _group_project_setup_fields(registry)
@@ -229,7 +265,7 @@ class DesktopPrototypeWindow:
         self.root_dir = root_dir
         self.values: dict[str, Any] = {field.path: field.default for field in registry}
         self.field_widgets: dict[str, Any] = {}
-        self.field_rows: list[tuple[DesktopFieldMeta, Any, Any]] = []
+        self.field_rows: list[tuple[DesktopFieldMeta, Any, Any, Any]] = []
         self.selected_field: DesktopFieldMeta | None = None
         self.values.setdefault("experiment.load_checkpoint", DEFAULT_CHECKPOINT_VALUE)
         if not self.values.get("experiment.load_checkpoint"):
@@ -352,42 +388,83 @@ class DesktopPrototypeWindow:
         self.preset_drawer.set_drawer_visible(not self.preset_drawer.drawer_visible)
 
     def _build_registry_page(self, ui_level: str, title: str) -> QWidget:
-        from PySide6.QtWidgets import QScrollArea, QTabWidget
+        from PySide6.QtWidgets import QScrollArea, QTabWidget, QGroupBox
 
         tab = QTabWidget()
         grouped = group_fields_for_page(self.registry, ui_level)
-        for group_name, fields in grouped.items():
+        
+        if ui_level == "project_setup":
+            spec = PROJECT_SETUP_TABS
+        elif ui_level == "experiment_run":
+            spec = EXPERIMENT_RUN_TABS
+        else:
+            spec = ADVANCED_TABS
+
+        # Map grouped keys to the specified tabs
+        tab_groups = {}
+        for tab_name, groups_spec in spec.items():
+            tab_groups[tab_name] = []
+            for group_key, gb_title in groups_spec:
+                if group_key in grouped:
+                    tab_groups[tab_name].append((group_key, gb_title, grouped.pop(group_key)))
+
+        # Fail-safe: add any remaining groups to the last tab as fallback
+        if grouped:
+            last_tab_name = list(spec.keys())[-1]
+            if last_tab_name not in tab_groups:
+                tab_groups[last_tab_name] = []
+            for group_key, fields in list(grouped.items()):
+                tab_groups[last_tab_name].append((group_key, f"Other: {group_key}", fields))
+
+        for tab_title, gb_list in tab_groups.items():
+            if not gb_list:
+                continue
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(8, 8, 8, 8)
-            page_layout.setSpacing(6)
-            for field in fields:
-                row = QWidget()
-                row_layout = QHBoxLayout(row)
-                row_layout.setContentsMargins(0, 0, 0, 0)
-                label = self._make_field_label(field)
-                widget = create_field_widget(
-                    field,
-                    self.values.get(field.path, field.default),
-                    self._set_value,
-                    max_width=FIELD_WIDGET_MAX_WIDTH,
+            page_layout.setSpacing(10)
+
+            for group_key, gb_title, fields in gb_list:
+                group_box = QGroupBox(gb_title)
+                group_box.setStyleSheet(
+                    "QGroupBox { font-weight: bold; border: 1px solid #2d2d35; border-radius: 6px; margin-top: 10px; padding-top: 15px; } "
+                    "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 3px; }"
                 )
-                self.field_widgets[field.path] = widget
-                self.field_rows.append((field, row, widget))
-                row_layout.addWidget(label)
-                row_layout.addWidget(widget)
-                if field.path == "experiment.load_checkpoint":
-                    fill = QPushButton("Fill from experiment.name")
-                    fill.clicked.connect(self._fill_checkpoint_from_experiment_name)
-                    fill.setMinimumWidth(180)
-                    row_layout.addWidget(fill)
-                row_layout.addStretch(1)
-                page_layout.addWidget(row)
+                gb_layout = QVBoxLayout(group_box)
+                gb_layout.setContentsMargins(10, 10, 10, 10)
+                gb_layout.setSpacing(6)
+
+                for field in fields:
+                    row = QWidget()
+                    row_layout = QHBoxLayout(row)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    label = self._make_field_label(field)
+                    widget = create_field_widget(
+                        field,
+                        self.values.get(field.path, field.default),
+                        self._set_value,
+                        max_width=FIELD_WIDGET_MAX_WIDTH,
+                    )
+                    self.field_widgets[field.path] = widget
+                    # Store 4-tuple: (field, row, widget, group_box)
+                    self.field_rows.append((field, row, widget, group_box))
+                    row_layout.addWidget(label)
+                    row_layout.addWidget(widget)
+                    if field.path == "experiment.load_checkpoint":
+                        fill = QPushButton("Fill from experiment.name")
+                        fill.clicked.connect(self._fill_checkpoint_from_experiment_name)
+                        fill.setMinimumWidth(180)
+                        row_layout.addWidget(fill)
+                    row_layout.addStretch(1)
+                    gb_layout.addWidget(row)
+                page_layout.addWidget(group_box)
+
             page_layout.addStretch(1)
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(page)
-            tab.addTab(scroll, group_name)
+            tab.addTab(scroll, tab_title)
+
         if tab.count() == 0:
             empty = QWidget()
             layout = QVBoxLayout(empty)
@@ -543,17 +620,29 @@ class DesktopPrototypeWindow:
         show_hidden = self.show_hidden_cb.isChecked()
         flat_values = self._get_flat_values()
 
-        for field, row, widget in self.field_rows:
+        group_box_visibility = {}
+
+        for field, row, widget, group_box in self.field_rows:
             active = self.registry.is_active(field.path, flat_values)
+            visible = False
             if active:
+                visible = True
                 row.setVisible(True)
                 widget.setEnabled(True)
             else:
                 if show_hidden:
+                    visible = True
                     row.setVisible(True)
                     widget.setEnabled(False)  # Read-only
                 else:
                     row.setVisible(False)
+
+            if visible:
+                group_box_visibility[group_box] = True
+
+        unique_group_boxes = {item[3] for item in self.field_rows if item[3] is not None}
+        for gb in unique_group_boxes:
+            gb.setVisible(gb in group_box_visibility)
 
     def _get_flat_values(self) -> dict[str, Any]:
         return {k: v for k, v in self.values.items()}
@@ -567,9 +656,16 @@ class DesktopPrototypeWindow:
 
     def _apply_search_filter(self, text: str) -> None:
         needle = text.strip().lower()
-        for field, row, widget in self.field_rows:
+        group_box_visibility = {}
+        for field, row, widget, group_box in self.field_rows:
             visible = not needle or needle in field.path.lower() or needle in field.label.lower() or needle in field.description.lower()
             row.setVisible(visible)
+            if visible:
+                group_box_visibility[group_box] = True
+
+        unique_group_boxes = {item[3] for item in self.field_rows if item[3] is not None}
+        for gb in unique_group_boxes:
+            gb.setVisible(gb in group_box_visibility)
 
     def _on_validate_clicked(self) -> None:
         mode = self.values.get("experiment.mode", "")

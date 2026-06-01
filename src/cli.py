@@ -305,11 +305,18 @@ def _build_model_factory_kwargs(
         "candidate_pooling": str(model_cfg.get("candidate_pooling", "logmeanexp")),
         "candidate_temperature_init": float(model_cfg.get("candidate_temperature_init", 0.1)),
         "candidate_temperature_min": float(model_cfg.get("candidate_temperature_min", 0.05)),
-        "candidate_temperature_max": float(model_cfg.get("candidate_temperature_max", 10.0)),
+        "candidate_temperature_max": float(model_cfg.get("candidate_temperature_max", 2.0)),
         "candidate_temperature_trainable": _as_bool(
             model_cfg.get("candidate_temperature_trainable"),
             default=False,
         ),
+        "topology_conditioning_mode": str(model_cfg.get("topology_conditioning_mode", "static_candidates")),
+        "impulse_activation_enabled": _as_bool(model_cfg.get("impulse_activation_enabled"), default=False),
+        "impulse_state_channels": model_cfg.get("impulse_state_channels"),
+        "impulse_scale_init": float(model_cfg.get("impulse_scale_init", 0.1)),
+        "impulse_scale_max": float(model_cfg.get("impulse_scale_max", 2.0)),
+        "impulse_gnn_layers": int(model_cfg.get("impulse_gnn_layers", 1)),
+        "impulse_residual_h0": _as_bool(model_cfg.get("impulse_residual_h0"), default=True),
     }
 
 

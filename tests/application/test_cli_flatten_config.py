@@ -268,6 +268,13 @@ def test_build_model_factory_kwargs_passes_topology_conditioned_candidate_config
             "candidate_temperature_min": 0.05,
             "candidate_temperature_max": 1.0,
             "candidate_temperature_trainable": True,
+            "topology_conditioning_mode": "impulse_activation_routing",
+            "impulse_activation_enabled": True,
+            "impulse_state_channels": ["is_last_event", "prefix_recency_norm"],
+            "impulse_scale_init": 0.2,
+            "impulse_scale_max": 1.4,
+            "impulse_gnn_layers": 1,
+            "impulse_residual_h0": False,
         },
         feature_layout=object(),
         output_dim=7,
@@ -282,3 +289,10 @@ def test_build_model_factory_kwargs_passes_topology_conditioned_candidate_config
     assert kwargs["candidate_temperature_min"] == 0.05
     assert kwargs["candidate_temperature_max"] == 1.0
     assert kwargs["candidate_temperature_trainable"] is True
+    assert kwargs["topology_conditioning_mode"] == "impulse_activation_routing"
+    assert kwargs["impulse_activation_enabled"] is True
+    assert kwargs["impulse_state_channels"] == ["is_last_event", "prefix_recency_norm"]
+    assert kwargs["impulse_scale_init"] == 0.2
+    assert kwargs["impulse_scale_max"] == 1.4
+    assert kwargs["impulse_gnn_layers"] == 1
+    assert kwargs["impulse_residual_h0"] is False

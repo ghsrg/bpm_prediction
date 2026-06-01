@@ -854,3 +854,42 @@ candidate_unseen_target_rate becomes visible when future labels are outside trai
 If `candidate_dynamic_count` stays identical to the train vocabulary and no
 candidate has `candidate_class_index=-1`, the run is still testing the old
 fixed-vocab bridge, not topology-native transfer.
+
+## Impulse Activation Routing
+
+`model.topology_conditioning_mode=impulse_activation_routing` is the first
+implemented dynamic topology-routing mode for `EOPKGTopologyConditioned`.
+It belongs to the model family, not to `EOPKGGATv2.model.fusion_mode`.
+
+Recommended first experiment:
+
+```yaml
+model.type: EOPKGTopologyConditioned
+model.topology_conditioning_mode: impulse_activation_routing
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+training.candidate_batch_topology_policy: single_topology_required
+training.learning_strategy: standard
+experiment.gateway_mode: collapse_for_prediction
+experiment.statistic_enabled: false
+```
+
+The primary loss is still candidate-set cross entropy over
+`candidate_logits [B, K_v]`. Fixed-label projection remains a compatibility
+metric surface only.
+
+Use these diagnostics to decide whether the topology impulse is active and
+bounded before interpreting drift metrics:
+
+```text
+impulse_activation_mean_abs
+impulse_to_base_node_ratio
+impulse_gnn_oversmoothing_ratio
+candidate_seen_unseen_score_gap
+candidate_oos_rate
+candidate_missing_target_rate
+```
+
+`group_by_topology` remains deferred; current candidate-id runs should use
+topology-homogeneous batches and fail fast if mixed topology reaches the
+trainer.

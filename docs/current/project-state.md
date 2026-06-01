@@ -643,6 +643,21 @@ Additionally resolved a major disk I/O loading bottleneck in `ShardedGraphDatase
 
 Verified model retraining and F1 convergence using `configs/experiments/_EOPKGTC-UN-42_test_grounding.yaml` (fraction 0.2, 50 epochs). The training run successfully completed with gradient stability (loss stable at ~3.35, no explosions). Evaluation masking correctly filtered technical gateway candidates at metric-evaluation time. Validation F1 successfully converged (peaking at ~0.52 on val, with final test F1 reaching 0.67 and top-3 accuracy at 0.99). This confirms that both the convergence degradation (previously stuck at F1 ~0.43) and cache loading issues are resolved, and the pipeline is fully prepared for full-scale runs.
 
+## Runtime Update 2026-05-31
+
+`EOPKGTopologyConditioned` now supports experimental
+`model.topology_conditioning_mode=impulse_activation_routing` for
+topology-native candidate scoring. The mode keeps the observed prefix encoder,
+requires `struct_prefix_state_x`, injects a normalized execution impulse into
+candidate node states, propagates it through the current structural topology,
+and returns `candidate_logits [B, K_v]` through `forward_candidate()`.
+
+This is not an `EOPKGGATv2.fusion_mode` and does not make fixed-label logits the
+primary loss surface. Recommended research runs use
+`training.candidate_contract_mode=candidate_id` and
+`training.candidate_identity_mode=topology_native`; fixed-label projection is
+compatibility reporting only.
+
 
 
 

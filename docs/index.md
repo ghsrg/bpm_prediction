@@ -166,6 +166,18 @@ entire repository.
 - `docs/VARIABLES.MD`
   - **Description (ukr):** mathematical notation to code naming map.
 
+- `docs/research_comparation.MD`
+  - **Description (ukr):** наукова новизна та порівняльний аналіз літератури:
+    зіставлення EOPKGTopologyConditioned з сучасними SOTA моделями (Lischka, Wang,
+    Rizzi, ProcessGFM, SAGN, PROPHET, IPA-GNN, SNAP, TPOP) та обґрунтування плагіат-захисту.
+
+- `docs/dissertation_math_fix.MD`
+  - **Description (ukr):** математичні та архітектурні невідповідності:
+    аналіз розбіжностей між теоретичним описом у дисертації (модель злиття, онлайн-еволюція,
+    семафор надійності) та практичною програмною реалізацією Impulse Activation Routing.
+
+
+
 ---
 
 ## UI And Tooling

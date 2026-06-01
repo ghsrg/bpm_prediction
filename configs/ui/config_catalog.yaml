@@ -1549,7 +1549,7 @@ fields:
   model.candidate_temperature_max:
     affects: Prevents candidate scores from becoming too flat when temperature is
       trainable.
-    default: 10.0
+    default: 2.0
     description: Upper clamp for trainable candidate temperature.
     enum: []
     label: 'Model: candidate temperature max'
@@ -1598,6 +1598,133 @@ fields:
       group: advanced
       order: 1035
       priority: 100
+      tab: model
+  model.impulse_activation_enabled:
+    affects: Enables topology-native impulse routing inside EOPKGTopologyConditioned.
+    default: 'false'
+    description: Convenience toggle for model.topology_conditioning_mode=impulse_activation_routing.
+    enum:
+    - 'false'
+    - 'true'
+    label: 'Model: impulse activation'
+    path: model.impulse_activation_enabled
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: core
+      order: 35
+      priority: 20
+      tab: model
+  model.impulse_gnn_layers:
+    affects: Controls how far the execution impulse diffuses through topology.
+    default: 1
+    description: Number of structural GNN message-passing layers for impulse routing;
+      first implementation supports 1 or 2.
+    enum:
+    - '1'
+    - '2'
+    label: 'Model: impulse GNN layers'
+    path: model.impulse_gnn_layers
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: advanced
+      order: 1040
+      priority: 100
+      tab: model
+  model.impulse_residual_h0:
+    affects: Preserves the pre-message-passing impulse state in candidate embeddings.
+    default: 'true'
+    description: Add h0 back after impulse structural message passing.
+    enum:
+    - 'false'
+    - 'true'
+    label: 'Model: impulse residual h0'
+    path: model.impulse_residual_h0
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: advanced
+      order: 1041
+      priority: 100
+      tab: model
+  model.impulse_scale_init:
+    affects: Initial strength of prefix-state impulse injection into topology nodes.
+    default: 0.1
+    description: Initial bounded scalar multiplier for normalized impulse projection.
+    enum: []
+    label: 'Model: impulse scale init'
+    path: model.impulse_scale_init
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: advanced
+      order: 1038
+      priority: 100
+      tab: model
+  model.impulse_scale_max:
+    affects: Prevents impulse routing from dominating candidate embeddings.
+    default: 2.0
+    description: Upper clamp for the impulse scale parameter.
+    enum: []
+    label: 'Model: impulse scale max'
+    path: model.impulse_scale_max
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: advanced
+      order: 1039
+      priority: 100
+      tab: model
+  model.impulse_state_channels:
+    affects: Documents which struct_prefix_state_x channels feed impulse routing.
+    default:
+    - is_last_event
+    - prefix_executed_count_log1p
+    - prefix_recency_norm
+    description: Logical prefix-state channels used by impulse routing; tensor order
+      remains the GraphTensorContract struct_prefix_state_x order.
+    enum: []
+    label: 'Model: impulse state channels'
+    path: model.impulse_state_channels
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: advanced
+      order: 1037
+      priority: 100
+      tab: model
+  model.topology_conditioning_mode:
+    affects: Selects static topology candidate scoring or dynamic prefix-state impulse
+      routing.
+    default: static_candidates
+    description: EOPKGTopologyConditioned topology conditioning mode; impulse routing
+      predicts in topology-native candidate space.
+    enum:
+    - static_candidates
+    - impulse_activation_routing
+    label: 'Model: topology conditioning mode'
+    path: model.topology_conditioning_mode
+    required_in_modes: []
+    required_when:
+      model.type: EOPKGTopologyConditioned
+    section: model
+    ui:
+      group: core
+      order: 34
+      priority: 20
       tab: model
   model.cross_attention_heads:
     affects: Capacity, compute footprint, and generalization behavior.

@@ -34,7 +34,7 @@ historical debt worklogs.
 - `status`: active
 - `priority`: P0
 - `adr`: none
-- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; `fixed_projection` projects candidate logits back to sparse fixed-label logits `[B, C_train]`; `candidate_id` trains with set-aware CE directly on `[B, C_v]`, reports candidate target mapping diagnostics, and maps predictions/probabilities back to global activity labels for existing metrics/drift reporting
+- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; `fixed_projection` projects candidate logits back to sparse fixed-label logits `[B, C_train]`; `candidate_id` trains with set-aware CE directly on `[B, C_v]`, reports candidate target mapping diagnostics, and maps predictions/probabilities back to global activity labels for existing metrics/drift reporting; `model.topology_conditioning_mode=impulse_activation_routing` can inject `struct_prefix_state_x` into topology candidate nodes before structural message passing while keeping `[B, C_v]` as the primary output
 - `target_state`: train/eval/drift contracts consume per-version candidate logits `[B, C_v]`, stable candidate ids, BPMN node ids, and target candidate mapping for added/removed BPMN nodes without requiring fixed-vocab metric projection
 
 **Description (ukr):**

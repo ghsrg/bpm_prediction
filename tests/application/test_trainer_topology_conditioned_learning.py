@@ -112,6 +112,10 @@ class _DynamicCandidateFlowModel(nn.Module):
         )
 
 
+class _ImpulseCandidateFlowModel(_DynamicCandidateFlowModel):
+    topology_conditioning_mode = "impulse_activation_routing"
+
+
 def _sample(version_idx: int, *, edge_count: int = 4):
     from torch_geometric.data import Data
 
@@ -367,6 +371,30 @@ def test_candidate_id_retention_uses_candidate_loss_without_fixed_vocab_class_we
     train_loss, *_ = trainer._run_epoch(loader, optimizer=optimizer, training=True)
 
     assert train_loss > 0.0
+
+
+def test_candidate_id_impulse_routing_fails_fast_when_prefix_state_missing():
+    model = _ImpulseCandidateFlowModel(candidate_count=3)
+    trainer = _trainer(
+        model=model,
+        config={
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "topology_conditioning_allowed_set_loss_enabled": False,
+            "topology_conditioning_wrong_version_negative_enabled": False,
+            "topology_conditioning_drop_edges_negative_enabled": False,
+            "topology_conditioning_retention_enabled": False,
+        },
+    )
+    loader = trainer._build_loader_from_dataset([_candidate_sample()], shuffle=False)
+    optimizer = Adam(model.parameters(), lr=0.01)
+
+    try:
+        trainer._run_epoch(loader, optimizer=optimizer, training=True)
+    except ValueError as exc:
+        assert "struct_prefix_state_x" in str(exc)
+    else:
+        raise AssertionError("Expected missing struct_prefix_state_x to fail fast.")
 
 
 def test_candidate_id_fields_propagation_in_data_to_contract():

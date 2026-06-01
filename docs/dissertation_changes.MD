@@ -1441,3 +1441,80 @@ This changes the interpretation of experiments:
 - if unseen candidates are visible but never selected, the next blocker is
   semantic grounding / retrieval-style candidate prototypes, not basic topology
   wiring.
+
+**2026-05-31 impulse activation routing implementation note:** the
+`EOPKGTopologyConditioned` candidate path now has an experimental dynamic
+topology-routing mode:
+
+```yaml
+model.topology_conditioning_mode: impulse_activation_routing
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+```
+
+This mode keeps the observed prefix encoder and injects the current execution
+pointer from `struct_prefix_state_x` into topology candidate nodes before
+structural message passing. The model then scores topology-local candidates
+directly in `[B, K_v]` space. It is therefore a test of whether dynamic
+topology routing changes candidate ranking, not another fixed-vocabulary
+fusion mode.
+
+Dissertation interpretation: this is a planned hypothesis test for whether the
+current topology can route candidate ranking after structural drift. Success
+should be judged by candidate-space diagnostics, OOS/calibration, and drift
+degradation slope, not by a single fixed-label F1 spike.
+
+**2026-06-01 follow-up note: cyclic route disambiguation:** current
+`impulse_activation_routing` is primarily node-state based. It can highlight
+the last executed node, visit count, and recency, but cyclic processes may
+require path/edge state to distinguish prefixes that touch the same nodes
+through different loop routes.
+
+Next-step hypothesis after stabilizing impulse routing:
+
+```text
+node-level impulse tells the model where the process is;
+edge/path-aware prefix state tells the model how it arrived there.
+```
+
+Candidate future features:
+
+- `prefix_edge_traversal_count`;
+- `prefix_last_edge_or_transition`;
+- `prefix_visit_count_per_node`;
+- `prefix_last_visit_distance`;
+- `loop_iteration_estimate`.
+
+This should be positioned as a later extension for cyclic BPMN/EOPKG behavior,
+not as part of the current stabilization run.
+
+**2026-06-01 follow-up note: impulse propagation depth:** `impulse_gnn_layers`
+should be described as a propagation-depth parameter for the execution impulse,
+not only as a generic GNN hyperparameter.
+
+Interpretation:
+
+```text
+impulse_gnn_layers = how many topology hops the current execution pointer can
+influence before candidate scoring
+```
+
+Recommended framing:
+
+- `XES + gateways: collapse_for_prediction`: business activity transitions are
+  already projected to prediction nodes, so `impulse_gnn_layers=1` is the
+  default candidate;
+- `Camunda-like logs + gateways: preserve`: technical/service/gateway nodes can
+  sit between two business activities, so `impulse_gnn_layers=2` becomes a
+  meaningful ablation because the impulse may need to cross an intermediate
+  technical node;
+- `impulse_gnn_layers >= 3` should be treated cautiously because it can spread
+  the execution pointer too broadly and create over-smoothing.
+
+Metrics for this explanation:
+
+- `impulse_gnn_oversmoothing_ratio`;
+- `candidate_prediction_entropy`;
+- `candidate_score_gap`;
+- `strict_error_but_allowed_rate`;
+- `test_nll` / `test_ece`.

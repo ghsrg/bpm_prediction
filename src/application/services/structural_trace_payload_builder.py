@@ -97,6 +97,7 @@ def build_structural_prediction_trace_payload(
         "strict_correct": strict_correct,
         "top_k": top_k_payload(probs, reverse_activity_vocab, k=top_k, row_index=row),
     }
+    prediction.update(_candidate_prediction_payload(contract=contract, model=model, row_index=row, top_k=top_k))
     process_version = _batch_value(contract.get("process_version_labels"), row, default=None)
     if process_version is None:
         process_version = _batch_value(contract.get("version_labels"), row, default="__unknown__")
@@ -130,7 +131,10 @@ def build_structural_prediction_trace_payload(
         "run": {
             "model_type": model_type,
             "fusion_mode": fusion_mode,
+            "fusion_family": "topology_conditioned" if model_type == "EOPKGTopologyConditioned" else fusion_mode,
             "structural_mode": structural_mode,
+            "topology_conditioning_mode": _json_safe(getattr(model, "topology_conditioning_mode", None)),
+            "candidate_identity_mode": _json_safe(contract.get("candidate_identity_mode")),
             "candidate_scoring_mode": _json_safe(
                 getattr(model, "candidate_scoring_mode", getattr(model, "candidate_scoring", None))
             ),
@@ -173,7 +177,10 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         "reason": str(payload.get("reason", "")),
         "model_type": str(run.get("model_type", "")),
         "fusion_mode": str(run.get("fusion_mode", "")),
+        "fusion_family": str(run.get("fusion_family", "")),
         "structural_mode": bool(run.get("structural_mode", False)),
+        "topology_conditioning_mode": str(run.get("topology_conditioning_mode", "")),
+        "candidate_identity_mode": str(run.get("candidate_identity_mode", "")),
         "process_version": str(sample.get("process_version", "__unknown__")),
         "prefix_last_activity": str(sample.get("prefix_last_activity", "__unknown__")),
         "stats_snapshot_version": str(snapshot.get("stats_snapshot_version", "")),
@@ -217,6 +224,13 @@ def build_structural_prediction_trace_attributes(payload: dict[str, Any]) -> dic
         "candidate_class_score_mean_abs",
         "duplicate_candidate_count_max",
         "candidate_dynamic_count",
+        "impulse_activation_mean_abs",
+        "impulse_activation_max_abs",
+        "impulse_to_base_node_ratio",
+        "impulse_gnn_oversmoothing_ratio",
+        "candidate_unseen_score_mean",
+        "candidate_seen_score_mean",
+        "candidate_seen_unseen_score_gap",
     ):
         if key in topology_conditioned:
             attrs[key] = _safe_attr_float(topology_conditioned.get(key))
@@ -372,6 +386,17 @@ def _diagnostics_payload(
         "candidate_ids": _json_safe(getattr(model, "last_candidate_ids", None)),
         "candidate_labels": _json_safe(getattr(model, "last_candidate_labels", None)),
         "candidate_is_unseen": _json_safe(getattr(model, "last_candidate_is_unseen", None)),
+        "impulse_activation_mean_abs": tensor_scalar(getattr(model, "last_impulse_activation_mean_abs", None)),
+        "impulse_activation_max_abs": tensor_scalar(getattr(model, "last_impulse_activation_max_abs", None)),
+        "impulse_to_base_node_ratio": tensor_scalar(getattr(model, "last_impulse_to_base_node_ratio", None)),
+        "impulse_gnn_oversmoothing_ratio": tensor_scalar(
+            getattr(model, "last_impulse_gnn_oversmoothing_ratio", None)
+        ),
+        "candidate_unseen_score_mean": tensor_scalar(getattr(model, "last_candidate_unseen_score_mean", None)),
+        "candidate_seen_score_mean": tensor_scalar(getattr(model, "last_candidate_seen_score_mean", None)),
+        "candidate_seen_unseen_score_gap": tensor_scalar(
+            getattr(model, "last_candidate_seen_unseen_score_gap", None)
+        ),
     }
     topology_conditioned_values = {
         key: value for key, value in topology_conditioned_values.items() if value is not None
@@ -448,6 +473,61 @@ def _contract_payload(contract: dict[str, Any]) -> dict[str, Any]:
         "candidate_labels": _json_safe(contract.get("candidate_labels")),
         "has_candidate_allowed_target_mask": isinstance(contract.get("candidate_allowed_target_mask"), torch.Tensor),
     }
+
+
+def _candidate_prediction_payload(
+    *,
+    contract: dict[str, Any],
+    model: Any,
+    row_index: int,
+    top_k: int,
+) -> dict[str, Any]:
+    logits = getattr(model, "last_candidate_logits", None)
+    ids = getattr(model, "last_candidate_ids", None)
+    labels = getattr(model, "last_candidate_labels", None)
+    if not isinstance(logits, torch.Tensor) or logits.numel() <= 0:
+        return {}
+    safe = _safe_tensor(logits)
+    if safe.dim() == 1:
+        row = safe
+    else:
+        row = safe[min(int(row_index), int(safe.size(0)) - 1)]
+    ids_list = [str(item) for item in ids] if isinstance(ids, (list, tuple)) else []
+    labels_list = [str(item) for item in labels] if isinstance(labels, (list, tuple)) else []
+    count = max(1, min(int(top_k), int(row.numel())))
+    values, indices = torch.topk(row, k=count)
+    top_ids = []
+    top_labels = []
+    for idx in indices.cpu().tolist():
+        top_ids.append(ids_list[int(idx)] if int(idx) < len(ids_list) else f"__candidate_{int(idx)}__")
+        top_labels.append(labels_list[int(idx)] if int(idx) < len(labels_list) else f"__candidate_{int(idx)}__")
+    payload: dict[str, Any] = {
+        "top_k_candidate_ids": top_ids,
+        "top_k_candidate_labels": top_labels,
+        "top_k_candidate_logits": [_round_float(float(v)) for v in values.cpu().tolist()],
+    }
+    prefix_state = contract.get("struct_prefix_state_x")
+    node_to_candidate = contract.get("struct_node_to_candidate_index")
+    if isinstance(prefix_state, torch.Tensor) and isinstance(node_to_candidate, torch.Tensor):
+        state = prefix_state.detach().cpu()
+        if state.dim() == 3:
+            state = state[min(int(row_index), int(state.size(0)) - 1)]
+        if state.dim() == 2 and state.size(1) > 2:
+            last_node = int(torch.argmax(state[:, 2].float()).item())
+            node_to_candidate_flat = node_to_candidate.detach().cpu().view(-1)
+            if last_node < int(node_to_candidate_flat.numel()):
+                local_idx = int(node_to_candidate_flat[last_node].item())
+                if 0 <= local_idx < len(ids_list):
+                    payload["last_event_candidate_id"] = ids_list[local_idx]
+    target_label = _batch_value(contract.get("target_label"), row_index, default=None)
+    if target_label is not None:
+        target = str(target_label)
+        payload["target_candidate_ids"] = [
+            ids_list[idx]
+            for idx, label in enumerate(labels_list)
+            if label == target or (idx < len(ids_list) and ids_list[idx] == target)
+        ]
+    return payload
 
 
 def _safe_tensor(value: torch.Tensor) -> torch.Tensor:

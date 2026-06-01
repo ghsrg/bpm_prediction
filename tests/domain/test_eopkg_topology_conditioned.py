@@ -32,6 +32,29 @@ def _batch() -> dict:
     }
 
 
+def _impulse_batch() -> dict:
+    batch = _batch()
+    batch["struct_node_to_class_index"] = torch.tensor([-1, 1, 4], dtype=torch.long)
+    batch["struct_node_to_candidate_index"] = torch.tensor([0, 1, 2], dtype=torch.long)
+    batch["candidate_class_index"] = torch.tensor([-1, 1, 4], dtype=torch.long)
+    batch["candidate_ids"] = ("node_c", "node_a", "node_b")
+    batch["candidate_labels"] = ("C", "A", "B")
+    batch["candidate_is_unseen"] = torch.tensor([True, False, False], dtype=torch.bool)
+    batch["structural_edge_index"] = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
+    batch["struct_x"] = torch.eye(3, 3, dtype=torch.float32)
+    batch["struct_prefix_state_x"] = torch.tensor(
+        [
+            [
+                [0.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            ]
+        ],
+        dtype=torch.float32,
+    )
+    return batch
+
+
 def _model(**kwargs):
     defaults = {
         "feature_layout": _layout(),
@@ -194,6 +217,63 @@ def test_topology_conditioned_forward_candidate_uses_topology_candidate_axis_wit
     assert output.candidate_ids == ("node_c", "node_a", "node_b")
     assert output.candidate_is_unseen.tolist() == [True, False, False]
     assert output.map_target_labels_to_candidate_mask(["C"]).tolist() == [[True, False, False]]
+
+
+def test_topology_conditioned_impulse_routing_returns_candidate_logits_not_fixed_vocab():
+    model = _model(
+        output_dim=6,
+        topology_conditioning_mode="impulse_activation_routing",
+        impulse_scale_init=0.5,
+    )
+    output = model.forward_candidate(_impulse_batch())
+
+    assert output.candidate_logits.shape == torch.Size([1, 3])
+    assert output.fixed_label_logits.shape == torch.Size([1, 6])
+    assert output.candidate_class_index.tolist() == [-1, 1, 4]
+    assert model.last_topology_conditioning_mode == "impulse_activation_routing"
+
+
+def test_topology_conditioned_impulse_routing_uses_last_event_pointer():
+    model = _model(
+        output_dim=6,
+        topology_conditioning_mode="impulse_activation_routing",
+        impulse_scale_init=1.0,
+    )
+    batch = _impulse_batch()
+    moved = dict(batch)
+    moved_state = batch["struct_prefix_state_x"].clone()
+    moved_state[:, :, 2] = 0.0
+    moved_state[:, 2, 2] = 1.0
+    moved["struct_prefix_state_x"] = moved_state
+
+    logits_a = model.forward_candidate(batch).candidate_logits
+    logits_b = model.forward_candidate(moved).candidate_logits
+
+    assert not torch.allclose(logits_a, logits_b)
+
+
+def test_topology_conditioned_impulse_routing_keeps_unseen_candidates_scoreable():
+    model = _model(
+        output_dim=6,
+        topology_conditioning_mode="impulse_activation_routing",
+        impulse_scale_init=0.5,
+    )
+    output = model.forward_candidate(_impulse_batch())
+
+    assert output.candidate_is_unseen.tolist() == [True, False, False]
+    assert torch.isfinite(output.candidate_logits[:, 0]).all()
+
+
+def test_topology_conditioned_impulse_routing_requires_struct_prefix_state_x_only_when_enabled():
+    impulse_batch = _impulse_batch()
+    impulse_batch.pop("struct_prefix_state_x")
+    with pytest.raises(ValueError, match="struct_prefix_state_x"):
+        _model(output_dim=6, topology_conditioning_mode="impulse_activation_routing").forward_candidate(impulse_batch)
+
+    static_batch = _impulse_batch()
+    static_batch.pop("struct_prefix_state_x")
+    static_output = _model(output_dim=6).forward_candidate(static_batch)
+    assert static_output.candidate_logits.shape == torch.Size([1, 3])
 
 
 def test_topology_conditioned_forward_remains_fixed_label_compatible_after_stage2():

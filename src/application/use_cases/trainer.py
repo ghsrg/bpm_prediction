@@ -39,6 +39,7 @@ from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.services.learning_strategy_config import LearningStrategyConfig
 from src.application.services.candidate_target_mapping import (
+    candidate_target_mask_from_labels,
     candidate_predictions_to_global,
     candidate_set_cross_entropy,
     candidate_target_summary,
@@ -468,6 +469,7 @@ class ModelTrainer:
             raise ValueError(
                 "training.candidate_contract_mode must be fixed_label, fixed_projection, or candidate_id."
             )
+        self.candidate_identity_mode = str(config.get("candidate_identity_mode", "topology_native") or "topology_native").strip().lower()
         self.candidate_batch_topology_policy = str(
             config.get("candidate_batch_topology_policy", "single_topology_required")
             or "single_topology_required"
@@ -626,12 +628,44 @@ class ModelTrainer:
         return self.model(contract)
 
     def _forward_candidate_output(self, contract: GraphTensorContract) -> CandidatePredictionOutput:
+        self._guard_impulse_candidate_contract(contract)
         if not hasattr(self.model, "forward_candidate"):
             raise ValueError("candidate_contract_mode=candidate_id requires a model with forward_candidate().")
         output = self.model.forward_candidate(contract)  # type: ignore[attr-defined]
         if not isinstance(output, CandidatePredictionOutput):
             raise TypeError("candidate_contract_mode=candidate_id requires forward_candidate() to return CandidatePredictionOutput.")
         return output
+
+    def _guard_impulse_candidate_contract(self, contract: GraphTensorContract) -> None:
+        if self.candidate_contract_mode != "candidate_id":
+            return
+        if self.candidate_identity_mode != "topology_native":
+            return
+        mode = str(getattr(self.model, "topology_conditioning_mode", "") or "").strip().lower()
+        if mode != "impulse_activation_routing":
+            return
+        if not isinstance(contract.get("struct_prefix_state_x"), torch.Tensor):
+            raise ValueError(
+                "candidate_id topology_native impulse_activation_routing requires struct_prefix_state_x."
+            )
+        if not self._candidate_metadata_present(contract, "candidate_ids"):
+            raise ValueError("candidate_id topology_native impulse_activation_routing requires candidate_ids.")
+        if not self._candidate_metadata_present(contract, "candidate_labels"):
+            raise ValueError("candidate_id topology_native impulse_activation_routing requires candidate_labels.")
+        target_labels = self._target_labels_from_contract(contract, contract.get("y", torch.empty(0)))
+        if not target_labels:
+            raise ValueError("candidate_id topology_native impulse_activation_routing requires target_label.")
+
+    @staticmethod
+    def _candidate_metadata_present(contract: GraphTensorContract, key: str) -> bool:
+        raw = contract.get(key)  # type: ignore[typeddict-item]
+        if raw is None:
+            return False
+        if isinstance(raw, str):
+            return bool(raw.strip())
+        if isinstance(raw, (list, tuple)):
+            return len(raw) > 0
+        return True
 
     def _candidate_output_to_fixed_logits(self, output: CandidatePredictionOutput) -> torch.Tensor:
         candidate_logits = output.candidate_logits
@@ -2023,7 +2057,20 @@ class ModelTrainer:
                     batch_samples=valid_rows,
                 )
                 if candidate_output is not None:
-                    target_candidate_mask = candidate_output.map_targets_to_candidate_mask(targets)
+                    target_labels = self._target_labels_from_contract(contract, targets)
+                    if (
+                        self.candidate_identity_mode == "topology_native"
+                        and target_labels
+                        and len(candidate_output.candidate_labels) > 0
+                    ):
+                        target_candidate_mask = candidate_target_mask_from_labels(
+                            target_labels=target_labels,
+                            candidate_labels=candidate_output.candidate_labels,
+                            candidate_ids=candidate_output.candidate_ids,
+                            device=logits.device,
+                        )
+                    else:
+                        target_candidate_mask = candidate_output.map_targets_to_candidate_mask(targets)
                     candidate_allowed_mask = self._candidate_allowed_mask(
                         candidate_output=candidate_output,
                         allowed_mask=allowed_mask,
@@ -4457,6 +4504,25 @@ class ModelTrainer:
             "pred_score": self._diagnostic_scalar(getattr(self.model, "last_candidate_pred_score", None)),
             "score_gap": self._diagnostic_scalar(getattr(self.model, "last_candidate_score_gap", None)),
             "dynamic_count": self._diagnostic_scalar(getattr(self.model, "last_candidate_dynamic_count", None)),
+            "impulse_activation_mean_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_impulse_activation_mean_abs", None)
+            ),
+            "impulse_activation_max_abs": self._diagnostic_scalar(
+                getattr(self.model, "last_impulse_activation_max_abs", None)
+            ),
+            "impulse_to_base_node_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_impulse_to_base_node_ratio", None)
+            ),
+            "impulse_gnn_oversmoothing_ratio": self._diagnostic_scalar(
+                getattr(self.model, "last_impulse_gnn_oversmoothing_ratio", None)
+            ),
+            "unseen_score_mean": self._diagnostic_scalar(
+                getattr(self.model, "last_candidate_unseen_score_mean", None)
+            ),
+            "seen_score_mean": self._diagnostic_scalar(getattr(self.model, "last_candidate_seen_score_mean", None)),
+            "seen_unseen_score_gap": self._diagnostic_scalar(
+                getattr(self.model, "last_candidate_seen_unseen_score_gap", None)
+            ),
         }
         if not any(value is not None for value in diagnostics.values()):
             return
@@ -4471,6 +4537,13 @@ class ModelTrainer:
             "pred_score",
             "score_gap",
             "dynamic_count",
+            "impulse_activation_mean_abs",
+            "impulse_activation_max_abs",
+            "impulse_to_base_node_ratio",
+            "impulse_gnn_oversmoothing_ratio",
+            "unseen_score_mean",
+            "seen_score_mean",
+            "seen_unseen_score_gap",
         ):
             value = diagnostics[name]
             if value is None:
@@ -4917,6 +4990,13 @@ class ModelTrainer:
         candidate_score_gap = _candidate_average("score_gap")
         candidate_dynamic_count = _candidate_average("dynamic_count")
         candidate_unseen_candidate_rate = _candidate_average("unseen_candidate_rate")
+        impulse_activation_mean_abs = _candidate_average("impulse_activation_mean_abs")
+        impulse_activation_max_abs = _candidate_average("impulse_activation_max_abs")
+        impulse_to_base_node_ratio = _candidate_average("impulse_to_base_node_ratio")
+        impulse_gnn_oversmoothing_ratio = _candidate_average("impulse_gnn_oversmoothing_ratio")
+        candidate_unseen_score_mean = _candidate_average("unseen_score_mean")
+        candidate_seen_score_mean = _candidate_average("seen_score_mean")
+        candidate_seen_unseen_score_gap = _candidate_average("seen_unseen_score_gap")
         candidate_target_mapping_batches = int(bucket.get("candidate_target_mapping_batches", 0))
 
         def _candidate_target_average(name: str) -> float:
@@ -4978,6 +5058,10 @@ class ModelTrainer:
             "candidate_pred_score=%.6f candidate_score_gap=%.6f "
             "candidate_dynamic_count=%.6f "
             "candidate_unseen_candidate_rate=%.6f "
+            "impulse_activation_mean_abs=%.6f impulse_activation_max_abs=%.6f "
+            "impulse_to_base_node_ratio=%.6f impulse_gnn_oversmoothing_ratio=%.6f "
+            "candidate_unseen_score_mean=%.6f candidate_seen_score_mean=%.6f "
+            "candidate_seen_unseen_score_gap=%.6f "
             "candidate_target_in_candidate_set_rate=%.6f candidate_missing_target_rate=%.6f "
             "candidate_target_duplicate_count_max=%.6f candidate_target_set_logit_variance_mean=%.6f "
             "candidate_target_set_entropy_mean=%.6f "
@@ -5058,6 +5142,13 @@ class ModelTrainer:
             candidate_score_gap,
             candidate_dynamic_count,
             candidate_unseen_candidate_rate,
+            impulse_activation_mean_abs,
+            impulse_activation_max_abs,
+            impulse_to_base_node_ratio,
+            impulse_gnn_oversmoothing_ratio,
+            candidate_unseen_score_mean,
+            candidate_seen_score_mean,
+            candidate_seen_unseen_score_gap,
             candidate_target_in_candidate_set_rate,
             candidate_missing_target_rate,
             candidate_target_duplicate_count_max,
@@ -5203,6 +5294,19 @@ class ModelTrainer:
             self.tracker.log_metric(f"{metric_prefix}_candidate_score_gap", candidate_score_gap)
             self.tracker.log_metric(f"{metric_prefix}_candidate_dynamic_count", candidate_dynamic_count)
             self.tracker.log_metric(f"{metric_prefix}_candidate_unseen_candidate_rate", candidate_unseen_candidate_rate)
+            self.tracker.log_metric(f"{metric_prefix}_impulse_activation_mean_abs", impulse_activation_mean_abs)
+            self.tracker.log_metric(f"{metric_prefix}_impulse_activation_max_abs", impulse_activation_max_abs)
+            self.tracker.log_metric(f"{metric_prefix}_impulse_to_base_node_ratio", impulse_to_base_node_ratio)
+            self.tracker.log_metric(
+                f"{metric_prefix}_impulse_gnn_oversmoothing_ratio",
+                impulse_gnn_oversmoothing_ratio,
+            )
+            self.tracker.log_metric(f"{metric_prefix}_candidate_unseen_score_mean", candidate_unseen_score_mean)
+            self.tracker.log_metric(f"{metric_prefix}_candidate_seen_score_mean", candidate_seen_score_mean)
+            self.tracker.log_metric(
+                f"{metric_prefix}_candidate_seen_unseen_score_gap",
+                candidate_seen_unseen_score_gap,
+            )
         if self.tracker is not None and candidate_target_mapping_batches > 0:
             self.tracker.log_metric(
                 f"{metric_prefix}_candidate_target_in_candidate_set_rate",

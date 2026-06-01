@@ -590,7 +590,7 @@ Run targeted checks first:
 .\.venv-modern\Scripts\python.exe -m pytest tests\application\test_trainer_topology_conditioned_learning.py -v
 .\.venv-modern\Scripts\python.exe -m pytest tests\application\test_experiment_ui_catalog_fields.py -q
 .\.venv-modern\Scripts\python.exe tools\architecture_guard.py
-```
+```   
 
 Full verification before merge:
 

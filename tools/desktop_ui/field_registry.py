@@ -49,9 +49,7 @@ class DesktopFieldRegistry:
             required_when = _normalize_condition_map(payload.get("required_when") or {})
             active_when = _normalize_condition_map(payload.get("active_when") or required_when)
             emit_when = _normalize_condition_map(payload.get("emit_when") or active_when)
-            ui_level = str(payload.get("ui_level") or audit.get("proposed_level") or _fallback_level(path, payload)).strip()
-            if ui_level not in UI_LEVELS:
-                ui_level = _fallback_level(path, payload)
+            ui_level = str(payload.get("ui_level") or _get_field_ui_level(path, payload)).strip()
 
             fields[path] = DesktopFieldMeta(
                 path=str(payload.get("path") or path),
@@ -89,10 +87,12 @@ class DesktopFieldRegistry:
         return groups
 
     def is_active(self, path: str, values: dict[str, Any]) -> bool:
-        return _matches_conditions(self.field(path).active_when, values)
+        registry_active = _matches_conditions(self.field(path).active_when, values)
+        return is_field_active(path, values, registry_active)
 
     def is_emitted(self, path: str, values: dict[str, Any]) -> bool:
-        return _matches_conditions(self.field(path).emit_when, values)
+        registry_emitted = _matches_conditions(self.field(path).emit_when, values)
+        return is_field_active(path, values, registry_emitted)
 
 
 def _load_audit_rows(path: Path | None) -> dict[str, dict[str, str]]:
@@ -116,48 +116,153 @@ def _matches_conditions(conditions: dict[str, Any], values: dict[str, Any]) -> b
     for key, expected in conditions.items():
         if key not in values:
             continue
-        actual = str(values.get(key))
+        actual = str(values.get(key)).lower()
         if isinstance(expected, list):
-            if actual not in {str(item) for item in expected}:
+            if actual not in {str(item).lower() for item in expected}:
                 return False
-        elif actual != str(expected):
+        elif actual != str(expected).lower():
             return False
     return True
 
 
-def _fallback_level(path: str, payload: dict[str, Any]) -> str:
+def is_field_active(path: str, values: dict[str, Any], registry_active: bool) -> bool:
+    if not registry_active:
+        return False
+
+    def get_val(key: str, default: Any = "") -> str:
+        return str(values.get(key, default)).strip().lower()
+
+    # 1. Adapter dependencies
+    adapter = get_val("mapping.adapter")
+    if adapter == "xes" and path.startswith("mapping.camunda_adapter."):
+        return False
+    if adapter == "camunda" and (path.startswith("mapping.xes_adapter.") or path == "data.log_path"):
+        return False
+
+    # 2. Knowledge Graph backend dependencies
+    kg_backend = get_val("mapping.knowledge_graph.backend")
+    if kg_backend != "neo4j" and ("neo4j" in path or path in {
+        "mapping.knowledge_graph.uri",
+        "mapping.knowledge_graph.user",
+        "mapping.knowledge_graph.password",
+        "mapping.knowledge_graph.database",
+    }):
+        return False
+    if kg_backend != "file" and path == "mapping.knowledge_graph.path":
+        return False
+
+    # 3. Structural Mode dependencies
+    structural_mode = get_val("experiment.structural_mode") == "true"
+    if not structural_mode:
+        if path.startswith(("model.struct_xattn_", "model.structural_prior_", "model.topology_state_", "training.struct_xattn_")):
+            return False
+        if path in {
+            "model.fusion_mode",
+            "model.struct_encoder",
+            "model.struct_encoder_type",
+            "model.struct_hidden_dim",
+            "model.structural_stats_beta",
+            "model.structural_logit_scale_init",
+            "model.structural_logit_scale_max",
+            "model.structural_observed_scale_max",
+            "model.structural_observed_scale_min",
+            "model.structural_prior_fusion",
+            "model.structural_prior_gate_init_bias",
+            "model.structural_prior_pooling",
+            "model.structural_score_mode",
+            "model.topology_graph_pooling",
+            "model.topology_state_beta",
+            "model.topology_state_beta_max",
+            "model.topology_state_class_pooling",
+            "model.topology_state_dropout",
+            "model.topology_state_gate_init_bias",
+            "training.structural_aux_loss_enabled",
+            "training.structural_aux_loss_weight",
+            "training.structural_aux_exact_loss_weight",
+        }:
+            return False
+
+    # 4. Model Type dependencies
+    model_type = get_val("model.type")
+    if model_type != "eopkgtopologyconditioned":
+        if path.startswith((
+            "model.impulse_",
+            "model.candidate_",
+            "training.topology_conditioning_",
+            "training.topology_flow_",
+            "training.candidate_",
+        )) or path in {
+            "model.topology_conditioning_mode",
+            "training.dynamic_candidate_contract_enabled",
+        }:
+            return False
+    if model_type in {"baselinegatv2", "baselinegcn"}:
+        if path.startswith(("model.struct_xattn_", "model.structural_prior_", "model.topology_state_", "training.struct_xattn_")) or path in {
+            "model.fusion_mode",
+            "model.struct_encoder",
+            "model.struct_encoder_type",
+            "model.struct_hidden_dim",
+            "model.structural_stats_beta",
+            "model.structural_prior_fusion",
+            "model.structural_prior_gate_init_bias",
+            "model.structural_prior_pooling",
+            "model.structural_score_mode",
+            "model.topology_graph_pooling",
+            "model.topology_state_beta",
+            "model.topology_state_beta_max",
+            "model.topology_state_class_pooling",
+            "model.topology_state_dropout",
+            "model.topology_state_gate_init_bias",
+        }:
+            return False
+
+    # 5. Fusion Mode dependencies
+    fusion_mode = get_val("model.fusion_mode")
+    if fusion_mode != "structxattn" and (path.startswith("model.struct_xattn_") or path.startswith("training.struct_xattn_")):
+        return False
+    if fusion_mode != "structuralpriorencoder" and path.startswith("model.structural_prior_"):
+        return False
+    if fusion_mode != "topologystateencoder" and path.startswith("model.topology_state_"):
+        return False
+
+    # 6. Learning Strategy dependencies
+    learning_strategy = get_val("training.learning_strategy")
+    if learning_strategy != "topology_conditioned" and (path.startswith("training.topology_conditioning_") or path.startswith("training.topology_flow_")):
+        return False
+
+    return True
+
+
+def _get_field_ui_level(path: str, payload: dict[str, Any]) -> str:
+    # 1. Project Setup
     if path.startswith(("data.", "mapping.", "sync_stats.")):
         return "project_setup"
+
+    # 2. Advanced
+    # Dataloader / torch knobs
     if path in {
-        "experiment.mode",
-        "experiment.project",
-        "experiment.name",
-        "experiment.fraction",
-        "experiment.fraction_strategy",
-        "experiment.train_ratio",
-        "experiment.split_strategy",
-        "experiment.split_ratio",
-        "experiment.version_scope_policy",
-        "experiment.load_checkpoint",
-        "experiment.structural_mode",
-        "experiment.statistic_enabled",
-        "experiment.mask_guided_enabled",
-        "model.type",
-        "model.fusion_mode",
-        "model.pooling_strategy",
-        "model.graph_strategy",
-        "training.learning_strategy",
-        "training.retrain",
-        "training.epochs",
-        "training.batch_size",
-        "training.learning_rate",
-        "training.device",
-        "seed",
+        "training.dataloader_num_workers",
+        "training.dataloader_persistent_workers",
+        "training.dataloader_pin_memory",
+        "training.dataloader_prefetch_factor",
+        "training.torch_num_threads",
+        "training.torch_num_interop_threads",
+        "training.tqdm_disable",
+        "training.tqdm_leave",
     }:
+        return "advanced"
+    # Dataset cache/performance knobs
+    if path.startswith("experiment.") and ("cache" in path or "spill" in path or "shard_size" in path or "max_ram" in path or path == "experiment.cache_policy"):
+        return "advanced"
+    # Detailed tracing metrics
+    if path.startswith(("tracking.tracing.", "tracking.tags.")):
+        return "advanced"
+
+    # 3. Experiment Run
+    if path.startswith(("model.", "training.", "tracking.", "experiment.")) or path == "seed":
         return "experiment_run"
-    ui = payload.get("ui") or {}
-    if ui.get("group") == "core":
-        return "experiment_run"
+
+    # Fallback to advanced
     return "advanced"
 
 

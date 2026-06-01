@@ -171,6 +171,7 @@ Read:
 
 - `docs/runbooks/mvp2_5-commands.md`
 - `configs/ui/config_catalog.yaml` for config/UI changes
+- `outputs/ui/experiment_ui_presets.json` for active Experiment UI preset values
 - `tools/experiment_ui.py` for legacy Tkinter desktop UI changes
 - `tools/desktop_ui/` for the new PySide6 desktop UI prototype
 - `docs/EVF_MVP2_5.MD` for experiment or evaluation semantics
@@ -180,6 +181,9 @@ Required rule:
 - Every new config key in `experiment`, `data`, `mapping`, `model`,
   `training`, `tracking`, or `sync_stats` must be added to
   `configs/ui/config_catalog.yaml`.
+- Do not treat `configs/experiments/*.yaml` as the active Experiment UI preset
+  source of truth. Active desktop UI presets are stored in
+  `outputs/ui/experiment_ui_presets.json`.
 
 ---
 

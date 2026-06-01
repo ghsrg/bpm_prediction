@@ -22,7 +22,8 @@ def test_registry_classifies_fields_from_audit_matrix():
 
     assert registry.field("data.log_path").ui_level == "project_setup"
     assert registry.field("experiment.mode").ui_level == "experiment_run"
-    assert registry.field("model.struct_xattn_heads").ui_level == "advanced"
+    assert registry.field("model.struct_xattn_heads").ui_level == "experiment_run"
+    assert registry.field("training.dataloader_num_workers").ui_level == "advanced"
 
 
 def test_registry_defaults_emit_when_to_active_when():
@@ -43,8 +44,16 @@ def test_registry_computes_active_state_from_current_values():
         audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
     )
 
-    inactive_values = {"model.fusion_mode": "ClassMeanConcat"}
-    active_values = {"model.fusion_mode": "StructXAttn"}
+    inactive_values = {
+        "experiment.structural_mode": "true",
+        "model.type": "EOPKGGATv2",
+        "model.fusion_mode": "ClassMeanConcat",
+    }
+    active_values = {
+        "experiment.structural_mode": "true",
+        "model.type": "EOPKGGATv2",
+        "model.fusion_mode": "StructXAttn",
+    }
 
     assert not registry.is_active("model.struct_xattn_heads", inactive_values)
     assert registry.is_active("model.struct_xattn_heads", active_values)
@@ -128,3 +137,28 @@ def test_prototype_window_allows_narrow_navigation_without_collapsing_content(mo
     assert not window.splitter.isCollapsible(1)
     assert not window.splitter.isCollapsible(2)
     app.processEvents()
+
+
+def test_dynamic_field_dependencies():
+    registry = DesktopFieldRegistry.load(
+        catalog_path=Path("configs/ui/config_catalog.yaml"),
+        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+    )
+
+    # 1. Adapter dependency
+    xes_values = {"mapping.adapter": "xes"}
+    camunda_values = {"mapping.adapter": "camunda"}
+    assert not registry.is_active("mapping.camunda_adapter.runtime.runtime_source", xes_values)
+    assert registry.is_active("mapping.camunda_adapter.runtime.runtime_source", camunda_values)
+
+    # 2. Knowledge Graph backend dependency
+    file_kg = {"mapping.knowledge_graph.backend": "file"}
+    neo4j_kg = {"mapping.knowledge_graph.backend": "neo4j"}
+    assert not registry.is_active("mapping.knowledge_graph.neo4j.connection_profile", file_kg)
+    assert registry.is_active("mapping.knowledge_graph.neo4j.connection_profile", neo4j_kg)
+
+    # 3. Model Type dependencies
+    baseline_gatv2 = {"model.type": "BaselineGATv2"}
+    eopkg_tc = {"model.type": "EOPKGTopologyConditioned"}
+    assert not registry.is_active("model.topology_conditioning_mode", baseline_gatv2)
+    assert registry.is_active("model.topology_conditioning_mode", eopkg_tc)

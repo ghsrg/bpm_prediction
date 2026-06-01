@@ -1463,3 +1463,69 @@ candidate-native loss maps `target_label` to all candidates with the same
 
 Changing the gateway mode changes the candidate universe and must match the log
 source semantics.
+
+## 11. Impulse Activation Routing
+
+`EOPKGTopologyConditioned` supports an experimental topology-native routing
+mode:
+
+```yaml
+model.type: EOPKGTopologyConditioned
+model.topology_conditioning_mode: impulse_activation_routing
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+```
+
+This is not an `EOPKGGATv2.fusion_mode`. The primary output remains
+`CandidatePredictionOutput.candidate_logits [B, K_v]`, where `K_v` is the
+candidate count of the current topology version.
+
+Forward behavior:
+
+1. the observed prefix encoder remains active and produces `obs_context`;
+2. candidate base states are built from topology candidate identity and optional
+   `struct_x`;
+3. `struct_prefix_state_x [B, K_v, F]` is projected as a normalized execution
+   impulse and merged with Pre-LN residual semantics:
+   `base = LN(base)`, `impulse = LN(impulse_proj(prefix_state))`,
+   `h0 = base + impulse_scale * impulse`;
+4. one or two structural GNN layers propagate the impulse over
+   `structural_edge_index`;
+5. `h_gnn + h0` is scored directly against `obs_context` with cosine or
+   bilinear candidate scoring.
+
+Stability defaults:
+
+```yaml
+model.impulse_scale_init: 0.1
+model.impulse_scale_max: 2.0
+model.impulse_gnn_layers: 1
+model.impulse_residual_h0: true
+model.candidate_temperature_init: 0.1
+model.candidate_temperature_min: 0.05
+model.candidate_temperature_max: 2.0
+model.candidate_temperature_trainable: false
+```
+
+Required runtime fields for `candidate_id + topology_native +
+impulse_activation_routing`:
+
+```text
+struct_prefix_state_x
+candidate_ids
+candidate_labels
+target_label
+```
+
+Trainer and trace diagnostics include:
+
+```text
+impulse_activation_mean_abs
+impulse_activation_max_abs
+impulse_to_base_node_ratio
+impulse_gnn_oversmoothing_ratio
+candidate_temperature
+candidate_unseen_score_mean
+candidate_seen_score_mean
+candidate_seen_unseen_score_gap
+```

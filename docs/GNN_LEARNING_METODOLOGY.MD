@@ -265,8 +265,18 @@ This is the main target level for business-valid zero-shot.
 Status:
 
 ```text
-target methodology, not implemented
+partially implemented: EOPKGTopologyConditioned can score topology-local
+candidates, and impulse_activation_routing adds prefix-state impulse propagation
+over the current topology before candidate scoring
 ```
+
+Impulse Activation Routing is the first Level 2 dynamic routing implementation.
+It keeps the observed prefix encoder active, injects `struct_prefix_state_x` as
+an execution impulse into topology candidate nodes, propagates that impulse over
+the current BPMN/EOPKG edges, and scores `candidate_logits [B, K_v]` directly.
+
+It intentionally does not add another fixed-head `EOPKGGATv2.fusion_mode`.
+Projection to fixed activity labels is only for legacy metrics and comparison.
 
 ### Level 3: Semantic-Topological Candidate Prototypes
 
@@ -1071,6 +1081,45 @@ Future stronger policy:
 ```text
 node-level target identity from logs or route-inferred node identity
 ```
+
+### Next Step: Edge/Path-Aware Prefix State For Cyclic Processes
+
+Current `impulse_activation_routing` injects prefix state mostly as node-level
+signals:
+
+```text
+is_last_event
+prefix_executed_count_log1p
+prefix_recency_norm
+```
+
+This is sufficient to mark where the process currently is and which topology
+nodes were recently visited, but it is not enough to fully disambiguate cyclic
+routes. In cyclic processes, two prefixes can visit the same activity nodes but
+arrive through different edges or loop iterations. A purely node-level impulse
+can therefore highlight the right area of the topology while still failing to
+rank the exact next candidate.
+
+After `impulse_activation_routing` is stabilized, the next research step is to
+extend `struct_prefix_state_x` / structural payloads with edge/path-aware
+execution state, for example:
+
+```text
+prefix_last_visit_distance
+prefix_visit_count_per_node
+prefix_edge_traversal_count
+prefix_last_edge_or_transition
+loop_iteration_estimate
+```
+
+The target behavior is:
+
+```text
+topology signal = where the prefix is now + which path led there
+```
+
+This should be treated as a separate follow-up, not mixed into the current
+impulse stabilization experiment.
 
 ### Risk: Candidate Scoring Hurts Seen Versions
 

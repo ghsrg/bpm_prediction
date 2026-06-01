@@ -180,11 +180,22 @@ def test_catalog_includes_topology_conditioned_model_fields():
         "model.candidate_temperature_min",
         "model.candidate_temperature_max",
         "model.candidate_temperature_trainable",
+        "model.topology_conditioning_mode",
+        "model.impulse_activation_enabled",
+        "model.impulse_state_channels",
+        "model.impulse_scale_init",
+        "model.impulse_scale_max",
+        "model.impulse_gnn_layers",
+        "model.impulse_residual_h0",
     }
 
     assert required.issubset(set(catalog))
     assert catalog["model.candidate_scoring"]["enum"] == ["cosine", "bilinear"]
     assert catalog["model.candidate_pooling"]["enum"] == ["logmeanexp", "mean", "max"]
+    assert catalog["model.topology_conditioning_mode"]["enum"] == [
+        "static_candidates",
+        "impulse_activation_routing",
+    ]
     for field_name in required:
         assert catalog[field_name]["required_when"]["model.type"] == "EOPKGTopologyConditioned"
 

@@ -71,7 +71,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._resolved_snapshot_identities: set[tuple[str, str, str | None, str | None]] = set()
         self._dto_cache_max_entries = 32768
         self._topology_cache_max_entries = 512
-        self._topology_disk_cache_schema = 3
+        self._topology_disk_cache_schema = 4
         self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
         self.candidate_identity_mode = str(candidate_identity_mode or "fixed_vocab_bridge").strip().lower()
 
@@ -759,10 +759,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             self._cache_diagnostics["topology_cache_misses"] += 1
 
         num_classes = len(activity_vocab)
-        candidate_ids, candidate_labels, candidate_class_values = self._topology_native_candidates(
-            dto=dto,
-            activity_vocab=activity_vocab,
-        )
+        if self.candidate_identity_mode == "topology_native":
+            candidate_ids, candidate_labels, candidate_class_values = self._topology_native_candidates(
+                dto=dto,
+                activity_vocab=activity_vocab,
+            )
+        else:
+            ordered_vocab = sorted(activity_vocab.items(), key=lambda item: int(item[1]))
+            candidate_ids = tuple(str(label) for label, _idx in ordered_vocab)
+            candidate_labels = tuple(str(label) for label, _idx in ordered_vocab)
+            candidate_class_values = [int(idx) for _label, idx in ordered_vocab]
         candidate_count = len(candidate_ids)
         candidate_id_to_index = {candidate_id: idx for idx, candidate_id in enumerate(candidate_ids)}
         candidate_indices_by_label: dict[str, list[int]] = {}

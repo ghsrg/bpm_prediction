@@ -287,6 +287,109 @@ sync_stats:
 --data-config-out PATH   optional generated data config path override
 ```
 
+Each simulator run writes a dataset statistics JSON next to the generated
+dataset. The path is controlled by `output.dataset_stats_json_path`; when the
+key is omitted, the file is derived from `summary_json_path` with
+`.dataset_stats.json`.
+
+The statistics file includes total and per-version trace length, inferred cycle
+depth, version carryover, calendar month carryover, task-node coverage, node
+usage distribution, resource/task distribution metrics, and
+`bpms_native_operational_variance`. The latter describes flattened parallel
+interleaving, technical retries/incidents, and resource substitution/delegation;
+it should not be described as data corruption noise.
+
+### simulate_versioned_log_conditional_waits
+
+`tasks.<task_id>.conditional_waits[]` can add elapsed waiting time before a task
+starts without occupying a worker resource. This is intended for organic
+long-running cases caused by document delays, client-side waiting, extra
+verification, replacement approval, or audit queues. Rules are evaluated against
+trace-level `case_attributes`.
+
+```yaml
+case_attributes:
+  case_delay_class:
+    type: categorical
+    values:
+      normal: 0.714
+      delay_1month: 0.15
+      delay_2month: 0.12
+      delay_3month: 0.004
+      delay_4month: 0.012
+
+tasks:
+  t_collect_docs:
+    conditional_waits:
+      - when: {var: case_delay_class, op: ==, value: delay_2month}
+        probability: 0.90
+        duration: {type: lognormal, mean_seconds: 1123200, sigma: 0.50}
+```
+
+Use `conditional_waits` for calendar-time stretching that should not inflate
+resource busy time. Use `conditional_delays` only when the worker/system should
+remain busy for the added time.
+
+### simulate_versioned_log_version_carryover
+
+`version_carryover` can force a controlled share of cases to remain open across
+process-version activation boundaries. The simulator samples one target
+completion bucket per case and, when needed, inserts waiting time before a
+terminal task so the XES event timestamps reflect the carryover.
+
+```yaml
+version_carryover:
+  enabled: true
+  targets:
+    - completion: same_version
+      probability: 0.70
+    - completion: next_version
+      probability: 0.15
+    - completion: skip_one_version
+      probability: 0.10
+    - completion: last_version
+      probability: 0.05
+  jitter_seconds:
+    type: uniform
+    min: 3600
+    max: 604800
+```
+
+Supported `completion` values are `same_version`, `next_version`,
+`skip_one_version`, `last_version`, and explicit `plus_N` buckets. Targets past
+the last configured version are capped to the last version.
+
+### simulate_versioned_log_xor_branches
+
+`gateways.<gateway_id>.branches[]` supports deterministic conditions and
+bounded probabilistic loop branches for exclusive gateways:
+
+```yaml
+gateways:
+  gw_retry:
+    default_flow_id: f_exit
+    branches:
+      - flow_id: f_loop
+        probability: 0.05
+        max_traversals_per_case: 2
+        repeat_until_max_once_selected: true
+        when: {const: true}
+      - flow_id: f_exit
+        when: {const: true}
+```
+
+`probability` is evaluated per case when the branch condition matches.
+`max_traversals_per_case` prevents unbounded BPMN loops. When
+`repeat_until_max_once_selected=true`, a case that enters the branch repeats it
+until the configured max, then falls through to the next matching/default
+branch. These keys apply to exclusive gateways only. Parallel gateways execute
+all outgoing branches and do not use branch probabilities.
+
+Example
+```powershell
+.\.venv-modern\Scripts\python.exe main.py simulate-versioned-log --config configs\tools\simulate_loan_v1_v5_complex.yaml --out outputs\simulation\simulate_loan_v1_v5_complex_run.json
+```
+
 ---
 
 ## Cache Maintenance
@@ -440,4 +543,3 @@ report.md
 - `min_unique_activity_coverage`
 - `min_node_coverage`
 - `on_fail`: `write_with_flag | skip_snapshot | raise`
-

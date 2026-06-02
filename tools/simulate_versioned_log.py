@@ -291,6 +291,9 @@ class CaseCtx:
     step_count: int = 0
     activity_seq: Dict[str, int] = field(default_factory=dict)
     join_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    branch_traversals: Dict[str, int] = field(default_factory=dict)
+    target_completion_version_index: Optional[int] = None
+    carryover_wait_applied: bool = False
 
     def next_order(self) -> int:
         self.seq += 1
@@ -555,6 +558,7 @@ class Runtime:
         self.arrival_cfg = cfg.get("arrival_process", {}) if isinstance(cfg.get("arrival_process", {}), dict) else {}
         self.tasks_cfg = cfg.get("tasks", {}) if isinstance(cfg.get("tasks", {}), dict) else {}
         self.gateways_cfg = cfg.get("gateways", {}) if isinstance(cfg.get("gateways", {}), dict) else {}
+        self.carryover_cfg = cfg.get("version_carryover", {}) if isinstance(cfg.get("version_carryover", {}), dict) else {}
         self.case_attrs_cfg = cfg.get("case_attributes", {}) if isinstance(cfg.get("case_attributes", {}), dict) else {}
         out_cfg = cfg.get("output", {}) if isinstance(cfg.get("output", {}), dict) else {}
         self.emit_assign_human = _as_bool(out_cfg.get("emit_assign_for_human_tasks"), True)
@@ -576,6 +580,55 @@ class Runtime:
             else:
                 break
         return selected
+
+    def _version_index(self, version_id: str) -> int:
+        for i, version in enumerate(self.versions):
+            if version.version_id == version_id:
+                return i
+        return 0
+
+    def _target_completion_index(self, start_version_index: int, rng: random.Random) -> Optional[int]:
+        if not _as_bool(self.carryover_cfg.get("enabled"), False):
+            return None
+        targets = self.carryover_cfg.get("targets", [])
+        if not isinstance(targets, list) or not targets:
+            return None
+        weighted: List[tuple[float, str]] = []
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            probability = max(0.0, _as_float(item.get("probability", 0.0), 0.0))
+            if probability <= 0.0:
+                continue
+            weighted.append((probability, str(item.get("completion", "same_version")).strip().lower()))
+        total = sum(weight for weight, _ in weighted)
+        if total <= 0.0:
+            return None
+        pick = rng.random() * total
+        acc = 0.0
+        selected = "same_version"
+        for weight, completion in weighted:
+            acc += weight
+            if pick <= acc:
+                selected = completion
+                break
+
+        last_index = len(self.versions) - 1
+        if selected in {"same", "same_version", "none"}:
+            return start_version_index
+        if selected in {"next", "next_version", "plus_1"}:
+            return min(last_index, start_version_index + 1)
+        if selected in {"skip_one", "skip_one_version", "plus_2"}:
+            return min(last_index, start_version_index + 2)
+        if selected in {"last", "last_version", "final", "final_version"}:
+            return last_index
+        if selected.startswith("plus_"):
+            try:
+                delta = int(selected.removeprefix("plus_"))
+            except ValueError:
+                delta = 0
+            return min(last_index, start_version_index + max(0, delta))
+        return start_version_index
 
     def _case_attrs(self, rng: random.Random) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
@@ -627,11 +680,43 @@ class Runtime:
         base = _sample_distribution(dur_cfg, case.rng, 1.0 if mode == "automatic" else 60.0)
         if worker is not None:
             base *= worker.factor * worker.role_factor
+        conditional_delays = cfg.get("conditional_delays", [])
+        if isinstance(conditional_delays, list):
+            for item in conditional_delays:
+                if not isinstance(item, dict):
+                    continue
+                when = item.get("when", {}) if isinstance(item.get("when", {}), dict) else {}
+                if not _eval_rule(when, case.attrs):
+                    continue
+                probability = max(0.0, min(1.0, _as_float(item.get("probability", 1.0), 1.0)))
+                if probability < 1.0 and case.rng.random() >= probability:
+                    continue
+                delay_cfg = item.get("duration", {}) if isinstance(item.get("duration", {}), dict) else {}
+                base += max(0.0, _sample_distribution(delay_cfg, case.rng, 0.0))
         noise = cfg.get("noise", {}) if isinstance(cfg.get("noise", {}), dict) else {}
         p = max(0.0, min(1.0, _as_float(noise.get("extra_delay_probability", 0.0), 0.0)))
         if p > 0 and case.rng.random() < p:
             base += max(0.0, _as_float(noise.get("extra_delay_seconds", 0.0), 0.0))
         return max(0.001, base)
+
+    def _task_wait_delay(self, case: CaseCtx, node_id: str) -> float:
+        cfg = self.tasks_cfg.get(node_id, {}) if isinstance(self.tasks_cfg.get(node_id, {}), dict) else {}
+        conditional_waits = cfg.get("conditional_waits", [])
+        total = 0.0
+        if not isinstance(conditional_waits, list):
+            return total
+        for item in conditional_waits:
+            if not isinstance(item, dict):
+                continue
+            when = item.get("when", {}) if isinstance(item.get("when", {}), dict) else {}
+            if not _eval_rule(when, case.attrs):
+                continue
+            probability = max(0.0, min(1.0, _as_float(item.get("probability", 1.0), 1.0)))
+            if probability < 1.0 and case.rng.random() >= probability:
+                continue
+            delay_cfg = item.get("duration", {}) if isinstance(item.get("duration", {}), dict) else {}
+            total += max(0.0, _sample_distribution(delay_cfg, case.rng, 0.0))
+        return total
 
     def _choose_xor_edge(self, case: CaseCtx, node_id: str, outgoing: List[EdgeDef]) -> EdgeDef:
         gw = self.gateways_cfg.get(node_id, {}) if isinstance(self.gateways_cfg.get(node_id, {}), dict) else {}
@@ -643,26 +728,81 @@ class Runtime:
             flow_id = str(branch.get("flow_id", "")).strip()
             if flow_id not in flow_map:
                 continue
+            branch_key = f"{node_id}:{flow_id}"
+            traversed = int(case.branch_traversals.get(branch_key, 0))
+            max_traversals_raw = branch.get("max_traversals_per_case")
+            max_traversals = (
+                _as_int(max_traversals_raw, 0)
+                if max_traversals_raw not in (None, "")
+                else 0
+            )
+            if max_traversals > 0 and traversed >= max_traversals:
+                continue
             when = branch.get("when", {}) if isinstance(branch.get("when", {}), dict) else {}
             if _eval_rule(when, case.attrs):
-                self.gateway_branch_counts[f"{node_id}:{flow_id}"] += 1
+                probability = max(0.0, min(1.0, _as_float(branch.get("probability", 1.0), 1.0)))
+                repeat_until_max = _as_bool(branch.get("repeat_until_max_once_selected"), False)
+                sticky_repeat = repeat_until_max and traversed > 0 and (max_traversals <= 0 or traversed < max_traversals)
+                if not sticky_repeat and probability < 1.0 and case.rng.random() >= probability:
+                    continue
+                case.branch_traversals[branch_key] = traversed + 1
+                self.gateway_branch_counts[branch_key] += 1
                 return flow_map[flow_id]
         default_flow_id = str(gw.get("default_flow_id", "")).strip()
         if default_flow_id and default_flow_id in flow_map:
-            self.gateway_branch_counts[f"{node_id}:{default_flow_id}"] += 1
+            branch_key = f"{node_id}:{default_flow_id}"
+            case.branch_traversals[branch_key] = int(case.branch_traversals.get(branch_key, 0)) + 1
+            self.gateway_branch_counts[branch_key] += 1
             return flow_map[default_flow_id]
         defaults = [e for e in outgoing if e.is_default]
         if defaults:
             edge = sorted(defaults, key=lambda x: x.edge_id)[0]
-            self.gateway_branch_counts[f"{node_id}:{edge.edge_id}"] += 1
+            branch_key = f"{node_id}:{edge.edge_id}"
+            case.branch_traversals[branch_key] = int(case.branch_traversals.get(branch_key, 0)) + 1
+            self.gateway_branch_counts[branch_key] += 1
             return edge
         edge = sorted(outgoing, key=lambda x: x.edge_id)[0]
-        self.gateway_branch_counts[f"{node_id}:{edge.edge_id}"] += 1
+        branch_key = f"{node_id}:{edge.edge_id}"
+        case.branch_traversals[branch_key] = int(case.branch_traversals.get(branch_key, 0)) + 1
+        self.gateway_branch_counts[branch_key] += 1
         return edge
+
+    def _is_terminal_task(self, case: CaseCtx, node: NodeDef) -> bool:
+        outgoing = list(case.graph.outgoing.get(node.node_id, []))
+        if not outgoing:
+            return True
+        return all(case.graph.nodes.get(edge.target).node_class == "end" for edge in outgoing if edge.target in case.graph.nodes)
+
+    def _carryover_delay_seconds(self, case: CaseCtx) -> float:
+        if case.carryover_wait_applied:
+            return 0.0
+        target_index = case.target_completion_version_index
+        if target_index is None:
+            return 0.0
+        current_index = self._version_index(_version_at(self._env_dt(), self.versions))
+        if target_index <= current_index:
+            case.carryover_wait_applied = True
+            return 0.0
+        target_dt = self.versions[target_index].active_from
+        jitter_cfg = self.carryover_cfg.get("jitter_seconds", {})
+        if not isinstance(jitter_cfg, dict):
+            jitter_cfg = {"type": "uniform", "min": 3600, "max": 604800}
+        jitter = max(0.0, _sample_distribution(jitter_cfg, case.rng, 0.0))
+        wait_until = target_dt + timedelta(seconds=jitter)
+        delay = max(0.0, (wait_until - self._env_dt()).total_seconds())
+        case.carryover_wait_applied = True
+        return delay
 
     def _exec_task(self, case: CaseCtx, node: NodeDef) -> Iterable[Any]:
         mode = self._task_mode(node)
         inst_id = case.next_instance_id(node.node_id)
+        wait_delay = self._task_wait_delay(case, node.node_id)
+        if wait_delay > 0.0:
+            yield self.env.timeout(wait_delay)
+        if self._is_terminal_task(case, node):
+            delay = self._carryover_delay_seconds(case)
+            if delay > 0.0:
+                yield self.env.timeout(delay)
         if mode == "human":
             cfg = self.tasks_cfg.get(node.node_id, {}) if isinstance(self.tasks_cfg.get(node.node_id, {}), dict) else {}
             roles = cfg.get("roles", [])
@@ -774,6 +914,7 @@ class Runtime:
         start_dt = self._env_dt()
         version = self._resolve_version(start_dt)
         rng = random.Random(self.seed + case_index * 100_003 + 17)
+        start_version_index = self._version_index(version.version_id)
         case = CaseCtx(
             case_id=f"case_{case_index:06d}",
             case_index=case_index,
@@ -783,6 +924,7 @@ class Runtime:
             graph=self.graphs[version.version_id],
             rng=rng,
             env=self.env,
+            target_completion_version_index=self._target_completion_index(start_version_index, rng),
         )
         self.cases.append(case)
         yield self.env.process(self._exec_node(case, case.graph.start_nodes[0]))
@@ -900,6 +1042,464 @@ def _write_summary(path: Path, payload: Dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _percent(part: float, total: float) -> float:
+    if total <= 0:
+        return 0.0
+    return float(part) * 100.0 / float(total)
+
+
+def _describe_numeric(values: List[float]) -> Dict[str, Any]:
+    if not values:
+        return {
+            "count": 0,
+            "min": None,
+            "max": None,
+            "mean": None,
+            "avg": None,
+            "p50": None,
+            "p95": None,
+            "std": None,
+            "coefficient_of_variation": None,
+            "skewness": None,
+        }
+    xs = sorted(float(x) for x in values)
+    n = len(xs)
+    mean = sum(xs) / n
+    variance = sum((x - mean) ** 2 for x in xs) / n
+    std = math.sqrt(variance)
+    p95_idx = min(n - 1, max(0, math.ceil(0.95 * n) - 1))
+    skewness = sum(((x - mean) / std) ** 3 for x in xs) / n if std > 0 else 0.0
+    return {
+        "count": n,
+        "min": xs[0],
+        "max": xs[-1],
+        "mean": mean,
+        "avg": mean,
+        "p50": xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0,
+        "p95": xs[p95_idx],
+        "std": std,
+        "coefficient_of_variation": (std / mean) if mean else None,
+        "skewness": skewness,
+    }
+
+
+def _gini(values: List[float]) -> float:
+    xs = sorted(max(0.0, float(x)) for x in values)
+    n = len(xs)
+    total = sum(xs)
+    if n == 0 or total <= 0:
+        return 0.0
+    weighted = sum((i + 1) * x for i, x in enumerate(xs))
+    return (2.0 * weighted) / (n * total) - (n + 1.0) / n
+
+
+def _normalized_entropy(counts: Iterable[int]) -> float:
+    xs = [float(x) for x in counts if int(x) > 0]
+    total = sum(xs)
+    if total <= 0 or len(xs) <= 1:
+        return 0.0
+    entropy = -sum((x / total) * math.log(x / total) for x in xs)
+    return entropy / math.log(len(xs))
+
+
+def _version_at(dt: Optional[datetime], versions: List[VersionSpec]) -> str:
+    if dt is None:
+        return versions[0].version_id if versions else ""
+    selected = versions[0] if versions else None
+    for version in versions:
+        if version.active_from <= dt:
+            selected = version
+        else:
+            break
+    return selected.version_id if selected else ""
+
+
+def _calendar_month_delta(start_dt: datetime, completion_dt: Optional[datetime]) -> int:
+    if completion_dt is None:
+        return 0
+    return max(0, (completion_dt.year - start_dt.year) * 12 + completion_dt.month - start_dt.month)
+
+
+def _resource_stats(cases: List[CaseCtx]) -> Dict[str, Any]:
+    complete_by_resource: Counter[str] = Counter()
+    complete_by_task_resource: Dict[str, Counter[str]] = defaultdict(Counter)
+    complete_by_resource_task: Dict[str, Counter[str]] = defaultdict(Counter)
+    for case in cases:
+        for evt in case.events:
+            if evt.lifecycle != "complete":
+                continue
+            complete_by_resource[evt.resource_id] += 1
+            complete_by_task_resource[evt.activity_id][evt.resource_id] += 1
+            complete_by_resource_task[evt.resource_id][evt.activity_id] += 1
+
+    total_completes = sum(complete_by_resource.values())
+    resource_task_distribution_percent: Dict[str, Dict[str, float]] = {}
+    for resource, counts in sorted(complete_by_resource_task.items()):
+        resource_total = sum(counts.values())
+        resource_task_distribution_percent[resource] = {
+            task: _percent(count, resource_total)
+            for task, count in sorted(counts.items())
+        }
+    task_resource_distribution_percent: Dict[str, Dict[str, float]] = {}
+    for task, counts in sorted(complete_by_task_resource.items()):
+        task_total = sum(counts.values())
+        task_resource_distribution_percent[task] = {
+            resource: _percent(count, task_total)
+            for resource, count in sorted(counts.items())
+        }
+
+    resources = sorted(complete_by_resource)
+    human_resources = [resource for resource in resources if resource != "SYSTEM"]
+    return {
+        "unique_resource_count": len(resources),
+        "unique_human_resource_count": len(human_resources),
+        "resources": resources,
+        "human_resources": human_resources,
+        "complete_count_by_resource": dict(sorted(complete_by_resource.items())),
+        "complete_percent_by_resource": {
+            resource: _percent(count, total_completes)
+            for resource, count in sorted(complete_by_resource.items())
+        },
+        "resource_task_distribution_percent": resource_task_distribution_percent,
+        "task_resource_distribution_percent": task_resource_distribution_percent,
+    }
+
+
+def _node_coverage_stats(task_node_ids: Iterable[str], activity_counts: Counter[str]) -> Dict[str, Any]:
+    nodes = sorted(set(task_node_ids))
+    used = [node for node in nodes if activity_counts.get(node, 0) > 0]
+    missing = [node for node in nodes if activity_counts.get(node, 0) <= 0]
+    usage_values = [float(activity_counts.get(node, 0)) for node in nodes]
+    return {
+        "task_nodes_total": len(nodes),
+        "task_nodes_used": len(used),
+        "task_nodes_missing_count": len(missing),
+        "task_nodes_missing": missing,
+        "coverage_percent": _percent(len(used), len(nodes)),
+        "usage_distribution": _describe_numeric(usage_values),
+        "usage_gini": _gini(usage_values),
+        "activity_distribution_entropy_normalized": _normalized_entropy(int(x) for x in usage_values),
+    }
+
+
+def _parallel_task_pairs(graph: ExecGraph) -> set[frozenset[str]]:
+    pairs: set[frozenset[str]] = set()
+
+    def branch_tasks(start_node_id: str) -> set[str]:
+        tasks: set[str] = set()
+        seen: set[str] = set()
+        stack = [start_node_id]
+        while stack:
+            node_id = stack.pop()
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node = graph.nodes.get(node_id)
+            if node is None:
+                continue
+            if node.node_class == "and" and len(graph.incoming.get(node_id, [])) > 1:
+                continue
+            if node.node_class == "task":
+                tasks.add(node_id)
+            for edge in graph.outgoing.get(node_id, []):
+                stack.append(edge.target)
+        return tasks
+
+    for node_id, node in graph.nodes.items():
+        outgoing = graph.outgoing.get(node_id, [])
+        if node.node_class != "and" or len(outgoing) <= 1:
+            continue
+        branches = [branch_tasks(edge.target) for edge in outgoing]
+        for i, left in enumerate(branches):
+            for right in branches[i + 1:]:
+                for a in left:
+                    for b in right:
+                        if a != b:
+                            pairs.add(frozenset({a, b}))
+    return pairs
+
+
+def _bpms_native_operational_variance_stats(cases: List[CaseCtx], graphs: Dict[str, ExecGraph]) -> Dict[str, Any]:
+    parallel_pairs_by_version = {
+        version_id: _parallel_task_pairs(graph)
+        for version_id, graph in graphs.items()
+    }
+    task_tag_by_version = {
+        version_id: {node_id: node.bpmn_tag for node_id, node in graph.nodes.items()}
+        for version_id, graph in graphs.items()
+    }
+    task_label_by_version = {
+        version_id: {node_id: node.label for node_id, node in graph.nodes.items()}
+        for version_id, graph in graphs.items()
+    }
+
+    trace_count = len(cases)
+    interleaving_trace_count = 0
+    interleaving_adjacent_count = 0
+    adjacent_transition_count = 0
+    orientation_counts: Counter[str] = Counter()
+    unordered_orientation_seen: Dict[str, set[str]] = defaultdict(set)
+
+    technical_repeated_trace_count = 0
+    technical_repeat_count = 0
+    incident_like_trace_count = 0
+    incident_like_count = 0
+    repeated_technical_tasks: Counter[str] = Counter()
+    incident_keywords = ("incident", "escalat", "cancel", "reject", "blacklist", "restore", "return", "reopen")
+    technical_tags = {"serviceTask", "scriptTask", "businessRuleTask", "sendTask", "receiveTask"}
+
+    assign_resource_by_instance: Dict[str, set[str]] = defaultdict(set)
+    complete_by_task_resource: Dict[str, Counter[str]] = defaultdict(Counter)
+    human_complete_count = 0
+    human_task_complete_count: Counter[str] = Counter()
+
+    for case in cases:
+        graph = graphs.get(case.version_id)
+        if graph is None:
+            continue
+        parallel_pairs = parallel_pairs_by_version.get(case.version_id, set())
+        tag_by_task = task_tag_by_version.get(case.version_id, {})
+        label_by_task = task_label_by_version.get(case.version_id, {})
+        complete_events = sorted(
+            [evt for evt in case.events if evt.lifecycle == "complete"],
+            key=lambda evt: (evt.timestamp, evt.local_order),
+        )
+        case_interleaving = False
+        for left, right in zip(complete_events, complete_events[1:]):
+            adjacent_transition_count += 1
+            pair = frozenset({left.activity_id, right.activity_id})
+            if pair not in parallel_pairs:
+                continue
+            case_interleaving = True
+            interleaving_adjacent_count += 1
+            orientation = f"{left.activity_id}->{right.activity_id}"
+            unordered = "|".join(sorted(pair))
+            orientation_counts[orientation] += 1
+            unordered_orientation_seen[unordered].add(orientation)
+        if case_interleaving:
+            interleaving_trace_count += 1
+
+        counts = Counter(evt.activity_id for evt in complete_events)
+        mode_by_task = {evt.activity_id: evt.execution_mode for evt in complete_events}
+        case_has_technical_repeat = False
+        case_has_incident_like = False
+        for task_id, count in counts.items():
+            label = label_by_task.get(task_id, task_id).lower()
+            normalized_task = task_id.lower()
+            mode = str(mode_by_task.get(task_id, "")).strip().lower()
+            if mode == "automatic" and count > 1:
+                case_has_technical_repeat = True
+                repeats = count - 1
+                technical_repeat_count += repeats
+                repeated_technical_tasks[task_id] += repeats
+            if any(keyword in normalized_task or keyword in label for keyword in incident_keywords):
+                case_has_incident_like = True
+                incident_like_count += count
+        if case_has_technical_repeat:
+            technical_repeated_trace_count += 1
+        if case_has_incident_like:
+            incident_like_trace_count += 1
+
+        for evt in case.events:
+            if evt.lifecycle == "assign":
+                assign_resource_by_instance[evt.activity_instance_id].add(evt.resource_id)
+            if evt.lifecycle != "complete":
+                continue
+            tag = tag_by_task.get(evt.activity_id, "")
+            if tag in {"userTask", "manualTask"} or evt.resource_id != "SYSTEM":
+                human_complete_count += 1
+                human_task_complete_count[evt.activity_id] += 1
+                complete_by_task_resource[evt.activity_id][evt.resource_id] += 1
+
+    actual_reassignment_instances = {
+        instance_id: resources
+        for instance_id, resources in assign_resource_by_instance.items()
+        if len(resources) > 1
+    }
+    multi_resource_task_count = sum(1 for counts in complete_by_task_resource.values() if len(counts) > 1)
+    non_dominant_completion_count = 0
+    task_substitution_percent: Dict[str, float] = {}
+    for task_id, counts in sorted(complete_by_task_resource.items()):
+        task_total = sum(counts.values())
+        dominant = max(counts.values()) if counts else 0
+        non_dominant = max(0, task_total - dominant)
+        non_dominant_completion_count += non_dominant
+        task_substitution_percent[task_id] = _percent(non_dominant, task_total)
+
+    both_orientation_pair_count = sum(1 for orientations in unordered_orientation_seen.values() if len(orientations) > 1)
+    return {
+        "metric_label": "BPMS-Native Operational Variance",
+        "metric_note": "These metrics describe BPMS-native operational variance in flattened event logs, not data corruption noise.",
+        "concurrency_interleaving": {
+            "parallel_task_pair_count": len(set().union(*parallel_pairs_by_version.values())) if parallel_pairs_by_version else 0,
+            "trace_count_with_parallel_adjacent_interleaving": interleaving_trace_count,
+            "trace_percent_with_parallel_adjacent_interleaving": _percent(interleaving_trace_count, trace_count),
+            "parallel_adjacent_transition_count": interleaving_adjacent_count,
+            "parallel_adjacent_transition_percent": _percent(interleaving_adjacent_count, adjacent_transition_count),
+            "parallel_pairs_with_both_flattened_orders": both_orientation_pair_count,
+            "top_parallel_adjacent_orientations": dict(orientation_counts.most_common(10)),
+        },
+        "technical_retries_and_incidents": {
+            "trace_count_with_repeated_technical_task": technical_repeated_trace_count,
+            "trace_percent_with_repeated_technical_task": _percent(technical_repeated_trace_count, trace_count),
+            "technical_repeat_count": technical_repeat_count,
+            "top_repeated_technical_tasks": dict(repeated_technical_tasks.most_common(10)),
+            "trace_count_with_incident_like_activity": incident_like_trace_count,
+            "trace_percent_with_incident_like_activity": _percent(incident_like_trace_count, trace_count),
+            "incident_like_activity_count": incident_like_count,
+        },
+        "resource_reassignment_and_delegation": {
+            "actual_reassignment_instance_count": len(actual_reassignment_instances),
+            "actual_reassignment_instance_percent_of_human_completions": _percent(len(actual_reassignment_instances), human_complete_count),
+            "human_task_count_with_multiple_resources": multi_resource_task_count,
+            "human_task_count": len(human_task_complete_count),
+            "human_task_percent_with_multiple_resources": _percent(multi_resource_task_count, len(human_task_complete_count)),
+            "non_dominant_resource_completion_count": non_dominant_completion_count,
+            "non_dominant_resource_completion_percent": _percent(non_dominant_completion_count, human_complete_count),
+            "top_task_substitution_percent": dict(
+                sorted(task_substitution_percent.items(), key=lambda item: item[1], reverse=True)[:10]
+            ),
+        },
+    }
+
+
+def _build_dataset_stats(
+    cases: List[CaseCtx],
+    versions: List[VersionSpec],
+    graphs: Dict[str, ExecGraph],
+) -> Dict[str, Any]:
+    versions_sorted = sorted(versions, key=lambda item: item.active_from)
+    version_index = {version.version_id: i for i, version in enumerate(versions_sorted)}
+    all_task_nodes = {
+        node_id
+        for graph in graphs.values()
+        for node_id, node in graph.nodes.items()
+        if node.node_class == "task"
+    }
+
+    def build_scope(scope_cases: List[CaseCtx], task_nodes: Iterable[str], scope_graphs: Dict[str, ExecGraph]) -> Dict[str, Any]:
+        trace_complete_counts: List[float] = []
+        trace_transition_counts: List[float] = []
+        trace_cycle_counts: List[float] = []
+        trace_repeated_activity_counts: List[float] = []
+        activity_counts: Counter[str] = Counter()
+        cycle_depth_counts: Counter[str] = Counter({"none": 0, "double": 0, "triple": 0, "more_than_3": 0})
+        carryover_counts: Counter[str] = Counter({f"plus_{i}": 0 for i in range(1, 5)})
+        carryover_counts["none"] = 0
+        carryover_counts["plus_4_or_more"] = 0
+        calendar_carryover_counts: Counter[str] = Counter({f"plus_{i}month": 0 for i in range(1, 5)})
+        calendar_carryover_counts["same_month"] = 0
+        calendar_carryover_counts["plus_4month_or_more"] = 0
+
+        for case in scope_cases:
+            complete_events = sorted(
+                [evt for evt in case.events if evt.lifecycle == "complete"],
+                key=lambda evt: (evt.timestamp, evt.local_order),
+            )
+            activities = [evt.activity_id for evt in complete_events]
+            counts = Counter(activities)
+            activity_counts.update(counts)
+            complete_count = len(activities)
+            repeated_activity_count = sum(1 for count in counts.values() if count > 1)
+            cycle_count = sum(count - 1 for count in counts.values() if count > 1)
+            max_repetition = max(counts.values()) if counts else 0
+            trace_complete_counts.append(float(complete_count))
+            trace_transition_counts.append(float(max(0, complete_count - 1)))
+            trace_cycle_counts.append(float(cycle_count))
+            trace_repeated_activity_counts.append(float(repeated_activity_count))
+            if max_repetition <= 1:
+                cycle_depth_counts["none"] += 1
+            elif max_repetition == 2:
+                cycle_depth_counts["double"] += 1
+            elif max_repetition == 3:
+                cycle_depth_counts["triple"] += 1
+            else:
+                cycle_depth_counts["more_than_3"] += 1
+
+            completion_version = _version_at(case.completion_dt, versions_sorted)
+            delta = int(version_index.get(completion_version, 0)) - int(version_index.get(case.version_id, 0))
+            if delta <= 0:
+                carryover_counts["none"] += 1
+            elif delta == 4:
+                carryover_counts["plus_4"] += 1
+            elif delta > 4:
+                carryover_counts["plus_4_or_more"] += 1
+            else:
+                carryover_counts[f"plus_{delta}"] += 1
+
+            month_delta = _calendar_month_delta(case.start_dt, case.completion_dt)
+            if month_delta <= 0:
+                calendar_carryover_counts["same_month"] += 1
+            elif month_delta == 4:
+                calendar_carryover_counts["plus_4month"] += 1
+            elif month_delta > 4:
+                calendar_carryover_counts["plus_4month_or_more"] += 1
+            else:
+                calendar_carryover_counts[f"plus_{month_delta}month"] += 1
+
+        trace_count = len(scope_cases)
+        return {
+            "trace_count": trace_count,
+            "activity_complete_count_per_trace": _describe_numeric(trace_complete_counts),
+            "activity_transition_count_per_trace": _describe_numeric(trace_transition_counts),
+            "cycles": {
+                "cycle_count_total": int(sum(trace_cycle_counts)),
+                "cycle_count_per_trace": _describe_numeric(trace_cycle_counts),
+                "repeated_activity_count_per_trace": _describe_numeric(trace_repeated_activity_counts),
+                "trace_count_by_max_repetition": dict(sorted(cycle_depth_counts.items())),
+                "trace_percent_by_max_repetition": {
+                    key: _percent(value, trace_count)
+                    for key, value in sorted(cycle_depth_counts.items())
+                },
+            },
+            "version_carryover": {
+                "trace_count_by_completion_delta": dict(sorted(carryover_counts.items())),
+                "trace_percent_by_completion_delta": {
+                    key: _percent(value, trace_count)
+                    for key, value in sorted(carryover_counts.items())
+                },
+            },
+            "calendar_carryover": {
+                "trace_count_by_completion_month_delta": dict(sorted(calendar_carryover_counts.items())),
+                "trace_percent_by_completion_month_delta": {
+                    key: _percent(value, trace_count)
+                    for key, value in sorted(calendar_carryover_counts.items())
+                },
+            },
+            "node_coverage": _node_coverage_stats(task_nodes, activity_counts),
+            "activity_complete_count_by_node": dict(sorted(activity_counts.items())),
+            "resources": _resource_stats(scope_cases),
+            "bpms_native_operational_variance": _bpms_native_operational_variance_stats(scope_cases, scope_graphs),
+        }
+
+    by_version: Dict[str, Any] = {}
+    for version in versions_sorted:
+        version_cases = [case for case in cases if case.version_id == version.version_id]
+        graph = graphs.get(version.version_id)
+        graph_items = graph.nodes.items() if graph is not None else []
+        version_task_nodes = {
+            node_id
+            for node_id, node in graph_items
+            if node.node_class == "task"
+        }
+        by_version[version.version_id] = build_scope(version_cases, version_task_nodes, {version.version_id: graph} if graph is not None else {})
+
+    return {
+        "schema_version": "1.0",
+        "metric_notes": {
+            "activity_complete_count_per_trace": "Number of complete lifecycle task events in a trace.",
+            "activity_transition_count_per_trace": "Complete task events minus one.",
+            "cycles": "Cycle depth is inferred from repeated completed activity ids inside one trace.",
+            "version_carryover": "Completion version is derived from trace completion timestamp and version active_from boundaries.",
+            "calendar_carryover": "Completion month delta is derived from trace start and completion calendar months.",
+            "bpms_native_operational_variance": "BPMS-native operational variance covers flattened parallel interleaving, technical retries/incidents, and resource substitution/delegation.",
+            "resources": "Resource distributions are computed from complete lifecycle task events.",
+        },
+        "total": build_scope(cases, all_task_nodes, graphs),
+        "by_version": by_version,
+    }
+
+
 def _write_generated_data_config(
     path: Path,
     xes_path: Path,
@@ -959,10 +1559,12 @@ def run(cfg: Dict[str, Any], *, config_base_dir: Optional[Path] = None) -> Dict[
     output_cfg = cfg.get("output", {}) if isinstance(cfg.get("output", {}), dict) else {}
     xes_path = _resolve_path(base_dir, str(output_cfg.get("xes_path", "outputs/simulation/simulated.xes")))
     summary_path = _resolve_path(base_dir, str(output_cfg.get("summary_json_path", "outputs/simulation/simulated.summary.json")))
+    default_stats_path = summary_path.with_name(f"{summary_path.stem}.dataset_stats.json")
+    dataset_stats_path = _resolve_path(base_dir, str(output_cfg.get("dataset_stats_json_path", str(default_stats_path))))
     data_cfg_path = _resolve_path(base_dir, str(output_cfg.get("generated_data_config_path", "configs/data/generated_simulated.yaml")))
     overwrite = _as_bool(output_cfg.get("overwrite"), True)
     if not overwrite:
-        for p in (xes_path, summary_path, data_cfg_path):
+        for p in (xes_path, summary_path, dataset_stats_path, data_cfg_path):
             if p.exists():
                 raise FileExistsError(f"Output exists and overwrite=false: {p}")
 
@@ -987,6 +1589,8 @@ def run(cfg: Dict[str, Any], *, config_base_dir: Optional[Path] = None) -> Dict[
         duplicate_case_attrs_on_events=duplicate_case_attrs_on_events,
     )
     _write_summary(summary_path, summary)
+    dataset_stats = _build_dataset_stats(runtime.cases, versions, graphs)
+    _write_summary(dataset_stats_path, dataset_stats)
     data_cfg_payload = _write_generated_data_config(
         data_cfg_path,
         xes_path=xes_path,
@@ -995,9 +1599,10 @@ def run(cfg: Dict[str, Any], *, config_base_dir: Optional[Path] = None) -> Dict[
         emit_assign_auto=runtime.emit_assign_auto,
     )
     logger.info(
-        "simulate.output: xes=%s summary=%s data_config=%s",
+        "simulate.output: xes=%s summary=%s dataset_stats=%s data_config=%s",
         xes_path,
         summary_path,
+        dataset_stats_path,
         data_cfg_path,
     )
     return {
@@ -1006,8 +1611,10 @@ def run(cfg: Dict[str, Any], *, config_base_dir: Optional[Path] = None) -> Dict[
         "process_name": process_name,
         "xes_path": str(xes_path),
         "summary_json_path": str(summary_path),
+        "dataset_stats_json_path": str(dataset_stats_path),
         "generated_data_config_path": str(data_cfg_path),
         "summary": summary,
+        "dataset_stats": dataset_stats,
         "generated_data_config": data_cfg_payload,
     }
 

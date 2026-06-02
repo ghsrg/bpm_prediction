@@ -1146,6 +1146,11 @@ training.candidate_identity_mode: fixed_vocab_bridge | topology_native
 training.topology_flow_penalty_enabled: false
 ```
 
+`fixed_vocab_bridge` keeps the candidate axis fixed to the fitted
+`activity_vocab` and is intended for fixed-label/baseline compatibility.
+`topology_native` uses the version-specific BPMN candidate nodes and is intended
+for zero-shot topology-conditioned experiments.
+
 `candidate_temperature` is a score-sharpness parameter:
 
 ```text

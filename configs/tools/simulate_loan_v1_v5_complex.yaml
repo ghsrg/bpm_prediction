@@ -1,0 +1,592 @@
+simulation:
+  process_name: "loan_v1_v5_simulated"
+  random_seed: 4242
+  start_time: "2025-01-01T00:00:00Z"
+  end_time: "2025-06-01T00:00:00Z"
+
+versions:
+  - version_id: "v1"
+    active_from: "2025-01-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v1.bpmn"
+  - version_id: "v2"
+    active_from: "2025-02-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v2_re.bpmn"
+  - version_id: "v3"
+    active_from: "2025-03-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v3_re_pl.bpmn"
+  - version_id: "v4"
+    active_from: "2025-04-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v4_re_pl_cb.bpmn"
+  - version_id: "v5"
+    active_from: "2025-05-01T00:00:00Z"
+    bpmn_path: "../../data/camunda_exports/bpmn_xml/loan_v5_re_pl_cb.bpmn"
+
+arrival_process:
+  type: "poisson"
+  rate_per_hour: 1.54
+  max_cases: 5600
+
+version_carryover:
+  enabled: false
+  targets:
+    - completion: "same_version"
+      probability: 0.70
+    - completion: "next_version"
+      probability: 0.15
+    - completion: "skip_one_version"
+      probability: 0.10
+    - completion: "last_version"
+      probability: 0.05
+  jitter_seconds:
+    type: "uniform"
+    min: 3600
+    max: 604800
+
+case_attributes:
+  case_delay_class:
+    type: "categorical"
+    values:
+      normal: 0.714
+      delay_1month: 0.15
+      delay_2month: 0.12
+      delay_3month: 0.004
+      delay_4month: 0.012
+  p_form_rework:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_eligibility:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_quote:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_client_revise:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_large_loop:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_final_cancel:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_branch_plan:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_verify_docs:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_monitor_56:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_monitor_89:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_monitor_10:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+  p_blacklist:
+    type: "uniform"
+    min: 0.0
+    max: 1.0
+
+resources:
+  roles:
+    clerk:
+      workers:
+        - id: "clerk_1"
+          factor: 1.00
+        - id: "clerk_2"
+          factor: 0.95
+        - id: "clerk_3"
+          factor: 1.10
+        - id: "clerk_4"
+          factor: 1.05
+        - id: "clerk_5"
+          factor: 0.90
+        - id: "clerk_6"
+          factor: 1.15
+        - id: "clerk_7"
+          factor: 1.00
+        - id: "clerk_8"
+          factor: 0.98
+        - id: "clerk_9"
+          factor: 1.08
+        - id: "clerk_10"
+          factor: 0.92
+        - id: "clerk_11"
+          factor: 1.03
+        - id: "clerk_12"
+          factor: 0.97
+        - id: "clerk_13"
+          factor: 1.06
+        - id: "clerk_14"
+          factor: 0.94
+        - id: "clerk_15"
+          factor: 1.02
+        - id: "clerk_16"
+          factor: 0.96
+        - id: "clerk_17"
+          factor: 1.09
+        - id: "clerk_18"
+          factor: 0.93
+        - id: "clerk_19"
+          factor: 1.04
+        - id: "clerk_20"
+          factor: 0.99
+        - id: "clerk_21"
+          factor: 1.07
+        - id: "clerk_22"
+          factor: 0.91
+        - id: "clerk_23"
+          factor: 1.01
+        - id: "clerk_24"
+          factor: 0.97
+        - id: "clerk_25"
+          factor: 1.05
+        - id: "clerk_26"
+          factor: 0.95
+        - id: "clerk_27"
+          factor: 1.08
+        - id: "clerk_28"
+          factor: 0.94
+        - id: "clerk_29"
+          factor: 1.00
+        - id: "clerk_30"
+          factor: 0.98
+
+tasks:
+  Activity_07k7tyn: &auto_short
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 60}
+  Activity_0comoe4: *auto_short
+  Add2BlackList_task: *auto_short
+  SaveCaseStat_action: *auto_short
+  SaveCase_action: *auto_short
+  Save_Case_Stat_action: *auto_short
+  notification_task: *auto_short
+  save_updates: *auto_short
+  t_Collect_Report: *auto_short
+  t_Monitor_Request: *auto_short
+  t_Notification: *auto_short
+  t_Notification2: *auto_short
+  t_Notify_Client: *auto_short
+  t_Save_Docs: *auto_short
+  t_Special_Chek: *auto_short
+  t_add_2_base: *auto_short
+  t_add_notes: *auto_short
+  t_approve_loan: *auto_short
+  t_assess_eligibility:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 2400, sigma: 0.45}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.80
+        duration: {type: "lognormal", mean_seconds: 345600, sigma: 0.35}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 820800, sigma: 0.40}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1036800, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.95
+        duration: {type: "lognormal", mean_seconds: 2246400, sigma: 0.50}
+  t_audit_case:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.40}
+  t_book_loan:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 120}
+  t_call_client:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 180}
+    noise: {extra_delay_probability: 0.01, extra_delay_seconds: 1814400}
+  t_cancel_loan:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1200, sigma: 0.35}
+  t_check_form: &human_check
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.45}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+  t_check_forms: *human_check
+  t_check_funding:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1200, sigma: 0.35}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "in", value: ["delay_1month", "delay_2month", "delay_3month", "delay_4month"]}
+        probability: 0.55
+        duration: {type: "lognormal", mean_seconds: 259200, sigma: 0.45}
+  t_check_quote:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 900, sigma: 0.35}
+  t_collect_docs:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 2100, sigma: 0.45}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 518400, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1123200, sigma: 0.50}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1296000, sigma: 0.55}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.95
+        duration: {type: "lognormal", mean_seconds: 2592000, sigma: 0.60}
+  t_complice_check: *auto_short
+  t_confirm_payout:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 120}
+  t_contact_client:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1200, sigma: 0.35}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "in", value: ["delay_1month", "delay_2month", "delay_3month", "delay_4month"]}
+        probability: 0.45
+        duration: {type: "lognormal", mean_seconds: 172800, sigma: 0.55}
+  t_create_account:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.45}
+  t_credit_check: &human_credit
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 3600, sigma: 0.55}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "in", value: ["delay_1month", "delay_2month", "delay_3month", "delay_4month"]}
+        probability: 0.50
+        duration: {type: "lognormal", mean_seconds: 345600, sigma: 0.50}
+  t_credit_collect: *human_credit
+  t_final_review:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 7200, sigma: 0.60}
+    noise: {extra_delay_probability: 0.0, extra_delay_seconds: 0}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.70
+        duration: {type: "lognormal", mean_seconds: 345600, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.80
+        duration: {type: "lognormal", mean_seconds: 864000, sigma: 0.50}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 1209600, sigma: 0.55}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 2764800, sigma: 0.60}
+  t_fix_reject:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 120}
+  t_get_ccredit: *human_credit
+  t_identity_check:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 90}
+  t_identity_gr_check:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 90}
+  t_monitor_eight: *auto_short
+  t_monitor_five: *auto_short
+  t_monitor_four: *auto_short
+  t_monitor_nine: *auto_short
+  t_monitor_one: *auto_short
+  t_monitor_seven: *auto_short
+  t_monitor_six: *auto_short
+  t_monitor_three: *auto_short
+  t_monitor_two: *auto_short
+  t_monitor_twoOne: *auto_short
+  t_notification: *auto_short
+  t_plan_setup:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 90}
+  t_prepare_pack:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 2100, sigma: 0.45}
+  t_property_check:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.40}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 432000, sigma: 0.40}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1036800, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1296000, sigma: 0.50}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.95
+        duration: {type: "lognormal", mean_seconds: 2419200, sigma: 0.55}
+  t_receive_update: *auto_short
+  t_reject_loan:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1200, sigma: 0.35}
+  t_reopen_case: *auto_short
+  t_reserve_funds:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 120}
+  t_restore_case: *auto_short
+  t_return_case: *auto_short
+  t_return_form: *auto_short
+  t_revise_offer:
+    execution_mode: "automatic"
+    duration: {type: "fixed", seconds: 120}
+  t_risk_assess:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.40}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.80
+        duration: {type: "lognormal", mean_seconds: 345600, sigma: 0.40}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 820800, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 1036800, sigma: 0.50}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.95
+        duration: {type: "lognormal", mean_seconds: 2073600, sigma: 0.55}
+  t_send_notice: *auto_short
+  t_send_offer:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 900, sigma: 0.35}
+  t_send_offers:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 900, sigma: 0.35}
+  t_send_quote:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 900, sigma: 0.35}
+  t_update_risk:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1200, sigma: 0.35}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "in", value: ["delay_1month", "delay_2month", "delay_3month", "delay_4month"]}
+        probability: 0.60
+        duration: {type: "lognormal", mean_seconds: 259200, sigma: 0.55}
+  t_verify_docs:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 2400, sigma: 0.45}
+    conditional_waits:
+      - when: {var: "case_delay_class", op: "==", value: "delay_1month"}
+        probability: 0.75
+        duration: {type: "lognormal", mean_seconds: 345600, sigma: 0.45}
+      - when: {var: "case_delay_class", op: "==", value: "delay_2month"}
+        probability: 0.80
+        duration: {type: "lognormal", mean_seconds: 820800, sigma: 0.50}
+      - when: {var: "case_delay_class", op: "==", value: "delay_3month"}
+        probability: 0.85
+        duration: {type: "lognormal", mean_seconds: 1036800, sigma: 0.55}
+      - when: {var: "case_delay_class", op: "==", value: "delay_4month"}
+        probability: 0.90
+        duration: {type: "lognormal", mean_seconds: 2073600, sigma: 0.60}
+  t_verify_terms:
+    execution_mode: "human"
+    roles: ["clerk"]
+    duration: {type: "lognormal", mean_seconds: 1800, sigma: 0.40}
+
+gateways:
+  gw_form_ok:
+    default_flow_id: "sf007"
+    branches:
+      - flow_id: "sf005"
+        probability: 0.035
+        max_traversals_per_case: 1
+        repeat_until_max_once_selected: false
+        when: {const: true}
+      - flow_id: "sf007"
+        when: {const: true}
+
+  gw_eligible:
+    default_flow_id: "sf019"
+    branches:
+      - flow_id: "Flow_1qhaurq"
+        when:
+          all:
+            - var: "p_eligibility"
+              op: "<"
+              value: 0.08
+      - flow_id: "sf017"
+        when:
+          all:
+            - var: "p_eligibility"
+              op: "<"
+              value: 0.16
+      - flow_id: "sf019"
+        when: {const: true}
+
+  gw_send_choice:
+    default_flow_id: "sf023"
+    branches:
+      - flow_id: "sf022"
+        when:
+          all:
+            - var: "p_quote"
+              op: "<"
+              value: 0.50
+      - flow_id: "sf023"
+        when: {const: true}
+
+  gw_client_ok:
+    default_flow_id: "sf030"
+    branches:
+      - flow_id: "sf028"
+        probability: 0.02
+        max_traversals_per_case: 1
+        repeat_until_max_once_selected: false
+        when: {const: true}
+      - flow_id: "sf030"
+        when: {const: true}
+
+  gw_large_loop:
+    default_flow_id: "sf057"
+    branches:
+      - flow_id: "sf055"
+        probability: 0.015
+        max_traversals_per_case: 2
+        repeat_until_max_once_selected: true
+        when: {const: true}
+      - flow_id: "sf057"
+        when: {const: true}
+
+  gw_final_decision:
+    default_flow_id: "sf059"
+    branches:
+      - flow_id: "sf058"
+        when:
+          all:
+            - var: "p_final_cancel"
+              op: "<"
+              value: 0.12
+      - flow_id: "sf059"
+        when: {const: true}
+
+  Gateway_1nwy75l:
+    default_flow_id: "sf037"
+    branches:
+      - flow_id: "Flow_18y3nak"
+        when:
+          all:
+            - var: "p_branch_plan"
+              op: "<"
+              value: 0.25
+      - flow_id: "Flow_1mpz582"
+        when:
+          all:
+            - var: "p_branch_plan"
+              op: "<"
+              value: 0.50
+      - flow_id: "sf036"
+        when:
+          all:
+            - var: "p_branch_plan"
+              op: "<"
+              value: 0.75
+      - flow_id: "sf037"
+        when: {const: true}
+
+  Gateway_0pc77rw:
+    default_flow_id: "Flow_1x69xss"
+    branches:
+      - flow_id: "Flow_0ivfy9a"
+        when:
+          all:
+            - var: "p_verify_docs"
+              op: "<"
+              value: 0.35
+      - flow_id: "Flow_1x69xss"
+        when: {const: true}
+
+  Gateway_1s7zg4u:
+    default_flow_id: "Flow_1qd0rtd"
+    branches:
+      - flow_id: "Flow_1e8j02j"
+        when:
+          all:
+            - var: "p_monitor_56"
+              op: "<"
+              value: 0.40
+      - flow_id: "Flow_1qd0rtd"
+        when: {const: true}
+
+  Gateway_0dybq4o:
+    default_flow_id: "Flow_0swefs4"
+    branches:
+      - flow_id: "Flow_1ffr2gg"
+        when:
+          all:
+            - var: "p_monitor_89"
+              op: "<"
+              value: 0.45
+      - flow_id: "Flow_0swefs4"
+        when: {const: true}
+
+  Gateway_0czrb5g:
+    default_flow_id: "Flow_1isimfb"
+    branches:
+      - flow_id: "Flow_0s7mxgo"
+        when:
+          all:
+            - var: "p_monitor_10"
+              op: "<"
+              value: 0.35
+      - flow_id: "Flow_1isimfb"
+        when: {const: true}
+
+  Gateway_0cnxeb2:
+    default_flow_id: "Flow_0y37qlb"
+    branches:
+      - flow_id: "Flow_0g4gs5k"
+        when:
+          all:
+            - var: "p_blacklist"
+              op: "<"
+              value: 0.18
+      - flow_id: "Flow_0y37qlb"
+        when: {const: true}
+
+output:
+  xes_path: "../../outputs/simulation/loan_v1_v5_complex_simulated.xes"
+  summary_json_path: "../../outputs/simulation/loan_v1_v5_complex_simulated.summary.json"
+  dataset_stats_json_path: "../../outputs/simulation/loan_v1_v5_complex_simulated.dataset_stats.json"
+  generated_data_config_path: "../../configs/data/generated_simulate_loan_v1_v5_complex.yaml"
+  overwrite: true
+  trace_level_case_attrs: true
+  duplicate_case_attrs_on_events: false
+  emit_assign_for_human_tasks: true
+  emit_assign_for_automatic_tasks: false

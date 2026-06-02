@@ -658,7 +658,38 @@ primary loss surface. Recommended research runs use
 `training.candidate_identity_mode=topology_native`; fixed-label projection is
 compatibility reporting only.
 
+## Runtime Update 2026-06-02
 
+`simulate-versioned-log` now supports bounded probabilistic branches for
+exclusive-gateway loop scenarios through branch-level `probability`,
+`max_traversals_per_case`, and `repeat_until_max_once_selected` settings.
 
+This keeps old simulator configs reproducible because existing deterministic
+`when` rules remain unchanged, while new configs can generate 5-10% repeated
+loop traces without risking unbounded BPMN loop execution. Parallel gateways
+continue to execute all outgoing branches and do not consume branch
+probabilities.
 
+Simulator runs now also write a dataset statistics artifact controlled by
+`output.dataset_stats_json_path`. The JSON captures total and per-version trace
+length, cycle depth, version carryover, task-node coverage, node usage
+distribution, and resource/task distribution metrics for reproducibility audits.
 
+`simulate-versioned-log` also supports case-level `version_carryover` targets.
+When enabled, the simulator samples a desired completion bucket per case
+(`same_version`, `next_version`, `skip_one_version`, `last_version`, or
+explicit `plus_N`) and inserts waiting time before a terminal task when needed,
+so generated XES event timestamps can cross process-version activation
+boundaries in a controlled way.
+
+For more organic long-running synthetic logs, task configs can use
+`conditional_waits` evaluated from trace-level `case_attributes`. These waits
+advance case time before a task starts without holding worker resources, making
+it possible to model document delays, client-side waiting, replacement approval,
+or audit queues across many tasks. Dataset statistics now report both
+`version_carryover` and calendar-month `calendar_carryover` buckets.
+
+Dataset statistics also report `bpms_native_operational_variance` instead of
+data-corruption noise terminology. The section captures flattened parallel
+interleaving, technical retries/incidents, and resource
+substitution/delegation patterns that are native to BPMS-style event logs.

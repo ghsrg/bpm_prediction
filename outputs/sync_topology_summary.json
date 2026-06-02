@@ -4,17 +4,18 @@
   "source_mode": "single_file",
   "files_scanned": 1,
   "datasets_synced": 1,
-  "total_traces": 89,
+  "total_traces": 5559,
   "details": [
     {
-      "dataset_name": "loan_v1_v4_simulated",
-      "source_file": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\simulation\\loan_v1_v4_simulated.xes",
-      "traces": 89,
+      "dataset_name": "loan_v1_v5_complex_simulated",
+      "source_file": "C:\\Users\\korsr\\PycharmProjects\\bpm_prediction\\outputs\\simulation\\loan_v1_v5_complex_simulated.xes",
+      "traces": 5559,
       "versions_saved": [
         "v1",
         "v2",
         "v3",
-        "v4"
+        "v4",
+        "v5"
       ],
       "status": "ok"
     }

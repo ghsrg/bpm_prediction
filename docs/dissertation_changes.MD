@@ -1518,3 +1518,47 @@ Metrics for this explanation:
 - `candidate_score_gap`;
 - `strict_error_but_allowed_rate`;
 - `test_nll` / `test_ece`.
+
+**2026-06-02 parallel process-state mask correction:** complex parallel XES
+experiments showed that a last-completed-node mask is not sufficient for
+parallel/interleaved execution. The issue is not wrong version grouping:
+event-level and trace-level `concept:version` are consistent. The issue is that
+the next completed task may already be active in another parallel branch and is
+therefore not a direct successor of the last completed task.
+
+Important dissertation point:
+
+```text
+For parallel BPMN execution, the structural candidate mask must be based on
+process state, not only on direct successors of the last completed activity.
+```
+
+Corrected mask formulation:
+
+```text
+M_t = A_t union S_t
+```
+
+where:
+
+- `A_t` is the active not-yet-completed task set reconstructed from lifecycle
+  events or provided by BPMS/simulator metadata;
+- `S_t` is the newly enabled structural successor set.
+
+Impact on interpretation:
+
+- low `target_in_mask_rate` on complex parallel data can indicate incomplete
+  state abstraction rather than invalid BPMN topology;
+- `experiment.mask_guided_enabled` cannot fix missing targets if the mask
+  itself omits active parallel tasks;
+- `_EOPKG_TC` should inject impulse not only into `last_completed`, but also
+  into active candidate nodes;
+- strict next-activity F1 should be reported together with
+  `target_in_mask_rate`, `pred_in_mask_rate`, `strict_error_but_allowed_rate`,
+  and a parallel ambiguity/active-set diagnostic.
+
+Implementation plan:
+
+```text
+docs/worklogs/MVP2_5_Parallel_Process_State_Mask_Plan_2026-06-02.MD
+```

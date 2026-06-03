@@ -2083,6 +2083,23 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         cache_policy=cache_policy,
         cache_dir=cache_dir,
         candidate_identity_mode=training_cfg.get("candidate_identity_mode", "topology_native"),
+        process_state_mask_enabled=_as_bool(training_cfg.get("process_state_mask_enabled"), default=False),
+        process_state_mask_source=str(training_cfg.get("process_state_mask_source", "lifecycle_active_set")),
+        process_state_mask_include_direct_successors=_as_bool(
+            training_cfg.get("process_state_mask_include_direct_successors"),
+            default=True,
+        ),
+        process_state_mask_include_active_candidates=_as_bool(
+            training_cfg.get("process_state_mask_include_active_candidates"),
+            default=True,
+        ),
+        process_state_mask_relaxed_lookback_events=int(
+            training_cfg.get("process_state_mask_relaxed_lookback_events", 8)
+        ),
+        process_state_mask_relaxed_max_depth=int(training_cfg.get("process_state_mask_relaxed_max_depth", 1)),
+        process_state_mask_relaxed_max_cardinality_ratio=float(
+            training_cfg.get("process_state_mask_relaxed_max_cardinality_ratio", 0.35)
+        ),
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

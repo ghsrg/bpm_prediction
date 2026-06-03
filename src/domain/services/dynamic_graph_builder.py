@@ -44,6 +44,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         cache_policy: str = "full",
         cache_dir: str | None = None,
         candidate_identity_mode: str = "fixed_vocab_bridge",
+        process_state_mask_enabled: bool = False,
+        process_state_mask_source: str = "lifecycle_active_set",
+        process_state_mask_include_direct_successors: bool = True,
+        process_state_mask_include_active_candidates: bool = True,
+        process_state_mask_relaxed_lookback_events: int = 8,
+        process_state_mask_relaxed_max_depth: int = 1,
+        process_state_mask_relaxed_max_cardinality_ratio: float = 0.35,
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -74,6 +81,22 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._topology_disk_cache_schema = 4
         self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
         self.candidate_identity_mode = str(candidate_identity_mode or "fixed_vocab_bridge").strip().lower()
+        self.process_state_mask_enabled = bool(process_state_mask_enabled)
+        self.process_state_mask_source = str(process_state_mask_source or "lifecycle_active_set").strip().lower()
+        if self.process_state_mask_source not in {
+            "lifecycle_active_set",
+            "event_active_candidates",
+            "relaxed_reachability",
+        }:
+            self.process_state_mask_source = "lifecycle_active_set"
+        self.process_state_mask_include_direct_successors = bool(process_state_mask_include_direct_successors)
+        self.process_state_mask_include_active_candidates = bool(process_state_mask_include_active_candidates)
+        self.process_state_mask_relaxed_lookback_events = max(1, int(process_state_mask_relaxed_lookback_events))
+        self.process_state_mask_relaxed_max_depth = max(1, int(process_state_mask_relaxed_max_depth))
+        self.process_state_mask_relaxed_max_cardinality_ratio = min(
+            1.0,
+            max(0.01, float(process_state_mask_relaxed_max_cardinality_ratio)),
+        )
 
     def cache_diagnostics(self) -> dict[str, int]:
         return {
@@ -151,6 +174,16 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         active_candidates = self._extract_active_candidates(
             prefix.prefix_events[-1].extra if prefix.prefix_events else {},
         )
+        relaxed_candidates: set[str] = set()
+        if self.process_state_mask_enabled and self.process_state_mask_include_active_candidates:
+            process_state_candidates = self._process_state_active_candidates(
+                prefix=prefix,
+                compiled=compiled,
+                activity_vocab=activity_vocab,
+            )
+            if self.process_state_mask_source == "relaxed_reachability":
+                relaxed_candidates = set(process_state_candidates)
+            active_candidates.update(process_state_candidates)
         for token in active_candidates:
             idx = activity_vocab.get(token)
             if idx is None:
@@ -164,14 +197,15 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             [int(last_activity_idx) if last_activity_idx is not None else -1],
             dtype=torch.long,
         )
-        if last_activity_idx is not None:
+        if last_activity_idx is not None and self.process_state_mask_include_direct_successors:
             cached_mask = compiled["allowed_masks_by_src"].get(int(last_activity_idx))
             if isinstance(cached_mask, torch.Tensor):
                 allowed_mask = cached_mask.clone()
-        for src_idx in self._candidate_indices_for_token(compiled=compiled, token=last_activity):
-            cached_candidate_mask = compiled.get("candidate_allowed_masks_by_src", {}).get(int(src_idx))
-            if isinstance(cached_candidate_mask, torch.Tensor):
-                candidate_allowed_mask = torch.logical_or(candidate_allowed_mask, cached_candidate_mask)
+        if self.process_state_mask_include_direct_successors:
+            for src_idx in self._candidate_indices_for_token(compiled=compiled, token=last_activity):
+                cached_candidate_mask = compiled.get("candidate_allowed_masks_by_src", {}).get(int(src_idx))
+                if isinstance(cached_candidate_mask, torch.Tensor):
+                    candidate_allowed_mask = torch.logical_or(candidate_allowed_mask, cached_candidate_mask)
         allowed_mask = torch.logical_or(allowed_mask, active_mask)
         for token in active_candidates:
             for candidate_idx in self._candidate_indices_for_token(compiled=compiled, token=token):
@@ -188,6 +222,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 prefix=prefix,
                 activity_vocab=activity_vocab,
                 struct_node_to_class_index=struct_node_to_class_index,
+                active_candidates=active_candidates,
             )
         struct_node_to_candidate_index = compiled.get("struct_node_to_candidate_index")
         if isinstance(struct_node_to_candidate_index, torch.Tensor):
@@ -213,6 +248,14 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
         contract["allowed_target_mask"] = allowed_mask
         contract["candidate_allowed_target_mask"] = candidate_allowed_mask
+        contract["process_state_mask_active_candidate_count"] = torch.tensor(
+            [int(len(active_candidates))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_candidate_count"] = torch.tensor(
+            [int(len(relaxed_candidates))],
+            dtype=torch.long,
+        )
         if prefix.target_event is not None:
             contract["target_label"] = str(prefix.target_event.activity_id)
         return contract
@@ -237,6 +280,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         prefix: PrefixSlice,
         activity_vocab: Dict[str, int],
         struct_node_to_class_index: torch.Tensor,
+        active_candidates: set[str] | None = None,
     ) -> torch.Tensor:
         """Project observed prefix state onto structural node rows."""
         node_to_class = struct_node_to_class_index.reshape(-1).to(dtype=torch.long)
@@ -278,7 +322,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             last_class_idx = activity_vocab.get(last_token.strip())
 
         active_class_indices: set[int] = set()
-        for token in self._extract_active_candidates(last_event.extra):
+        active_tokens = set(active_candidates or set())
+        active_tokens.update(self._extract_active_candidates(last_event.extra))
+        for token in active_tokens:
             active_idx = activity_vocab.get(token)
             if active_idx is None:
                 active_idx = activity_vocab.get(str(token).strip())
@@ -301,6 +347,122 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             if int(class_idx) in active_class_indices:
                 state[row_idx, 5] = 1.0
         return state
+
+    def _process_state_active_candidates(
+        self,
+        *,
+        prefix: PrefixSlice,
+        compiled: Dict[str, Any],
+        activity_vocab: Dict[str, int],
+    ) -> set[str]:
+        if self.process_state_mask_source == "event_active_candidates":
+            if not prefix.prefix_events:
+                return set()
+            return self._extract_active_candidates(prefix.prefix_events[-1].extra)
+        if self.process_state_mask_source == "relaxed_reachability":
+            return self._relaxed_reachability_candidates(
+                prefix=prefix,
+                compiled=compiled,
+                activity_vocab=activity_vocab,
+            )
+        return self._active_candidates_from_lifecycle(prefix)
+
+    def _recent_prefix_activity_tokens(self, prefix: PrefixSlice, *, limit: int) -> list[str]:
+        tokens: list[str] = []
+        target_feature = self.feature_encoder.activity_feature_name
+        for event in reversed(prefix.prefix_events):
+            extra = event.extra if isinstance(event.extra, dict) else {}
+            token = str(
+                self.feature_encoder.resolve_event_feature(
+                    event_extra=extra,
+                    feature_name=target_feature,
+                    default=event.activity_id,
+                )
+            ).strip()
+            if token:
+                tokens.append(token)
+            if len(tokens) >= int(limit):
+                break
+        return tokens
+
+    def _relaxed_reachability_candidates(
+        self,
+        *,
+        prefix: PrefixSlice,
+        compiled: Dict[str, Any],
+        activity_vocab: Dict[str, int],
+    ) -> set[str]:
+        anchors = self._recent_prefix_activity_tokens(
+            prefix,
+            limit=self.process_state_mask_relaxed_lookback_events,
+        )
+        candidate_masks_by_src = compiled.get("candidate_allowed_masks_by_src", {})
+        candidate_labels = tuple(str(item) for item in compiled.get("candidate_labels", ()))
+        result: set[str] = set()
+        for anchor in anchors:
+            frontier = self._candidate_indices_for_token(compiled=compiled, token=anchor)
+            visited = {int(item) for item in frontier}
+            for _depth in range(self.process_state_mask_relaxed_max_depth):
+                next_frontier: list[int] = []
+                for src_candidate_idx in frontier:
+                    mask = (
+                        candidate_masks_by_src.get(int(src_candidate_idx))
+                        if isinstance(candidate_masks_by_src, dict)
+                        else None
+                    )
+                    if not isinstance(mask, torch.Tensor):
+                        continue
+                    for dst_idx_raw in torch.nonzero(mask, as_tuple=False).reshape(-1).tolist():
+                        dst_idx = int(dst_idx_raw)
+                        if dst_idx in visited:
+                            continue
+                        visited.add(dst_idx)
+                        next_frontier.append(dst_idx)
+                        if 0 <= dst_idx < len(candidate_labels):
+                            result.add(str(candidate_labels[dst_idx]))
+                frontier = next_frontier
+                if not frontier:
+                    break
+        return self._cap_relaxed_candidates(result=result, compiled=compiled)
+
+    def _cap_relaxed_candidates(self, *, result: set[str], compiled: Dict[str, Any]) -> set[str]:
+        candidate_count = int(compiled.get("candidate_count", 0) or 0)
+        if candidate_count <= 0:
+            candidate_count = len(tuple(compiled.get("candidate_labels", ())))
+        if candidate_count <= 0:
+            return set(result)
+        max_count = max(1, int(math.ceil(candidate_count * self.process_state_mask_relaxed_max_cardinality_ratio)))
+        if len(result) <= max_count:
+            return set(result)
+        return set(sorted(result)[:max_count])
+
+    def _active_candidates_from_lifecycle(self, prefix: PrefixSlice) -> set[str]:
+        active_by_instance: dict[str, str] = {}
+        target_feature = self.feature_encoder.activity_feature_name
+        for event in prefix.prefix_events:
+            extra = event.extra if isinstance(event.extra, dict) else {}
+            activity = str(
+                self.feature_encoder.resolve_event_feature(
+                    event_extra=extra,
+                    feature_name=target_feature,
+                    default=event.activity_id,
+                )
+            ).strip()
+            if not activity:
+                continue
+            lifecycle = str(extra.get("lifecycle:transition") or event.lifecycle or "").strip().lower()
+            instance_id = str(
+                extra.get("sim:activity_instance_id")
+                or event.activity_instance_id
+                or f"{activity}:{event.position_in_trace}"
+            ).strip()
+            if not instance_id:
+                continue
+            if lifecycle in {"assign", "start"}:
+                active_by_instance[instance_id] = activity
+            elif lifecycle == "complete":
+                active_by_instance.pop(instance_id, None)
+        return {activity for activity in active_by_instance.values() if activity}
 
     @staticmethod
     def _extract_active_candidates(event_extra: Any) -> set[str]:

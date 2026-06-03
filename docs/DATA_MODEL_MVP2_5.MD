@@ -162,7 +162,9 @@ Current Stage 4.2 semantics:
 6. Forward diagnostics may report `stats_snapshot_versions=none` when no eligible as-of snapshot is resolved for the prefix timestamp.
 7. Forward diagnostics include `missing_asof_snapshot_batches` and `missing_asof_snapshot[true/false]` counters.
 8. `struct_node_to_class_index` maps structural nodes to activity-vocabulary classes. Value `-1` means gateway/event/non-target node.
-9. `struct_prefix_state_x` is emitted for `TopologyStateEncoder` and has shape `[|V|, 6]` per graph, `[B, |V|, 6]` after batching. Feature order: executed count log1p, was executed, is last event, last position norm, recency norm, active-after-complete flag.
+9. `struct_prefix_state_x` is emitted for topology-state and topology-conditioned modes and has shape `[|V|, 6]` per graph, `[B, |V|, 6]` after batching. Feature order: executed count log1p, was executed, is last event, last position norm, recency norm, active candidate flag.
+10. The active candidate flag may come from explicit event metadata (`active_activities_after_complete` / `active_activity_counts_after_complete`) or, when `training.process_state_mask_enabled=true`, from lifecycle reconstruction over prefix events using `lifecycle:transition` and `sim:activity_instance_id`.
+11. For XES logs with parallel/interleaved branches, lifecycle reconstruction requires preserved `start` and `complete` events. Completion-only logs cannot reliably reconstruct the active task set and should use direct-successor masks or a future relaxed reachability strategy.
 
 ## 6. Quarantine Contract (BPMN parser)
 

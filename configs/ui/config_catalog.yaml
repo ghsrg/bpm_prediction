@@ -3270,6 +3270,137 @@ fields:
       order: 1018
       priority: 100
       tab: general
+  training.process_state_mask_enabled:
+    affects: Expands topology-derived masks for parallel/interleaved process states
+      using active tasks reconstructed from lifecycle events.
+    default: false
+    description: Enables process-state-aware mask construction. Intended for XES
+      logs with lifecycle:start/complete events where last-node successors are
+      insufficient for parallel branches.
+    label: 'Training: Process-state mask enabled'
+    path: training.process_state_mask_enabled
+    required_in_modes: []
+    required_when: {}
+    section: training
+    type: bool
+    ui:
+      group: advanced
+      order: 1019
+      priority: 100
+      tab: general
+  training.process_state_mask_source:
+    affects: Selects how active candidates are reconstructed before merging them
+      into allowed-target masks.
+    default: lifecycle_active_set
+    description: Active candidate source for process-state-aware masks. lifecycle_active_set
+      reconstructs active tasks from lifecycle:start/complete; event_active_candidates
+      uses explicit active_activities_after_complete metadata; relaxed_reachability
+      is reserved and currently falls back to direct successors only.
+    enum:
+    - lifecycle_active_set
+    - event_active_candidates
+    - relaxed_reachability
+    label: 'Training: Process-state mask source'
+    path: training.process_state_mask_source
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_enabled: true
+    section: training
+    ui:
+      group: advanced
+      order: 1020
+      priority: 100
+      tab: general
+  training.process_state_mask_include_direct_successors:
+    affects: Controls whether the existing last-node successor mask remains part
+      of the process-state-aware allowed set.
+    default: true
+    description: Include direct successors from the current prefix last activity
+      in addition to reconstructed active candidates.
+    label: 'Training: Process-state include direct successors'
+    path: training.process_state_mask_include_direct_successors
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_enabled: true
+    section: training
+    type: bool
+    ui:
+      group: advanced
+      order: 1021
+      priority: 100
+      tab: general
+  training.process_state_mask_include_active_candidates:
+    affects: Controls whether reconstructed active tasks are merged into allowed-target
+      masks and structural prefix state.
+    default: true
+    description: Include active candidates reconstructed from process state in the
+      class and candidate allowed masks.
+    label: 'Training: Process-state include active candidates'
+    path: training.process_state_mask_include_active_candidates
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_enabled: true
+    section: training
+    type: bool
+    ui:
+      group: advanced
+      order: 1022
+      priority: 100
+      tab: general
+  training.process_state_mask_relaxed_lookback_events:
+    affects: Controls how far back in the completed prefix relaxed reachability
+      searches for possible parallel branch anchors.
+    default: 8
+    description: Number of recent completed prefix events used as relaxed reachability
+      anchors when process_state_mask_source=relaxed_reachability.
+    label: 'Training: Relaxed mask lookback events'
+    path: training.process_state_mask_relaxed_lookback_events
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: int
+    ui:
+      group: advanced
+      order: 1023
+      priority: 100
+      tab: general
+  training.process_state_mask_relaxed_max_depth:
+    affects: Controls the BFS depth over collapsed prediction topology for relaxed
+      mask expansion.
+    default: 1
+    description: Maximum reachability depth from each recent prefix anchor when
+      process_state_mask_source=relaxed_reachability.
+    label: 'Training: Relaxed mask max depth'
+    path: training.process_state_mask_relaxed_max_depth
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: int
+    ui:
+      group: advanced
+      order: 1024
+      priority: 100
+      tab: general
+  training.process_state_mask_relaxed_max_cardinality_ratio:
+    affects: Caps relaxed mask expansion so approximate reachability does not become
+      an almost-full candidate-universe mask.
+    default: 0.35
+    description: Maximum fraction of the candidate universe allowed by relaxed
+      reachability additions.
+    label: 'Training: Relaxed mask max cardinality ratio'
+    path: training.process_state_mask_relaxed_max_cardinality_ratio
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: float
+    ui:
+      group: advanced
+      order: 1025
+      priority: 100
+      tab: general
   training.class_weight_cap:
     affects: Training stability, speed, and final quality metrics.
     default: ''

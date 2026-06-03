@@ -62,3 +62,100 @@
    Описати двошвидкісний режим: підготовка BPMN схем та оновлення версій графа EPOKG відбуваються через регламентні процедури (офлайн), тоді як інкрементальне донавчання ваг моделі під свіжі логи та розрахунок OOD-показників відбуваються в онлайн-режимі при накопиченні репрезентативного буфера даних.
 3. **Експериментальний Розділ 4:**
    Описати результати валідації **Zero-Shot Structural Adaptation** як базового етапу функціонування моделі. Вказати, що повна промислова методологія включає імплементацію модулів семафора надійності (латентні відстані Махаланобіса та Вассерштейна-1) та автоматичну зміну коефіцієнта релаксації $\beta^{(t)}$, які є невід'ємною частиною розробленої в дисертації предиктивної системи і наразі повністю підтримуються архітектурою коду через підготовлені точки розширення.
+---
+
+## 2026-06-02: Parallel Process-State Mask Correction
+
+### Problem
+
+The previous mask formulation used a direct-successor approximation:
+
+```text
+M_t = Succ(last_completed_t)
+```
+
+This is valid only for mostly sequential process fragments. It is not a valid
+oracle for parallel/interleaved BPMN execution, because the next completed task
+in an XES log may already be active in another parallel branch and may not be a
+direct successor of the last completed task.
+
+Example:
+
+```text
+parallel split -> B, C, D are active
+B completes
+C completes
+```
+
+`C` is a valid next completed task, but `C` is not necessarily a direct BPMN
+successor of `B`.
+
+### Corrected Mask Definition
+
+For lifecycle-rich logs or BPMS-native event streams, the valid candidate mask
+must be process-state-aware:
+
+```text
+M_t = A_t union S_t
+```
+
+where:
+
+- `A_t` is the set of active, not-yet-completed task candidates at prefix time
+  `t`;
+- `S_t` is the set of newly enabled structural successors after the last
+  completed task or after the current marking transition.
+
+For candidate scoring over topology-local BPMN candidates:
+
+```text
+M_t^{cand}(j) = 1[j in A_t union S_t]
+```
+
+The strict next-activity loss remains:
+
+```text
+L_next = CE(score(z_t, V_t), y_t)
+```
+
+but mask diagnostics and optional mask-guided inference must use `M_t^{cand}`,
+not only `Succ(last_completed_t)`.
+
+### Impulse Routing Correction
+
+The structural impulse should not be placed only on the last completed node.
+For parallel-aware routing, the prefix state injected into topology nodes should
+include:
+
+```text
+is_last_completed
+is_active_candidate
+active_count_log1p
+prefix_executed_count_log1p
+prefix_recency_norm
+```
+
+This changes the interpretation of the structural context from:
+
+```text
+"the process is at node B"
+```
+
+to:
+
+```text
+"the process is inside a marking where B is completed and C/D are still active"
+```
+
+### Dissertation Consequence
+
+For complex parallel datasets, low `target_in_mask_rate` does not necessarily
+mean that BPMN topology is wrong. It may mean that the mask is based on an
+insufficient state abstraction. The dissertation methodology should distinguish:
+
+1. sequential direct-successor mask;
+2. process-state-aware mask from lifecycle/active-task reconstruction;
+3. relaxed reachability mask for lifecycle-poor XES logs.
+
+Only the second option is a dissertation-grade oracle for parallel BPMN
+execution when lifecycle information is available.

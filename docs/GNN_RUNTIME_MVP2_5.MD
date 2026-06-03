@@ -114,7 +114,46 @@ sequenceDiagram
 3. `structural_edge_weight: FloatTensor [E_struct]`
 4. `struct_node_to_class_index: LongTensor [|V|]`, where `-1` means non-target structural node
 5. `struct_x: FloatTensor [|V|, F_struct]` (stats-backed structural node features)
-6. `struct_prefix_state_x: FloatTensor [|V|, 6]` per sample, `[B, |V|, 6]` in batch, used by `TopologyStateEncoder`
+6. `struct_prefix_state_x: FloatTensor [|V|, 6]` per sample, `[B, |V|, 6]` in batch, used by topology-state and topology-conditioned modes. Channel 5 is the active candidate flag.
+
+### 5.2.1 Process-State-Aware Masks
+
+For XES logs with parallel/interleaved task execution, the direct successor of
+the last completed event is not always the only valid next event. A sibling task
+that was already started and not completed is still a valid next completion.
+
+The runtime can merge such active candidates into both `allowed_target_mask` and
+`candidate_allowed_target_mask`:
+
+```yaml
+training.process_state_mask_enabled: true
+training.process_state_mask_source: lifecycle_active_set
+training.process_state_mask_include_direct_successors: true
+training.process_state_mask_include_active_candidates: true
+```
+
+`lifecycle_active_set` reconstructs active tasks from prefix events by tracking
+`lifecycle:transition=start|complete` pairs keyed by
+`sim:activity_instance_id`. The tensor shape is unchanged: reconstructed active
+tasks populate the existing `struct_prefix_state_x[:, 5]` channel.
+
+For flattened/completion-oriented parallel XES where already-active tasks are
+not enough, use approximate relaxed reachability:
+
+```yaml
+training.process_state_mask_enabled: true
+training.process_state_mask_source: relaxed_reachability
+training.process_state_mask_relaxed_lookback_events: 8
+training.process_state_mask_relaxed_max_depth: 1
+training.process_state_mask_relaxed_max_cardinality_ratio: 0.35
+```
+
+This adds bounded reachable successors from recent prefix anchors over the
+collapsed prediction topology. It is a diagnostic/engineering approximation,
+not strict BPMN marking replay. Track
+`*_process_state_mask_active_candidate_count` and
+`*_process_state_mask_relaxed_candidate_count` to confirm that the mode actually
+expands the mask.
 
 ### 5.3 Snapshot metadata tensors
 1. `stats_snapshot_version_seq: int | None`
@@ -1613,6 +1652,15 @@ candidate_ids
 candidate_labels
 target_label
 ```
+
+For parallel XES datasets, enable `training.process_state_mask_enabled=true`
+when lifecycle start/complete events and `sim:activity_instance_id` are
+available. This lets the impulse and mask represent the current active task set,
+not only the direct successors of the last completed task.
+
+If `lifecycle_active_set` does not change `target_in_mask_rate`, switch to
+`process_state_mask_source=relaxed_reachability` for a controlled approximation
+of enabled sibling tasks before retraining.
 
 Trainer and trace diagnostics include:
 

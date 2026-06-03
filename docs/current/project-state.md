@@ -693,3 +693,45 @@ Dataset statistics also report `bpms_native_operational_variance` instead of
 data-corruption noise terminology. The section captures flattened parallel
 interleaving, technical retries/incidents, and resource
 substitution/delegation patterns that are native to BPMS-style event logs.
+
+## Runtime Update 2026-06-02: Process-State-Aware Parallel Masks
+
+`DynamicGraphBuilder` now supports optional process-state-aware mask expansion
+for parallel/interleaved XES logs:
+
+```yaml
+training.process_state_mask_enabled: true
+training.process_state_mask_source: lifecycle_active_set
+training.process_state_mask_include_direct_successors: true
+training.process_state_mask_include_active_candidates: true
+```
+
+When enabled, the builder reconstructs active tasks from prefix lifecycle events
+(`lifecycle:transition=start|complete`) keyed by `sim:activity_instance_id` and
+merges still-active tasks into both `allowed_target_mask` and
+`candidate_allowed_target_mask`. The existing `struct_prefix_state_x[:, 5]`
+active-candidate channel is reused, so tensor shape remains `[|V|, 6]`.
+
+This is intended for XES logs where parallel branch completions can appear after
+another branch's completion. Completion-only logs cannot reliably reconstruct
+the active set and should keep the default direct-successor behavior until a
+relaxed reachability/window mask is implemented.
+
+## Runtime Update 2026-06-02: Relaxed Reachability Parallel Mask
+
+`DynamicGraphBuilder` now implements the planned
+`training.process_state_mask_source=relaxed_reachability` fallback. The mode
+uses recent completed prefix activities as anchors and adds bounded reachable
+successors from the collapsed prediction topology:
+
+```yaml
+training.process_state_mask_enabled: true
+training.process_state_mask_source: relaxed_reachability
+training.process_state_mask_relaxed_lookback_events: 8
+training.process_state_mask_relaxed_max_depth: 1
+training.process_state_mask_relaxed_max_cardinality_ratio: 0.35
+```
+
+This is an approximate fallback for flattened parallel XES, not exact BPMN
+marking replay. Runtime diagnostics now include mean active and relaxed
+candidate counts through forward stats/MLflow metric prefixes.

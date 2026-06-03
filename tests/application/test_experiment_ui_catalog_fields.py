@@ -200,6 +200,40 @@ def test_catalog_includes_topology_conditioned_model_fields():
         assert catalog[field_name]["required_when"]["model.type"] == "EOPKGTopologyConditioned"
 
 
+def test_catalog_includes_process_state_mask_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "training.process_state_mask_enabled",
+        "training.process_state_mask_source",
+        "training.process_state_mask_include_direct_successors",
+        "training.process_state_mask_include_active_candidates",
+        "training.process_state_mask_relaxed_lookback_events",
+        "training.process_state_mask_relaxed_max_depth",
+        "training.process_state_mask_relaxed_max_cardinality_ratio",
+    }
+
+    assert required.issubset(set(catalog))
+    assert catalog["training.process_state_mask_source"]["enum"] == [
+        "lifecycle_active_set",
+        "event_active_candidates",
+        "relaxed_reachability",
+    ]
+    for field_name in {
+        "training.process_state_mask_source",
+        "training.process_state_mask_include_direct_successors",
+        "training.process_state_mask_include_active_candidates",
+    }:
+        assert catalog[field_name]["required_when"]["training.process_state_mask_enabled"] is True
+    for field_name in {
+        "training.process_state_mask_relaxed_lookback_events",
+        "training.process_state_mask_relaxed_max_depth",
+        "training.process_state_mask_relaxed_max_cardinality_ratio",
+    }:
+        assert catalog[field_name]["required_when"]["training.process_state_mask_source"] == "relaxed_reachability"
+
+
 def test_experiment_uis_surface_versioned_fraction_split_core_fields():
     desktop_source = Path("tools/experiment_ui.py").read_text(encoding="utf-8")
 

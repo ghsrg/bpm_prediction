@@ -4225,6 +4225,9 @@ class ModelTrainer:
             "candidate_pred_score_sum": 0.0,
             "candidate_score_gap_sum": 0.0,
             "candidate_dynamic_count_sum": 0.0,
+            "process_state_mask_active_candidate_count_sum": 0.0,
+            "process_state_mask_relaxed_candidate_count_sum": 0.0,
+            "process_state_mask_diag_batches": 0,
         }
 
     @staticmethod
@@ -4261,6 +4264,22 @@ class ModelTrainer:
             bucket.setdefault("struct_edge_counts", []).append(edge_count)
             if structural_edge_index.numel() > 0:
                 bucket["batches_with_struct_edges"] = int(bucket.get("batches_with_struct_edges", 0)) + 1
+
+        active_count = contract.get("process_state_mask_active_candidate_count")
+        relaxed_count = contract.get("process_state_mask_relaxed_candidate_count")
+        has_process_state_diag = False
+        if isinstance(active_count, torch.Tensor) and active_count.numel() > 0:
+            bucket["process_state_mask_active_candidate_count_sum"] = float(
+                bucket.get("process_state_mask_active_candidate_count_sum", 0.0)
+            ) + float(active_count.float().mean().item())
+            has_process_state_diag = True
+        if isinstance(relaxed_count, torch.Tensor) and relaxed_count.numel() > 0:
+            bucket["process_state_mask_relaxed_candidate_count_sum"] = float(
+                bucket.get("process_state_mask_relaxed_candidate_count_sum", 0.0)
+            ) + float(relaxed_count.float().mean().item())
+            has_process_state_diag = True
+        if has_process_state_diag:
+            bucket["process_state_mask_diag_batches"] = int(bucket.get("process_state_mask_diag_batches", 0)) + 1
 
         versions = contract.get("stats_snapshot_versions")
         if isinstance(versions, list):
@@ -5021,6 +5040,19 @@ class ModelTrainer:
         candidate_invalid_probability_mass = _candidate_flow_average("candidate_invalid_probability_mass")
         candidate_valid_probability_mass = _candidate_flow_average("candidate_valid_probability_mass")
         candidate_valid_invalid_logit_margin = _candidate_flow_average("candidate_valid_invalid_logit_margin")
+        process_state_mask_diag_batches = int(bucket.get("process_state_mask_diag_batches", 0))
+        process_state_mask_active_candidate_count = (
+            float(bucket.get("process_state_mask_active_candidate_count_sum", 0.0))
+            / float(process_state_mask_diag_batches)
+            if process_state_mask_diag_batches > 0
+            else 0.0
+        )
+        process_state_mask_relaxed_candidate_count = (
+            float(bucket.get("process_state_mask_relaxed_candidate_count_sum", 0.0))
+            / float(process_state_mask_diag_batches)
+            if process_state_mask_diag_batches > 0
+            else 0.0
+        )
 
         logger.info(
             "Forward stats [%s]: batches=%d graphs=%d struct_x_batches=%d struct_edge_batches=%d "
@@ -5067,7 +5099,9 @@ class ModelTrainer:
             "candidate_target_set_entropy_mean=%.6f "
             "candidate_unseen_target_rate=%.6f "
             "candidate_oos_rate=%.6f candidate_invalid_probability_mass=%.6f "
-            "candidate_valid_probability_mass=%.6f candidate_valid_invalid_logit_margin=%.6f",
+            "candidate_valid_probability_mass=%.6f candidate_valid_invalid_logit_margin=%.6f "
+            "process_state_mask_active_candidate_count=%.6f "
+            "process_state_mask_relaxed_candidate_count=%.6f",
             stage_label,
             batches,
             int(bucket.get("graphs", 0)),
@@ -5159,6 +5193,8 @@ class ModelTrainer:
             candidate_invalid_probability_mass,
             candidate_valid_probability_mass,
             candidate_valid_invalid_logit_margin,
+            process_state_mask_active_candidate_count,
+            process_state_mask_relaxed_candidate_count,
         )
         metric_prefix = "drift_window" if str(stage_label) == "eval_drift" else str(stage_label).replace(".", "_")
         if self.tracker is not None and structural_logits_count > 0 and observed_logits_count > 0:
@@ -5342,6 +5378,15 @@ class ModelTrainer:
             self.tracker.log_metric(
                 f"{metric_prefix}_candidate_valid_invalid_logit_margin",
                 candidate_valid_invalid_logit_margin,
+            )
+        if self.tracker is not None and process_state_mask_diag_batches > 0:
+            self.tracker.log_metric(
+                f"{metric_prefix}_process_state_mask_active_candidate_count",
+                process_state_mask_active_candidate_count,
+            )
+            self.tracker.log_metric(
+                f"{metric_prefix}_process_state_mask_relaxed_candidate_count",
+                process_state_mask_relaxed_candidate_count,
             )
         if self.tracker is not None:
             if allowed_set_mass_leakage_batches > 0:

@@ -146,14 +146,21 @@ training.process_state_mask_source: relaxed_reachability
 training.process_state_mask_relaxed_lookback_events: 8
 training.process_state_mask_relaxed_max_depth: 1
 training.process_state_mask_relaxed_max_cardinality_ratio: 0.35
+training.process_state_mask_relaxed_suppress_completed: true
+training.process_state_mask_relaxed_anchor_policy: open_successors
+training.process_state_mask_relaxed_loop_policy: keep_direct_successor_repeats
 ```
 
 This adds bounded reachable successors from recent prefix anchors over the
-collapsed prediction topology. It is a diagnostic/engineering approximation,
-not strict BPMN marking replay. Track
+collapsed prediction topology. The state-aware variant suppresses relaxed-only
+candidates that were already completed in the prefix, but keeps direct
+successors, explicit active candidates, active task tokens, and direct
+loop/rework repeats. It is a diagnostic/engineering approximation, not strict
+BPMN marking replay. Track
 `*_process_state_mask_active_candidate_count` and
-`*_process_state_mask_relaxed_candidate_count` to confirm that the mode actually
-expands the mask.
+`*_process_state_mask_relaxed_candidate_count` to confirm that the mode expands
+the mask. Track `*_process_state_mask_target_suppressed_by_completed_filter_rate`
+to ensure completed-candidate suppression does not remove the true target.
 
 ### 5.3 Snapshot metadata tensors
 1. `stats_snapshot_version_seq: int | None`
@@ -1100,8 +1107,9 @@ training.candidate_batch_topology_policy: single_topology_required | group_by_to
   back to `[B, C_train]`; this is equivalent to
   `training.dynamic_candidate_contract_enabled=true`.
 - `candidate_id`: uses true topology-local candidate logits for train loss and
-  maps candidate predictions/probabilities back to global activity labels only
-  for existing metrics and drift-window reporting. The DataLoader must emit
+  primary train/test/drift metrics. Fixed-vocabulary projection is still logged
+  as `fixed_label_*` compatibility diagnostics, but it is not the primary
+  quality signal for topology-native experiments. The DataLoader must emit
   topology-homogeneous batches keyed by
   `process_version_idx + stats_snapshot_version_idx`, because the candidate
   axis `[C_v]` is topology-local. `single_topology_required` forms
@@ -1109,6 +1117,54 @@ training.candidate_batch_topology_policy: single_topology_required | group_by_to
   and `ShardedGraphDataset` disk-cache sources, and fails if a mixed batch
   reaches `_data_to_contract()`. `group_by_topology` is reserved for a future
   implementation that will split already-mixed batches inside the trainer.
+
+Metric contract:
+
+```text
+strict_test_macro_f1
+strict_test_accuracy
+test_macro_f1
+test_accuracy
+drift_window_strict_macro_f1
+```
+
+For fixed-label models these metrics are computed in the fixed training
+activity vocabulary. For `candidate_id + topology_native`, the same metric
+names are computed in the topology-local candidate space `[C_v]` by matching
+`target_label` from the log against `candidate_ids` / `candidate_labels` of the
+current process version. Candidate-local numeric offsets are not stable across
+process versions and must not be used as macro-F1 class labels. The primary
+candidate-native metric key is the stable activity label/id, not the local
+`[0, C_v)` candidate index. This keeps Baseline and topology-conditioned runs
+comparable on one chart as “exact next activity” quality.
+
+The old fixed-vocabulary projection is retained under:
+
+```text
+fixed_label_strict_test_macro_f1
+fixed_label_strict_test_accuracy
+fixed_label_test_macro_f1
+fixed_label_test_accuracy
+fixed_label_drift_window_strict_macro_f1
+```
+
+These metrics are compatibility diagnostics only. They are expected to
+undercount correct topology-native predictions for unseen candidates because
+new version-specific activities do not exist in `C_train`.
+
+Calibration and NLL use the same metric-space rule:
+
+- primary `test_ece` / `drift_window_test_ece` use confidence from the active
+  prediction space and correctness in stable activity label/id space;
+- primary `test_set_nll` / `drift_window_test_set_nll` use probability mass of
+  the stable target label or candidate target set;
+- `fixed_label_test_ece` and `fixed_label_test_set_nll` remain compatibility
+  diagnostics over the frozen training vocabulary.
+
+For fixed-head Baseline models this means an unseen future activity encoded as
+`<UNK>` is penalized in primary calibration/NLL when the stable log label is a
+real future activity. The old `<UNK>`-based behavior is visible only through
+`fixed_label_*`.
 
 Candidate-flow consistency:
 

@@ -131,6 +131,10 @@ config-driven mapping Сѓ `struct_x`.
   - `EOPKGGCN`
   - `EOPKGTopologyConditioned`
 
+- `metric_space_status`: primary `strict_*`, `test_ece`, and `test_set_nll`
+  use stable activity label/id semantics; frozen-vocabulary compatibility
+  diagnostics use `fixed_label_*`.
+
 **Description (ukr):**
 
 РџС–РґС‚СЂРёРјСѓСЋС‚СЊСЃСЏ baseline GNN С– EOPKG-РјРѕРґРµР»С–. EOPKG runtime РјРѕР¶Рµ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё
@@ -735,3 +739,28 @@ training.process_state_mask_relaxed_max_cardinality_ratio: 0.35
 This is an approximate fallback for flattened parallel XES, not exact BPMN
 marking replay. Runtime diagnostics now include mean active and relaxed
 candidate counts through forward stats/MLflow metric prefixes.
+
+## Runtime Update 2026-06-03: State-Aware Relaxed Reachability
+
+`relaxed_reachability` now supports completed-candidate suppression,
+open-successor anchor filtering, and active-instance protection:
+
+```yaml
+training.process_state_mask_relaxed_suppress_completed: true
+training.process_state_mask_relaxed_anchor_policy: open_successors
+training.process_state_mask_relaxed_loop_policy: keep_direct_successor_repeats
+```
+
+The completed filter applies only to relaxed-only candidates. Direct successors
+of the last completed task, explicit active candidates, currently active task
+tokens, and direct loop/rework repeats remain allowed. This prevents the relaxed
+mask from keeping stale completed parallel siblings while avoiding false
+negatives for multiple-instance or rework cases.
+
+New diagnostics include:
+
+- `*_process_state_mask_relaxed_raw_candidate_count`
+- `*_process_state_mask_relaxed_suppressed_completed_count`
+- `*_process_state_mask_relaxed_final_candidate_count`
+- `*_process_state_mask_target_suppressed_by_completed_filter_rate`
+- `*_process_state_mask_completed_suppression_rate`

@@ -412,6 +412,36 @@ C_v is version-specific.
 It must not be assumed equal to C_train.
 ```
 
+Metric interpretation:
+
+```text
+strict_* = exact next-activity quality in the active prediction space.
+```
+
+For Baseline and other fixed-head models, the active prediction space is the
+fixed activity vocabulary learned during training. For
+`EOPKGTopologyConditioned` with `candidate_id + topology_native`, the active
+prediction space is the version-specific candidate set `C_v`. Therefore the
+same `strict_*` metric names are used for article/dissertation comparisons, but
+the topology-conditioned model receives credit for a correct unseen candidate
+when its `candidate_id` or `candidate_label` matches the next event label in
+the log.
+
+Candidate-local numeric offsets are implementation details of one compiled
+topology and are not stable across versions. Macro-F1, accuracy slices, and
+drift-window metrics must use stable activity labels/ids as metric keys.
+
+Fixed-vocabulary compatibility metrics are logged separately as
+`fixed_label_*`. They are useful for debugging vocabulary collapse to `<UNK>`,
+but they are not the primary evidence for zero-shot topology-native prediction.
+
+Calibration and negative log-likelihood follow the same rule. Primary
+`test_ece` and `test_set_nll` are evaluated in the active stable-label
+prediction space. A fixed-head Baseline that confidently predicts `<UNK>` for a
+future activity therefore receives poor primary ECE/NLL, even if its numeric
+fixed-vocabulary target index is also `<UNK>`. The legacy numeric interpretation
+is retained only under `fixed_label_test_ece` and `fixed_label_test_set_nll`.
+
 ---
 
 ## Training Methodology

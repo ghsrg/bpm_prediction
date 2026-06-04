@@ -161,6 +161,25 @@ class _DynamicCandidateModel(nn.Module):
         )
 
 
+class _UnseenDynamicCandidateModel(_DynamicCandidateModel):
+    def forward_candidate(self, contract):
+        self.forward_candidate_called = True
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        candidate_logits = torch.tensor([[0.0, 5.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        candidate_logits = candidate_logits + (self.dummy * 0.0)
+        return CandidatePredictionOutput(
+            candidate_logits=candidate_logits,
+            candidate_class_index=torch.tensor([1, -1], dtype=torch.long, device=batch.device),
+            node_logits=candidate_logits,
+            node_to_candidate_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            node_to_class_index=torch.tensor([1, -1], dtype=torch.long, device=batch.device),
+            candidate_ids=("node_known", "node_new"),
+            candidate_labels=("known_task", "new_task"),
+            candidate_is_unseen=torch.tensor([False, True], dtype=torch.bool, device=batch.device),
+        )
+
+
 def test_evaluate_test_reports_stage2_mask_metrics():
     trainer = ModelTrainer(
         xes_adapter=_DummyAdapter(),
@@ -348,6 +367,49 @@ def test_train_epoch_candidate_id_uses_candidate_set_loss_without_fixed_projecti
     assert macro_f1 == pytest.approx(1.0)
 
 
+def test_train_epoch_candidate_id_topology_native_f1_uses_target_label_for_unseen_candidate():
+    model = _UnseenDynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "candidate_missing_target_fail_threshold": 1.0,
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([0], dtype=torch.long),
+            num_nodes=1,
+            target_label="new_task",
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    loss, macro_f1, weighted_f1, _ = trainer._run_epoch(
+        DataLoader(samples, batch_size=1, shuffle=False),
+        optimizer=torch.optim.Adam(model.parameters(), lr=0.01),
+        training=True,
+    )
+
+    assert loss >= 0.0
+    assert macro_f1 == pytest.approx(1.0)
+    assert weighted_f1 == pytest.approx(1.0)
+
+
 def test_dry_run_candidate_id_uses_candidate_forward_path():
     model = _DynamicCandidateModel()
     trainer = ModelTrainer(
@@ -417,6 +479,47 @@ def test_evaluate_test_candidate_id_reports_global_metrics_from_candidate_predic
     assert model.forward_candidate_called is True
     assert model.forward_called is False
     assert metrics["strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["candidate_target_in_candidate_set_rate"] == pytest.approx(1.0)
+
+
+def test_evaluate_test_candidate_id_topology_native_primary_metrics_use_unseen_candidate_space():
+    model = _UnseenDynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([0], dtype=torch.long),
+            num_nodes=1,
+            target_label="new_task",
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    metrics = trainer._evaluate_test(DataLoader(samples, batch_size=1, shuffle=False))
+
+    assert metrics["strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["strict_test_macro_f1"] == pytest.approx(1.0)
+    assert metrics["test_accuracy"] == pytest.approx(1.0)
+    assert metrics["fixed_label_strict_test_accuracy"] == pytest.approx(0.0)
+    assert metrics["fixed_label_strict_test_macro_f1"] == pytest.approx(0.0)
     assert metrics["candidate_target_in_candidate_set_rate"] == pytest.approx(1.0)
 
 
@@ -579,3 +682,58 @@ def test_mask_guided_logits_hard_and_soft_behaviour():
     )
     soft_pred = int(torch.argmax(soft_logits, dim=1).item())
     assert soft_pred in {1, 2}
+
+
+def test_evaluate_test_fixed_head_primary_metrics_use_target_label_for_unseen_future_activity():
+    class _KnownOnlyModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.output_dim = 3
+
+        def forward(self, contract):
+            batch = contract["batch"]
+            num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+            logits = torch.full((num_graphs, 3), -5.0, dtype=torch.float32, device=batch.device)
+            logits[:, 0] = 5.0
+            return logits
+
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_KnownOnlyModel(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+        },
+        prepared_data={
+            "reverse_activity_vocab": {
+                0: "<UNK>",
+                1: "known_task",
+                2: "other_task",
+            }
+        },
+    )
+    sample = Data(
+        x_cat=torch.zeros((1, 0), dtype=torch.long),
+        x_num=torch.ones((1, 1), dtype=torch.float32),
+        edge_index=torch.zeros((2, 0), dtype=torch.long),
+        edge_type=torch.zeros((0,), dtype=torch.long),
+        y=torch.tensor([0], dtype=torch.long),
+        num_nodes=1,
+        target_label="new_future_task",
+        process_version_idx=torch.tensor([4], dtype=torch.long),
+    )
+
+    metrics = trainer._evaluate_test(DataLoader([sample], batch_size=1, shuffle=False))
+
+    assert metrics["strict_test_accuracy"] == pytest.approx(0.0)
+    assert metrics["strict_test_macro_f1"] == pytest.approx(0.0)
+    assert metrics["test_ece"] > 0.99
+    assert metrics["test_set_nll"] > 20.0
+    assert metrics["fixed_label_strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["fixed_label_test_ece"] < 0.01
+    assert metrics["fixed_label_test_set_nll"] < 0.01

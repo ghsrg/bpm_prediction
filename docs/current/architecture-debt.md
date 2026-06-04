@@ -34,7 +34,7 @@ historical debt worklogs.
 - `status`: active
 - `priority`: P0
 - `adr`: none
-- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; `fixed_projection` projects candidate logits back to sparse fixed-label logits `[B, C_train]`; `candidate_id` trains with set-aware CE directly on `[B, C_v]`, reports candidate target mapping diagnostics, and maps predictions/probabilities back to global activity labels for existing metrics/drift reporting; `model.topology_conditioning_mode=impulse_activation_routing` can inject `struct_prefix_state_x` into topology candidate nodes before structural message passing while keeping `[B, C_v]` as the primary output
+- `current_behavior`: `EOPKGTopologyConditioned` exposes model-level `forward_candidate(contract)` with per-topology candidate logits `[B, C_v]`, `candidate_class_index`, `node_logits`, and `node_to_candidate_index`; `fixed_projection` projects candidate logits back to sparse fixed-label logits `[B, C_train]`; `candidate_id` trains with set-aware CE directly on `[B, C_v]`, reports candidate target mapping diagnostics, and now uses candidate-native train/test/drift primary metrics by mapping `target_label` to `candidate_ids` / `candidate_labels`; old fixed-vocabulary projection metrics remain available as `fixed_label_*` compatibility diagnostics; `model.topology_conditioning_mode=impulse_activation_routing` can inject `struct_prefix_state_x` into topology candidate nodes before structural message passing while keeping `[B, C_v]` as the primary output
 - `target_state`: train/eval/drift contracts consume per-version candidate logits `[B, C_v]`, stable candidate ids, BPMN node ids, and target candidate mapping for added/removed BPMN nodes without requiring fixed-vocab metric projection
 
 **Description (ukr):**
@@ -49,10 +49,12 @@ trainer/evaluator оптимізувати topology-local candidate scores, ал
 
 **Impact (ukr):**
 
-Без чистого candidate-id evaluation contract не можна робити сильну заяву, що
-модель повністю підтримує нові активності до появи логів. Поточні експерименти
-треба позначати як Stage 2 compatibility / fixed-label projected candidate
-scoring, а не як повну semantic-topological zero-shot адаптацію.
+Без чистого candidate-id contract не можна робити сильну заяву, що модель
+повністю підтримує нові активності до появи логів. Primary metrics вже
+переведені в topology-local candidate space, тому `strict_*` може коректно
+зараховувати unseen candidates. Залишковий борг стосується exact node-level
+targets для джерел, які можуть надати BPMN node id, та semantic-topological
+prototype grounding для нових активностей.
 
 **Next direction:**
 
@@ -62,9 +64,10 @@ Complete the remaining true candidate-id contract pieces:
 2. add stable `candidate_ids` / BPMN node ids per topology version;
 3. keep set-aware class-target mapping for duplicate activity labels, then add
    exact node-level targets when the log source can provide them;
-4. compute candidate-level mask/OOS/calibration diagnostics directly on
-   `[B, C_v]`;
-5. keep backward-compatible fixed-label reporting for comparison with old runs.
+4. extend candidate-level mask/OOS/calibration diagnostics where needed for
+   exact node-level targets and semantic prototypes;
+5. keep backward-compatible `fixed_label_*` reporting for comparison with old
+   runs.
 
 ---
 
@@ -283,6 +286,58 @@ structural awareness.
 Use `mapping.graph_feature_mapping.topology_projection.on_fail: raise` for
 research-grade runs. Keep residual work only if a dedicated run-level JSON
 artifact beyond forward logs is required.
+
+---
+
+### preserve_gateway_semantic_masking
+
+- `status`: active
+- `priority`: P1
+- `adr`: none
+- `current_behavior`: `relaxed_reachability` and candidate mask expansion operate over projected/collapsed candidate adjacency; when `gateways: preserve` keeps technical BPMN nodes, gateway type semantics are not used to decide whether alternative branches remain enabled or should be excluded
+- `target_state`: preserve-mode reachability/mask logic understands BPMN gateway semantics (`parallel`, `exclusive`, `inclusive`) and can suppress branches that are not semantically enabled for the current process state
+
+**Description (ukr):**
+
+Для XES режиму canonical prediction view зазвичай має бути
+`gateway_mode=collapse_for_prediction`: технічні gateway/service nodes прибрані,
+і mask працює на task-label candidate space. Але для Camunda/BPMS-like джерел,
+де логи можуть містити технічні вузли, використовується `gateways: preserve`.
+
+У preserve-mode простий reachability over graph недостатній. Якщо алгоритм
+бачить gateway як звичайний вузол, він може однаково дозволяти гілки після
+`parallel`, `exclusive` або `inclusive` gateway. Для OR/XOR семантики це
+неправильно: частина альтернативних гілок має бути відкинута, якщо за поточним
+станом процесу вони не були обрані або вже стали неактуальними.
+
+**Impact (ukr):**
+
+Без gateway-aware mask semantics `relaxed_reachability` може надмірно
+розширювати allowed set у preserve topology. Це знижує OOS, але підвищує
+`strict_error_but_allowed_rate`, бо модель отримує дозвіл на candidates із
+альтернативних OR/XOR гілок, які не повинні бути активними в поточному execution
+state.
+
+**Next direction:**
+
+Add gateway-aware process-state mask logic for preserve topology:
+
+1. carry BPMN node type and gateway type into compiled topology metadata;
+2. distinguish `parallelGateway`, `exclusiveGateway`, and `inclusiveGateway`;
+3. for `parallelGateway`, keep all enabled sibling branches until completion/join;
+4. for `exclusiveGateway`, keep only the observed/selected branch when branch
+   choice can be inferred from prefix state;
+5. for `inclusiveGateway`, keep selected active branches and suppress
+   non-selected branches when evidence exists;
+6. add diagnostics:
+   - `gateway_semantic_suppressed_candidate_count`;
+   - `gateway_semantic_target_suppressed_rate`;
+   - gateway-type distribution in mask expansion.
+
+Until this is implemented, dissertation-grade experiments with XES task-label
+prediction should prefer `gateway_mode=collapse_for_prediction`; preserve-mode
+mask results must be reported as exploratory if gateway semantics affect the
+allowed candidate set.
 
 ---
 

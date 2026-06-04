@@ -83,6 +83,55 @@ def candidate_set_cross_entropy_from_mask(
     )
 
 
+def candidate_set_predictions(candidate_logits: torch.Tensor) -> torch.LongTensor:
+    """Return local candidate predictions for `[B, C_v]` logits."""
+
+    if candidate_logits.dim() != 2:
+        raise ValueError("candidate_logits must have shape [B, C_v].")
+    return torch.argmax(candidate_logits, dim=1).long()
+
+
+def candidate_set_correct(
+    candidate_logits: torch.Tensor,
+    target_candidate_mask: torch.Tensor,
+) -> torch.FloatTensor:
+    """Return per-row exact candidate-space correctness."""
+
+    if candidate_logits.dim() != 2:
+        raise ValueError("candidate_logits must have shape [B, C_v].")
+    mask = target_candidate_mask.to(device=candidate_logits.device, dtype=torch.bool)
+    if mask.shape != candidate_logits.shape:
+        raise ValueError("target_candidate_mask must have the same shape as candidate_logits.")
+    if candidate_logits.size(0) <= 0:
+        return candidate_logits.new_zeros((0,), dtype=torch.float32)
+    pred = candidate_set_predictions(candidate_logits)
+    row_ids = torch.arange(candidate_logits.size(0), device=candidate_logits.device)
+    return mask[row_ids, pred].to(dtype=torch.float32)
+
+
+def candidate_set_accuracy(candidate_logits: torch.Tensor, target_candidate_mask: torch.Tensor) -> float:
+    """Exact next-activity accuracy in topology-local candidate space."""
+
+    correct = candidate_set_correct(candidate_logits, target_candidate_mask)
+    return float(correct.mean().detach().cpu().item()) if correct.numel() else 0.0
+
+
+def candidate_set_nll(candidate_logits: torch.Tensor, target_candidate_mask: torch.Tensor) -> torch.Tensor:
+    """NLL over the probability mass of all candidates matching the target."""
+
+    if candidate_logits.dim() != 2:
+        raise ValueError("candidate_logits must have shape [B, C_v].")
+    mask = target_candidate_mask.to(device=candidate_logits.device, dtype=torch.bool)
+    if mask.shape != candidate_logits.shape:
+        raise ValueError("target_candidate_mask must have the same shape as candidate_logits.")
+    log_probs = F.log_softmax(candidate_logits, dim=1)
+    has_target = mask.any(dim=1)
+    if not bool(has_target.any()):
+        return candidate_logits.sum() * 0.0
+    masked_log_probs = log_probs.masked_fill(~mask, float("-inf"))
+    return -torch.logsumexp(masked_log_probs[has_target], dim=1).mean()
+
+
 def candidate_target_summary(candidate_logits: torch.Tensor, target_candidate_mask: torch.Tensor) -> Dict[str, Any]:
     mask = target_candidate_mask.to(device=candidate_logits.device, dtype=torch.bool)
     has_target = mask.any(dim=1)

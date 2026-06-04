@@ -1562,3 +1562,31 @@ Implementation plan:
 ```text
 docs/worklogs/MVP2_5_Parallel_Process_State_Mask_Plan_2026-06-02.MD
 ```
+
+**2026-06-03 state-aware relaxed reachability note:** lowering relaxed mask
+aggressiveness by parameters alone is not sufficient. The core issue is not only
+mask size, but stale candidate semantics: relaxed reachability can keep
+parallel sibling tasks that were valid from an older split anchor but are
+already completed in the current prefix.
+
+Dissertation interpretation:
+
+```text
+A topology-derived mask can reduce OOS while still hurting strict next-activity
+prediction if it over-expands the allowed set with stale completed candidates.
+```
+
+Therefore, process-state masks must report both inclusion and over-inclusion:
+
+- `target_in_mask_rate` shows whether the true target is reachable by the mask;
+- `test_oos` shows how often the model leaves the topology-derived allowed set;
+- `strict_error_but_allowed_rate` shows whether the mask is too broad for exact
+  next-activity prediction;
+- `process_state_mask_target_suppressed_by_completed_filter_rate` is a safety
+  check: it must stay `0`, otherwise completed-candidate suppression is too
+  aggressive;
+- `process_state_mask_completed_suppression_rate` shows whether the refined
+  relaxed mask actually removes stale candidates.
+
+This supports the broader methodology point: for parallel/interleaved BPMN logs,
+structural guidance needs process-state semantics, not only graph reachability.

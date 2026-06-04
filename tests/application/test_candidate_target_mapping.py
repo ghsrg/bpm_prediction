@@ -5,8 +5,10 @@ import torch
 
 from src.application.services.candidate_target_mapping import (
     candidate_level_accuracy,
+    candidate_set_accuracy,
     candidate_set_cross_entropy_from_mask,
     candidate_set_cross_entropy,
+    candidate_set_nll,
     candidate_target_mask_from_labels,
     candidate_target_summary,
 )
@@ -74,6 +76,23 @@ def test_candidate_set_cross_entropy_from_mask_trains_unseen_candidate_label():
     loss.backward()
 
     assert logits.grad is not None
+
+
+def test_candidate_set_accuracy_counts_unseen_label_prediction_as_correct():
+    logits = torch.tensor([[0.1, 2.0, 0.0]], dtype=torch.float32)
+    target_mask = torch.tensor([[False, True, False]], dtype=torch.bool)
+
+    assert candidate_set_accuracy(logits, target_mask) == pytest.approx(1.0)
+
+
+def test_candidate_set_nll_uses_probability_mass_of_target_set():
+    logits = torch.tensor([[0.0, 2.0, 2.0]], dtype=torch.float32)
+    target_mask = torch.tensor([[False, True, True]], dtype=torch.bool)
+
+    value = candidate_set_nll(logits, target_mask)
+
+    assert value.item() >= 0.0
+    assert value.item() < 0.5
 
 
 def test_candidate_set_cross_entropy_from_mask_supports_sample_weights():

@@ -212,6 +212,9 @@ def test_catalog_includes_process_state_mask_fields():
         "training.process_state_mask_relaxed_lookback_events",
         "training.process_state_mask_relaxed_max_depth",
         "training.process_state_mask_relaxed_max_cardinality_ratio",
+        "training.process_state_mask_relaxed_suppress_completed",
+        "training.process_state_mask_relaxed_anchor_policy",
+        "training.process_state_mask_relaxed_loop_policy",
     }
 
     assert required.issubset(set(catalog))
@@ -230,8 +233,18 @@ def test_catalog_includes_process_state_mask_fields():
         "training.process_state_mask_relaxed_lookback_events",
         "training.process_state_mask_relaxed_max_depth",
         "training.process_state_mask_relaxed_max_cardinality_ratio",
+        "training.process_state_mask_relaxed_suppress_completed",
+        "training.process_state_mask_relaxed_anchor_policy",
+        "training.process_state_mask_relaxed_loop_policy",
     }:
         assert catalog[field_name]["required_when"]["training.process_state_mask_source"] == "relaxed_reachability"
+    assert catalog["training.process_state_mask_relaxed_anchor_policy"]["enum"] == [
+        "recent_prefix",
+        "open_successors",
+    ]
+    assert catalog["training.process_state_mask_relaxed_loop_policy"]["enum"] == [
+        "keep_direct_successor_repeats",
+    ]
 
 
 def test_experiment_uis_surface_versioned_fraction_split_core_fields():

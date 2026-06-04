@@ -3401,6 +3401,66 @@ fields:
       order: 1025
       priority: 100
       tab: general
+  training.process_state_mask_relaxed_suppress_completed:
+    affects: Reduces stale relaxed-only candidates that were already completed
+      earlier in the prefix.
+    default: true
+    description: Suppress already-completed relaxed-only candidates when relaxed
+      reachability expands the process-state mask. Direct successors, explicit
+      active candidates, active instances, and loop/rework paths remain allowed.
+    label: 'Training: Relaxed mask suppress completed'
+    path: training.process_state_mask_relaxed_suppress_completed
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: bool
+    ui:
+      group: advanced
+      order: 1026
+      priority: 100
+      tab: general
+  training.process_state_mask_relaxed_anchor_policy:
+    affects: Controls which recent prefix activities can seed relaxed reachability.
+    default: open_successors
+    description: open_successors skips anchors only when their direct successors
+      are already completed, not active, and have no loop/rework evidence.
+    enum:
+    - recent_prefix
+    - open_successors
+    label: 'Training: Relaxed mask anchor policy'
+    path: training.process_state_mask_relaxed_anchor_policy
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: enum
+    ui:
+      group: advanced
+      order: 1027
+      priority: 100
+      tab: general
+  training.process_state_mask_relaxed_loop_policy:
+    affects: Controls how completed candidates are preserved for repeat/rework
+      paths during relaxed reachability filtering.
+    default: keep_direct_successor_repeats
+    description: Keeps completed candidates when they are direct successors of
+      the current last activity, preserving loop/rework paths while suppressing
+      stale relaxed-only candidates.
+    enum:
+    - keep_direct_successor_repeats
+    label: 'Training: Relaxed mask loop policy'
+    path: training.process_state_mask_relaxed_loop_policy
+    required_in_modes: []
+    required_when:
+      training.process_state_mask_source: relaxed_reachability
+    section: training
+    type: enum
+    ui:
+      group: advanced
+      order: 1028
+      priority: 100
+      tab: general
   training.class_weight_cap:
     affects: Training stability, speed, and final quality metrics.
     default: ''

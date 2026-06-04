@@ -11,6 +11,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
 from src.application.use_cases.trainer import ModelTrainer
+from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
 from src.infrastructure.runtime.progress_events import PROGRESS_EVENT_PREFIX
@@ -45,6 +46,27 @@ class _PredictFromXNumModel(nn.Module):
         logits = torch.full((int(pred.shape[0]), self.output_dim), -5.0, device=pred.device)
         logits[torch.arange(int(pred.shape[0]), device=pred.device), pred] = 5.0
         return logits
+
+
+class _UnseenCandidateModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.output_dim = 3
+
+    def forward_candidate(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        logits = torch.tensor([[0.0, 5.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        return CandidatePredictionOutput(
+            candidate_logits=logits,
+            candidate_class_index=torch.tensor([1, -1], dtype=torch.long, device=batch.device),
+            node_logits=logits,
+            node_to_candidate_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            node_to_class_index=torch.tensor([1, -1], dtype=torch.long, device=batch.device),
+            candidate_ids=("node_known", "node_new"),
+            candidate_labels=("known_task", "new_task"),
+            candidate_is_unseen=torch.tensor([False, True], dtype=torch.bool, device=batch.device),
+        )
 
 
 class _FakeTracker:
@@ -142,6 +164,34 @@ def _trainer(tmp_path, *, drift_window_size: int = 2, drift_window_sliding: int 
     )
 
 
+def _candidate_trainer(tmp_path) -> ModelTrainer:
+    return ModelTrainer(
+        xes_adapter=_FailOnReadAdapter(),
+        prefix_policy=_NoopPrefixPolicy(),  # type: ignore[arg-type]
+        graph_builder=_NoopGraphBuilder(),  # type: ignore[arg-type]
+        model=_UnseenCandidateModel(),  # type: ignore[arg-type]
+        log_path="in_memory.xes",
+        config={
+            "epochs": 1,
+            "batch_size": 4,
+            "learning_rate": 0.001,
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "checkpoint_dir": str(tmp_path),
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "experiment_config": {
+                "name": "pytest_candidate_one_pass_drift",
+                "mode": "eval_drift",
+                "drift_window_size": 1,
+                "drift_window_sliding": 1,
+            },
+        },
+        prepared_data={"idx_to_version": {0: "v1"}},
+    )
+
+
 def test_collect_drift_inference_records_is_compact(tmp_path):
     trainer = _trainer(tmp_path)
     loader = DataLoader(
@@ -156,12 +206,31 @@ def test_collect_drift_inference_records_is_compact(tmp_path):
     records = trainer._collect_drift_inference_records(loader)
 
     assert records.trace_idx.tolist() == [0, 1]
-    assert records.y_true.tolist() == [1, 2]
-    assert records.y_pred.tolist() == [1, 1]
+    assert records.y_true.tolist() == ["class:1", "class:2"]
+    assert records.y_pred.tolist() == ["class:1", "class:1"]
+    assert records.fixed_y_true.tolist() == [1, 2]
+    assert records.fixed_y_pred.tolist() == [1, 1]
     assert records.confidence.shape == (2,)
     assert records.target_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert records.pred_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert not hasattr(records, "y_prob")
+
+
+def test_one_pass_candidate_id_metrics_use_unseen_candidate_space(tmp_path):
+    trainer = _candidate_trainer(tmp_path)
+    sample = _sample(trace_idx=0, target=0, pred=0, mask=[True, False, False])
+    sample.target_label = "new_task"
+    loader = DataLoader([sample], batch_size=1, shuffle=False)
+
+    records = trainer._collect_drift_inference_records(loader)
+    metrics = trainer._compute_test_metrics_from_records(records, np.asarray([0], dtype=np.int64))
+
+    assert records.y_true.tolist() == ["new_task"]
+    assert records.y_pred.tolist() == ["new_task"]
+    assert metrics["strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["strict_test_macro_f1"] == pytest.approx(1.0)
+    assert metrics["fixed_label_strict_test_accuracy"] == pytest.approx(0.0)
+    assert metrics["fixed_label_strict_test_macro_f1"] == pytest.approx(0.0)
 
 
 def test_collect_drift_inference_records_emits_one_pass_progress_events(tmp_path, monkeypatch, capsys):
@@ -346,3 +415,22 @@ def test_one_pass_drift_logs_legacy_tracker_metric_names(tmp_path):
         "drift_window_start_ts",
         "drift_window_end_ts",
     }.issubset(logged_names)
+
+
+def test_one_pass_fixed_head_records_use_stable_target_labels_for_future_activity(tmp_path):
+    trainer = _trainer(tmp_path, drift_window_size=1, drift_window_sliding=1)
+    trainer._reverse_activity_vocab = {0: "<UNK>", 1: "known_task", 2: "other_task"}
+    sample = _sample(trace_idx=0, target=0, pred=0, mask=[True, False, False])
+    sample.target_label = "new_future_task"
+
+    records = trainer._collect_drift_inference_records(DataLoader([sample], batch_size=1))
+    metrics = trainer._compute_test_metrics_from_records(records, np.asarray([0], dtype=np.int64))
+
+    assert records.y_true.tolist() == ["new_future_task"]
+    assert records.y_pred.tolist() == ["<UNK>"]
+    assert metrics["strict_test_accuracy"] == pytest.approx(0.0)
+    assert metrics["test_ece"] > 0.99
+    assert metrics["test_set_nll"] > 20.0
+    assert metrics["fixed_label_strict_test_accuracy"] == pytest.approx(1.0)
+    assert metrics["fixed_label_test_ece"] < 0.01
+    assert metrics["fixed_label_test_set_nll"] < 0.01

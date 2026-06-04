@@ -51,6 +51,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         process_state_mask_relaxed_lookback_events: int = 8,
         process_state_mask_relaxed_max_depth: int = 1,
         process_state_mask_relaxed_max_cardinality_ratio: float = 0.35,
+        process_state_mask_relaxed_suppress_completed: bool = True,
+        process_state_mask_relaxed_anchor_policy: str = "open_successors",
+        process_state_mask_relaxed_loop_policy: str = "keep_direct_successor_repeats",
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -97,6 +100,17 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             1.0,
             max(0.01, float(process_state_mask_relaxed_max_cardinality_ratio)),
         )
+        self.process_state_mask_relaxed_suppress_completed = bool(process_state_mask_relaxed_suppress_completed)
+        self.process_state_mask_relaxed_anchor_policy = str(
+            process_state_mask_relaxed_anchor_policy or "open_successors"
+        ).strip().lower()
+        if self.process_state_mask_relaxed_anchor_policy not in {"recent_prefix", "open_successors"}:
+            self.process_state_mask_relaxed_anchor_policy = "open_successors"
+        self.process_state_mask_relaxed_loop_policy = str(
+            process_state_mask_relaxed_loop_policy or "keep_direct_successor_repeats"
+        ).strip().lower()
+        if self.process_state_mask_relaxed_loop_policy not in {"keep_direct_successor_repeats"}:
+            self.process_state_mask_relaxed_loop_policy = "keep_direct_successor_repeats"
 
     def cache_diagnostics(self) -> dict[str, int]:
         return {
@@ -175,14 +189,29 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             prefix.prefix_events[-1].extra if prefix.prefix_events else {},
         )
         relaxed_candidates: set[str] = set()
+        relaxed_diagnostics: dict[str, int] = {
+            "raw_candidate_count": 0,
+            "suppressed_completed_count": 0,
+            "final_candidate_count": 0,
+            "target_suppressed_by_completed_filter_count": 0,
+            "anchor_count": 0,
+            "skipped_closed_anchor_count": 0,
+        }
         if self.process_state_mask_enabled and self.process_state_mask_include_active_candidates:
-            process_state_candidates = self._process_state_active_candidates(
-                prefix=prefix,
-                compiled=compiled,
-                activity_vocab=activity_vocab,
-            )
             if self.process_state_mask_source == "relaxed_reachability":
+                process_state_candidates, relaxed_diagnostics = self._relaxed_reachability_candidates(
+                    prefix=prefix,
+                    compiled=compiled,
+                    activity_vocab=activity_vocab,
+                    active_candidates=active_candidates,
+                )
                 relaxed_candidates = set(process_state_candidates)
+            else:
+                process_state_candidates = self._process_state_active_candidates(
+                    prefix=prefix,
+                    compiled=compiled,
+                    activity_vocab=activity_vocab,
+                )
             active_candidates.update(process_state_candidates)
         for token in active_candidates:
             idx = activity_vocab.get(token)
@@ -254,6 +283,30 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         )
         contract["process_state_mask_relaxed_candidate_count"] = torch.tensor(
             [int(len(relaxed_candidates))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_raw_candidate_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("raw_candidate_count", 0))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_suppressed_completed_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("suppressed_completed_count", 0))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_final_candidate_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("final_candidate_count", len(relaxed_candidates)))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_target_suppressed_by_completed_filter_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("target_suppressed_by_completed_filter_count", 0))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_anchor_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("anchor_count", 0))],
+            dtype=torch.long,
+        )
+        contract["process_state_mask_relaxed_skipped_closed_anchor_count"] = torch.tensor(
+            [int(relaxed_diagnostics.get("skipped_closed_anchor_count", 0))],
             dtype=torch.long,
         )
         if prefix.target_event is not None:
@@ -360,11 +413,13 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 return set()
             return self._extract_active_candidates(prefix.prefix_events[-1].extra)
         if self.process_state_mask_source == "relaxed_reachability":
-            return self._relaxed_reachability_candidates(
+            candidates, _diagnostics = self._relaxed_reachability_candidates(
                 prefix=prefix,
                 compiled=compiled,
                 activity_vocab=activity_vocab,
+                active_candidates=set(),
             )
+            return candidates
         return self._active_candidates_from_lifecycle(prefix)
 
     def _recent_prefix_activity_tokens(self, prefix: PrefixSlice, *, limit: int) -> list[str]:
@@ -385,21 +440,122 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 break
         return tokens
 
+    def _prefix_process_state(self, prefix: PrefixSlice) -> dict[str, set[str]]:
+        completed_tokens: set[str] = set()
+        active_tokens: set[str] = set()
+        completed_instance_ids: set[str] = set()
+        active_instance_ids: set[str] = set()
+        active_token_by_instance: dict[str, str] = {}
+        target_feature = self.feature_encoder.activity_feature_name
+        for event in prefix.prefix_events:
+            extra = event.extra if isinstance(event.extra, dict) else {}
+            lifecycle = str(extra.get("lifecycle:transition") or event.lifecycle or "").strip().lower()
+            token = str(
+                self.feature_encoder.resolve_event_feature(
+                    event_extra=extra,
+                    feature_name=target_feature,
+                    default=event.activity_id,
+                )
+            ).strip()
+            if not token:
+                continue
+            instance_id = str(
+                extra.get("sim:activity_instance_id")
+                or event.activity_instance_id
+                or f"{token}:{event.position_in_trace}"
+            ).strip()
+            if lifecycle in {"assign", "start"}:
+                active_tokens.add(token)
+                if instance_id:
+                    active_instance_ids.add(instance_id)
+                    active_token_by_instance[instance_id] = token
+            elif not lifecycle or lifecycle in {"complete", "completed"}:
+                completed_tokens.add(token)
+                if instance_id:
+                    completed_instance_ids.add(instance_id)
+                    active_instance_ids.discard(instance_id)
+                    previous_token = active_token_by_instance.pop(instance_id, None)
+                    if previous_token is not None and previous_token not in active_token_by_instance.values():
+                        active_tokens.discard(previous_token)
+        return {
+            "completed_tokens": completed_tokens,
+            "active_tokens": active_tokens,
+            "completed_instance_ids": completed_instance_ids,
+            "active_instance_ids": active_instance_ids,
+        }
+
+    def _direct_successor_labels_for_token(self, *, compiled: Dict[str, Any], token: str) -> set[str]:
+        candidate_masks_by_src = compiled.get("candidate_allowed_masks_by_src", {})
+        candidate_labels = tuple(str(item) for item in compiled.get("candidate_labels", ()))
+        result: set[str] = set()
+        for src_candidate_idx in self._candidate_indices_for_token(compiled=compiled, token=token):
+            mask = (
+                candidate_masks_by_src.get(int(src_candidate_idx))
+                if isinstance(candidate_masks_by_src, dict)
+                else None
+            )
+            if not isinstance(mask, torch.Tensor):
+                continue
+            for dst_idx_raw in torch.nonzero(mask, as_tuple=False).reshape(-1).tolist():
+                dst_idx = int(dst_idx_raw)
+                if 0 <= dst_idx < len(candidate_labels):
+                    result.add(str(candidate_labels[dst_idx]))
+        return result
+
+    def _candidate_has_loop_or_rework_evidence(self, *, compiled: Dict[str, Any], token: str) -> bool:
+        token = str(token).strip()
+        if not token:
+            return False
+        return token in self._direct_successor_labels_for_token(compiled=compiled, token=token)
+
     def _relaxed_reachability_candidates(
         self,
         *,
         prefix: PrefixSlice,
         compiled: Dict[str, Any],
         activity_vocab: Dict[str, int],
-    ) -> set[str]:
+        active_candidates: set[str],
+    ) -> tuple[set[str], dict[str, int]]:
+        diagnostics = {
+            "raw_candidate_count": 0,
+            "suppressed_completed_count": 0,
+            "final_candidate_count": 0,
+            "target_suppressed_by_completed_filter_count": 0,
+            "anchor_count": 0,
+            "skipped_closed_anchor_count": 0,
+        }
         anchors = self._recent_prefix_activity_tokens(
             prefix,
             limit=self.process_state_mask_relaxed_lookback_events,
         )
         candidate_masks_by_src = compiled.get("candidate_allowed_masks_by_src", {})
         candidate_labels = tuple(str(item) for item in compiled.get("candidate_labels", ()))
+        prefix_state = self._prefix_process_state(prefix)
+        completed_tokens = set(prefix_state["completed_tokens"])
+        active_tokens = set(prefix_state["active_tokens"])
+        active_tokens.update(str(item).strip() for item in active_candidates if str(item).strip())
+        last_token = anchors[0] if anchors else ""
+        last_direct_successors = self._direct_successor_labels_for_token(
+            compiled=compiled,
+            token=last_token,
+        )
         result: set[str] = set()
         for anchor in anchors:
+            anchor_direct_successors = self._direct_successor_labels_for_token(
+                compiled=compiled,
+                token=anchor,
+            )
+            anchor_has_loop_evidence = str(anchor).strip() in anchor_direct_successors
+            if (
+                self.process_state_mask_relaxed_anchor_policy == "open_successors"
+                and anchor_direct_successors
+                and anchor_direct_successors.issubset(completed_tokens)
+                and not anchor_direct_successors.intersection(active_tokens)
+                and not anchor_has_loop_evidence
+            ):
+                diagnostics["skipped_closed_anchor_count"] += 1
+                continue
+            diagnostics["anchor_count"] += 1
             frontier = self._candidate_indices_for_token(compiled=compiled, token=anchor)
             visited = {int(item) for item in frontier}
             for _depth in range(self.process_state_mask_relaxed_max_depth):
@@ -423,7 +579,36 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                 frontier = next_frontier
                 if not frontier:
                     break
-        return self._cap_relaxed_candidates(result=result, compiled=compiled)
+        raw_result = set(result)
+        diagnostics["raw_candidate_count"] = int(len(raw_result))
+        if self.process_state_mask_relaxed_suppress_completed:
+            keep_completed = set(last_direct_successors)
+            keep_completed.update(active_tokens)
+            filtered = {
+                token
+                for token in raw_result
+                if token not in completed_tokens
+                or token in keep_completed
+                or self._candidate_has_loop_or_rework_evidence(compiled=compiled, token=token)
+            }
+            diagnostics["suppressed_completed_count"] = int(len(raw_result) - len(filtered))
+        else:
+            filtered = raw_result
+        target_token = ""
+        if prefix.target_event is not None:
+            target_extra = prefix.target_event.extra if isinstance(prefix.target_event.extra, dict) else {}
+            target_token = str(
+                self.feature_encoder.resolve_event_feature(
+                    event_extra=target_extra,
+                    feature_name=self.feature_encoder.activity_feature_name,
+                    default=prefix.target_event.activity_id,
+                )
+            ).strip()
+        if target_token and target_token in raw_result and target_token not in filtered:
+            diagnostics["target_suppressed_by_completed_filter_count"] = 1
+        final = self._cap_relaxed_candidates(result=filtered, compiled=compiled)
+        diagnostics["final_candidate_count"] = int(len(final))
+        return final, diagnostics
 
     def _cap_relaxed_candidates(self, *, result: set[str], compiled: Dict[str, Any]) -> set[str]:
         candidate_count = int(compiled.get("candidate_count", 0) or 0)

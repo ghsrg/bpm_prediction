@@ -2100,6 +2100,16 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
         process_state_mask_relaxed_max_cardinality_ratio=float(
             training_cfg.get("process_state_mask_relaxed_max_cardinality_ratio", 0.35)
         ),
+        process_state_mask_relaxed_suppress_completed=_as_bool(
+            training_cfg.get("process_state_mask_relaxed_suppress_completed"),
+            default=True,
+        ),
+        process_state_mask_relaxed_anchor_policy=str(
+            training_cfg.get("process_state_mask_relaxed_anchor_policy", "open_successors")
+        ),
+        process_state_mask_relaxed_loop_policy=str(
+            training_cfg.get("process_state_mask_relaxed_loop_policy", "keep_direct_successor_repeats")
+        ),
     )
     show_progress = bool(training_cfg.get("show_progress", True))
     tqdm_disable = bool(training_cfg.get("tqdm_disable", False))

@@ -43,6 +43,7 @@ from src.application.services.candidate_target_mapping import (
     candidate_predictions_to_global,
     candidate_set_cross_entropy,
     candidate_target_summary,
+    candidate_set_predictions,
 )
 from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
 from src.application.services.topology_conditioned_learning import (
@@ -118,6 +119,11 @@ class DriftInferenceRecords:
     prefix_lengths: np.ndarray
     version_labels: List[str]
     inference_ms_per_graph: float
+    fixed_y_true: np.ndarray
+    fixed_y_pred: np.ndarray
+    fixed_confidence: np.ndarray
+    fixed_correct: np.ndarray
+    fixed_set_nll: np.ndarray
 
 
 def _data_topology_key(graph: Data) -> str:
@@ -697,6 +703,178 @@ class ModelTrainer:
             fixed_probs.index_add_(1, candidate_class_index[valid], candidate_probs[:, valid])
         row_sum = fixed_probs.sum(dim=1, keepdim=True).clamp_min(1e-12)
         return fixed_probs / row_sum
+
+    @staticmethod
+    def _candidate_metric_true_pred(
+        candidate_logits: torch.Tensor,
+        target_candidate_mask: torch.Tensor,
+    ) -> tuple[torch.LongTensor, torch.LongTensor, torch.BoolTensor]:
+        mask = target_candidate_mask.to(device=candidate_logits.device, dtype=torch.bool)
+        if candidate_logits.dim() != 2 or mask.shape != candidate_logits.shape:
+            raise ValueError("candidate metric tensors must have matching [B, C_v] shapes.")
+        has_target = mask.any(dim=1)
+        pred = candidate_set_predictions(candidate_logits)
+        true = torch.full((candidate_logits.size(0),), -1, dtype=torch.long, device=candidate_logits.device)
+        if bool(has_target.any()):
+            true[has_target] = torch.argmax(mask[has_target].long(), dim=1)
+        return true, pred, has_target
+
+    def _candidate_metric_label_keys(
+        self,
+        *,
+        candidate_logits: torch.Tensor,
+        target_candidate_mask: torch.Tensor,
+        candidate_output: CandidatePredictionOutput,
+        contract: GraphTensorContract,
+        targets: torch.Tensor,
+    ) -> tuple[List[str], List[str], torch.BoolTensor]:
+        mask = target_candidate_mask.to(device=candidate_logits.device, dtype=torch.bool)
+        if candidate_logits.dim() != 2 or mask.shape != candidate_logits.shape:
+            raise ValueError("candidate metric tensors must have matching [B, C_v] shapes.")
+        pred = candidate_set_predictions(candidate_logits).detach().cpu().tolist()
+        has_target = mask.any(dim=1)
+        mask_cpu = mask.detach().cpu()
+        target_labels = self._target_labels_from_contract(contract, targets)
+        candidate_labels = [str(label).strip() for label in candidate_output.candidate_labels]
+        candidate_ids = [str(candidate_id).strip() for candidate_id in candidate_output.candidate_ids]
+        candidate_class_index = (
+            candidate_output.candidate_class_index.detach().cpu().long().view(-1).tolist()
+            if isinstance(candidate_output.candidate_class_index, torch.Tensor)
+            else []
+        )
+        target_values = targets.detach().cpu().long().view(-1).tolist()
+
+        true_keys: List[str] = []
+        pred_keys: List[str] = []
+        for row_idx, pred_idx in enumerate(pred):
+            if row_idx < len(target_labels) and str(target_labels[row_idx]).strip():
+                true_key = str(target_labels[row_idx]).strip()
+            elif row_idx < len(target_values) and int(target_values[row_idx]) >= 0:
+                true_key = f"class:{int(target_values[row_idx])}"
+            elif bool(has_target[row_idx].item()):
+                target_idx = int(torch.argmax(mask_cpu[row_idx].long()).item())
+                if target_idx < len(candidate_labels) and candidate_labels[target_idx]:
+                    true_key = candidate_labels[target_idx]
+                elif target_idx < len(candidate_class_index) and int(candidate_class_index[target_idx]) >= 0:
+                    true_key = f"class:{int(candidate_class_index[target_idx])}"
+                else:
+                    true_key = f"candidate:{target_idx}"
+            else:
+                true_key = "__missing_candidate_target__"
+
+            if 0 <= int(pred_idx) < max(len(candidate_labels), len(candidate_class_index)):
+                pred_label = candidate_labels[int(pred_idx)] if int(pred_idx) < len(candidate_labels) else ""
+                pred_id = candidate_ids[int(pred_idx)] if int(pred_idx) < len(candidate_ids) else ""
+                if pred_id and pred_id == true_key:
+                    pred_key = pred_id
+                elif pred_label:
+                    pred_key = pred_label
+                elif int(pred_idx) < len(candidate_class_index) and int(candidate_class_index[int(pred_idx)]) >= 0:
+                    pred_key = f"class:{int(candidate_class_index[int(pred_idx)])}"
+                else:
+                    pred_key = f"candidate:{int(pred_idx)}"
+            else:
+                pred_key = "__invalid_candidate_prediction__"
+            true_keys.append(true_key)
+            pred_keys.append(pred_key)
+        return true_keys, pred_keys, has_target
+
+    def _fixed_head_metric_label_keys(
+        self,
+        *,
+        predictions: torch.Tensor,
+        contract: GraphTensorContract,
+        targets: torch.Tensor,
+    ) -> tuple[List[str], List[str]]:
+        target_labels = self._target_labels_from_contract(contract, targets)
+        target_values = targets.detach().cpu().long().view(-1).tolist()
+        pred_values = predictions.detach().cpu().long().view(-1).tolist()
+
+        true_keys: List[str] = []
+        pred_keys: List[str] = []
+        for row_idx, pred_idx in enumerate(pred_values):
+            if row_idx < len(target_labels) and str(target_labels[row_idx]).strip():
+                true_key = str(target_labels[row_idx]).strip()
+            elif row_idx < len(target_values):
+                true_key = self._reverse_activity_vocab.get(
+                    int(target_values[row_idx]),
+                    f"class:{int(target_values[row_idx])}",
+                )
+            else:
+                true_key = "__missing_target__"
+
+            pred_keys.append(
+                self._reverse_activity_vocab.get(int(pred_idx), f"class:{int(pred_idx)}")
+            )
+            true_keys.append(true_key)
+        return true_keys, pred_keys
+
+    def _fixed_head_label_target_probabilities(
+        self,
+        *,
+        probs: torch.Tensor,
+        contract: GraphTensorContract,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return probability mass assigned to the stable target label.
+
+        If a target label is not present in the fixed training vocabulary, the
+        fixed-head model assigns zero mass to it.  We clamp to epsilon for NLL
+        stability while preserving the semantic penalty.
+        """
+        if probs.dim() != 2:
+            return torch.empty((0,), dtype=torch.float32, device=probs.device)
+        target_labels = self._target_labels_from_contract(contract, targets)
+        label_to_idx = {str(label): int(idx) for idx, label in self._reverse_activity_vocab.items()}
+        target_values = targets.detach().cpu().long().view(-1).tolist()
+        values: List[torch.Tensor] = []
+        eps = probs.new_tensor(1e-12)
+        for row_idx, raw_target in enumerate(target_values):
+            class_idx: int | None = None
+            if row_idx < len(target_labels) and str(target_labels[row_idx]).strip():
+                class_idx = label_to_idx.get(str(target_labels[row_idx]).strip())
+            else:
+                class_idx = int(raw_target)
+
+            if class_idx is None or class_idx < 0 or class_idx >= int(probs.shape[1]):
+                values.append(eps)
+            else:
+                values.append(probs[row_idx, class_idx].clamp_min(1e-12))
+        if not values:
+            return torch.empty((0,), dtype=probs.dtype, device=probs.device)
+        return torch.stack(values).to(dtype=probs.dtype, device=probs.device)
+
+    @staticmethod
+    def _fixed_numeric_target_probabilities(
+        *,
+        probs: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return probability mass for the legacy fixed numeric target index."""
+        if probs.dim() != 2:
+            return torch.empty((0,), dtype=torch.float32, device=probs.device)
+        target_idx = targets.view(-1).long().to(probs.device)
+        valid = (target_idx >= 0) & (target_idx < int(probs.shape[1]))
+        safe_idx = target_idx.clamp(min=0, max=max(int(probs.shape[1]) - 1, 0))
+        row_ids = torch.arange(int(target_idx.shape[0]), device=probs.device)
+        gathered = probs[row_ids, safe_idx].clamp_min(1e-12)
+        return torch.where(valid, gathered, torch.full_like(gathered, 1e-12))
+
+    @staticmethod
+    def _candidate_target_probabilities(
+        *,
+        candidate_probs: torch.Tensor,
+        target_candidate_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Return candidate-space probability mass for the stable target set."""
+        if candidate_probs.dim() != 2:
+            return torch.empty((0,), dtype=torch.float32, device=candidate_probs.device)
+        if target_candidate_mask is None:
+            return torch.full((int(candidate_probs.shape[0]),), 1e-12, dtype=candidate_probs.dtype, device=candidate_probs.device)
+        mask = target_candidate_mask.to(device=candidate_probs.device, dtype=candidate_probs.dtype)
+        if mask.shape != candidate_probs.shape:
+            return torch.full((int(candidate_probs.shape[0]),), 1e-12, dtype=candidate_probs.dtype, device=candidate_probs.device)
+        return (candidate_probs * mask).sum(dim=1).clamp_min(1e-12)
 
     def run(self) -> Dict[str, Any]:
         """Execute full training flow: data prep, train/val loop, and final test."""
@@ -2391,14 +2569,40 @@ class ModelTrainer:
             total_loss += float(loss.detach().cpu().item())
             batches += 1
             if candidate_output is not None:
-                pred_for_metrics = candidate_predictions_to_global(
-                    candidate_output.candidate_logits.detach(),
-                    candidate_output.candidate_class_index,
-                )
+                if self.candidate_identity_mode == "topology_native" and len(candidate_output.candidate_labels) > 0:
+                    true_keys, pred_keys, has_target = self._candidate_metric_label_keys(
+                        candidate_logits=candidate_output.candidate_logits,
+                        target_candidate_mask=target_candidate_mask,
+                        candidate_output=candidate_output,
+                        contract=contract,
+                        targets=targets,
+                    )
+                    all_true.extend(true_keys)
+                    all_pred.extend(pred_keys)
+                else:
+                    fallback_true = []
+                    fallback_pred = []
+                    pred_for_metrics = candidate_predictions_to_global(
+                        candidate_output.candidate_logits.detach(),
+                        candidate_output.candidate_class_index,
+                    )
+                    for val in targets.detach().cpu().numpy().tolist():
+                        lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                        fallback_true.append(lbl if lbl else f"class:{int(val)}")
+                    for val in pred_for_metrics.cpu().numpy().tolist():
+                        lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                        fallback_pred.append(lbl if lbl else f"class:{int(val)}")
+                    all_true.extend(fallback_true)
+                    all_pred.extend(fallback_pred)
             else:
                 pred_for_metrics = torch.argmax(effective_logits.detach(), dim=1)
-            all_pred.extend(pred_for_metrics.cpu().numpy().tolist())
-            all_true.extend(targets.detach().cpu().numpy().tolist())
+                true_keys, pred_keys = self._fixed_head_metric_label_keys(
+                    predictions=pred_for_metrics,
+                    contract=contract,
+                    targets=targets,
+                )
+                all_true.extend(true_keys)
+                all_pred.extend(pred_keys)
             batch_reporter.update(
                 message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs}",
                 current=int(batch_idx),
@@ -2433,7 +2637,7 @@ class ModelTrainer:
         self._log_forward_stats_summary("train" if training else "validation", forward_stats)
         batch_reporter.done(
             message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed",
-            current=int(batches),
+            current=batches,
             total=total_batches if total_batches > 0 else None,
             payload={
                 "epoch": int(epoch_index),
@@ -2449,8 +2653,16 @@ class ModelTrainer:
         self.model.eval()
         self._logged_mask_debug = False
         self._logged_oos_math = False
-        all_true: List[int] = []
-        all_pred: List[int] = []
+        all_true: List[Any] = []
+        all_pred: List[Any] = []
+        all_fixed_true: List[int] = []
+        all_fixed_pred: List[int] = []
+        all_confidence: List[float] = []
+        all_correct: List[float] = []
+        all_stable_set_nll: List[float] = []
+        all_fixed_confidence: List[float] = []
+        all_fixed_correct: List[float] = []
+        all_fixed_set_nll: List[float] = []
         all_probs: List[np.ndarray] = []
         all_oos_flags_aligned: List[float] = []
         all_target_in_mask_flags: List[float] = []
@@ -2468,10 +2680,6 @@ class ModelTrainer:
         all_versions: List[str] = []
         all_candidate_target_in_set_rates: List[float] = []
         all_candidate_missing_target_rates: List[float] = []
-        all_candidate_oos_flags: List[float] = []
-        all_candidate_invalid_probability_mass: List[float] = []
-        all_candidate_valid_probability_mass: List[float] = []
-        all_candidate_valid_invalid_logit_margin: List[float] = []
         inference_graphs = 0
         inference_started = perf_counter()
         first_batch_debug_logged = False
@@ -2523,8 +2731,21 @@ class ModelTrainer:
                 if self.device.type == "cuda" and torch.cuda.is_available():
                     torch.cuda.synchronize()
                 target_tensor = data.y.view(-1).long()
+                target_labels = self._target_labels_from_contract(contract, target_tensor)
                 if candidate_output is not None:
-                    target_candidate_mask = candidate_output.map_targets_to_candidate_mask(target_tensor)
+                    if (
+                        self.candidate_identity_mode == "topology_native"
+                        and target_labels
+                        and len(candidate_output.candidate_labels) > 0
+                    ):
+                        target_candidate_mask = candidate_target_mask_from_labels(
+                            target_labels=target_labels,
+                            candidate_labels=candidate_output.candidate_labels,
+                            candidate_ids=candidate_output.candidate_ids,
+                            device=logits.device,
+                        )
+                    else:
+                        target_candidate_mask = candidate_output.map_targets_to_candidate_mask(target_tensor)
                     summary = candidate_target_summary(logits, target_candidate_mask)
                     all_candidate_target_in_set_rates.append(float(summary["target_in_candidate_set_rate"]))
                     all_candidate_missing_target_rates.append(float(summary["missing_target_rate"]))
@@ -2575,7 +2796,6 @@ class ModelTrainer:
                         row_sum = probs.sum(dim=1, keepdim=True)
                         safe_uniform = torch.full_like(probs, 1.0 / float(probs.size(1)))
                         probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
-                targets = target_tensor.cpu().numpy()
                 if candidate_output is not None:
                     pred_tensor = candidate_predictions_to_global(
                         candidate_output.candidate_logits,
@@ -2590,16 +2810,87 @@ class ModelTrainer:
                 batch_pred_in_mask = np.full(batch_size, np.nan, dtype=np.float32)
                 batch_strict_error_but_allowed = np.full(batch_size, np.nan, dtype=np.float32)
                 batch_mask_cardinality = np.full(batch_size, np.nan, dtype=np.float32)
-                batch_hybrid_correct = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
-                batch_hybrid_set_nll = -torch.log(
-                    probs[
-                        torch.arange(batch_size, device=probs.device),
-                        target_tensor.to(probs.device),
-                    ].clamp_min(1e-12)
+
+                if candidate_output is not None:
+                    if self.candidate_identity_mode == "topology_native" and len(candidate_output.candidate_labels) > 0:
+                        true_keys, pred_keys, has_target = self._candidate_metric_label_keys(
+                            candidate_logits=logits,
+                            target_candidate_mask=target_candidate_mask,
+                            candidate_output=candidate_output,
+                            contract=contract,
+                            targets=target_tensor,
+                        )
+                        all_true.extend(true_keys)
+                        all_pred.extend(pred_keys)
+                        batch_correct = torch.tensor([
+                            1.0 if tk == pk else 0.0
+                            for tk, pk in zip(true_keys, pred_keys)
+                        ], dtype=torch.float32, device=pred_tensor.device)
+                    else:
+                        fallback_true = []
+                        fallback_pred = []
+                        for val in target_tensor.tolist():
+                            lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                            fallback_true.append(lbl if lbl else f"class:{int(val)}")
+                        for val in preds.tolist():
+                            lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                            fallback_pred.append(lbl if lbl else f"class:{int(val)}")
+                        all_true.extend(fallback_true)
+                        all_pred.extend(fallback_pred)
+                        batch_correct = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+
+                    pred_fixed = candidate_predictions_to_global(
+                        candidate_output.candidate_logits,
+                        candidate_output.candidate_class_index,
+                    ).long().cpu().numpy().tolist()
+                    all_fixed_true.extend(target_tensor.tolist())
+                    all_fixed_pred.extend(pred_fixed)
+                else:
+                    true_keys, pred_keys = self._fixed_head_metric_label_keys(
+                        predictions=pred_tensor,
+                        contract=contract,
+                        targets=target_tensor,
+                    )
+                    all_true.extend(true_keys)
+                    all_pred.extend(pred_keys)
+                    batch_correct = torch.tensor([
+                        1.0 if tk == pk else 0.0
+                        for tk, pk in zip(true_keys, pred_keys)
+                    ], dtype=torch.float32, device=pred_tensor.device)
+                    all_fixed_true.extend(target_tensor.tolist())
+                    all_fixed_pred.extend(preds.tolist())
+
+                fixed_confidence_tensor = torch.max(probs, dim=1).values
+                fixed_correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                fixed_set_nll_tensor = -torch.log(
+                    self._fixed_numeric_target_probabilities(
+                        probs=probs,
+                        targets=target_tensor,
+                    )
                 )
+                if candidate_output is not None:
+                    primary_confidence_tensor = torch.max(candidate_probs, dim=1).values
+                    primary_set_nll_tensor = -torch.log(
+                        self._candidate_target_probabilities(
+                            candidate_probs=candidate_probs,
+                            target_candidate_mask=target_candidate_mask,
+                        )
+                    )
+                else:
+                    primary_confidence_tensor = fixed_confidence_tensor
+                    primary_set_nll_tensor = -torch.log(
+                        self._fixed_head_label_target_probabilities(
+                            probs=probs,
+                            contract=contract,
+                            targets=target_tensor,
+                        )
+                    )
+
+                batch_hybrid_correct = batch_correct
                 batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
+                batch_hybrid_set_nll = primary_set_nll_tensor
                 if self.mode == "eval_drift" and not first_batch_debug_logged:
-                    logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", targets[:5].tolist(), preds[:5].tolist())
+                    logger.info("Drift debug first batch y_true[:5]=%s y_pred[:5]=%s", target_tensor[:5].tolist(), preds[:5].tolist())
                     first_batch_debug_logged = True
 
                 if isinstance(allowed_mask, torch.Tensor):
@@ -2653,15 +2944,10 @@ class ModelTrainer:
                     oos_flags = (~pred_in_mask).float()
                     ambiguous_mask = mask_cardinality > 1.0
                     row_ids = torch.arange(batch_size, device=pred_tensor.device)
-                    set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
-                    set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
-                    target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
-                    selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
-                    batch_hybrid_set_nll = -torch.log(selected_prob_mass)
                     batch_hybrid_correct = torch.where(
                         ambiguous_mask,
                         pred_in_mask.float(),
-                        (pred_tensor == target_tensor.to(pred_tensor.device)).float(),
+                        batch_correct,
                     )
                     batch_ambiguous = ambiguous_mask.float()
 
@@ -2696,6 +2982,22 @@ class ModelTrainer:
                 all_hybrid_set_nll.extend(
                     batch_hybrid_set_nll.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
                 )
+                all_confidence.extend(
+                    primary_confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_correct.extend(batch_correct.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                all_stable_set_nll.extend(
+                    primary_set_nll_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_fixed_confidence.extend(
+                    fixed_confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_fixed_correct.extend(
+                    fixed_correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
+                all_fixed_set_nll.extend(
+                    fixed_set_nll_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                )
                 all_ambiguous_flags.extend(batch_ambiguous.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
 
                 if hasattr(data, "prefix_len"):
@@ -2709,10 +3011,8 @@ class ModelTrainer:
                     for idx in version_indices:
                         all_versions.append(self._idx_to_version.get(int(idx), f"v{int(idx)}"))
 
-                all_true.extend(targets.tolist())
-                all_pred.extend(preds.tolist())
                 all_probs.extend(probs.cpu().numpy())
-                inference_graphs += int(targets.shape[0])
+                inference_graphs += int(target_tensor.shape[0])
                 test_batches_reporter.update(
                     message=f"Test evaluation ({stage_label})",
                     current=int(batch_idx),
@@ -2767,14 +3067,18 @@ class ModelTrainer:
                 "test_inference_time_ms_per_graph": inference_ms_per_graph,
                 "candidate_target_in_candidate_set_rate": None,
                 "candidate_missing_target_rate": None,
-                "candidate_oos_rate": None,
-                "candidate_invalid_probability_mass": None,
-                "candidate_valid_probability_mass": None,
-                "candidate_valid_invalid_logit_margin": None,
+                "fixed_label_strict_test_accuracy": 0.0,
+                "fixed_label_strict_test_macro_f1": 0.0,
+                "fixed_label_strict_test_weighted_f1": 0.0,
+                "fixed_label_test_accuracy": 0.0,
+                "fixed_label_test_macro_f1": 0.0,
+                "fixed_label_test_weighted_f1": 0.0,
+                "fixed_label_test_ece": 0.0,
+                "fixed_label_test_set_nll": 0.0,
             }
 
-        y_true = np.asarray(all_true)
-        y_pred = np.asarray(all_pred)
+        y_true = np.asarray(all_true, dtype=object)
+        y_pred = np.asarray(all_pred, dtype=object)
         y_prob = np.asarray(all_probs)
         y_prob = np.nan_to_num(y_prob, nan=0.0, posinf=1.0, neginf=0.0)
         if y_prob.ndim == 2 and y_prob.shape[1] > 0:
@@ -2785,11 +3089,15 @@ class ModelTrainer:
                 row_sums = np.sum(y_prob, axis=1, keepdims=True)
             y_prob = y_prob / np.clip(row_sums, 1e-12, None)
         num_classes = y_prob.shape[1]
+
+        fixed_y_true = np.asarray(all_fixed_true, dtype=np.int64)
+        fixed_y_pred = np.asarray(all_fixed_pred, dtype=np.int64)
+
         top_k = self._effective_top_k(num_classes, requested_k=3)
         if num_classes <= 2:
-            top3_accuracy = float(accuracy_score(y_true, y_pred))
+            top3_accuracy = float(accuracy_score(fixed_y_true, fixed_y_pred))
         else:
-            top3_accuracy = float(top_k_accuracy_score(y_true, y_prob, k=top_k, labels=list(range(num_classes))))
+            top3_accuracy = float(top_k_accuracy_score(fixed_y_true, y_prob, k=top_k, labels=list(range(num_classes))))
         strict_accuracy = float(accuracy_score(y_true, y_pred))
         strict_macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
         strict_weighted_f1 = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
@@ -2797,10 +3105,22 @@ class ModelTrainer:
         strict_recall_macro = float(recall_score(y_true, y_pred, average="macro", zero_division=0))
         hybrid_correct_flags = np.asarray(all_hybrid_correct_flags, dtype=np.float32) if all_hybrid_correct_flags else None
         hybrid_set_nll = np.asarray(all_hybrid_set_nll, dtype=np.float32) if all_hybrid_set_nll else None
+        confidence = np.asarray(all_confidence, dtype=np.float32) if all_confidence else np.asarray([], dtype=np.float32)
+        correct = np.asarray(all_correct, dtype=np.float32) if all_correct else np.asarray([], dtype=np.float32)
+        stable_set_nll = (
+            np.asarray(all_stable_set_nll, dtype=np.float32) if all_stable_set_nll else hybrid_set_nll
+        )
+        fixed_confidence = (
+            np.asarray(all_fixed_confidence, dtype=np.float32) if all_fixed_confidence else np.asarray([], dtype=np.float32)
+        )
+        fixed_correct = (
+            np.asarray(all_fixed_correct, dtype=np.float32) if all_fixed_correct else np.asarray([], dtype=np.float32)
+        )
+        fixed_set_nll = np.asarray(all_fixed_set_nll, dtype=np.float32) if all_fixed_set_nll else hybrid_set_nll
         ambiguous_flags = np.asarray(all_ambiguous_flags, dtype=np.float32) if all_ambiguous_flags else None
         pred_in_mask_flags_raw = np.asarray(all_pred_in_mask_flags, dtype=np.float32) if all_pred_in_mask_flags else None
 
-        y_true_hybrid = np.asarray(y_true, dtype=np.int64).copy()
+        y_true_hybrid = np.asarray(y_true, dtype=object).copy()
         if (
             isinstance(ambiguous_flags, np.ndarray)
             and isinstance(pred_in_mask_flags_raw, np.ndarray)
@@ -2810,6 +3130,18 @@ class ModelTrainer:
             override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
             if override_idxs.size > 0:
                 y_true_hybrid[override_idxs] = y_pred[override_idxs]
+
+        fixed_y_true_hybrid = fixed_y_true.copy()
+        if (
+            isinstance(ambiguous_flags, np.ndarray)
+            and isinstance(pred_in_mask_flags_raw, np.ndarray)
+            and int(ambiguous_flags.shape[0]) == int(fixed_y_true_hybrid.shape[0])
+            and int(pred_in_mask_flags_raw.shape[0]) == int(fixed_y_true_hybrid.shape[0])
+        ):
+            override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
+            if override_idxs.size > 0:
+                fixed_y_true_hybrid[override_idxs] = fixed_y_pred[override_idxs]
+
         hybrid_accuracy = self._nanmean_or_none(hybrid_correct_flags)
         if hybrid_accuracy is None:
             hybrid_accuracy = strict_accuracy
@@ -2818,9 +3150,9 @@ class ModelTrainer:
             "test_accuracy": float(hybrid_accuracy),
             "test_macro_f1": float(f1_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
             "test_weighted_f1": float(f1_score(y_true_hybrid, y_pred, average="weighted", zero_division=0)),
-            "test_set_nll": float(self._nanmean_or_none(hybrid_set_nll) or 0.0),
+            "test_set_nll": float(self._nanmean_or_none(stable_set_nll) or 0.0),
             "test_top3_accuracy": top3_accuracy,
-            "test_ece": float(self._expected_calibration_error(y_true, y_prob)),
+            "test_ece": float(self._expected_calibration_error_from_confidence(confidence, correct)),
             "test_oos": None,
             "test_precision_macro": float(precision_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
             "test_recall_macro": float(recall_score(y_true_hybrid, y_pred, average="macro", zero_division=0)),
@@ -2854,6 +3186,14 @@ class ModelTrainer:
                 if all_candidate_valid_invalid_logit_margin
                 else None
             ),
+            "fixed_label_strict_test_accuracy": float(accuracy_score(fixed_y_true, fixed_y_pred)),
+            "fixed_label_strict_test_macro_f1": float(f1_score(fixed_y_true, fixed_y_pred, average="macro", zero_division=0)),
+            "fixed_label_strict_test_weighted_f1": float(f1_score(fixed_y_true, fixed_y_pred, average="weighted", zero_division=0)),
+            "fixed_label_test_accuracy": float(accuracy_score(fixed_y_true_hybrid, fixed_y_pred)),
+            "fixed_label_test_macro_f1": float(f1_score(fixed_y_true_hybrid, fixed_y_pred, average="macro", zero_division=0)),
+            "fixed_label_test_weighted_f1": float(f1_score(fixed_y_true_hybrid, fixed_y_pred, average="weighted", zero_division=0)),
+            "fixed_label_test_ece": float(self._expected_calibration_error_from_confidence(fixed_confidence, fixed_correct)),
+            "fixed_label_test_set_nll": float(self._nanmean_or_none(fixed_set_nll) or 0.0),
         }
         oos_flags_aligned = np.asarray(all_oos_flags_aligned, dtype=np.float32) if all_oos_flags_aligned else None
         target_in_mask_flags = np.asarray(all_target_in_mask_flags, dtype=np.float32) if all_target_in_mask_flags else None
@@ -2937,10 +3277,15 @@ class ModelTrainer:
         self._logged_mask_debug = False
         self._logged_oos_math = False
         all_trace_idx: List[int] = []
-        all_true: List[int] = []
-        all_pred: List[int] = []
+        all_true: List[Any] = []
+        all_pred: List[Any] = []
+        all_fixed_true: List[int] = []
+        all_fixed_pred: List[int] = []
         all_confidence: List[float] = []
         all_correct: List[float] = []
+        all_fixed_confidence: List[float] = []
+        all_fixed_correct: List[float] = []
+        all_fixed_set_nll: List[float] = []
         all_top3_hit: List[float] = []
         all_oos_flags: List[float] = []
         all_target_in_mask_flags: List[float] = []
@@ -3053,6 +3398,23 @@ class ModelTrainer:
                             probs = torch.where(row_sum > 0.0, probs / row_sum.clamp_min(1e-12), safe_uniform)
 
                     batch_size = int(target_tensor.shape[0])
+                    target_candidate_mask = None
+                    target_labels = self._target_labels_from_contract(contract, target_tensor)
+                    if candidate_output is not None:
+                        if (
+                            self.candidate_identity_mode == "topology_native"
+                            and target_labels
+                            and len(candidate_output.candidate_labels) > 0
+                        ):
+                            target_candidate_mask = candidate_target_mask_from_labels(
+                                target_labels=target_labels,
+                                candidate_labels=candidate_output.candidate_labels,
+                                candidate_ids=candidate_output.candidate_ids,
+                                device=logits.device,
+                            )
+                        else:
+                            target_candidate_mask = candidate_output.map_targets_to_candidate_mask(target_tensor)
+
                     if candidate_output is not None:
                         pred_tensor = candidate_predictions_to_global(
                             candidate_output.candidate_logits,
@@ -3060,8 +3422,75 @@ class ModelTrainer:
                         ).long()
                     else:
                         pred_tensor = torch.argmax(probs, dim=1).long()
-                    confidence_tensor = torch.max(probs, dim=1).values
-                    correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                    fixed_confidence_tensor = torch.max(probs, dim=1).values
+                    fixed_correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+                    fixed_set_nll_tensor = -torch.log(
+                        self._fixed_numeric_target_probabilities(
+                            probs=probs,
+                            targets=target_tensor,
+                        )
+                    )
+
+                    if candidate_output is not None:
+                        if self.candidate_identity_mode == "topology_native" and len(candidate_output.candidate_labels) > 0:
+                            true_keys, pred_keys, has_target = self._candidate_metric_label_keys(
+                                candidate_logits=logits,
+                                target_candidate_mask=target_candidate_mask,
+                                candidate_output=candidate_output,
+                                contract=contract,
+                                targets=target_tensor,
+                            )
+                            correct_tensor = torch.tensor([
+                                1.0 if tk == pk else 0.0
+                                for tk, pk in zip(true_keys, pred_keys)
+                            ], dtype=torch.float32, device=pred_tensor.device)
+                        else:
+                            fallback_true = []
+                            fallback_pred = []
+                            for val in target_tensor.tolist():
+                                lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                                fallback_true.append(lbl if lbl else f"class:{int(val)}")
+                            for val in pred_tensor.cpu().numpy().tolist():
+                                lbl = self._reverse_activity_vocab.get(int(val)) if hasattr(self, "_reverse_activity_vocab") and self._reverse_activity_vocab else None
+                                fallback_pred.append(lbl if lbl else f"class:{int(val)}")
+                            true_keys = fallback_true
+                            pred_keys = fallback_pred
+                            correct_tensor = (pred_tensor == target_tensor.to(pred_tensor.device)).float()
+
+                        pred_fixed = candidate_predictions_to_global(
+                            candidate_output.candidate_logits,
+                            candidate_output.candidate_class_index,
+                        ).long().cpu().numpy().tolist()
+                        batch_fixed_true = target_tensor.tolist()
+                        batch_fixed_pred = pred_fixed
+                        confidence_tensor = torch.max(candidate_probs, dim=1).values
+                        batch_stable_set_nll = -torch.log(
+                            self._candidate_target_probabilities(
+                                candidate_probs=candidate_probs,
+                                target_candidate_mask=target_candidate_mask,
+                            )
+                        )
+                    else:
+                        true_keys, pred_keys = self._fixed_head_metric_label_keys(
+                            predictions=pred_tensor,
+                            contract=contract,
+                            targets=target_tensor,
+                        )
+                        correct_tensor = torch.tensor([
+                            1.0 if tk == pk else 0.0
+                            for tk, pk in zip(true_keys, pred_keys)
+                        ], dtype=torch.float32, device=pred_tensor.device)
+                        batch_fixed_true = target_tensor.tolist()
+                        batch_fixed_pred = pred_tensor.cpu().numpy().tolist()
+                        confidence_tensor = fixed_confidence_tensor
+                        batch_stable_set_nll = -torch.log(
+                            self._fixed_head_label_target_probabilities(
+                                probs=probs,
+                                contract=contract,
+                                targets=target_tensor,
+                            )
+                        )
+
                     top_k = self._effective_top_k(int(probs.shape[1]), requested_k=3) if probs.dim() == 2 else 1
                     topk = torch.topk(probs, k=top_k, dim=1).indices
                     top3_hit = (topk == target_tensor.to(topk.device).unsqueeze(1)).any(dim=1).float()
@@ -3076,10 +3505,7 @@ class ModelTrainer:
                     batch_candidate_valid_probability_mass = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_candidate_valid_invalid_logit_margin = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_hybrid_correct = correct_tensor
-                    row_ids = torch.arange(batch_size, device=pred_tensor.device)
-                    batch_hybrid_set_nll = -torch.log(
-                        probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
-                    )
+                    batch_hybrid_set_nll = batch_stable_set_nll
                     batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
 
                     if isinstance(allowed_mask, torch.Tensor):
@@ -3109,11 +3535,6 @@ class ModelTrainer:
                         mask_cardinality = allowed_mask.sum(dim=1).float()
                         oos_flags = (~pred_in_mask).float()
                         ambiguous_mask = mask_cardinality > 1.0
-                        set_probs = probs * allowed_mask.to(dtype=probs.dtype, device=probs.device)
-                        set_prob_mass = set_probs.sum(dim=1).clamp_min(1e-12)
-                        target_probs = probs[row_ids, target_tensor.to(probs.device)].clamp_min(1e-12)
-                        selected_prob_mass = torch.where(ambiguous_mask, set_prob_mass, target_probs)
-                        batch_hybrid_set_nll = -torch.log(selected_prob_mass)
                         batch_hybrid_correct = torch.where(
                             ambiguous_mask,
                             pred_in_mask.float(),
@@ -3142,10 +3563,21 @@ class ModelTrainer:
                     )
 
                     all_trace_idx.extend(data.trace_idx.view(-1).long().detach().cpu().tolist())
-                    all_true.extend(target_tensor.detach().cpu().tolist())
-                    all_pred.extend(pred_tensor.detach().cpu().tolist())
+                    all_true.extend(true_keys)
+                    all_pred.extend(pred_keys)
+                    all_fixed_true.extend(batch_fixed_true)
+                    all_fixed_pred.extend(batch_fixed_pred)
                     all_confidence.extend(confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
                     all_correct.extend(correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
+                    all_fixed_confidence.extend(
+                        fixed_confidence_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                    )
+                    all_fixed_correct.extend(
+                        fixed_correct_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                    )
+                    all_fixed_set_nll.extend(
+                        fixed_set_nll_tensor.detach().cpu().numpy().astype(np.float32, copy=False).tolist()
+                    )
                     all_top3_hit.extend(top3_hit.detach().cpu().numpy().astype(np.float32, copy=False).tolist())
                     all_oos_flags.extend(batch_oos.tolist())
                     all_target_in_mask_flags.extend(batch_target_in_mask.tolist())
@@ -3225,8 +3657,8 @@ class ModelTrainer:
         gc.collect()
         return DriftInferenceRecords(
             trace_idx=np.asarray(all_trace_idx, dtype=np.int64),
-            y_true=np.asarray(all_true, dtype=np.int64),
-            y_pred=np.asarray(all_pred, dtype=np.int64),
+            y_true=np.asarray(all_true, dtype=object),
+            y_pred=np.asarray(all_pred, dtype=object),
             confidence=np.asarray(all_confidence, dtype=np.float32),
             correct=np.asarray(all_correct, dtype=np.float32),
             top3_hit=np.asarray(all_top3_hit, dtype=np.float32),
@@ -3245,6 +3677,11 @@ class ModelTrainer:
             prefix_lengths=np.asarray(all_lengths, dtype=np.int64),
             version_labels=all_versions,
             inference_ms_per_graph=inference_ms_per_graph,
+            fixed_y_true=np.asarray(all_fixed_true, dtype=np.int64),
+            fixed_y_pred=np.asarray(all_fixed_pred, dtype=np.int64),
+            fixed_confidence=np.asarray(all_fixed_confidence, dtype=np.float32),
+            fixed_correct=np.asarray(all_fixed_correct, dtype=np.float32),
+            fixed_set_nll=np.asarray(all_fixed_set_nll, dtype=np.float32),
         )
 
     def _compute_test_metrics_from_records(self, records: DriftInferenceRecords, idxs: np.ndarray) -> Dict[str, Any]:
@@ -3295,19 +3732,33 @@ class ModelTrainer:
         prefix_lengths = records.prefix_lengths[idxs] if records.prefix_lengths.shape[0] >= int(np.max(idxs)) + 1 else None
         versions = [records.version_labels[int(idx)] for idx in idxs if int(idx) < len(records.version_labels)]
 
+        fixed_y_true = records.fixed_y_true[idxs]
+        fixed_y_pred = records.fixed_y_pred[idxs]
+        fixed_confidence = records.fixed_confidence[idxs]
+        fixed_correct = records.fixed_correct[idxs]
+        fixed_set_nll = records.fixed_set_nll[idxs]
+
         strict_accuracy = float(accuracy_score(y_true, y_pred))
         strict_macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
         strict_weighted_f1 = float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
         strict_precision_macro = float(precision_score(y_true, y_pred, average="macro", zero_division=0))
         strict_recall_macro = float(recall_score(y_true, y_pred, average="macro", zero_division=0))
 
-        y_true_hybrid = np.asarray(y_true, dtype=np.int64).copy()
+        y_true_hybrid = np.asarray(y_true, dtype=object).copy()
         if int(ambiguous_flags.shape[0]) == int(y_true_hybrid.shape[0]) and int(pred_in_mask_flags_raw.shape[0]) == int(
             y_true_hybrid.shape[0]
         ):
             override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
             if override_idxs.size > 0:
                 y_true_hybrid[override_idxs] = y_pred[override_idxs]
+
+        fixed_y_true_hybrid = fixed_y_true.copy()
+        if int(ambiguous_flags.shape[0]) == int(fixed_y_true_hybrid.shape[0]) and int(pred_in_mask_flags_raw.shape[0]) == int(
+            fixed_y_true_hybrid.shape[0]
+        ):
+            override_idxs = np.where((ambiguous_flags > 0.5) & (pred_in_mask_flags_raw > 0.5))[0]
+            if override_idxs.size > 0:
+                fixed_y_true_hybrid[override_idxs] = fixed_y_pred[override_idxs]
 
         hybrid_accuracy = self._nanmean_or_none(hybrid_correct_flags)
         if hybrid_accuracy is None:
@@ -3329,6 +3780,14 @@ class ModelTrainer:
             "strict_test_precision_macro": strict_precision_macro,
             "strict_test_recall_macro": strict_recall_macro,
             "test_inference_time_ms_per_graph": float(records.inference_ms_per_graph),
+            "fixed_label_strict_test_accuracy": float(accuracy_score(fixed_y_true, fixed_y_pred)),
+            "fixed_label_strict_test_macro_f1": float(f1_score(fixed_y_true, fixed_y_pred, average="macro", zero_division=0)),
+            "fixed_label_strict_test_weighted_f1": float(f1_score(fixed_y_true, fixed_y_pred, average="weighted", zero_division=0)),
+            "fixed_label_test_accuracy": float(accuracy_score(fixed_y_true_hybrid, fixed_y_pred)),
+            "fixed_label_test_macro_f1": float(f1_score(fixed_y_true_hybrid, fixed_y_pred, average="macro", zero_division=0)),
+            "fixed_label_test_weighted_f1": float(f1_score(fixed_y_true_hybrid, fixed_y_pred, average="weighted", zero_division=0)),
+            "fixed_label_test_ece": float(self._expected_calibration_error_from_confidence(fixed_confidence, fixed_correct)),
+            "fixed_label_test_set_nll": float(self._nanmean_or_none(fixed_set_nll) or 0.0),
         }
         metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
         metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)

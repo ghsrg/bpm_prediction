@@ -169,7 +169,9 @@ def test_collect_drift_inference_records_records_selected_trace_without_changing
     records = trainer._collect_drift_inference_records(loader)
 
     assert records.trace_idx.tolist() == [7]
-    assert records.y_true.tolist() == [2]
-    assert records.y_pred.tolist() == [1]
+    assert records.y_true.tolist() == ["Reject"]
+    assert records.y_pred.tolist() == ["Approve"]
+    assert records.fixed_y_true.tolist() == [2]
+    assert records.fixed_y_pred.tolist() == [1]
     assert len(recorder.events) == 1
     assert recorder.events[0].attributes["stage"] == "eval_drift_one_pass"

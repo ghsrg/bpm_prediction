@@ -2395,6 +2395,7 @@ fields:
     enum:
     - BaselineGATv2
     - BaselineGCN
+    - LSTM_Baseline
     - EOPKGGATv2
     - EOPKGTopologyConditioned
     label: 'Модель: Type'
@@ -2405,6 +2406,59 @@ fields:
     ui:
       group: advanced
       order: 1000
+      priority: 100
+      tab: model
+  model.recurrent_bidirectional:
+    affects: Controls whether the fixed-vocabulary recurrent baseline reads prefixes in both temporal directions.
+    default: 'false'
+    description: Recurrent baseline bidirectionality. Keep false for causal next-activity prediction unless explicitly ablated.
+    enum:
+    - 'false'
+    - 'true'
+    label: 'Model: Recurrent bidirectional'
+    path: model.recurrent_bidirectional
+    required_in_modes: []
+    required_when:
+      model.type: LSTM_Baseline
+    section: model
+    ui:
+      group: advanced
+      order: 1052
+      priority: 100
+      tab: model
+  model.recurrent_layers:
+    affects: Controls depth of the fixed-vocabulary recurrent baseline.
+    default: 1
+    description: Number of LSTM/GRU recurrent layers.
+    enum: []
+    label: 'Model: Recurrent layers'
+    path: model.recurrent_layers
+    required_in_modes: []
+    required_when:
+      model.type: LSTM_Baseline
+    section: model
+    type: int
+    ui:
+      group: advanced
+      order: 1051
+      priority: 100
+      tab: model
+  model.recurrent_type:
+    affects: Selects LSTM or GRU for the fixed-vocabulary logs-only baseline.
+    default: lstm
+    description: Recurrent cell type for LSTM_Baseline.
+    enum:
+    - lstm
+    - gru
+    label: 'Model: Recurrent type'
+    path: model.recurrent_type
+    required_in_modes: []
+    required_when:
+      model.type: LSTM_Baseline
+    section: model
+    ui:
+      group: advanced
+      order: 1050
       priority: 100
       tab: model
   seed:

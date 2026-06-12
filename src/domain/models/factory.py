@@ -44,9 +44,11 @@ def create_model(model_type: str, **kwargs) -> BaseGNN:
 # Register baseline models.
 from src.domain.models.baseline_gat import BaselineGATv2  # noqa: E402
 from src.domain.models.baseline_gcn import BaselineGCN  # noqa: E402
+from src.domain.models.lstm_baseline import LSTMBaseline  # noqa: E402
 
 register_model("BaselineGCN")(BaselineGCN)
 register_model("BaselineGATv2")(BaselineGATv2)
+register_model("LSTM_Baseline")(LSTMBaseline)
 
 # Register EOPKG models via decorators declared in eopkg_models.py.
 from src.domain.models import eopkg_models as _eopkg_models  # noqa: E402,F401

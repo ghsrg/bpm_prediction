@@ -1,0 +1,9 @@
+model:
+  type: LSTM_Baseline
+  model_label: LSTM
+  hidden_dim: 64
+  dropout: 0.2
+  pooling_strategy: last_node
+  recurrent_type: lstm
+  recurrent_layers: 2
+  recurrent_bidirectional: false

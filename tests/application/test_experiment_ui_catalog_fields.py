@@ -200,6 +200,24 @@ def test_catalog_includes_topology_conditioned_model_fields():
         assert catalog[field_name]["required_when"]["model.type"] == "EOPKGTopologyConditioned"
 
 
+def test_catalog_includes_lstm_baseline_model_fields():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    required = {
+        "model.recurrent_type",
+        "model.recurrent_layers",
+        "model.recurrent_bidirectional",
+    }
+
+    assert "LSTM_Baseline" in catalog["model.type"]["enum"]
+    assert required.issubset(set(catalog))
+    assert catalog["model.recurrent_type"]["enum"] == ["lstm", "gru"]
+    assert catalog["model.recurrent_bidirectional"]["enum"] == ["false", "true"]
+    for field_name in required:
+        assert catalog[field_name]["required_when"]["model.type"] == "LSTM_Baseline"
+
+
 def test_catalog_includes_process_state_mask_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]

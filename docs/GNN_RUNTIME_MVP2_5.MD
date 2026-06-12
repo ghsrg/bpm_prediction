@@ -21,17 +21,19 @@ This document complements:
 ### 2.1 Registered model types
 1. `BaselineGATv2`
 2. `BaselineGCN`
-3. `EOPKGGATv2`
-4. `EOPKGGCN`
-5. `EOPKGTopologyConditioned`
+3. `LSTM_Baseline`
+4. `EOPKGGATv2`
+5. `EOPKGGCN`
+6. `EOPKGTopologyConditioned`
 
 ### 2.2 Source files
 1. `src/domain/models/factory.py`
 2. `src/domain/models/baseline_gat.py`
 3. `src/domain/models/baseline_gcn.py`
-4. `src/domain/models/eopkg_models.py`
-5. `src/domain/models/base_gnn.py`
-6. `src/domain/models/topology_conditioned.py`
+4. `src/domain/models/lstm_baseline.py`
+5. `src/domain/models/eopkg_models.py`
+6. `src/domain/models/base_gnn.py`
+7. `src/domain/models/topology_conditioned.py`
 
 ### 2.3 Registration flow
 ```mermaid
@@ -40,6 +42,7 @@ flowchart LR
     FACTORY --> REG{MODEL_REGISTRY}
     REG --> BGAT[BaselineGATv2]
     REG --> BGCN[BaselineGCN]
+    REG --> BLSTM[LSTM_Baseline]
     REG --> EGAT[EOPKGGATv2]
     REG --> EGCN[EOPKGGCN]
     REG --> ETC[EOPKGTopologyConditioned]
@@ -209,6 +212,31 @@ flowchart TD
     POOL --> CLS[Linear classifier]
     CLS --> LOGITS[logits]
 ```
+
+### 6.2.1 LSTM_Baseline
+
+Observed sequence only:
+1. embeddings for categorical event features plus numeric event features,
+2. one or more LSTM/GRU recurrent layers,
+3. `last_node` or `global_mean` readout over the prefix sequence,
+4. linear classifier over the fitted training activity vocabulary `C_train`.
+
+```mermaid
+flowchart TD
+    XCAT[x_cat] --> EMB[Embedding lookup]
+    XNUM[x_num] --> CAT[Concat event features]
+    EMB --> CAT
+    CAT --> RNN[LSTM or GRU encoder]
+    RNN --> POOL[last_node or global_mean readout]
+    POOL --> CLS[Linear classifier over C_train]
+    CLS --> LOGITS[logits B x C_train]
+```
+
+`LSTM_Baseline` intentionally keeps the classic fixed-softmax PPM formulation:
+it does not consume structural tensors and cannot emit future-version
+activities that were absent from the fitted training vocabulary. For structural
+drift experiments it is a fixed-vocabulary comparison baseline, not a
+topology-native adaptation model.
 
 ### 6.3 EOPKGGATv2
 `EOPKGGATv2` is the configurable EOPKG model family. It has one shared
@@ -1138,6 +1166,12 @@ candidate-native metric key is the stable activity label/id, not the local
 `[0, C_v)` candidate index. This keeps Baseline and topology-conditioned runs
 comparable on one chart as “exact next activity” quality.
 
+Candidate target matching is exact first, then uses deterministic aliases for
+adapter formatting differences. For XES logs with lifecycle classifiers,
+suffixes such as `+COMPLETE` are ignored during candidate matching, so
+`W_Nabellen offertes+COMPLETE` can match topology candidate label/id
+`W_Nabellen offertes`.
+
 The old fixed-vocabulary projection is retained under:
 
 ```text
@@ -1646,7 +1680,9 @@ that candidate as a known train-vocab class.
 
 For XES logs, the target is still a label, not a unique BPMN node id. Therefore
 candidate-native loss maps `target_label` to all candidates with the same
-`candidate_label`. Exact BPMN-node target supervision remains future work.
+`candidate_label` or `candidate_id`. The matcher also applies deterministic
+XES lifecycle aliases, so `Activity+COMPLETE` can match topology candidate
+`Activity`. Exact BPMN-node target supervision remains future work.
 
 `gateway_mode` remains a data/topology alignment setting:
 

@@ -162,6 +162,36 @@ experiment:
   on_missing_asof_snapshot: raise
 ```
 
+## Experiment Reporting Conventions
+
+Scientific reports and article figures use short model names. Code, checkpoints,
+and MLflow runs may keep implementation-oriented names. Use this mapping when
+linking paper tables to repository artifacts:
+
+| Paper name | Code / MLflow name | Role |
+| --- | --- | --- |
+| `LSTM` | `LSTM_Baseline` | Fixed-vocabulary recurrent baseline. |
+| `GATv2` | `BaselineGATv2` | Logs-only graph baseline. |
+| `EOPKG` | `EOPKGTopologyConditioned` | Topology-conditioned candidate-space model. |
+
+When exporting figures for papers, rename legends to `LSTM`, `GATv2`, and
+`EOPKG`. Keep full run IDs, checkpoint names, YAML presets, and raw metric
+exports in supplementary/reproducibility materials rather than in the main
+article text.
+
+Current control latency snapshot for the EOPKG structural-drift article:
+
+| Paper name | Device / batch | Parameters | Inference time, ms per graph sample | Source metric |
+| --- | --- | ---: | ---: | --- |
+| `GATv2` | CPU / 64 | 58,562 | 2.776 | `test_inference_time_ms_per_graph` |
+| `LSTM` | CPU / 64 | 64,450 | 3.665 | `test_inference_time_ms_per_graph` |
+| `EOPKG` | CPU / 64 | 135,830 | 6.518 | `test_inference_time_ms_per_graph` |
+
+Append new experiment series below this block or move them to a dedicated
+reproducibility table when the result set grows. Each new series should record:
+paper model name, code/MLflow model name, dataset, run mode, train/eval version
+scope, seed set, key metrics, hardware/software setup, and artifact location.
+
 ## Current Documentation
 
 - [Documentation Index](docs/index.md)

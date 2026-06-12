@@ -296,3 +296,45 @@ def test_build_model_factory_kwargs_passes_topology_conditioned_candidate_config
     assert kwargs["impulse_scale_max"] == 1.4
     assert kwargs["impulse_gnn_layers"] == 1
     assert kwargs["impulse_residual_h0"] is False
+
+
+def test_build_model_factory_kwargs_normalizes_scalar_impulse_state_channels():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "EOPKGTopologyConditioned",
+            "hidden_dim": 16,
+            "impulse_state_channels": 1,
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["impulse_state_channels"] == [
+        "is_last_event",
+        "prefix_executed_count_log1p",
+        "prefix_recency_norm",
+    ]
+
+
+def test_build_model_factory_kwargs_passes_lstm_baseline_config():
+    kwargs = _build_model_factory_kwargs(
+        model_cfg={
+            "type": "LSTM_Baseline",
+            "hidden_dim": 32,
+            "dropout": 0.15,
+            "pooling_strategy": "last_node",
+            "recurrent_type": "gru",
+            "recurrent_layers": 2,
+            "recurrent_bidirectional": True,
+        },
+        feature_layout=object(),
+        output_dim=7,
+    )
+
+    assert kwargs["model_type"] == "LSTM_Baseline"
+    assert kwargs["hidden_dim"] == 32
+    assert kwargs["dropout"] == 0.15
+    assert kwargs["pooling_strategy"] == "last_node"
+    assert kwargs["recurrent_type"] == "gru"
+    assert kwargs["recurrent_layers"] == 2
+    assert kwargs["recurrent_bidirectional"] is True

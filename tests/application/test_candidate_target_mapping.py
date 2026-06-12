@@ -128,3 +128,30 @@ def test_candidate_target_mask_from_labels_matches_id_or_label():
         device=torch.device("cpu"),
     )
     assert mask.tolist() == [[False, True, False], [False, True, False]]
+
+
+def test_candidate_target_mask_from_labels_matches_xes_lifecycle_suffix():
+    mask = candidate_target_mask_from_labels(
+        target_labels=["W_Nabellen offertes+COMPLETE", "O_ACCEPTED+complete"],
+        candidate_labels=("W_Nabellen offertes", "O_ACCEPTED", "A_SUBMITTED"),
+        candidate_ids=("W_Nabellen offertes", "O_ACCEPTED", "A_SUBMITTED"),
+        device=torch.device("cpu"),
+    )
+
+    assert mask.tolist() == [[True, False, False], [False, True, False]]
+
+
+def test_candidate_output_maps_xes_lifecycle_target_label_to_candidate_mask():
+    output = CandidatePredictionOutput(
+        candidate_logits=torch.zeros(1, 3),
+        candidate_class_index=torch.tensor([1, 2, 3], dtype=torch.long),
+        node_logits=torch.zeros(1, 3),
+        node_to_candidate_index=torch.tensor([0, 1, 2], dtype=torch.long),
+        node_to_class_index=torch.tensor([1, 2, 3], dtype=torch.long),
+        candidate_ids=("W_Nabellen offertes", "O_ACCEPTED", "A_SUBMITTED"),
+        candidate_labels=("W_Nabellen offertes", "O_ACCEPTED", "A_SUBMITTED"),
+    )
+
+    assert output.map_target_labels_to_candidate_mask(["W_Nabellen offertes+COMPLETE"]).tolist() == [
+        [True, False, False]
+    ]

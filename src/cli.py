@@ -52,6 +52,11 @@ GRAPH_DATASET_CACHE_SCHEMA = 4
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
+DEFAULT_IMPULSE_STATE_CHANNELS = [
+    "is_last_event",
+    "prefix_executed_count_log1p",
+    "prefix_recency_norm",
+]
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -254,6 +259,29 @@ def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]
     return config
 
 
+def _normalize_impulse_state_channels(raw_value: Any) -> list[str]:
+    if raw_value is None:
+        return list(DEFAULT_IMPULSE_STATE_CHANNELS)
+    if isinstance(raw_value, (list, tuple)):
+        cleaned = [str(item).strip() for item in raw_value if str(item).strip()]
+        return cleaned or list(DEFAULT_IMPULSE_STATE_CHANNELS)
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if not text:
+            return list(DEFAULT_IMPULSE_STATE_CHANNELS)
+        if "\n" in text:
+            cleaned = [
+                line.strip()[2:].strip()
+                for line in text.splitlines()
+                if line.strip().startswith("- ") and line.strip()[2:].strip()
+            ]
+            return cleaned or list(DEFAULT_IMPULSE_STATE_CHANNELS)
+        if "," in text:
+            cleaned = [item.strip() for item in text.split(",") if item.strip()]
+            return cleaned or list(DEFAULT_IMPULSE_STATE_CHANNELS)
+    return list(DEFAULT_IMPULSE_STATE_CHANNELS)
+
+
 def _build_model_factory_kwargs(
     *,
     model_cfg: Dict[str, Any],
@@ -269,6 +297,9 @@ def _build_model_factory_kwargs(
         "output_dim": int(output_dim),
         "dropout": float(model_cfg.get("dropout", 0.2)),
         "pooling_strategy": str(model_cfg.get("pooling_strategy", "global_mean")).strip().lower(),
+        "recurrent_type": str(model_cfg.get("recurrent_type", "lstm")).strip().lower(),
+        "recurrent_layers": int(model_cfg.get("recurrent_layers", 1)),
+        "recurrent_bidirectional": _as_bool(model_cfg.get("recurrent_bidirectional"), default=False),
         "structural_mode": model_cfg.get("structural_mode", True),
         "struct_encoder_type": str(model_cfg.get("struct_encoder_type", "GATv2Conv")),
         "struct_hidden_dim": int(model_cfg.get("struct_hidden_dim", hidden_dim)),
@@ -312,7 +343,7 @@ def _build_model_factory_kwargs(
         ),
         "topology_conditioning_mode": str(model_cfg.get("topology_conditioning_mode", "static_candidates")),
         "impulse_activation_enabled": _as_bool(model_cfg.get("impulse_activation_enabled"), default=False),
-        "impulse_state_channels": model_cfg.get("impulse_state_channels"),
+        "impulse_state_channels": _normalize_impulse_state_channels(model_cfg.get("impulse_state_channels")),
         "impulse_scale_init": float(model_cfg.get("impulse_scale_init", 0.1)),
         "impulse_scale_max": float(model_cfg.get("impulse_scale_max", 2.0)),
         "impulse_gnn_layers": int(model_cfg.get("impulse_gnn_layers", 1)),

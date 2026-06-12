@@ -1,0 +1,217 @@
+metric,GATv2,LSTM,EOPKG-WI,EOPKG
+best_epoch,32.000 ± 11.380,14.600 ± 0.894,51.500 ± 20.339,21.800 ± 1.924
+best_val_loss,0.399 ± 0.009,0.347 ± 0.003,0.194 ± 0.008,0.138 ± 0.001
+candidate_invalid_probability_mass,,,0.032 ± 0.005,0.000 ± 0.000
+candidate_missing_target_rate,,,0.000 ± 0.000,0.000 ± 0.000
+candidate_oos_rate,,,0.010 ± 0.009,0.000 ± 0.000
+candidate_target_in_candidate_set_rate,,,1.000 ± 0.000,1.000 ± 0.000
+candidate_valid_invalid_logit_margin,,,5.781 ± 0.226,12.776 ± 0.909
+candidate_valid_probability_mass,,,0.968 ± 0.005,1.000 ± 0.000
+early_stopping_epoch,41.000 ± 1.414,34.600 ± 0.894,,41.800 ± 1.924
+epoch_duration_sec,79.774 ± 21.541,158.143 ± 18.525,92.688 ± 8.895,228.550 ± 19.086
+fixed_label_strict_test_accuracy,0.898 ± 0.013,0.898 ± 0.019,0.912 ± 0.011,0.926 ± 0.001
+fixed_label_strict_test_macro_f1,0.733 ± 0.008,0.746 ± 0.010,0.728 ± 0.020,0.777 ± 0.002
+fixed_label_strict_test_weighted_f1,0.884 ± 0.014,0.889 ± 0.017,0.892 ± 0.012,0.916 ± 0.002
+fixed_label_test_accuracy,0.983 ± 0.002,1.000 ± 0.000,0.990 ± 0.009,1.000 ± 0.000
+fixed_label_test_ece,0.029 ± 0.007,0.032 ± 0.006,0.015 ± 0.004,0.011 ± 0.001
+fixed_label_test_macro_f1,0.937 ± 0.010,1.000 ± 0.000,0.970 ± 0.029,1.000 ± 0.000
+fixed_label_test_set_nll,0.227 ± 0.007,0.193 ± 0.005,0.200 ± 0.009,0.145 ± 0.000
+fixed_label_test_weighted_f1,0.981 ± 0.002,1.000 ± 0.000,0.988 ± 0.010,1.000 ± 0.000
+inference_candidate_class_score_mean_abs,,,90323.893 ± 0.029,90329.277 ± 0.441
+inference_candidate_dynamic_count,,,40.935 ± 0.000,40.935 ± 0.000
+inference_candidate_invalid_probability_mass,,,0.032 ± 0.005,0.000 ± 0.000
+inference_candidate_node_score_mean_abs,,,1.443 ± 0.032,7.355 ± 0.483
+inference_candidate_oos_rate,,,0.010 ± 0.009,0.000 ± 0.000
+inference_candidate_pred_score,,,8.567 ± 0.113,6.787 ± 0.222
+inference_candidate_prediction_entropy,,,0.236 ± 0.013,0.136 ± 0.003
+inference_candidate_score_gap,,,0.067 ± 0.005,0.059 ± 0.004
+inference_candidate_seen_score_mean,,,-0.461 ± 0.047,-6.966 ± 0.495
+inference_candidate_seen_unseen_score_gap,,,0.000 ± 0.000,0.000 ± 0.000
+inference_candidate_target_score,,,8.500 ± 0.111,6.728 ± 0.220
+inference_candidate_temperature,,,0.100 ± 0.000,0.100 ± 0.000
+inference_candidate_unseen_candidate_rate,,,0.000 ± 0.000,0.000 ± 0.000
+inference_candidate_unseen_score_mean,,,0.000 ± 0.000,0.000 ± 0.000
+inference_candidate_valid_invalid_logit_margin,,,5.781 ± 0.226,12.776 ± 0.909
+inference_candidate_valid_probability_mass,,,0.968 ± 0.005,1.000 ± 0.000
+inference_duplicate_candidate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
+inference_impulse_activation_max_abs,,,0.000 ± 0.000,5.633 ± 0.291
+inference_impulse_activation_mean_abs,,,0.000 ± 0.000,1.104 ± 0.018
+inference_impulse_gnn_oversmoothing_ratio,,,0.000 ± 0.000,0.859 ± 0.032
+inference_impulse_to_base_node_ratio,,,0.000 ± 0.000,1.638 ± 0.029
+legacy_test_accuracy,0.898 ± 0.013,0.898 ± 0.019,0.912 ± 0.011,0.926 ± 0.001
+legacy_test_macro_f1,0.733 ± 0.008,0.746 ± 0.010,0.728 ± 0.020,0.777 ± 0.002
+legacy_test_weighted_f1,0.884 ± 0.014,0.889 ± 0.017,0.892 ± 0.012,0.916 ± 0.002
+strict_test_accuracy,0.898 ± 0.013,0.898 ± 0.019,0.912 ± 0.011,0.926 ± 0.001
+strict_test_accuracy_len_11_20,0.879 ± 0.002,0.924 ± 0.004,0.934 ± 0.001,0.935 ± 0.003
+strict_test_accuracy_len_1_5,0.850 ± 0.007,0.825 ± 0.038,0.800 ± 0.055,0.866 ± 0.003
+strict_test_accuracy_len_21_plus,0.972 ± 0.004,0.945 ± 0.035,0.976 ± 0.002,0.983 ± 0.001
+strict_test_accuracy_len_6_10,0.839 ± 0.068,0.834 ± 0.072,0.865 ± 0.007,0.863 ± 0.005
+strict_test_accuracy_mask_card_1,0.974 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+strict_test_accuracy_mask_card_2,0.855 ± 0.033,0.840 ± 0.034,0.951 ± 0.011,0.950 ± 0.001
+strict_test_accuracy_mask_card_3_plus,0.787 ± 0.009,0.752 ± 0.078,0.892 ± 0.013,0.910 ± 0.002
+strict_test_accuracy_v1,0.886 ± 0.013,0.896 ± 0.019,0.914 ± 0.013,0.927 ± 0.002
+strict_test_accuracy_v2,0.910 ± 0.012,0.900 ± 0.023,0.909 ± 0.010,0.925 ± 0.001
+strict_test_f1_len_11_20,0.721 ± 0.010,0.753 ± 0.012,0.739 ± 0.012,0.783 ± 0.007
+strict_test_f1_len_1_5,0.776 ± 0.008,0.778 ± 0.016,0.693 ± 0.098,0.785 ± 0.002
+strict_test_f1_len_21_plus,0.796 ± 0.018,0.791 ± 0.019,0.813 ± 0.021,0.935 ± 0.004
+strict_test_f1_len_6_10,0.667 ± 0.029,0.640 ± 0.055,0.632 ± 0.035,0.636 ± 0.007
+strict_test_f1_mask_card_1,0.971 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+strict_test_f1_mask_card_2,0.700 ± 0.012,0.697 ± 0.016,0.761 ± 0.047,0.723 ± 0.013
+strict_test_f1_mask_card_3_plus,0.606 ± 0.005,0.605 ± 0.027,0.726 ± 0.013,0.776 ± 0.002
+strict_test_f1_v1,0.680 ± 0.007,0.734 ± 0.015,0.738 ± 0.023,0.783 ± 0.005
+strict_test_f1_v2,0.736 ± 0.010,0.732 ± 0.014,0.729 ± 0.015,0.775 ± 0.005
+strict_test_macro_f1,0.733 ± 0.008,0.746 ± 0.010,0.728 ± 0.020,0.777 ± 0.002
+strict_test_oos_len_11_20,0.053 ± 0.003,0.000 ± 0.000,0.001 ± 0.001,0.000 ± 0.000
+strict_test_oos_len_1_5,0.002 ± 0.003,0.000 ± 0.000,0.052 ± 0.047,0.000 ± 0.000
+strict_test_oos_len_21_plus,0.000 ± 0.000,0.000 ± 0.000,0.001 ± 0.001,0.000 ± 0.000
+strict_test_oos_len_6_10,0.001 ± 0.000,0.000 ± 0.001,0.001 ± 0.001,0.000 ± 0.000
+strict_test_oos_mask_card_1,0.026 ± 0.001,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000
+strict_test_oos_mask_card_2,0.000 ± 0.000,0.000 ± 0.000,0.006 ± 0.011,0.000 ± 0.000
+strict_test_oos_mask_card_3_plus,0.036 ± 0.009,0.000 ± 0.001,0.013 ± 0.011,0.000 ± 0.000
+strict_test_oos_v1,0.034 ± 0.003,0.000 ± 0.000,0.008 ± 0.012,0.000 ± 0.000
+strict_test_oos_v2,0.000 ± 0.000,0.000 ± 0.000,0.013 ± 0.009,0.000 ± 0.000
+strict_test_precision_macro,0.731 ± 0.008,0.751 ± 0.008,0.727 ± 0.018,0.821 ± 0.019
+strict_test_recall_macro,0.767 ± 0.002,0.784 ± 0.001,0.751 ± 0.019,0.782 ± 0.002
+strict_test_weighted_f1,0.884 ± 0.014,0.889 ± 0.017,0.892 ± 0.012,0.916 ± 0.002
+strict_train_macro_f1,0.707 ± 0.010,0.767 ± 0.004,0.607 ± 0.016,0.791 ± 0.004
+strict_val_macro_f1,0.739 ± 0.007,0.749 ± 0.008,0.731 ± 0.020,0.785 ± 0.003
+strict_val_weighted_f1,0.888 ± 0.013,0.893 ± 0.015,0.894 ± 0.012,0.923 ± 0.001
+test_accuracy,0.983 ± 0.002,1.000 ± 0.000,0.990 ± 0.009,1.000 ± 0.000
+test_accuracy_deterministic,0.974 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_accuracy_len_11_20,0.947 ± 0.003,1.000 ± 0.000,0.999 ± 0.001,1.000 ± 0.000
+test_accuracy_len_1_5,0.998 ± 0.003,1.000 ± 0.000,0.948 ± 0.047,1.000 ± 0.000
+test_accuracy_len_21_plus,1.000 ± 0.000,1.000 ± 0.000,0.999 ± 0.001,1.000 ± 0.000
+test_accuracy_len_6_10,0.999 ± 0.000,1.000 ± 0.001,0.999 ± 0.001,1.000 ± 0.000
+test_accuracy_mask_card_1,0.974 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_accuracy_mask_card_2,1.000 ± 0.000,1.000 ± 0.000,0.994 ± 0.011,1.000 ± 0.000
+test_accuracy_mask_card_3_plus,0.964 ± 0.009,1.000 ± 0.001,0.987 ± 0.011,1.000 ± 0.000
+test_accuracy_v1,0.966 ± 0.003,1.000 ± 0.000,0.992 ± 0.012,1.000 ± 0.000
+test_accuracy_v2,1.000 ± 0.000,1.000 ± 0.000,0.987 ± 0.009,1.000 ± 0.000
+test_ambiguous_prefix_rate,0.551 ± 0.000,0.551 ± 0.000,0.860 ± 0.000,0.860 ± 0.000
+test_ece,0.029 ± 0.007,0.032 ± 0.006,0.015 ± 0.004,0.011 ± 0.001
+test_f1_len_11_20,0.880 ± 0.017,1.000 ± 0.000,0.982 ± 0.036,1.000 ± 0.000
+test_f1_len_1_5,0.997 ± 0.005,1.000 ± 0.000,0.900 ± 0.103,1.000 ± 0.000
+test_f1_len_21_plus,1.000 ± 0.000,1.000 ± 0.000,0.985 ± 0.014,1.000 ± 0.000
+test_f1_len_6_10,0.961 ± 0.002,0.970 ± 0.048,0.966 ± 0.053,1.000 ± 0.000
+test_f1_mask_card_1,0.971 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_f1_mask_card_2,1.000 ± 0.000,1.000 ± 0.000,0.979 ± 0.042,1.000 ± 0.000
+test_f1_mask_card_3_plus,0.849 ± 0.033,0.999 ± 0.001,0.974 ± 0.028,1.000 ± 0.000
+test_f1_v1,0.857 ± 0.012,0.982 ± 0.027,0.984 ± 0.028,1.000 ± 0.000
+test_f1_v2,1.000 ± 0.000,1.000 ± 0.000,0.972 ± 0.028,1.000 ± 0.000
+test_inference_time_ms_per_graph,4.843 ± 2.181,3.766 ± 0.228,4.547 ± 0.955,6.055 ± 0.889
+test_macro_f1,0.937 ± 0.010,0.999Ц ± 0.000,0.970 ± 0.029,1.000 ± 0.000
+test_mask_coverage,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_oos,0.017 ± 0.002,0.001 ± 0.000,0.010 ± 0.009,0.000 ± 0.000
+test_oos_len_11_20,0.053 ± 0.003,0.000 ± 0.000,0.001 ± 0.001,0.000 ± 0.000
+test_oos_len_1_5,0.002 ± 0.003,0.000 ± 0.000,0.052 ± 0.047,0.000 ± 0.000
+test_oos_len_21_plus,0.000 ± 0.000,0.000 ± 0.000,0.001 ± 0.001,0.000 ± 0.000
+test_oos_len_6_10,0.001 ± 0.000,0.000 ± 0.001,0.001 ± 0.001,0.000 ± 0.000
+test_oos_mask_card_1,0.026 ± 0.001,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000
+test_oos_mask_card_2,0.000 ± 0.000,0.000 ± 0.000,0.006 ± 0.011,0.000 ± 0.000
+test_oos_mask_card_3_plus,0.036 ± 0.009,0.000 ± 0.001,0.013 ± 0.011,0.000 ± 0.000
+test_oos_v1,0.034 ± 0.003,0.000 ± 0.000,0.008 ± 0.012,0.000 ± 0.000
+test_oos_v2,0.000 ± 0.000,0.000 ± 0.000,0.013 ± 0.009,0.000 ± 0.000
+test_precision_macro,0.945 ± 0.016,1.000 ± 0.000,0.979 ± 0.021,1.000 ± 0.000
+test_pred_in_mask_rate,0.983 ± 0.002,1.000 ± 0.000,0.990 ± 0.009,1.000 ± 0.000
+test_pred_in_mask_rate_len_11_20,0.947 ± 0.003,1.000 ± 0.000,0.999 ± 0.001,1.000 ± 0.000
+test_pred_in_mask_rate_len_1_5,0.998 ± 0.003,1.000 ± 0.000,0.948 ± 0.047,1.000 ± 0.000
+test_pred_in_mask_rate_len_21_plus,1.000 ± 0.000,1.000 ± 0.000,0.999 ± 0.001,1.000 ± 0.000
+test_pred_in_mask_rate_len_6_10,0.999 ± 0.000,1.000 ± 0.001,0.999 ± 0.001,1.000 ± 0.000
+test_pred_in_mask_rate_mask_card_1,0.974 ± 0.001,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_pred_in_mask_rate_mask_card_2,1.000 ± 0.000,1.000 ± 0.000,0.994 ± 0.011,1.000 ± 0.000
+test_pred_in_mask_rate_mask_card_3_plus,0.964 ± 0.009,1.000 ± 0.001,0.987 ± 0.011,1.000 ± 0.000
+test_pred_in_mask_rate_v1,0.966 ± 0.003,1.000 ± 0.000,0.992 ± 0.012,1.000 ± 0.000
+test_pred_in_mask_rate_v2,1.000 ± 0.000,1.000 ± 0.000,0.987 ± 0.009,1.000 ± 0.000
+test_recall_macro,0.937 ± 0.008,1.000 ± 0.000,0.970 ± 0.029,1.000 ± 0.000
+test_set_hit_rate_ambiguous,0.990 ± 0.003,1.000 ± 0.000,0.988 ± 0.011,1.000 ± 0.000
+test_set_nll,0.227 ± 0.007,0.193 ± 0.005,0.200 ± 0.009,0.145 ± 0.000
+test_strict_error_but_allowed_rate,0.085 ± 0.013,0.102 ± 0.019,0.078 ± 0.002,0.074 ± 0.001
+test_strict_error_but_allowed_rate_len_11_20,0.068 ± 0.005,0.075 ± 0.004,0.065 ± 0.001,0.065 ± 0.003
+test_strict_error_but_allowed_rate_len_1_5,0.148 ± 0.005,0.175 ± 0.038,0.148 ± 0.011,0.134 ± 0.003
+test_strict_error_but_allowed_rate_len_21_plus,0.028 ± 0.004,0.055 ± 0.035,0.023 ± 0.002,0.017 ± 0.001
+test_strict_error_but_allowed_rate_len_6_10,0.160 ± 0.068,0.166 ± 0.072,0.134 ± 0.007,0.137 ± 0.005
+test_strict_error_but_allowed_rate_mask_card_1,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000
+test_strict_error_but_allowed_rate_mask_card_2,0.145 ± 0.033,0.160 ± 0.034,0.044 ± 0.005,0.050 ± 0.001
+test_strict_error_but_allowed_rate_mask_card_3_plus,0.177 ± 0.016,0.248 ± 0.078,0.095 ± 0.003,0.090 ± 0.002
+test_strict_error_but_allowed_rate_v1,0.081 ± 0.014,0.104 ± 0.019,0.078 ± 0.003,0.073 ± 0.002
+test_strict_error_but_allowed_rate_v2,0.090 ± 0.012,0.100 ± 0.023,0.078 ± 0.002,0.075 ± 0.001
+test_target_in_mask_rate,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_len_11_20,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_len_1_5,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_len_21_plus,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_len_6_10,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_mask_card_1,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_mask_card_2,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_mask_card_3_plus,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_v1,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_target_in_mask_rate_v2,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000,1.000 ± 0.000
+test_top3_accuracy,0.993 ± 0.001,0.995 ± 0.000,0.996 ± 0.000,0.996 ± 0.001
+test_weighted_f1,0.981 ± 0.002,1.000 ± 0.000,0.988 ± 0.010,1.000 ± 0.000
+train_allowed_set_mass_leakage,0.083 ± 0.005,0.002 ± 0.000,,
+train_candidate_class_score_mean_abs,,,91504.439 ± 0.016,91509.185 ± 0.282
+train_candidate_dynamic_count,,,40.882 ± 0.000,40.882 ± 0.000
+train_candidate_invalid_probability_mass,,,0.258 ± 0.008,0.002 ± 0.001
+train_candidate_missing_target_rate,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_node_score_mean_abs,,,1.288 ± 0.018,6.507 ± 0.309
+train_candidate_oos_rate,,,0.158 ± 0.008,0.000 ± 0.000
+train_candidate_pred_score,,,6.037 ± 0.067,5.763 ± 0.115
+train_candidate_prediction_entropy,,,1.034 ± 0.016,0.160 ± 0.009
+train_candidate_score_gap,,,0.401 ± 0.020,0.050 ± 0.001
+train_candidate_seen_score_mean,,,-0.348 ± 0.042,-6.175 ± 0.317
+train_candidate_seen_unseen_score_gap,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_target_duplicate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
+train_candidate_target_in_candidate_set_rate,,,1.000 ± 0.000,1.000 ± 0.000
+train_candidate_target_score,,,5.635 ± 0.081,5.712 ± 0.114
+train_candidate_target_set_entropy_mean,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_target_set_logit_variance_mean,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_temperature,,,0.100 ± 0.000,0.100 ± 0.000
+train_candidate_unseen_candidate_rate,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_unseen_score_mean,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_unseen_target_rate,,,0.000 ± 0.000,0.000 ± 0.000
+train_candidate_valid_invalid_logit_margin,,,2.744 ± 0.090,10.179 ± 0.391
+train_candidate_valid_probability_mass,,,0.742 ± 0.008,0.998 ± 0.001
+train_duplicate_candidate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
+train_grad_norm_observed,2.867 ± 0.085,0.765 ± 0.072,1.215 ± 0.064,0.179 ± 0.012
+train_grad_norm_struct_xattn,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000,0.000 ± 0.000
+train_grad_norm_structural,0.000 ± 0.000,0.000 ± 0.000,1.256 ± 0.090,0.102 ± 0.016
+train_impulse_activation_max_abs,,,0.000 ± 0.000,6.703 ± 0.981
+train_impulse_activation_mean_abs,,,0.000 ± 0.000,1.139 ± 0.023
+train_impulse_gnn_oversmoothing_ratio,,,0.000 ± 0.000,0.874 ± 0.028
+train_impulse_to_base_node_ratio,,,0.000 ± 0.000,1.690 ± 0.024
+train_loss,0.633 ± 0.027,0.350 ± 0.003,0.875 ± 0.041,0.149 ± 0.005
+train_macro_f1,0.707 ± 0.010,0.767 ± 0.004,0.607 ± 0.016,0.791 ± 0.004
+train_topology_conditioned_allowed_set_loss,,,0.258 ± 0.008,0.002 ± 0.001
+train_topology_conditioned_drop_edges_skipped_candidate_id_batches,,,629.000 ± 0.000,629.000 ± 0.000
+train_topology_conditioned_topology_flow_penalty_loss,,,0.258 ± 0.008,0.002 ± 0.001
+train_topology_conditioned_wrong_version_skipped_candidate_id_batches,,,629.000 ± 0.000,629.000 ± 0.000
+val_loss,0.399 ± 0.009,0.347 ± 0.003,0.194 ± 0.007,0.138 ± 0.001
+val_macro_f1,0.739 ± 0.007,0.749 ± 0.008,0.731 ± 0.020,0.785 ± 0.003
+val_weighted_f1,0.888 ± 0.013,0.893 ± 0.015,0.894 ± 0.012,0.923 ± 0.001
+validation_allowed_set_mass_leakage,0.028 ± 0.009,0.001 ± 0.000,,
+validation_candidate_class_score_mean_abs,,,91124.847 ± 0.028,91130.367 ± 0.319
+validation_candidate_dynamic_count,,,40.899 ± 0.000,40.899 ± 0.000
+validation_candidate_invalid_probability_mass,,,0.032 ± 0.006,0.000 ± 0.000
+validation_candidate_missing_target_rate,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_node_score_mean_abs,,,1.454 ± 0.033,7.522 ± 0.349
+validation_candidate_oos_rate,,,0.010 ± 0.013,0.000 ± 0.000
+validation_candidate_pred_score,,,8.607 ± 0.086,7.246 ± 0.182
+validation_candidate_prediction_entropy,,,0.231 ± 0.012,0.126 ± 0.005
+validation_candidate_score_gap,,,0.067 ± 0.004,0.063 ± 0.005
+validation_candidate_seen_score_mean,,,-0.478 ± 0.049,-7.105 ± 0.358
+validation_candidate_seen_unseen_score_gap,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_target_duplicate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
+validation_candidate_target_in_candidate_set_rate,,,1.000 ± 0.000,1.000 ± 0.000
+validation_candidate_target_score,,,8.539 ± 0.083,7.183 ± 0.184
+validation_candidate_target_set_entropy_mean,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_target_set_logit_variance_mean,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_temperature,,,0.100 ± 0.000,0.100 ± 0.000
+validation_candidate_unseen_candidate_rate,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_unseen_score_mean,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_unseen_target_rate,,,0.000 ± 0.000,0.000 ± 0.000
+validation_candidate_valid_invalid_logit_margin,,,5.839 ± 0.151,13.672 ± 0.578
+validation_candidate_valid_probability_mass,,,0.968 ± 0.006,1.000 ± 0.000
+validation_duplicate_candidate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
+validation_impulse_activation_max_abs,,,0.000 ± 0.000,6.446 ± 0.733
+validation_impulse_activation_mean_abs,,,0.000 ± 0.000,1.139 ± 0.022
+validation_impulse_gnn_oversmoothing_ratio,,,0.000 ± 0.000,0.884 ± 0.027
+validation_impulse_to_base_node_ratio,,,0.000 ± 0.000,1.692 ± 0.023

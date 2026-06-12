@@ -127,6 +127,7 @@ config-driven mapping Сѓ `struct_x`.
 - `model_families`:
   - `BaselineGATv2`
   - `BaselineGCN`
+  - `LSTM_Baseline`
   - `EOPKGGATv2`
   - `EOPKGGCN`
   - `EOPKGTopologyConditioned`
@@ -137,7 +138,7 @@ config-driven mapping Сѓ `struct_x`.
 
 **Description (ukr):**
 
-РџС–РґС‚СЂРёРјСѓСЋС‚СЊСЃСЏ baseline GNN С– EOPKG-РјРѕРґРµР»С–. EOPKG runtime РјРѕР¶Рµ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё
+РџС–РґС‚СЂРёРјСѓСЋС‚СЊСЃСЏ baseline GNN, fixed-vocabulary recurrent baseline С– EOPKG-РјРѕРґРµР»С–. EOPKG runtime РјРѕР¶Рµ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё
 `allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`,
 `struct_node_to_class_index`, `struct_x` С– snapshot telemetry. Р”Р»СЏ
 `EOPKGGATv2` РґРѕСЃС‚СѓРїРЅС– backward-compatible `ClassMeanAttention` /
@@ -175,6 +176,12 @@ fixed-head fusion ablations: topology-conditioned candidate scoring,
 semantic-topological candidate prototypes, calibration/audit requirements, and
 the staged path toward business-valid zero-shot adaptation.
 `training.learning_strategy=standard` preserves current behavior.
+
+`LSTM_Baseline` is available as a fixed-vocabulary logs-only recurrent
+comparison model. It uses event feature embeddings plus numeric features,
+LSTM/GRU sequence encoding, `last_node` or `global_mean` readout, and a linear
+softmax head over `C_train`. It does not consume structural tensors and is used
+to evaluate the static-vocabulary limitation under structural drift.
 `training.learning_strategy=topology_conditioned` is implemented as a
 trainer-level methodology with known-version wrong-topology negatives,
 same-version physical `drop_edges`, train-time allowed-set loss, and
@@ -637,6 +644,15 @@ compatibility diagnostics when candidates map to `candidate_class_index=-1`.
 
 Fixed a target-to-candidate alignment mismatch during `candidate_id` training with `topology_native` identity mode. Previously, raw target labels (usually node IDs like `t_approve_loan` from log `concept:name`) were compared only against human-readable `candidate_labels` (like `Approve Loan`), resulting in a 100% missing target rate and training failure. The target mapping helper `candidate_target_mask_from_labels` and the prediction model's `map_target_labels_to_candidate_mask` now match targets against both `candidate_ids` and `candidate_labels`.
 
+## Runtime Update 2026-06-12
+
+Extended topology-native candidate target matching for XES lifecycle-classified
+labels. Candidate-id training now matches exact `candidate_ids` /
+`candidate_labels` first, then deterministic aliases that strip known lifecycle
+suffixes such as `+COMPLETE`. This fixes BPI-style targets like
+`W_Nabellen offertes+COMPLETE` failing to match topology candidates like
+`W_Nabellen offertes` and causing `candidate_missing_target_rate=1.0`.
+
 ## Runtime Update 2026-05-29
 
 Optimized CPU and memory performance inside `ModelTrainer` during batched forward passes. Previously, structural and candidate payload resolution for the first graph in a batch fell back to `to_data_list()` or `get_example(0)`. This forced PyTorch Geometric to slice all batched tensors into individual sample `Data` objects on every step, creating a massive CPU serialization bottleneck. We replaced this with direct slice dictionary-based indexing using PyG's built-in `_slice_dict` pointers, which provides O(1) attribute extraction for both homogeneous and heterogeneous batches without materializing sample graphs.
@@ -764,3 +780,20 @@ New diagnostics include:
 - `*_process_state_mask_relaxed_final_candidate_count`
 - `*_process_state_mask_target_suppressed_by_completed_filter_rate`
 - `*_process_state_mask_completed_suppression_rate`
+
+## Runtime Update 2026-06-10: Impulse State Channel Config Guard
+
+`model.impulse_state_channels` is now normalized by the CLI composition root
+before model construction. List and YAML-list text values are preserved, while
+empty or scalar UI values fall back to the default impulse channels:
+
+```yaml
+model.impulse_state_channels:
+  - is_last_event
+  - prefix_executed_count_log1p
+  - prefix_recency_norm
+```
+
+This prevents `EOPKGTopologyConditioned` runs from failing at model
+construction with `TypeError: 'int' object is not iterable` when an Experiment
+UI preset accidentally stores the field as `0` or `1`.

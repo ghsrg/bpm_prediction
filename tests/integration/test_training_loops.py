@@ -12,6 +12,7 @@ from src.application.use_cases.trainer import ModelTrainer, SplitData
 from src.domain.entities.feature_config import FeatureLayout
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.models.baseline_gcn import BaselineGCN
+from src.domain.models.lstm_baseline import LSTMBaseline
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.prefix_policy import PrefixPolicy
@@ -104,6 +105,31 @@ def test_gnn_isolated_forward_backward_stress_math_and_edge_cases():
     with torch.no_grad():
         preds = torch.argmax(model(contract), dim=1)
     assert torch.equal(preds, contract["y"])
+
+
+def test_lstm_baseline_isolated_forward_backward_fixed_vocabulary_smoke():
+    torch.manual_seed(11)
+    contract = _make_stress_contract()
+
+    model = LSTMBaseline(
+        feature_layout=FeatureLayout(cat_features={}, cat_feature_names=[], num_dim=3),
+        hidden_dim=16,
+        output_dim=3,
+        dropout=0.0,
+        pooling_strategy="last_node",
+        recurrent_type="lstm",
+        recurrent_layers=1,
+    )
+    criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(model.parameters(), lr=0.05)
+
+    logits = model(contract)
+    loss = criterion(logits, contract["y"])
+    loss.backward()
+    optimizer.step()
+
+    assert tuple(logits.shape) == (3, 3)
+    assert torch.isfinite(loss)
 
 
 def test_trainer_smoke_wiring_with_in_memory_dataloader(

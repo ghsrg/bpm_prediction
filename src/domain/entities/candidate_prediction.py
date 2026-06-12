@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import torch
 
+from src.domain.services.candidate_label_matching import candidate_label_aliases
+
 
 @dataclass(frozen=True)
 class CandidatePredictionOutput:
@@ -50,15 +52,15 @@ class CandidatePredictionOutput:
     def map_target_labels_to_candidate_mask(self, target_labels: list[str] | tuple[str, ...]) -> torch.BoolTensor:
         """Map raw target labels to the local topology candidate axis."""
 
-        ids = [str(item).strip() for item in self.candidate_ids]
-        labels = [str(item).strip() for item in self.candidate_labels]
+        ids = [candidate_label_aliases(item) for item in self.candidate_ids]
+        labels = [candidate_label_aliases(item) for item in self.candidate_labels]
         rows: list[list[bool]] = []
         for raw_label in target_labels:
-            target = str(raw_label).strip()
+            target = candidate_label_aliases(raw_label)
             row = []
             for idx in range(len(labels)):
-                match_lbl = (labels[idx] == target)
-                match_id = (ids[idx] == target) if idx < len(ids) else False
+                match_lbl = bool(labels[idx].intersection(target))
+                match_id = bool(ids[idx].intersection(target)) if idx < len(ids) else False
                 row.append(match_lbl or match_id)
             rows.append(row)
         return torch.tensor(rows, dtype=torch.bool, device=self.candidate_logits.device)

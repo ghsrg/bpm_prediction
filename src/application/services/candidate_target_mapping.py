@@ -7,6 +7,8 @@ from typing import Any, Dict, Sequence
 import torch
 import torch.nn.functional as F
 
+from src.domain.services.candidate_label_matching import candidate_label_aliases
+
 
 def candidate_set_cross_entropy(
     candidate_logits: torch.Tensor,
@@ -52,15 +54,15 @@ def candidate_target_mask_from_labels(
 ) -> torch.BoolTensor:
     """Build `[B, C_v]` target mask from raw labels and topology candidate labels/ids."""
 
-    normalized_candidates = [str(label).strip() for label in candidate_labels]
-    normalized_ids = [str(i).strip() for i in candidate_ids] if candidate_ids is not None else []
+    candidate_aliases = [candidate_label_aliases(label) for label in candidate_labels]
+    id_aliases = [candidate_label_aliases(i) for i in candidate_ids] if candidate_ids is not None else []
     rows: list[list[bool]] = []
     for raw_label in target_labels:
-        target = str(raw_label).strip()
+        target_aliases = candidate_label_aliases(raw_label)
         row = []
-        for idx, candidate in enumerate(normalized_candidates):
-            match_lbl = (candidate == target)
-            match_id = (normalized_ids[idx] == target) if normalized_ids else False
+        for idx, aliases in enumerate(candidate_aliases):
+            match_lbl = bool(aliases.intersection(target_aliases))
+            match_id = bool(id_aliases[idx].intersection(target_aliases)) if idx < len(id_aliases) else False
             row.append(match_lbl or match_id)
         rows.append(row)
     return torch.tensor(rows, dtype=torch.bool, device=device)

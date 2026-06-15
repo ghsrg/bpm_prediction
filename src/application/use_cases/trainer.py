@@ -65,6 +65,7 @@ from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.tensor_contract import GraphTensorContract
 from src.domain.models.base_gnn import BaseGNN
+from src.domain.services.candidate_label_matching import candidate_label_metric_key
 from src.domain.services.torch_serialization import load_trusted_torch_artifact
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
@@ -456,6 +457,9 @@ class ModelTrainer:
         self.drift_window_sliding = int(config.get("drift_window_sliding", self.config.get("experiment_config", {}).get("drift_window_sliding", 0) or 0))
         self.mask_guided_enabled = bool(config.get("mask_guided_enabled", False))
         self.mask_guided_apply_in_eval = bool(config.get("mask_guided_apply_in_eval", True))
+        self.mask_guided_policy = str(config.get("mask_guided_policy", "auto") or "auto").strip().lower()
+        if self.mask_guided_policy not in {"auto", "off", "soft", "hard"}:
+            raise ValueError("training.mask_guided_policy must be auto, off, soft, or hard.")
         self.mask_guided_hard_threshold = float(config.get("mask_guided_hard_threshold", 1.0))
         self.mask_guided_soft_penalty = float(config.get("mask_guided_soft_penalty", 2.0))
         self.mask_guided_min_samples_for_hard = max(1, int(config.get("mask_guided_min_samples_for_hard", 1)))
@@ -748,13 +752,13 @@ class ModelTrainer:
         pred_keys: List[str] = []
         for row_idx, pred_idx in enumerate(pred):
             if row_idx < len(target_labels) and str(target_labels[row_idx]).strip():
-                true_key = str(target_labels[row_idx]).strip()
+                true_key = candidate_label_metric_key(target_labels[row_idx])
             elif row_idx < len(target_values) and int(target_values[row_idx]) >= 0:
                 true_key = f"class:{int(target_values[row_idx])}"
             elif bool(has_target[row_idx].item()):
                 target_idx = int(torch.argmax(mask_cpu[row_idx].long()).item())
                 if target_idx < len(candidate_labels) and candidate_labels[target_idx]:
-                    true_key = candidate_labels[target_idx]
+                    true_key = candidate_label_metric_key(candidate_labels[target_idx])
                 elif target_idx < len(candidate_class_index) and int(candidate_class_index[target_idx]) >= 0:
                     true_key = f"class:{int(candidate_class_index[target_idx])}"
                 else:
@@ -766,9 +770,9 @@ class ModelTrainer:
                 pred_label = candidate_labels[int(pred_idx)] if int(pred_idx) < len(candidate_labels) else ""
                 pred_id = candidate_ids[int(pred_idx)] if int(pred_idx) < len(candidate_ids) else ""
                 if pred_id and pred_id == true_key:
-                    pred_key = pred_id
+                    pred_key = candidate_label_metric_key(pred_id)
                 elif pred_label:
-                    pred_key = pred_label
+                    pred_key = candidate_label_metric_key(pred_label)
                 elif int(pred_idx) < len(candidate_class_index) and int(candidate_class_index[int(pred_idx)]) >= 0:
                     pred_key = f"class:{int(candidate_class_index[int(pred_idx)])}"
                 else:
@@ -794,18 +798,18 @@ class ModelTrainer:
         pred_keys: List[str] = []
         for row_idx, pred_idx in enumerate(pred_values):
             if row_idx < len(target_labels) and str(target_labels[row_idx]).strip():
-                true_key = str(target_labels[row_idx]).strip()
+                true_key = candidate_label_metric_key(target_labels[row_idx])
             elif row_idx < len(target_values):
-                true_key = self._reverse_activity_vocab.get(
+                raw_true_key = self._reverse_activity_vocab.get(
                     int(target_values[row_idx]),
                     f"class:{int(target_values[row_idx])}",
                 )
+                true_key = candidate_label_metric_key(raw_true_key) if not raw_true_key.startswith("class:") else raw_true_key
             else:
                 true_key = "__missing_target__"
 
-            pred_keys.append(
-                self._reverse_activity_vocab.get(int(pred_idx), f"class:{int(pred_idx)}")
-            )
+            raw_pred_key = self._reverse_activity_vocab.get(int(pred_idx), f"class:{int(pred_idx)}")
+            pred_keys.append(candidate_label_metric_key(raw_pred_key) if not raw_pred_key.startswith("class:") else raw_pred_key)
             true_keys.append(true_key)
         return true_keys, pred_keys
 
@@ -4356,6 +4360,10 @@ class ModelTrainer:
     ) -> str:
         if not self.mask_guided_enabled:
             return "off"
+        if self.mask_guided_policy in {"off", "soft", "hard"}:
+            if not training and not self.mask_guided_apply_in_eval:
+                return "off"
+            return self.mask_guided_policy
         if training:
             if batch_target_in_mask_rate is None:
                 return "soft"

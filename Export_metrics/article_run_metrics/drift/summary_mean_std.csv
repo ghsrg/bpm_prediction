@@ -1,37 +1,39 @@
-metric,GATv2,LSTM,EOPKG-WI,EOPKG
-drift_window_ambiguous_prefix_rate,0.264 ± 0.000,0.264 ± 0.000,0.825 ± 0.000,0.825 ± 0.000
-drift_window_end_ts,1750511436.392 ± 0.000,1750511436.392 ± 0.000,1750511436.392 ± 0.000,1750511436.392 ± 0.000
-drift_window_macro_f1,0.267 ± 0.024,0.208 ± 0.095,0.415 ± 0.034,0.737 ± 0.102
-drift_window_oos_confidence_mean,0.773 ± 0.049,0.681 ± 0.093,0.424 ± 0.075,0.135 ± 0.064
-drift_window_pred_in_mask_rate,0.388 ± 0.051,0.302 ± 0.134,0.501 ± 0.058,0.881 ± 0.039
-drift_window_start_ts,1748467944.749 ± 0.000,1748467944.749 ± 0.000,1748467944.749 ± 0.000,1748467944.749 ± 0.000
-drift_window_strict_error_but_allowed_rate,0.078 ± 0.028,0.060 ± 0.027,0.173 ± 0.042,0.332 ± 0.047
-drift_window_strict_macro_f1,0.207 ± 0.014,0.154 ± 0.073,0.240 ± 0.018,0.449 ± 0.081
-drift_window_target_in_mask_rate,0.537 ± 0.000,0.537 ± 0.000,0.664 ± 0.000,0.664 ± 0.000
-drift_window_test_ece,0.458 ± 0.062,0.441 ± 0.048,0.222 ± 0.032,0.181 ± 0.034
-drift_window_test_oos,0.612 ± 0.051,0.698 ± 0.134,0.499 ± 0.058,0.119 ± 0.039
-drift_window_test_set_nll,12.695 ± 1.140,11.602 ± 0.774,2.960 ± 0.284,2.699 ± 0.970
-eval_drift_one_pass_candidate_class_score_mean_abs,,,140012.974 ± 0.036,140018.164 ± 0.429
-eval_drift_one_pass_candidate_dynamic_count,,,45.730 ± 0.000,45.730 ± 0.000
-eval_drift_one_pass_candidate_invalid_probability_mass,,,0.276 ± 0.023,0.099 ± 0.017
-eval_drift_one_pass_candidate_node_score_mean_abs,,,1.396 ± 0.042,7.475 ± 0.493
-eval_drift_one_pass_candidate_oos_rate,,,0.245 ± 0.030,0.069 ± 0.017
-eval_drift_one_pass_candidate_pred_score,,,7.261 ± 0.136,4.727 ± 0.595
-eval_drift_one_pass_candidate_prediction_entropy,,,0.692 ± 0.059,0.543 ± 0.078
-eval_drift_one_pass_candidate_score_gap,,,136296.205 ± 0.087,136294.663 ± 0.238
-eval_drift_one_pass_candidate_seen_score_mean,,,-0.433 ± 0.073,-7.083 ± 0.517
-eval_drift_one_pass_candidate_seen_unseen_score_gap,,,0.023 ± 0.073,0.340 ± 0.063
-eval_drift_one_pass_candidate_target_score,,,-136288.943 ± 0.186,-136289.935 ± 0.371
-eval_drift_one_pass_candidate_temperature,,,0.100 ± 0.000,0.100 ± 0.000
-eval_drift_one_pass_candidate_unseen_candidate_rate,,,0.139 ± 0.000,0.139 ± 0.000
-eval_drift_one_pass_candidate_unseen_score_mean,,,-0.271 ± 0.058,-4.674 ± 0.287
-eval_drift_one_pass_candidate_valid_invalid_logit_margin,,,2.992 ± 0.335,10.937 ± 0.520
-eval_drift_one_pass_candidate_valid_probability_mass,,,0.724 ± 0.023,0.901 ± 0.017
-eval_drift_one_pass_duplicate_candidate_count_max,,,1.000 ± 0.000,1.000 ± 0.000
-eval_drift_one_pass_impulse_activation_max_abs,,,0.000 ± 0.000,5.465 ± 0.549
-eval_drift_one_pass_impulse_activation_mean_abs,,,0.000 ± 0.000,1.112 ± 0.034
-eval_drift_one_pass_impulse_gnn_oversmoothing_ratio,,,0.000 ± 0.000,0.848 ± 0.034
-eval_drift_one_pass_impulse_to_base_node_ratio,,,0.000 ± 0.000,1.640 ± 0.061
-tracing_events_recorded,,,40.000 ± 0.000,40.000 ± 0.000
-tracing_record_time_ms_per_event,,,1122.923 ± 65.631,1105.797 ± 29.815
-tracing_record_time_ms_total,,,44916.928 ± 2625.223,44231.889 ± 1192.591
+metric,GATv2,GATv2+Mask,LSTM,EOPKG-WI,EOPKG
+drift_window_ambiguous_prefix_rate,0.264 ± 0.000,0.264 ± 0.000,0.264 ± 0.000,0.825 ± 0.000,0.825 ± 0.000
+drift_window_end_ts,1750511436.392 ± 0.000,1750511436.392 ± 0.000,1750511436.392 ± 0.000,1750511436.392 ± 0.000,1750511436.392 ± 0.000
+drift_window_macro_f1,0.267 ± 0.024,0.519 ± 0.017,0.208 ± 0.095,0.415 ± 0.034,0.737 ± 0.102
+drift_window_macro_f1,,,,,
+drift_window_macro_f1,,,,,
+drift_window_oos_confidence_mean,0.773 ± 0.049,0.664 ± 0.150,0.681 ± 0.093,0.424 ± 0.075,0.135 ± 0.064
+drift_window_pred_in_mask_rate,0.388 ± 0.051,0.600 ± 0.000,0.302 ± 0.134,0.501 ± 0.058,0.881 ± 0.039
+drift_window_start_ts,1748467944.749 ± 0.000,1748467944.749 ± 0.000,1748467944.749 ± 0.000,1748467944.749 ± 0.000,1748467944.749 ± 0.000
+drift_window_strict_error_but_allowed_rate,0.078 ± 0.028,0.150 ± 0.019,0.060 ± 0.027,0.173 ± 0.042,0.332 ± 0.047
+drift_window_strict_macro_f1,0.207 ± 0.014,0.337 ± 0.014,0.154 ± 0.073,0.240 ± 0.018,0.449 ± 0.081
+drift_window_target_in_mask_rate,0.537 ± 0.000,0.537 ± 0.000,0.537 ± 0.000,0.664 ± 0.000,0.664 ± 0.000
+drift_window_test_ece,0.458 ± 0.062,0.323 ± 0.060,0.441 ± 0.048,0.222 ± 0.032,0.181 ± 0.034
+drift_window_test_oos,0.612 ± 0.051,0.400 ± 0.000,0.698 ± 0.134,0.499 ± 0.058,0.119 ± 0.039
+drift_window_test_set_nll,12.695 ± 1.140,10.331 ± 0.287,11.602 ± 0.774,2.960 ± 0.284,2.699 ± 0.970
+eval_drift_one_pass_candidate_class_score_mean_abs,,,,140012.974 ± 0.036,140018.164 ± 0.429
+eval_drift_one_pass_candidate_dynamic_count,,,,45.730 ± 0.000,45.730 ± 0.000
+eval_drift_one_pass_candidate_invalid_probability_mass,,,,0.276 ± 0.023,0.099 ± 0.017
+eval_drift_one_pass_candidate_node_score_mean_abs,,,,1.396 ± 0.042,7.475 ± 0.493
+eval_drift_one_pass_candidate_oos_rate,,,,0.245 ± 0.030,0.069 ± 0.017
+eval_drift_one_pass_candidate_pred_score,,,,7.261 ± 0.136,4.727 ± 0.595
+eval_drift_one_pass_candidate_prediction_entropy,,,,0.692 ± 0.059,0.543 ± 0.078
+eval_drift_one_pass_candidate_score_gap,,,,136296.205 ± 0.087,136294.663 ± 0.238
+eval_drift_one_pass_candidate_seen_score_mean,,,,-0.433 ± 0.073,-7.083 ± 0.517
+eval_drift_one_pass_candidate_seen_unseen_score_gap,,,,0.023 ± 0.073,0.340 ± 0.063
+eval_drift_one_pass_candidate_target_score,,,,-136288.943 ± 0.186,-136289.935 ± 0.371
+eval_drift_one_pass_candidate_temperature,,,,0.100 ± 0.000,0.100 ± 0.000
+eval_drift_one_pass_candidate_unseen_candidate_rate,,,,0.139 ± 0.000,0.139 ± 0.000
+eval_drift_one_pass_candidate_unseen_score_mean,,,,-0.271 ± 0.058,-4.674 ± 0.287
+eval_drift_one_pass_candidate_valid_invalid_logit_margin,,,,2.992 ± 0.335,10.937 ± 0.520
+eval_drift_one_pass_candidate_valid_probability_mass,,,,0.724 ± 0.023,0.901 ± 0.017
+eval_drift_one_pass_duplicate_candidate_count_max,,,,1.000 ± 0.000,1.000 ± 0.000
+eval_drift_one_pass_impulse_activation_max_abs,,,,0.000 ± 0.000,5.465 ± 0.549
+eval_drift_one_pass_impulse_activation_mean_abs,,,,0.000 ± 0.000,1.112 ± 0.034
+eval_drift_one_pass_impulse_gnn_oversmoothing_ratio,,,,0.000 ± 0.000,0.848 ± 0.034
+eval_drift_one_pass_impulse_to_base_node_ratio,,,,0.000 ± 0.000,1.640 ± 0.061
+tracing_events_recorded,,,,40.000 ± 0.000,40.000 ± 0.000
+tracing_record_time_ms_per_event,,,,1122.923 ± 65.631,1105.797 ± 29.815
+tracing_record_time_ms_total,,,,44916.928 ± 2625.223,44231.889 ± 1192.591

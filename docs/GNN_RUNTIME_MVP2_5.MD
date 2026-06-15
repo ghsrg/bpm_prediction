@@ -1333,9 +1333,12 @@ Interpretation:
    - `off`: no mask effect on logits,
    - `soft`: subtract penalty from disallowed classes,
    - `hard`: suppress disallowed classes.
+   - `auto`: preserve the reliability-based hard/soft selection.
 4. Hard versus soft decision uses mask reliability:
    - if `target_in_mask_rate` meets threshold, policy may be hard,
    - otherwise policy stays soft.
+   `training.mask_guided_policy=hard` bypasses reliability selection and is
+   intended for reviewer-control post-filter baselines.
 5. `ClassAwareStructuralScoring` may add an auxiliary structural loss:
    - `training.structural_aux_loss_enabled`: enables the auxiliary objective,
    - `training.structural_aux_loss_weight`: set-aware CE over allowed target candidates,
@@ -1359,6 +1362,13 @@ Interpretation:
 8. StructXAttn contrastive loss is not applied during validation, test, or
    `eval_drift` inference. It is a training methodology to force structural
    dependency, not an inference-time mask.
+
+`GATv2 + Mask` is a reviewer-control baseline. It keeps the fixed-vocabulary
+`BaselineGATv2` output head over `C_train`, but applies the current topology
+mask to logits at inference time. With `training.mask_guided_policy=hard`,
+classes outside `allowed_target_mask` are suppressed before softmax/argmax.
+This can reduce OOS errors, but it cannot predict topology-native candidates
+that do not exist in `C_train`.
 
 StructXAttn contrastive formula:
 

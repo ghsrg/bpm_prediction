@@ -133,10 +133,23 @@ def _normalize_paper_model(params: dict[str, str], tags: dict[str, str]) -> str:
     run_name = _tag(tags, "mlflow.runName")
     topology_mode = _param(params, "model.topology_conditioning_mode", "topology_conditioning_mode")
     impulse_enabled = _param(params, "model.impulse_activation_enabled", "impulse_activation_enabled")
+    topology_mask_enabled = _param(
+        params,
+        "model.topology_mask_enabled",
+        "model.apply_topology_mask",
+        "model.post_filter_topology_mask",
+        "topology_mask_enabled",
+        "apply_topology_mask",
+        "post_filter_topology_mask",
+    )
 
     blob = " ".join([model_type, model_label, preset_name, run_name]).lower()
     if "lstm" in blob:
         return "LSTM"
+    if ("baselinegatv2" in blob or "gatv2" in blob or model_type == "BaselineGATv2") and (
+        "mask" in blob or topology_mask_enabled.lower() == "true"
+    ):
+        return "GATv2+Mask"
     if "baselinegatv2" in blob or (model_type == "BaselineGATv2"):
         return "GATv2"
     if "eopkgtopologyconditionedwi" in blob or "_wi-" in blob or "without impulse" in blob:

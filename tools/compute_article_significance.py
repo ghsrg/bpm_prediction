@@ -20,7 +20,7 @@ from typing import Iterable
 
 
 TARGET_MODEL = "EOPKG"
-BASELINES = ["GATv2", "LSTM", "EOPKG-WI"]
+BASELINES = ["GATv2", "GATv2+Mask", "LSTM", "EOPKG-WI"]
 
 METRIC_SPECS = {
     "drift_window_macro_f1": {

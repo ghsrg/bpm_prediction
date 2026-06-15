@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-MODEL_ORDER = ["GATv2", "LSTM", "EOPKG-WI", "EOPKG"]
+MODEL_ORDER = ["GATv2", "GATv2+Mask", "LSTM", "EOPKG-WI", "EOPKG"]
 SKIP_FILES = {"run_manifest.csv", "missing_runs.csv"}
 
 

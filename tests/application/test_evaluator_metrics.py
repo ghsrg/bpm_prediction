@@ -410,6 +410,49 @@ def test_train_epoch_candidate_id_topology_native_f1_uses_target_label_for_unsee
     assert weighted_f1 == pytest.approx(1.0)
 
 
+def test_train_epoch_candidate_id_topology_native_f1_matches_xes_lifecycle_target_alias():
+    model = _UnseenDynamicCandidateModel()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=model,
+        log_path="in_memory.xes",
+        config={
+            "mode": "train",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "candidate_missing_target_fail_threshold": 1.0,
+        },
+    )
+    samples = [
+        Data(
+            x_cat=torch.zeros((1, 0), dtype=torch.long),
+            x_num=torch.ones((1, 1), dtype=torch.float32),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_type=torch.zeros((0,), dtype=torch.long),
+            y=torch.tensor([0], dtype=torch.long),
+            num_nodes=1,
+            target_label="new_task+COMPLETE",
+            process_version_idx=torch.tensor([0], dtype=torch.long),
+            stats_snapshot_version_idx=torch.tensor([1], dtype=torch.long),
+        )
+    ]
+
+    loss, macro_f1, weighted_f1, _ = trainer._run_epoch(
+        DataLoader(samples, batch_size=1, shuffle=False),
+        optimizer=torch.optim.Adam(model.parameters(), lr=0.01),
+        training=True,
+    )
+
+    assert loss >= 0.0
+    assert macro_f1 == pytest.approx(1.0)
+    assert weighted_f1 == pytest.approx(1.0)
+
+
 def test_dry_run_candidate_id_uses_candidate_forward_path():
     model = _DynamicCandidateModel()
     trainer = ModelTrainer(
@@ -647,6 +690,31 @@ def test_mask_guided_policy_hard_when_reliable_and_soft_when_not():
     ) == "soft"
 
 
+def test_mask_guided_policy_can_force_hard_in_eval_without_reliability_state():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_ConstantClassZero3(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "mask_guided_enabled": True,
+            "mask_guided_policy": "hard",
+            "mask_guided_apply_in_eval": True,
+        },
+    )
+
+    assert trainer._resolve_mask_guided_policy(
+        training=False,
+        batch_target_in_mask_rate=None,
+        batch_samples=4,
+    ) == "hard"
+
+
 def test_mask_guided_logits_hard_and_soft_behaviour():
     trainer = ModelTrainer(
         xes_adapter=_DummyAdapter(),
@@ -682,6 +750,42 @@ def test_mask_guided_logits_hard_and_soft_behaviour():
     )
     soft_pred = int(torch.argmax(soft_logits, dim=1).item())
     assert soft_pred in {1, 2}
+
+
+def test_mask_guided_hard_post_filter_changes_fixed_vocab_prediction_to_allowed_class():
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_ConstantClassZero3(),
+        log_path="in_memory.xes",
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "mask_guided_enabled": True,
+            "mask_guided_policy": "hard",
+            "mask_guided_apply_in_eval": True,
+        },
+    )
+
+    logits = torch.tensor([[9.0, 1.0, 0.5]], dtype=torch.float32)
+    allowed_mask = torch.tensor([[False, True, True]], dtype=torch.bool)
+    policy = trainer._resolve_mask_guided_policy(
+        training=False,
+        batch_target_in_mask_rate=None,
+        batch_samples=1,
+    )
+
+    effective_logits = trainer._apply_mask_guided_logits(
+        logits=logits,
+        allowed_mask=allowed_mask,
+        policy=policy,
+    )
+
+    assert int(torch.argmax(logits, dim=1).item()) == 0
+    assert int(torch.argmax(effective_logits, dim=1).item()) == 1
 
 
 def test_evaluate_test_fixed_head_primary_metrics_use_target_label_for_unseen_future_activity():

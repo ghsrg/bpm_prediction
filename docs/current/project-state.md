@@ -182,6 +182,9 @@ comparison model. It uses event feature embeddings plus numeric features,
 LSTM/GRU sequence encoding, `last_node` or `global_mean` readout, and a linear
 softmax head over `C_train`. It does not consume structural tensors and is used
 to evaluate the static-vocabulary limitation under structural drift.
+`GATv2 + Mask` is available as a fixed-vocabulary reviewer-control baseline:
+it uses `BaselineGATv2` with inference-time hard topology post-filtering, while
+retaining the static `C_train` output head.
 `training.learning_strategy=topology_conditioned` is implemented as a
 trainer-level methodology with known-version wrong-topology negatives,
 same-version physical `drop_edges`, train-time allowed-set loss, and

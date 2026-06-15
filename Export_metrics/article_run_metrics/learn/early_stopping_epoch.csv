@@ -6,6 +6,11 @@ learn,EOPKG,EOPKGTopologyConditioned,b8f6130db97f4f28b27d4528497aa1f3,8547786896
 learn,EOPKG,EOPKGTopologyConditioned,ebdfb988ea654392a4a4fc270f9e7c71,854778689611649472,_EOPKG_TC-UN-f1-5-penalty3l-67_loan_v1_v5_simulated_GATv2,_EOPKG_TC-UN-f1-5-penalty3l,67,early_stopping_epoch,42,1780686116501,42.0
 learn,GATv2,BaselineGATv2,19d9078ee52942b08295cf257ee764d0,854778689611649472,_Base-UN-f1-55_loan_v1_v5_simulated_GATv2,_Base-UN-f1,55,early_stopping_epoch,42,1780931370931,42.0
 learn,GATv2,BaselineGATv2,6ede1f8547d64f9ca43d7c45efbd429f,854778689611649472,_Base-UN-f1-78_loan_v1_v5_simulated_GATv2,_Base-UN-f1,78,early_stopping_epoch,40,1780937101808,40.0
+learn,GATv2+Mask,BaselineGATv2Mask,477ddf290447423086388425acd95d46,854778689611649472,_Base-MN-f1-13_loan_v1_v5_simulated_GATv2,_Base-MN-f1,13,early_stopping_epoch,23,1781280295344,23.0
+learn,GATv2+Mask,BaselineGATv2Mask,48e638d369504463b16fb3f11d14da88,854778689611649472,_Base-MN-f1-78_loan_v1_v5_simulated_GATv2,_Base-MN-f1,78,early_stopping_epoch,23,1781286747153,23.0
+learn,GATv2+Mask,BaselineGATv2Mask,de7d038476b74690a441bf00a9b6f2fc,854778689611649472,_Base-MN-f1-42_loan_v1_v5_simulated_GATv2,_Base-MN-f1,42,early_stopping_epoch,23,1781277826477,23.0
+learn,GATv2+Mask,BaselineGATv2Mask,efb7334ec4e74b2d9dcb5c2eeed6beb3,854778689611649472,_Base-MN-f1-55_loan_v1_v5_simulated_GATv2,_Base-MN-f1,55,early_stopping_epoch,25,1781283527206,25.0
+learn,GATv2+Mask,BaselineGATv2Mask,fd61176a11094a29bec34a4accb6a2e7,854778689611649472,_Base-MN-f1-67_loan_v1_v5_simulated_GATv2,_Base-MN-f1,67,early_stopping_epoch,23,1781267843276,23.0
 learn,LSTM,LSTM_Baseline,91bf625c79f04aeeb993f58ff30e43bb,854778689611649472,_LSTM-UN-f1-5-67_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,67,early_stopping_epoch,34,1780951902145,34.0
 learn,LSTM,LSTM_Baseline,97a69231f63141a7bb7f6780b16c17fe,854778689611649472,_LSTM-UN-f1-5-13_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,13,early_stopping_epoch,34,1780985131218,34.0
 learn,LSTM,LSTM_Baseline,cbbdeac775de461c865ab13391a906dd,854778689611649472,_LSTM-UN-f1-5-78_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,78,early_stopping_epoch,34,1781001266899,34.0

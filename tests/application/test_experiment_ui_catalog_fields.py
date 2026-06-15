@@ -118,6 +118,17 @@ def test_catalog_includes_candidate_missing_target_fail_threshold():
     assert field["default"] == 0.1
 
 
+def test_catalog_includes_mask_guided_policy():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    field = catalog["training.mask_guided_policy"]
+
+    assert field["enum"] == ["auto", "off", "soft", "hard"]
+    assert field["default"] == "auto"
+    assert field["ui"]["group"] == "core"
+
+
 def test_catalog_includes_versioned_fraction_split_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]

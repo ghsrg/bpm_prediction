@@ -3744,6 +3744,27 @@ fields:
       order: 7
       priority: 1
       tab: general
+  training.mask_guided_policy:
+    affects: Controls whether topology masks are ignored, softly penalized, hard-filtered,
+      or selected automatically.
+    default: auto
+    description: Mask policy for logits. Use hard for reviewer-control post-filter
+      baselines.
+    enum:
+    - auto
+    - 'off'
+    - soft
+    - hard
+    label: 'Training: Mask policy'
+    path: training.mask_guided_policy
+    required_in_modes: []
+    required_when: {}
+    section: training
+    ui:
+      group: core
+      order: 6
+      priority: 1
+      tab: general
   training.mask_guided_hard_threshold:
     affects: Tradeoff between strict topology filtering and robustness to mask noise.
     default: 1.0

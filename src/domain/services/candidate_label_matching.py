@@ -40,3 +40,16 @@ def candidate_label_aliases(value: object) -> set[str]:
     normalized = {_canonical_label(item) for item in aliases}
     aliases.update(item for item in normalized if item)
     return aliases
+
+
+def candidate_label_metric_key(value: object) -> str:
+    """Return deterministic label key for stable candidate-space metrics."""
+
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    if "+" in raw:
+        base, suffix = raw.rsplit("+", 1)
+        if suffix.strip().lower() in _XES_LIFECYCLE_SUFFIXES and base.strip():
+            raw = base.strip()
+    return raw

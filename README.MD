@@ -172,10 +172,23 @@ linking paper tables to repository artifacts:
 | --- | --- | --- |
 | `LSTM` | `LSTM_Baseline` | Fixed-vocabulary recurrent baseline. |
 | `GATv2` | `BaselineGATv2` | Logs-only graph baseline. |
+| `GATv2+Mask` | `BaselineGATv2Mask` | Fixed-vocabulary GATv2 with topology-mask post-filtering. |
+| `EOPKG-WI` | `EOPKGTopologyConditionedWI` | EOPKG ablation without impulse routing. |
 | `EOPKG` | `EOPKGTopologyConditioned` | Topology-conditioned candidate-space model. |
 
-When exporting figures for papers, rename legends to `LSTM`, `GATv2`, and
-`EOPKG`. Keep full run IDs, checkpoint names, YAML presets, and raw metric
+When exporting figures for papers, use the article figure exporter so legends,
+model colors, and min/max seed bands remain consistent across figures:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_article_figures.py `
+  --input-dir Export_metrics\article_run_metrics `
+  --output-dir outputs\article_figures `
+  --formats svg,png `
+  --dpi 600
+```
+
+The exporter clips learn curves to epochs 0-50 and keeps drift curves on the
+full chronological trajectory. Keep full run IDs, checkpoint names, YAML presets, and raw metric
 exports in supplementary/reproducibility materials rather than in the main
 article text.
 

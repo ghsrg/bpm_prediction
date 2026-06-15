@@ -483,6 +483,24 @@ by_version_metrics.csv
 report.md
 ```
 
+### article_figure_export
+
+Use this after exporting and aggregating article run metrics to regenerate the
+publication figures from `Export_metrics/article_run_metrics`.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_article_figures.py `
+  --input-dir Export_metrics\article_run_metrics `
+  --output-dir outputs\article_figures `
+  --formats svg,png `
+  --dpi 600
+```
+
+The command writes SVG files for journal submission and high-DPI PNG files for
+Word drafts. Learn figures are clipped to epochs 0-50 for comparability across
+runs; drift figures use the full chronological drift trajectory. Model colors
+and legend labels are fixed across all figures.
+
 ---
 
 ## Key Config Attributes

@@ -13,6 +13,11 @@ learn,GATv2,BaselineGATv2,19d9078ee52942b08295cf257ee764d0,854778689611649472,_B
 learn,GATv2,BaselineGATv2,4de188c1615448e39860458609d7ba5b,854778689611649472,_Base-UN-f1-67_loan_v1_v5_simulated_GATv2,_Base-UN-f1,67,test_pred_in_mask_rate_v1,50,1780913667602,0.9663068652153015
 learn,GATv2,BaselineGATv2,6ede1f8547d64f9ca43d7c45efbd429f,854778689611649472,_Base-UN-f1-78_loan_v1_v5_simulated_GATv2,_Base-UN-f1,78,test_pred_in_mask_rate_v1,50,1780937123003,0.9617272019386292
 learn,GATv2,BaselineGATv2,bbb9ea80d692474a87731fdf952ebe1b,854778689611649472,_Base-UN-f1-42_loan_v1_v5_simulated_GATv2,_Base-UN-f1,42,test_pred_in_mask_rate_v1,50,1780613913946,0.9669610857963562
+learn,GATv2+Mask,BaselineGATv2Mask,477ddf290447423086388425acd95d46,854778689611649472,_Base-MN-f1-13_loan_v1_v5_simulated_GATv2,_Base-MN-f1,13,test_pred_in_mask_rate_v1,50,1781280316232,1.0
+learn,GATv2+Mask,BaselineGATv2Mask,48e638d369504463b16fb3f11d14da88,854778689611649472,_Base-MN-f1-78_loan_v1_v5_simulated_GATv2,_Base-MN-f1,78,test_pred_in_mask_rate_v1,50,1781286769211,1.0
+learn,GATv2+Mask,BaselineGATv2Mask,de7d038476b74690a441bf00a9b6f2fc,854778689611649472,_Base-MN-f1-42_loan_v1_v5_simulated_GATv2,_Base-MN-f1,42,test_pred_in_mask_rate_v1,50,1781277862728,1.0
+learn,GATv2+Mask,BaselineGATv2Mask,efb7334ec4e74b2d9dcb5c2eeed6beb3,854778689611649472,_Base-MN-f1-55_loan_v1_v5_simulated_GATv2,_Base-MN-f1,55,test_pred_in_mask_rate_v1,50,1781283558253,1.0
+learn,GATv2+Mask,BaselineGATv2Mask,fd61176a11094a29bec34a4accb6a2e7,854778689611649472,_Base-MN-f1-67_loan_v1_v5_simulated_GATv2,_Base-MN-f1,67,test_pred_in_mask_rate_v1,50,1781267865126,1.0
 learn,LSTM,LSTM_Baseline,91bf625c79f04aeeb993f58ff30e43bb,854778689611649472,_LSTM-UN-f1-5-67_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,67,test_pred_in_mask_rate_v1,50,1780951924873,0.9996728897094727
 learn,LSTM,LSTM_Baseline,97a69231f63141a7bb7f6780b16c17fe,854778689611649472,_LSTM-UN-f1-5-13_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,13,test_pred_in_mask_rate_v1,50,1780985156926,0.999018669128418
 learn,LSTM,LSTM_Baseline,cbbdeac775de461c865ab13391a906dd,854778689611649472,_LSTM-UN-f1-5-78_loan_v1_v5_simulated_LSTM,_LSTM-UN-f1-5,78,test_pred_in_mask_rate_v1,50,1781001291393,1.0

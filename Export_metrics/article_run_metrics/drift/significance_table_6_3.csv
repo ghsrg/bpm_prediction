@@ -1,22 +1,29 @@
 metric,metric_label,family,comparison,baseline_model,advantage_direction,n,baseline_mean,eopkg_mean,mean_paired_advantage,median_paired_advantage,std_paired_advantage,cohen_dz,p_exact,p_holm_family
-drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,GATv2,higher,5,0.266657,0.737304,0.470648,0.479574,0.111360,4.226363,0.031250,0.375000
-drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,LSTM,higher,5,0.207571,0.737304,0.529733,0.576454,0.132799,3.988973,0.031250,0.375000
-drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.415280,0.737304,0.322025,0.330762,0.111560,2.886565,0.031250,0.375000
-drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,GATv2,lower,5,0.612338,0.119269,0.493069,0.520564,0.083338,5.916482,0.031250,0.375000
-drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,LSTM,lower,5,0.698020,0.119269,0.578751,0.549886,0.161355,3.586817,0.031250,0.375000
-drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,0.499238,0.119269,0.379970,0.386139,0.093052,4.083426,0.031250,0.375000
-drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,GATv2,lower,5,0.457901,0.180621,0.277280,0.331966,0.093522,2.964873,0.031250,0.375000
-drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,LSTM,lower,5,0.440801,0.180621,0.260180,0.259130,0.076951,3.381114,0.031250,0.375000
-drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,0.222331,0.180621,0.041710,0.037036,0.040182,1.038024,0.031250,0.375000
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,GATv2,lower,5,12.694600,2.698967,9.995633,9.839192,1.668518,5.990724,0.031250,0.375000
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,LSTM,lower,5,11.602304,2.698967,8.903337,9.784831,1.629857,5.462649,0.031250,0.375000
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,2.960098,2.698967,0.261131,0.652694,1.076203,0.242641,0.312500,0.375000
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,GATv2,higher,5,0.207271,0.448968,0.241697,0.259706,0.082563,2.927438,0.031250,0.187500
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,LSTM,higher,5,0.153774,0.448968,0.295194,0.333598,0.109429,2.697578,0.031250,0.187500
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.239989,0.448968,0.208979,0.220240,0.092263,2.265042,0.031250,0.187500
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,GATv2,higher,5,0.387662,0.880731,0.493069,0.520564,0.083338,5.916481,0.031250,0.187500
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,LSTM,higher,5,0.301980,0.880731,0.578751,0.549886,0.161355,3.586817,0.031250,0.187500
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.500762,0.880731,0.379970,0.386139,0.093052,4.083426,0.031250,0.187500
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,GATv2,higher,5,0.078218,0.332064,0.253846,0.297030,0.071380,3.556285,0.031250,0.093750
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,LSTM,higher,5,0.060472,0.332064,0.271592,0.273039,0.063726,4.261865,0.031250,0.093750
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.173420,0.332064,0.158644,0.161843,0.081322,1.950806,0.031250,0.093750
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,GATv2,higher,5,0.266657,0.737304,0.470648,0.479574,0.111360,4.226363,0.031250,0.500000
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,GATv2+Mask,higher,5,0.519326,0.737304,0.217979,0.202255,0.117185,1.860127,0.031250,0.500000
+drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,LSTM,higher,5,0.207571,0.737304,0.529733,0.576454,0.132799,3.988973,0.031250,0.500000
+drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.415280,0.737304,0.322025,0.330762,0.111560,2.886565,0.031250,0.500000
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,GATv2,lower,5,0.612338,0.119269,0.493069,0.520564,0.083338,5.916482,0.031250,0.500000
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,GATv2+Mask,lower,5,0.399848,0.119269,0.280579,0.300076,0.039017,7.191220,0.031250,0.500000
+drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,LSTM,lower,5,0.698020,0.119269,0.578751,0.549886,0.161355,3.586817,0.031250,0.500000
+drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,0.499238,0.119269,0.379970,0.386139,0.093052,4.083426,0.031250,0.500000
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,GATv2,lower,5,0.457901,0.180621,0.277280,0.331966,0.093522,2.964873,0.031250,0.500000
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,GATv2+Mask,lower,5,0.323438,0.180621,0.142817,0.144327,0.056364,2.533837,0.031250,0.500000
+drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,LSTM,lower,5,0.440801,0.180621,0.260180,0.259130,0.076951,3.381114,0.031250,0.500000
+drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,0.222331,0.180621,0.041710,0.037036,0.040182,1.038024,0.031250,0.500000
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,GATv2,lower,5,12.694600,2.698967,9.995633,9.839192,1.668518,5.990724,0.031250,0.500000
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,GATv2+Mask,lower,5,10.331059,2.698967,7.632092,8.043051,1.218000,6.266084,0.031250,0.500000
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,LSTM,lower,5,11.602304,2.698967,8.903337,9.784831,1.629857,5.462649,0.031250,0.500000
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,EOPKG-WI,lower,5,2.960098,2.698967,0.261131,0.652694,1.076203,0.242641,0.312500,0.500000
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,GATv2,higher,5,0.207271,0.448968,0.241697,0.259706,0.082563,2.927438,0.031250,0.250000
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,GATv2+Mask,higher,5,0.337096,0.448968,0.111872,0.089527,0.089935,1.243915,0.031250,0.250000
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,LSTM,higher,5,0.153774,0.448968,0.295194,0.333598,0.109429,2.697578,0.031250,0.250000
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.239989,0.448968,0.208979,0.220240,0.092263,2.265042,0.031250,0.250000
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,GATv2,higher,5,0.387662,0.880731,0.493069,0.520564,0.083338,5.916481,0.031250,0.250000
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,GATv2+Mask,higher,5,0.600152,0.880731,0.280579,0.300076,0.039017,7.191219,0.031250,0.250000
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,LSTM,higher,5,0.301980,0.880731,0.578751,0.549886,0.161355,3.586817,0.031250,0.250000
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.500762,0.880731,0.379970,0.386139,0.093052,4.083426,0.031250,0.250000
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,GATv2,higher,5,0.078218,0.332064,0.253846,0.297030,0.071380,3.556285,0.031250,0.125000
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,GATv2+Mask,higher,5,0.149810,0.332064,0.182254,0.185072,0.059097,3.083970,0.031250,0.125000
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,LSTM,higher,5,0.060472,0.332064,0.271592,0.273039,0.063726,4.261865,0.031250,0.125000
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,EOPKG-WI,higher,5,0.173420,0.332064,0.158644,0.161843,0.081322,1.950806,0.031250,0.125000

@@ -152,7 +152,11 @@ def _aggregate_run_set(
     best_epoch_by_run = _best_epoch_by_run(run_dir) if strategy == "best_epoch" else {}
 
     for metric_file in sorted(run_dir.glob("*.csv")):
-        if metric_file.name in SKIP_FILES or metric_file.name.startswith("summary_"):
+        if (
+            metric_file.name in SKIP_FILES
+            or metric_file.name.startswith("summary_")
+            or metric_file.name.startswith("significance_")
+        ):
             continue
         rows = _read_rows(metric_file)
         if not rows:

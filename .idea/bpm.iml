@@ -9,6 +9,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.cache" />
       <excludeFolder url="file://$MODULE_DIR$/etalon" />
       <excludeFolder url="file://$MODULE_DIR$/mlruns" />
+      <excludeFolder url="file://$MODULE_DIR$/Export_metrics" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.11 (bpm_prediction) (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

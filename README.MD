@@ -192,6 +192,28 @@ full chronological trajectory. Keep full run IDs, checkpoint names, YAML presets
 exports in supplementary/reproducibility materials rather than in the main
 article text.
 
+To prepare a Word draft from the Markdown article, use the Pandoc-based DOCX
+converter. Pandoc is required because it converts LaTeX math into native Word
+equations. The converter also patches body paragraph styles to justified text,
+0 cm left/right indentation, 1.27 cm first-line indentation, 0 pt before/after
+spacing, and 1.5 line spacing, while table-cell paragraphs keep 0 first-line
+indentation. It also removes paragraph indents from figure/table captions,
+stretches kept figures to the configured content width, and applies full-width
+uniform grid borders to all Word tables. Figures are replaced with placeholders
+by default and can be inserted manually in Word:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\convert_article_md_to_docx.py `
+  --input "Драфт_статті_4_EOPKG_структурний_дрейф.MD" `
+  --output outputs\article_docx\EOPKG_structural_drift.docx
+```
+
+Use `--keep-images` only when all referenced figure files are available in a
+Word-compatible format. Use `--no-body-style` if a journal-provided
+`--reference-doc` should control paragraph formatting. Use
+`--content-width-inches` to adjust full-width figure scaling for a different
+page/margin template.
+
 Current control latency snapshot for the EOPKG structural-drift article:
 
 | Paper name | Device / batch | Parameters | Inference time, ms per graph sample | Source metric |

@@ -1,141 +1,197 @@
 metric,metric_label,family,comparison,seed,baseline_model,baseline_value,eopkg_value,advantage_direction,paired_advantage,baseline_run_id,eopkg_run_id
-drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,13,GATv2,0.302253,0.604812,higher,0.302559,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,13,GATv2,0.302253,0.776569,higher,0.474316,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,32,GATv2,0.292576,0.795476,higher,0.502901,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,42,GATv2,0.277015,0.878584,higher,0.601569,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,55,GATv2,0.255882,0.697456,higher,0.441575,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,67,GATv2,0.257720,0.785681,higher,0.527961,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,78,GATv2,0.240413,0.719987,higher,0.479574,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.533785,0.604812,higher,0.071027,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2,99,GATv2,0.331789,0.785233,higher,0.453444,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.533785,0.776569,higher,0.242784,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.512348,0.795476,higher,0.283128,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.500037,0.878584,higher,0.378547,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.538851,0.697456,higher,0.158605,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.506224,0.785681,higher,0.279457,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.517732,0.719987,higher,0.202255,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,13,LSTM,0.306747,0.604812,higher,0.298065,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_macro_f1,Macro F1,primary,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.514316,0.785233,higher,0.270917,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,13,LSTM,0.306747,0.776569,higher,0.469822,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,32,LSTM,0.239865,0.795476,higher,0.555611,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,42,LSTM,0.291890,0.878584,higher,0.586695,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,55,LSTM,0.144074,0.697456,higher,0.553382,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,67,LSTM,0.209227,0.785681,higher,0.576454,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,78,LSTM,0.085919,0.719987,higher,0.634068,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.451349,0.604812,higher,0.153463,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_macro_f1,Macro F1,primary,EOPKG vs LSTM,99,LSTM,0.251642,0.785233,higher,0.533591,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.451349,0.776569,higher,0.325220,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.455571,0.795476,higher,0.339905,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.447116,0.878584,higher,0.431469,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.413668,0.697456,higher,0.283788,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.375040,0.785681,higher,0.410641,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.389225,0.719987,higher,0.330762,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,13,GATv2,0.524752,0.160701,lower,0.364052,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_macro_f1,Macro F1,primary,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.376705,0.785233,higher,0.408528,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,13,GATv2,0.524752,0.142803,lower,0.381950,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,32,GATv2,0.575019,0.116146,lower,0.458873,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,42,GATv2,0.620335,0.099772,lower,0.520564,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,55,GATv2,0.634806,0.094059,lower,0.540746,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,67,GATv2,0.624143,0.161843,lower,0.462300,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,78,GATv2,0.657654,0.079970,lower,0.577685,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.399848,0.160701,lower,0.239147,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2,99,GATv2,0.586824,0.150800,lower,0.436024,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.399848,0.142803,lower,0.257045,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.399848,0.116146,lower,0.283701,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.399848,0.099772,lower,0.300076,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.399848,0.094059,lower,0.305788,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.399848,0.161843,lower,0.238005,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.399848,0.079970,lower,0.319878,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,13,LSTM,0.527799,0.160701,lower,0.367098,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_test_oos,OOS rate,primary,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.399848,0.150800,lower,0.249048,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,13,LSTM,0.527799,0.142803,lower,0.384996,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,32,LSTM,0.671744,0.116146,lower,0.555598,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,42,LSTM,0.607007,0.099772,lower,0.507235,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,55,LSTM,0.780274,0.094059,lower,0.686215,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,67,LSTM,0.711729,0.161843,lower,0.549886,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,78,LSTM,0.863290,0.079970,lower,0.783321,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.428408,0.160701,lower,0.267708,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_test_oos,OOS rate,primary,EOPKG vs LSTM,99,LSTM,0.671363,0.150800,lower,0.520564,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.428408,0.142803,lower,0.285605,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.579970,0.116146,lower,0.463823,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.485910,0.099772,lower,0.386139,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.571973,0.094059,lower,0.477913,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.467251,0.161843,lower,0.305407,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.542650,0.079970,lower,0.462681,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,13,GATv2,0.356264,0.223662,lower,0.132602,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_test_oos,OOS rate,primary,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.460396,0.150800,lower,0.309596,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,13,GATv2,0.356264,0.259231,lower,0.097032,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,32,GATv2,0.478471,0.147571,lower,0.330900,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,42,GATv2,0.488601,0.156635,lower,0.331966,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,55,GATv2,0.486459,0.150793,lower,0.335667,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,67,GATv2,0.444515,0.211242,lower,0.233273,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,78,GATv2,0.513665,0.160772,lower,0.352893,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.304550,0.223662,lower,0.080888,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2,99,GATv2,0.502014,0.219926,lower,0.282089,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.304550,0.259231,lower,0.045319,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.263321,0.147571,lower,0.115750,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.248226,0.156635,lower,0.091591,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.352052,0.150793,lower,0.201259,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.407263,0.211242,lower,0.196021,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.305100,0.160772,lower,0.144327,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,13,LSTM,0.386518,0.223662,lower,0.162856,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_test_ece,Test ECE,primary,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.414285,0.219926,lower,0.194359,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,13,LSTM,0.386518,0.259231,lower,0.127287,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,32,LSTM,0.419188,0.147571,lower,0.271616,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,42,LSTM,0.415765,0.156635,lower,0.259130,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,55,LSTM,0.491849,0.150793,lower,0.341056,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,67,LSTM,0.418858,0.211242,lower,0.207616,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,78,LSTM,0.491016,0.160772,lower,0.330243,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.232005,0.223662,lower,0.008343,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_test_ece,Test ECE,primary,EOPKG vs LSTM,99,LSTM,0.350087,0.219926,lower,0.130161,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.232005,0.259231,lower,-0.027227,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.148740,0.147571,lower,0.001169,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.193671,0.156635,lower,0.037036,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.192628,0.150793,lower,0.041835,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.223929,0.211242,lower,0.012687,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.269422,0.160772,lower,0.108649,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,13,GATv2,11.170139,3.059703,lower,8.110436,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_test_ece,Test ECE,primary,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.371371,0.219926,lower,0.151446,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,13,GATv2,11.170139,2.648281,lower,8.521859,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,32,GATv2,13.317929,2.080118,lower,11.237811,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,42,GATv2,13.053048,4.240269,lower,8.812779,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,55,GATv2,12.979230,2.064014,lower,10.915216,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,67,GATv2,14.201420,1.900880,lower,12.300540,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,78,GATv2,12.069162,2.229971,lower,9.839192,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,10.064179,3.059703,lower,7.004476,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2,99,GATv2,14.537920,2.719653,lower,11.818267,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,13,GATv2+Mask,10.064179,2.648281,lower,7.415899,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,32,GATv2+Mask,10.170552,2.080118,lower,8.090434,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,42,GATv2+Mask,10.060179,4.240269,lower,5.819910,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,55,GATv2+Mask,10.589661,2.064014,lower,8.525646,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,67,GATv2+Mask,10.668254,1.900880,lower,8.767374,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,78,GATv2+Mask,10.273022,2.229971,lower,8.043051,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,13,LSTM,10.832135,3.059703,lower,7.772432,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs GATv2+Mask,99,GATv2+Mask,11.251852,2.719653,lower,8.532199,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,13,LSTM,10.832135,2.648281,lower,8.183855,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,32,LSTM,11.482504,2.080118,lower,9.402386,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,42,LSTM,10.856043,4.240269,lower,6.615774,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,55,LSTM,11.992220,2.064014,lower,9.928206,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,67,LSTM,11.685711,1.900880,lower,9.784831,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,78,LSTM,12.645411,2.229971,lower,10.415441,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,2.626998,3.059703,lower,-0.432705,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs LSTM,99,LSTM,11.271902,2.719653,lower,8.552249,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,13,EOPKG-WI,2.626998,2.648281,lower,-0.021283,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,32,EOPKG-WI,2.632399,2.080118,lower,0.552280,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,42,EOPKG-WI,2.995058,4.240269,lower,-1.245211,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,55,EOPKG-WI,2.716709,2.064014,lower,0.652694,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,67,EOPKG-WI,3.282549,1.900880,lower,1.381670,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,78,EOPKG-WI,3.179176,2.229971,lower,0.949205,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,13,GATv2,0.221828,0.344231,higher,0.122403,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_test_set_nll,Test Set NLL,primary,EOPKG vs EOPKG-WI,99,EOPKG-WI,3.706721,2.719653,lower,0.987068,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,13,GATv2,0.221828,0.418955,higher,0.197127,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,32,GATv2,0.206206,0.433471,higher,0.227265,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,42,GATv2,0.214630,0.546810,higher,0.332179,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,55,GATv2,0.202982,0.402828,higher,0.199846,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,67,GATv2,0.211849,0.506200,higher,0.294351,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,78,GATv2,0.185065,0.444770,higher,0.259706,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.337482,0.344231,higher,0.006748,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2,99,GATv2,0.251912,0.405556,higher,0.153644,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.337482,0.418955,higher,0.081472,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.346319,0.433471,higher,0.087152,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.319061,0.546810,higher,0.227749,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.345611,0.402828,higher,0.057217,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.328083,0.506200,higher,0.178118,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.355244,0.444770,higher,0.089527,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,13,LSTM,0.235254,0.344231,higher,0.108977,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.326781,0.405556,higher,0.078775,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,13,LSTM,0.235254,0.418955,higher,0.183701,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,32,LSTM,0.161817,0.433471,higher,0.271654,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,42,LSTM,0.213212,0.546810,higher,0.333598,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,55,LSTM,0.109158,0.402828,higher,0.293671,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,67,LSTM,0.153578,0.506200,higher,0.352622,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,78,LSTM,0.057668,0.444770,higher,0.387102,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.259770,0.344231,higher,0.084460,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs LSTM,99,LSTM,0.201244,0.405556,higher,0.204312,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.259770,0.418955,higher,0.159184,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.287616,0.433471,higher,0.145855,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.243819,0.546810,higher,0.302991,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.252763,0.402828,higher,0.150066,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.219061,0.506200,higher,0.287139,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.224531,0.444770,higher,0.220240,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,13,GATv2,0.475248,0.839299,higher,0.364052,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_macro_f1,Strict Macro F1,secondary,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.234084,0.405556,higher,0.171472,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,13,GATv2,0.475248,0.857197,higher,0.381950,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,32,GATv2,0.424981,0.883854,higher,0.458873,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,42,GATv2,0.379665,0.900229,higher,0.520564,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,55,GATv2,0.365194,0.905941,higher,0.540746,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,67,GATv2,0.375857,0.838157,higher,0.462300,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,78,GATv2,0.342346,0.920030,higher,0.577685,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.600152,0.839299,higher,0.239147,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2,99,GATv2,0.413176,0.849200,higher,0.436024,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.600152,0.857197,higher,0.257045,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.600152,0.883854,higher,0.283701,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.600152,0.900229,higher,0.300076,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.600152,0.905941,higher,0.305788,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.600152,0.838157,higher,0.238005,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.600152,0.920030,higher,0.319878,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,13,LSTM,0.472201,0.839299,higher,0.367098,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.600152,0.849200,higher,0.249048,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,13,LSTM,0.472201,0.857197,higher,0.384996,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,32,LSTM,0.328256,0.883854,higher,0.555598,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,42,LSTM,0.392993,0.900229,higher,0.507235,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,55,LSTM,0.219726,0.905941,higher,0.686215,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,67,LSTM,0.288271,0.838157,higher,0.549886,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,78,LSTM,0.136710,0.920030,higher,0.783321,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.571592,0.839299,higher,0.267708,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs LSTM,99,LSTM,0.328637,0.849200,higher,0.520564,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.571592,0.857197,higher,0.285605,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.420030,0.883854,higher,0.463823,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.514090,0.900229,higher,0.386139,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.428027,0.905941,higher,0.477913,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.532749,0.838157,higher,0.305407,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.457350,0.920030,higher,0.462681,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,13,GATv2,0.121478,0.294745,higher,0.173267,e03f160a63b34907b648e6b29b051f93,b03b8880277a467287a08bb2d2153b28
+drift_window_pred_in_mask_rate,Prediction in Mask rate,secondary,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.539604,0.849200,higher,0.309596,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,13,GATv2,0.121478,0.349200,higher,0.227723,e03f160a63b34907b648e6b29b051f93,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,32,GATv2,0.098248,0.414699,higher,0.316451,3051886070c24e56a1c92b9744c3f878,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,42,GATv2,0.060168,0.357197,higher,0.297030,bf6da114c8534a8eb85cf5a9d296cb1c,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,55,GATv2,0.052171,0.369764,higher,0.317593,d1400b7f5cee485485c75935ba0856fe,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,67,GATv2,0.089871,0.268850,higher,0.178979,2ab927c10aa14ff6b86c7fca2ad45124,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,78,GATv2,0.067403,0.369764,higher,0.302361,6da86c9f8a8745ddb59c64a7e23ad129,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.153846,0.294745,higher,0.140899,92cf23d2a12240eeafc5b9991933f8e4,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2,99,GATv2,0.060929,0.392612,higher,0.331683,68f65e2c19124e4390ab569ec7625714,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,13,GATv2+Mask,0.153846,0.349200,higher,0.195354,92cf23d2a12240eeafc5b9991933f8e4,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,32,GATv2+Mask,0.134806,0.414699,higher,0.279893,fdb211eedaa9490ba726c4e7ddfbdb2c,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,42,GATv2+Mask,0.172125,0.357197,higher,0.185072,302fb003f78d468b867a9477e40e9d50,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,55,GATv2+Mask,0.138233,0.369764,higher,0.231531,969f6444b8874e8abe26653037a5a68b,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,67,GATv2+Mask,0.161843,0.268850,higher,0.107007,33779343e67645c4b55e0ec2d2f81c0a,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,78,GATv2+Mask,0.123001,0.369764,higher,0.246763,06057a9f5a6b49bfa0e90be8b7e75335,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,13,LSTM,0.091775,0.294745,higher,0.202970,947216b4af334db88539b25462b18624,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs GATv2+Mask,99,GATv2+Mask,0.164890,0.392612,higher,0.227723,12b3cd3839304ec8b94eb6981911efc7,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,13,LSTM,0.091775,0.349200,higher,0.257426,947216b4af334db88539b25462b18624,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,32,LSTM,0.070449,0.414699,higher,0.344250,2ed18155ee434ea6ba7e4e6115126a4b,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,42,LSTM,0.084158,0.357197,higher,0.273039,f6c4ddc23599407f882f9d237f19c6e0,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,55,LSTM,0.044174,0.369764,higher,0.325590,c0522b44b1764d5086add47291774d05,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,67,LSTM,0.055979,0.268850,higher,0.212871,e35ad47b0b2c402aad5b87be01d9b6c8,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,78,LSTM,0.026276,0.369764,higher,0.343488,27d845ee73b648a3a49992c21b7d59c7,b739aca822a14a1cbd642cd4ac692d17
-drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.165651,0.294745,higher,0.129094,090ed1f9329c470dacabe8e87cad00e7,b03b8880277a467287a08bb2d2153b28
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs LSTM,99,LSTM,0.047601,0.392612,higher,0.345011,e5a9a25b43a74f4eac32cd72797d2a60,8a1baf464cd646e4910f642c7181071d
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,13,EOPKG-WI,0.165651,0.349200,higher,0.183549,090ed1f9329c470dacabe8e87cad00e7,4817ad917cbf4f558457cc61fa97af1c
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,32,EOPKG-WI,0.090251,0.414699,higher,0.324448,e7fd057f4ac7491fa634134d5ae646f1,ccb2bb84de7346c3b83974ea37cf2fe9
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,42,EOPKG-WI,0.195354,0.357197,higher,0.161843,431a79f4e8044d2987d5f97c90a221c6,210a1a668a5649d1b5ff4f4adc5fb93b
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,55,EOPKG-WI,0.116527,0.369764,higher,0.253237,edd97efded1f4ee08e676233e55461b9,e61540633e6547ed8c59bb28154d4917
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,67,EOPKG-WI,0.228865,0.268850,higher,0.039985,5f855ce1446645a4a4d52a5b3c12507f,e53ccb9930de4f7bb9b8aac4b4105174
 drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,78,EOPKG-WI,0.160701,0.369764,higher,0.209063,52976b78cd13459d8aeef2428f0736f8,b739aca822a14a1cbd642cd4ac692d17
+drift_window_strict_error_but_allowed_rate,Strict Error but Allowed rate,error_profile,EOPKG vs EOPKG-WI,99,EOPKG-WI,0.194593,0.392612,higher,0.198020,abeddbdce5fb4e07927dd4e9a3fc9b45,8a1baf464cd646e4910f642c7181071d

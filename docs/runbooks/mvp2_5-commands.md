@@ -501,6 +501,30 @@ Word drafts. Learn figures are clipped to epochs 0-50 for comparability across
 runs; drift figures use the full chronological drift trajectory. Model colors
 and legend labels are fixed across all figures.
 
+### article_docx_export
+
+Use this to convert the Markdown article draft into a DOCX draft with native
+Word equations. The command requires Pandoc in `PATH` or an explicit `--pandoc`
+path. The converter patches body paragraph styles to justified text, 0 cm
+left/right indentation, 1.27 cm first-line indentation, 0 pt before/after
+spacing, and 1.5 line spacing, while table-cell paragraphs keep 0 first-line
+indentation. It also removes paragraph indents from figure/table captions,
+stretches kept figures to the configured content width, and formats Word tables
+with full-width geometry, horizontal rules only, no vertical rules, and no cell
+shading. By default, Markdown image references are replaced with placeholders so
+SVG/figure formatting does not block DOCX generation; insert final figures in
+Word manually or pass `--keep-images` when all assets are Word-compatible. Use
+`--no-body-style` when a journal-provided `--reference-doc` should control
+paragraph formatting. Use
+`--content-width-inches` to adjust full-width figure scaling for a different
+page/margin template.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\convert_article_md_to_docx.py `
+  --input "Драфт_статті_4_EOPKG_структурний_дрейф.MD" `
+  --output outputs\article_docx\EOPKG_structural_drift.docx
+```
+
 ---
 
 ## Key Config Attributes

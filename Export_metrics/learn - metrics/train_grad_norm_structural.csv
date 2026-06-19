@@ -1,5 +1,0 @@
-"Group","Run ID","train_grad_norm_structural"
-"BaselineGATv2","","0"
-"EOPKGTopologyConditioned","","0.10212352007676768"
-"LSTMBaseline","","0"
-"EOPKGTopologyConditionedWI","","1.267439142562817"

@@ -297,7 +297,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Export raw MLflow metric histories for the EOPKG structural-drift article."
     )
     parser.add_argument("--tracking-uri", default="file:./mlruns")
-    parser.add_argument("--output-dir", default="Export_metrics/article_run_metrics")
+    parser.add_argument("--output-dir", default="outputs/Export_metrics/article_run_metrics")
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
     parser.add_argument(
         "--runs-file",

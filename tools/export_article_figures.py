@@ -1,7 +1,7 @@
 """Export publication-ready article figures from aggregated run metric CSVs.
 
 The script reads per-metric CSV files produced under
-``Export_metrics/article_run_metrics`` and renders the figures referenced in
+``outputs/Export_metrics/article_run_metrics`` and renders the figures referenced in
 the EOPKG structural drift article draft. Lines show the mean over seeds, while
 the translucent band shows the min/max seed envelope at each step.
 """
@@ -68,8 +68,8 @@ class FigureSpec:
 
 
 FIGURES = {
-    "Fig3": FigureSpec(
-        name="Fig3",
+    "FigS1": FigureSpec(
+        name="FigS1",
         source="learn",
         panels=(
             PanelSpec("train_loss", "A. Training loss", "Loss"),
@@ -80,8 +80,8 @@ FIGURES = {
         shared_y=True,
         xlabel="Epoch",
     ),
-    "Fig4": FigureSpec(
-        name="Fig4",
+    "Fig3": FigureSpec(
+        name="Fig3",
         source="learn",
         panels=(
             PanelSpec("strict_val_macro_f1", "Strict validation macro-F1", "Macro-F1"),
@@ -90,16 +90,16 @@ FIGURES = {
         max_step=50,
         xlabel="Epoch",
     ),
-    "Fig5": FigureSpec(
-        name="Fig5",
+    "Fig4": FigureSpec(
+        name="Fig4",
         source="drift",
         panels=(PanelSpec("drift_window_strict_macro_f1", "Strict macro-F1 under structural drift", "Strict macro-F1"),),
         layout=(1, 1),
         xlabel="Drift step",
         line_width_scale=0.8,
     ),
-    "Fig6": FigureSpec(
-        name="Fig6",
+    "Fig5": FigureSpec(
+        name="Fig5",
         source="drift",
         panels=(PanelSpec("drift_window_pred_in_mask_rate", "Prediction in current topology mask", "Prediction in mask rate"),),
         layout=(1, 1),
@@ -107,8 +107,8 @@ FIGURES = {
         xlabel="Drift step",
         line_width_scale=0.8,
     ),
-    "Fig7": FigureSpec(
-        name="Fig7",
+    "Fig6": FigureSpec(
+        name="Fig6",
         source="drift",
         panels=(
             PanelSpec("drift_window_test_oos", "A. Out-of-structure rate", "OOS rate"),
@@ -129,7 +129,7 @@ FIGURES = {
 
 def _parse_formats(value: str) -> list[str]:
     formats = [item.strip().lower() for item in value.split(",") if item.strip()]
-    allowed = {"svg", "png", "pdf"}
+    allowed = {"svg", "png", "pdf", "eps"}
     unsupported = sorted(set(formats) - allowed)
     if unsupported:
         raise argparse.ArgumentTypeError(f"Unsupported format(s): {', '.join(unsupported)}")
@@ -314,7 +314,7 @@ def _render_figure(input_dir: Path, output_dir: Path, spec: FigureSpec, formats:
 def _select_figures(names: str) -> list[FigureSpec]:
     requested = [item.strip() for item in names.split(",") if item.strip()]
     if not requested or requested == ["all"]:
-        return [FIGURES[name] for name in sorted(FIGURES)]
+        return [FIGURES[name] for name in sorted(FIGURES) if not name.startswith("FigS")]
     unknown = [name for name in requested if name not in FIGURES]
     if unknown:
         raise argparse.ArgumentTypeError(f"Unknown figure(s): {', '.join(unknown)}")
@@ -326,7 +326,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-dir",
         type=Path,
-        default=Path("Export_metrics/article_run_metrics"),
+        default=Path("outputs/Export_metrics/article_run_metrics"),
         help="Directory containing learn/ and drift/ metric CSV folders.",
     )
     parser.add_argument(
@@ -338,13 +338,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--figures",
         default="all",
-        help="Comma-separated figure ids to export, e.g. Fig3,Fig4. Default: all.",
+        help="Comma-separated figure ids to export, e.g. Fig3,Fig4. Default: all main figures.",
     )
     parser.add_argument(
         "--formats",
         type=_parse_formats,
         default=["svg", "png"],
-        help="Comma-separated output formats: svg,png,pdf. Default: svg,png.",
+        help="Comma-separated output formats: svg,png,pdf,eps. Default: svg,png.",
     )
     parser.add_argument("--dpi", type=int, default=600, help="PNG export DPI. Default: 600.")
     return parser.parse_args()
@@ -361,7 +361,10 @@ def main() -> int:
     print("Exported article figures:")
     for path in saved:
         print(f"  {path}")
-    print("Learn figures are clipped to epochs 0-50; drift figures use the full chronological trajectory.")
+    print(
+        "Learn figures are clipped to epochs 0-50; drift figures use the full chronological trajectory. "
+        "FigS1 is supplementary and is exported only when explicitly requested."
+    )
     return 0
 
 

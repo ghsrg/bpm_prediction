@@ -181,16 +181,19 @@ model colors, and min/max seed bands remain consistent across figures:
 
 ```powershell
 .\.venv-modern\Scripts\python.exe tools\export_article_figures.py `
-  --input-dir Export_metrics\article_run_metrics `
+  --input-dir outputs\Export_metrics\article_run_metrics `
   --output-dir outputs\article_figures `
-  --formats svg,png `
+  --formats svg,png,eps `
   --dpi 600
 ```
 
-The exporter clips learn curves to epochs 0-50 and keeps drift curves on the
-full chronological trajectory. Keep full run IDs, checkpoint names, YAML presets, and raw metric
-exports in supplementary/reproducibility materials rather than in the main
-article text.
+The exporter writes SVG/EPS files for journal submission and high-DPI PNG files
+for Word drafts. By default, it exports the main article metric figures
+(`Fig3`-`Fig6`); the train/validation loss diagnostic is available as `FigS1`
+when requested explicitly. It clips learn curves to epochs 0-50 and keeps drift
+curves on the full chronological trajectory. Keep full run IDs, checkpoint
+names, YAML presets, and raw metric exports in supplementary/reproducibility
+materials rather than in the main article text.
 
 To prepare a Word draft from the Markdown article, use the Pandoc-based DOCX
 converter. Pandoc is required because it converts LaTeX math into native Word

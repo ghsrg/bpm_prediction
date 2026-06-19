@@ -204,7 +204,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Aggregate article raw MLflow metric exports as mean ± std by model."
     )
-    parser.add_argument("--input-dir", default="Export_metrics/article_run_metrics")
+    parser.add_argument("--input-dir", default="outputs/Export_metrics/article_run_metrics")
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
     parser.add_argument("--decimals", type=int, default=3)
     return parser.parse_args(argv)

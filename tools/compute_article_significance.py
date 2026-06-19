@@ -249,7 +249,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute paired exact permutation tests for article Table 6.3 metrics."
     )
-    parser.add_argument("--input-dir", default="Export_metrics/article_run_metrics/drift")
+    parser.add_argument("--input-dir", default="outputs/Export_metrics/article_run_metrics/drift")
     parser.add_argument("--output-prefix", default="significance_table_6_3")
     parser.add_argument("--decimals", type=int, default=6)
     return parser.parse_args(argv)

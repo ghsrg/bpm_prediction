@@ -1,5 +1,0 @@
-"Group","Run ID","train_grad_norm_observed"
-"BaselineGATv2","","2.867170572247551"
-"EOPKGTopologyConditioned","","0.17934410888292618"
-"LSTMBaseline","","0.7651535006099771"
-"EOPKGTopologyConditionedWI","","1.28571487438081"

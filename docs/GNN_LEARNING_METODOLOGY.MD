@@ -56,6 +56,40 @@ The methodology must support:
 
 ---
 
+## Active Hypothesis Path
+
+The active methodology path is topology-native candidate scoring with impulse
+activation routing. This is different from simply adding structure as another
+feature stream. The current process version defines the candidate universe
+`C^(v)`, and the prefix state is injected into that topology before the model
+ranks candidates.
+
+```mermaid
+flowchart TD
+    A["Historical logs and topologies"] --> B["Learn prefix-to-topology alignment"]
+    B --> C["New topology G^(vN)"]
+    C --> D["Build dynamic candidate space C^(vN)"]
+    E["Observed prefix x_t"] --> F["Encode prefix state"]
+    F --> G["Impulse over candidate nodes"]
+    D --> G
+    G --> H["Rank next activity in C^(vN)"]
+```
+
+Other structural modes remain valid experiment controls:
+
+- fixed-vocabulary baselines test the static-head limitation;
+- `GATv2 + Mask` tests whether topology post-filtering alone is enough;
+- historical EOPKG fusion modes test whether adding structure as features,
+  logits, or cross-attention is sufficient;
+- EOPKG without impulse tests whether topology-native candidates alone are
+  enough.
+
+The active hypothesis is stronger: topology is not only an auxiliary signal. It
+defines the version-specific candidate space and provides the graph over which
+prefix state is propagated before prediction.
+
+---
+
 ## Current Evidence
 
 Recent experiments and audit show:
@@ -256,9 +290,9 @@ score_j = z_prefix^T W e_j
 
 Interpretation:
 
-РњРѕРґРµР»СЊ РЅРµ РїРёС‚Р°С”: "СЏРєРёР№ Р· C_train РєР»Р°СЃС–РІ РѕР±СЂР°С‚Рё?". Р’РѕРЅР°
-РїРёС‚Р°С”: "СЏРєРёР№ candidate Р· РїРѕС‚РѕС‡РЅРѕС— topology РЅР°Р№РєСЂР°С‰Рµ РІС–РґРїРѕРІС–РґР°С”
-РїРѕС‚РѕС‡РЅРѕРјСѓ prefix-state?".
+Модель не питає: "який з C_train класів обрати?". Вона
+питає: "який candidate з поточної topology найкраще відповідає
+поточному prefix-state?".
 
 This is the main target level for business-valid zero-shot.
 
@@ -739,9 +773,9 @@ L_duration = HuberLoss(
 
 Interpretation:
 
-РџСЂРѕРіРЅРѕР· С‡Р°СЃСѓ РЅРµ РїРѕРІРёРЅРµРЅ Р±СѓС‚Рё РѕРґРЅРёРј scalar РґР»СЏ РІСЃСЊРѕРіРѕ prefix. Р§Р°СЃ
-Р·Р°Р»РµР¶РёС‚СЊ РІС–Рґ С‚РѕРіРѕ, СЏРєР° РіС–Р»РєР° РїСЂРѕС†РµСЃСѓ Р±СѓРґРµ РІРёР±СЂР°РЅР°. РўРѕРјСѓ С‚СЂРµР±Р°
-СЂР°С…СѓРІР°С‚Рё `duration_j` РґР»СЏ РєРѕР¶РЅРѕРіРѕ candidate Р°Р±Рѕ С…РѕС‡Р° Р± РґР»СЏ top-k candidates.
+Прогноз часу не повинен бути одним scalar для всього prefix. Час
+залежить від того, яка гілка процесу буде вибрана. Тому треба
+рахувати `duration_j` для кожного candidate або хоча б для top-k candidates.
 
 Business output:
 

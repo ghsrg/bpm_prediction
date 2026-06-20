@@ -27,6 +27,26 @@ details from `README.MD`.
 - `runtime_status`: implemented
 - `documentation_status`: canonical sync in progress
 
+## Active Research Path
+
+- `main_model_family`: `EOPKGTopologyConditioned`
+- `candidate_contract`: `training.candidate_contract_mode=candidate_id`
+- `candidate_identity`: `training.candidate_identity_mode=topology_native`
+- `topology_conditioning`: `model.topology_conditioning_mode=impulse_activation_routing`
+- `primary_output`: version-specific `candidate_logits [B, C_v]`
+- `compatibility_output`: fixed-vocabulary diagnostics under `fixed_label_*`
+
+**Summary:**
+
+The current research path focuses on dynamic topology-native candidate scoring.
+For each process version `v`, the topology defines the candidate space `C_v`.
+The observed prefix is encoded, prefix state is injected as an impulse into the
+current topology candidate graph, and the model ranks candidates in `C_v`.
+
+Historical `EOPKGGATv2.fusion_mode` variants remain supported as experimental
+controls and ablations. They should be treated as additional experiment modes,
+not as the primary path for topology-native zero-shot adaptation.
+
 ## Current Research Hypothesis
 
 - `topic`: topology-conditioned zero-shot predictive monitoring under structural process drift
@@ -38,27 +58,27 @@ details from `README.MD`.
 
 **Hypothesis (ukr):**
 
-РЇ Р±Р°С‡Сѓ СЃС‚Р°СЂС– РІРµСЂСЃС–С— РїСЂРѕС†РµСЃСѓ С‚Р° С—С…РЅС– Р»РѕРіРё. РњРѕРґРµР»СЊ РјР°С” РЅР°РІС‡РёС‚РёСЃСЏ СЂРѕР·СѓРјС–С‚Рё, СЏРє
-topology РІРїР»РёРІР°С” РЅР° `next-activity prediction`. РљРѕР»Рё РїСЂРёС…РѕРґРёС‚СЊ РЅРѕРІР° topology
-`vN`, РЅР°РІС–С‚СЊ Р±РµР· Р»РѕРіС–РІ `vN` РґР»СЏ РЅР°РІС‡Р°РЅРЅСЏ, РјРѕРґРµР»СЊ РјР°С” РІРёРєРѕСЂРёСЃС‚Р°С‚Рё С†СЋ topology СЏРє
-СѓРјРѕРІСѓ РїСЂРѕРіРЅРѕР·Сѓ.
+Я бачу старі версії процесу та їхні логи. Модель має навчитися розуміти, як
+topology впливає на `next-activity prediction`. Коли приходить нова topology
+`vN`, навіть без логів `vN` для навчання, модель має використати цю topology як
+умову прогнозу.
 
 **Research framing (ukr):**
 
-РџРѕС‚РѕС‡РЅС– `fusion_mode` РµРєСЃРїРµСЂРёРјРµРЅС‚Рё С‚СЂРµР±Р° С‚СЂР°РєС‚СѓРІР°С‚Рё СЏРє ablation baseline: РІРѕРЅРё
-РїРѕРєР°Р·СѓСЋС‚СЊ, С‰Рѕ РїСЂРѕСЃС‚Р° РїРѕРґР°С‡Р° СЃС‚СЂСѓРєС‚СѓСЂРё РјРѕР¶Рµ Р·РјРµРЅС€СѓРІР°С‚Рё OOS/ECE Р°Р±Рѕ РґР°РІР°С‚Рё
-Р»РѕРєР°Р»СЊРЅС– РїРѕРєСЂР°С‰РµРЅРЅСЏ, Р°Р»Рµ РЅРµ РґР°С” СЃС‚Р°Р±С–Р»СЊРЅРѕС— Р·РЅР°С‡СѓС‰РѕС— РїРµСЂРµРІР°РіРё РїС–СЃР»СЏ structural
-drift. РћСЃРЅРѕРІРЅР° РґРёСЃРµСЂС‚Р°С†С–Р№РЅР° С†С–РЅРЅС–СЃС‚СЊ РјР°С” Р±СѓС‚Рё РІ methodology: СЏРє РЅР°РІС‡РёС‚Рё РѕРґРЅСѓ
-topology-conditioned РјРѕРґРµР»СЊ СЂРµР°Р»СЊРЅРѕ Р·Р°Р»РµР¶Р°С‚Рё РІС–Рґ СЃС‚СЂСѓРєС‚СѓСЂРё С‚Р°Рє, С‰РѕР± РЅРѕРІР° BPMN /
-EOPKG topology РґР°РІР°Р»Р° РєРѕСЂРёСЃС‚СЊ Сѓ cold-start/zero-shot СЂРµР¶РёРјС– РЅРѕРІРѕС— РІРµСЂСЃС–С—.
+Поточні `fusion_mode` експерименти треба трактувати як ablation baseline: вони
+показують, що проста подача структури може зменшувати OOS/ECE або давати
+локальні покращення, але не дає стабільної значущої переваги після structural
+drift. Основна дисертаційна цінність має бути в methodology: як навчити одну
+topology-conditioned модель реально залежати від структури так, щоб нова BPMN /
+EOPKG topology давала користь у cold-start/zero-shot режимі нової версії.
 
 **Description (ukr):**
 
-РџСЂРѕС”РєС‚ Р·Р°СЂР°Р· РїРµСЂРµР±СѓРІР°С” Сѓ С„Р°Р·С– MVP2.5 Stage 4.2. РћСЃРЅРѕРІРЅРёР№ runtime РІР¶Рµ
-СЂРµР°Р»С–Р·РѕРІР°РЅРёР№: С” offline topology ingestion/sync, offline stats snapshots,
-repository-backed train/eval path С– Stage 4.2 stats integration. РћСЃРЅРѕРІРЅР°
-РїРѕС‚РѕС‡РЅР° СЂРѕР±РѕС‚Р° РїРѕ РґРѕРєСѓРјРµРЅС‚Р°С†С–С— вЂ” Р·СЂРѕР±РёС‚Рё knowledge base РєРµСЂРѕРІР°РЅРѕСЋ РґР»СЏ Р°РіРµРЅС‚С–РІ С–
-Р·Р°С„С–РєСЃСѓРІР°С‚Рё Р°СЂС…С–С‚РµРєС‚СѓСЂРЅС– СЂС–С€РµРЅРЅСЏ С‡РµСЂРµР· ADR.
+Проєкт зараз перебуває у фазі MVP2.5 Stage 4.2. Основний runtime вже
+реалізований: є offline topology ingestion/sync, offline stats snapshots,
+repository-backed train/eval path і Stage 4.2 stats integration. Основна
+поточна робота по документації — зробити knowledge base керованою для агентів і
+зафіксувати архітектурні рішення через ADR.
 
 ---
 
@@ -73,9 +93,9 @@ repository-backed train/eval path С– Stage 4.2 stats integration. РћСЃР�
 
 **Description (ukr):**
 
-РўРѕРїРѕР»РѕРіС–СЏ РїСЂРѕС†РµСЃС–РІ РіРѕС‚СѓС”С‚СЊСЃСЏ offline. Р”Р»СЏ РѕРґРёРЅРёС‡РЅРѕРіРѕ dataset РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”С‚СЊСЃСЏ
-`ingest-topology`, РґР»СЏ bulk-СЃРёРЅС…СЂРѕРЅС–Р·Р°С†С–С— вЂ” `sync-topology`. Runtime train/eval
-РЅРµ РјР°С” РїРµСЂРµР±СѓРґРѕРІСѓРІР°С‚Рё topology Р· raw sources.
+Топологія процесів готується offline. Для одиничного dataset використовується
+`ingest-topology`, для bulk-синхронізації — `sync-topology`. Runtime train/eval
+не має перебудовувати topology з raw sources.
 
 ### offline_stats_snapshots
 
@@ -87,9 +107,9 @@ repository-backed train/eval path С– Stage 4.2 stats integration. РћСЃР�
 
 **Description (ukr):**
 
-РЎС‚Р°С‚РёСЃС‚РёРєР° РїСЂРѕС†РµСЃС–РІ РіРѕС‚СѓС”С‚СЊСЃСЏ offline С– Р·Р±РµСЂС–РіР°С”С‚СЊСЃСЏ СЏРє immutable snapshots.
-`sync-stats-backfill` РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”С‚СЊСЃСЏ РґР»СЏ РїРѕР±СѓРґРѕРІРё С–СЃС‚РѕСЂРёС‡РЅРѕС— timeline
-snapshots, РЅРµРѕР±С…С–РґРЅРѕС— РґР»СЏ `strict_asof` РґРѕСЃР»С–РґР¶РµРЅСЊ.
+Статистика процесів готується offline і зберігається як immutable snapshots.
+`sync-stats-backfill` використовується для побудови історичної timeline
+snapshots, необхідної для `strict_asof` досліджень.
 
 ### repository_backed_runtime
 
@@ -102,9 +122,9 @@ snapshots, РЅРµРѕР±С…С–РґРЅРѕС— РґР»СЏ `strict_asof
 
 **Description (ukr):**
 
-Train/eval runtime СЃРїРѕР¶РёРІР°С” structure С– stats С‡РµСЂРµР· `IKnowledgeGraphPort`.
-Backend РјР°С” Р±СѓС‚Рё config-driven: РїРµСЂРµРјРёРєР°РЅРЅСЏ РјС–Р¶ `file`, `in_memory`, `neo4j`
-РЅРµ РїРѕРІРёРЅРЅРѕ РІРёРјР°РіР°С‚Рё РїРµСЂРµРїРёСЃСѓРІР°РЅРЅСЏ domain/application Р»РѕРіС–РєРё.
+Train/eval runtime споживає structure і stats через `IKnowledgeGraphPort`.
+Backend має бути config-driven: перемикання між `file`, `in_memory`, `neo4j`
+не повинно вимагати переписування domain/application логіки.
 
 ### stats_contract_v1
 
@@ -117,9 +137,9 @@ Backend РјР°С” Р±СѓС‚Рё config-driven: РїРµСЂРµРјРё�
 
 **Description (ukr):**
 
-Universal stats contract v1 СЂРµР°Р»С–Р·РѕРІР°РЅРѕ: producer-side quality/alignment gates,
-`metadata.stats_index`, `metadata.stats_contract`, consumer quality gate С–
-config-driven mapping Сѓ `struct_x`.
+Universal stats contract v1 реалізовано: producer-side quality/alignment gates,
+`metadata.stats_index`, `metadata.stats_contract`, consumer quality gate і
+config-driven mapping у `struct_x`.
 
 ### gnn_runtime
 
@@ -136,14 +156,24 @@ config-driven mapping Сѓ `struct_x`.
   use stable activity label/id semantics; frozen-vocabulary compatibility
   diagnostics use `fixed_label_*`.
 
+- `research_role_groups`:
+  - `primary_path`: `EOPKGTopologyConditioned` with `candidate_id`,
+    `topology_native`, and `impulse_activation_routing`.
+  - `reviewer_controls`: `LSTM_Baseline`, `BaselineGATv2`, `BaselineGCN`,
+    `GATv2 + Mask`.
+  - `experimental_structural_modes`: `EOPKGGATv2` fusion modes such as
+    `ClassMeanAttention`, `ClassMeanConcat`, `ClassAwareStructuralScoring`,
+    `TopologyStateEncoder`, `TopologyStateGraphEncoder`,
+    `StructuralPriorEncoder`, and `StructXAttn`.
+
 **Description (ukr):**
 
-РџС–РґС‚СЂРёРјСѓСЋС‚СЊСЃСЏ baseline GNN, fixed-vocabulary recurrent baseline С– EOPKG-РјРѕРґРµР»С–. EOPKG runtime РјРѕР¶Рµ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё
+Підтримуються baseline GNN, fixed-vocabulary recurrent baseline і EOPKG-моделі. EOPKG runtime може використовувати
 `allowed_target_mask`, `structural_edge_index`, `structural_edge_weight`,
-`struct_node_to_class_index`, `struct_x` С– snapshot telemetry. Р”Р»СЏ
-`EOPKGGATv2` РґРѕСЃС‚СѓРїРЅС– backward-compatible `ClassMeanAttention` /
-`ClassMeanConcat` С– РЅРѕРІРёР№ `ClassAwareStructuralScoring`, СЏРєРёР№ РґРѕРґР°С”
-node-level structural logits, Р°РіСЂРµРіРѕРІР°РЅС– Сѓ class logits С‡РµСЂРµР·
+`struct_node_to_class_index`, `struct_x` і snapshot telemetry. Для
+`EOPKGGATv2` доступні backward-compatible `ClassMeanAttention` /
+`ClassMeanConcat` і новий `ClassAwareStructuralScoring`, який додає
+node-level structural logits, агреговані у class logits через
 `struct_node_to_class_index`.
 
 `TopologyStateEncoder` is available as an experimental `model.fusion_mode` for
@@ -323,10 +353,10 @@ store searchable flat attributes separately from nested explanation JSON.
 
 **Description (ukr):**
 
-Train/eval runtime РјР°С” disk-cache РґР»СЏ РїРѕР±СѓРґРѕРІР°РЅРёС… graph datasets С– СЂРµР¶РёРј
-sharded disk spill РґР»СЏ РІРµР»РёРєРёС… Р·Р°РїСѓСЃРєС–РІ. РЇРєС‰Рѕ spill СѓРІС–РјРєРЅРµРЅРѕ, runtime РїСЂРёРјСѓСЃРѕРІРѕ
-РїРѕС‚СЂРµР±СѓС” cache write mode. `max_ram_gb` С” soft RSS guard: РїСЂРё РїРµСЂРµРІРёС‰РµРЅРЅС– Р»С–РјС–С‚Сѓ
-Р±СѓС„РµСЂ РіСЂР°С„С–РІ flushРёС‚СЊСЃСЏ Сѓ shards.
+Train/eval runtime має disk-cache для побудованих graph datasets і режим
+sharded disk spill для великих запусків. Якщо spill увімкнено, runtime примусово
+потребує cache write mode. `max_ram_gb` є soft RSS guard: при перевищенні ліміту
+буфер графів flushиться у shards.
 
 For stats-backed structural runs, sharded cache uses a deduplicated shard
 payload format: per-prefix `Data` objects store `structural_payload_key`, while
@@ -350,8 +380,8 @@ fall back to legacy raw-trace drift evaluation; cache entries without
 
 **Description (ukr):**
 
-Offline preparation С– runtime ML С„С–Р·РёС‡РЅРѕ СЂРѕР·РґС–Р»РµРЅС–. Р¦Рµ РєР»СЋС‡РѕРІРёР№ anti-leakage
-С–РЅРІР°СЂС–Р°РЅС‚ MVP2.5.
+Offline preparation і runtime ML фізично розділені. Це ключовий anti-leakage
+інваріант MVP2.5.
 
 ### immutable_stats_snapshots
 
@@ -360,8 +390,8 @@ Offline preparation С– runtime ML С„С–Р·РёС‡РЅРѕ СЂРѕР�
 
 **Description (ukr):**
 
-Stats snapshots РЅРµ РїРµСЂРµР·Р°РїРёСЃСѓСЋС‚СЊСЃСЏ С– РЅРµ РЅРѕСЂРјР°Р»С–Р·СѓСЋС‚СЊСЃСЏ РІ РѕРєСЂРµРјС– `NodeStat` /
-`EdgeStat` graph nodes. РџРѕС‚РѕС‡РЅРёР№ РєРѕРЅС‚СЂР°РєС‚ вЂ” JSON payload + `metadata.stats_index`.
+Stats snapshots не перезаписуються і не нормалізуються в окремі `NodeStat` /
+`EdgeStat` graph nodes. Поточний контракт — JSON payload + `metadata.stats_index`.
 
 ### strict_asof_research_policy
 
@@ -372,9 +402,9 @@ Stats snapshots РЅРµ РїРµСЂРµР·Р°РїРёСЃСѓСЋС‚СЊС
 
 **Description (ukr):**
 
-Р”Р»СЏ РґРѕРєР°Р·РѕРІРёС… temporal/drift РµРєСЃРїРµСЂРёРјРµРЅС‚С–РІ С‚СЂРµР±Р° РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё `strict_asof`
-С– fail-fast РїРѕРІРµРґС–РЅРєСѓ РїСЂРё РІС–РґСЃСѓС‚РЅСЊРѕРјСѓ snapshot. Fallback СЂРµР¶РёРјРё РґРѕРїСѓСЃС‚РёРјС– РґР»СЏ
-exploratory runs, Р°Р»Рµ РЅРµ РґР»СЏ С„С–РЅР°Р»СЊРЅРёС… РІРёСЃРЅРѕРІРєС–РІ.
+Для доказових temporal/drift експериментів треба використовувати `strict_asof`
+і fail-fast поведінку при відсутньому snapshot. Fallback режими допустимі для
+exploratory runs, але не для фінальних висновків.
 
 ---
 
@@ -417,9 +447,9 @@ mapping:
 
 **Description (ukr):**
 
-РЇРєС‰Рѕ `sync-stats` Р·Р°РїСѓСЃРєР°С”С‚СЊСЃСЏ Р· `--as-of`, snapshot РѕС‚СЂРёРјСѓС” СЏРІРЅРѕ Р·Р°РґР°РЅРёР№ С‡Р°СЃ.
-Р‘РµР· `--as-of` timestamp Р±РµСЂРµС‚СЊСЃСЏ РЅРµ СЏРє РїРѕС‚РѕС‡РЅРёР№ UTC, Р° Р· РґР°РЅРёС…: РјР°РєСЃРёРјР°Р»СЊРЅРёР№
-`event_ts` РїС–СЃР»СЏ train-cut selection.
+Якщо `sync-stats` запускається з `--as-of`, snapshot отримує явно заданий час.
+Без `--as-of` timestamp береться не як поточний UTC, а з даних: максимальний
+`event_ts` після train-cut selection.
 
 ### snapshot_lookup_time
 
@@ -428,8 +458,8 @@ mapping:
 
 **Description (ukr):**
 
-РЈ `latest` СЂРµР¶РёРјС– runtime Р±РµСЂРµ РѕСЃС‚Р°РЅРЅС–Р№ РґРѕСЃС‚СѓРїРЅРёР№ snapshot. РЈ `strict_asof`
-СЂРµР¶РёРјС– lookup РІРёРєРѕРЅСѓС”С‚СЊСЃСЏ РЅР° timestamp РѕСЃС‚Р°РЅРЅСЊРѕС— РїРѕРґС–С— РїСЂРµС„С–РєСЃСѓ.
+У `latest` режимі runtime бере останній доступний snapshot. У `strict_asof`
+режимі lookup виконується на timestamp останньої події префіксу.
 
 ### missing_snapshot_policy
 
@@ -442,8 +472,8 @@ mapping:
 
 **Description (ukr):**
 
-РџРѕС‚РѕС‡РЅРёР№ runtime РјРѕР¶Рµ РЅРµ РїР°РґР°С‚Рё РїСЂРё missing/degraded snapshot С– РІРёРјРёРєР°С‚Рё stats
-branch. Р”Р»СЏ research-grade temporal runs РїРѕС‚СЂС–Р±РЅРѕ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё `raise`.
+Поточний runtime може не падати при missing/degraded snapshot і вимикати stats
+branch. Для research-grade temporal runs потрібно використовувати `raise`.
 
 ---
 
@@ -470,8 +500,8 @@ compatible without changing trainer/use-case code.
 
 **Description (ukr):**
 
-MVP1 baseline path РЅРµ РјРѕР¶РЅР° Р»Р°РјР°С‚Рё. Structural/EOPKG РїРѕР»СЏ РјР°СЋС‚СЊ Р±СѓС‚Рё additive:
-РІС–РґСЃСѓС‚РЅС–СЃС‚СЊ optional MVP2.5 tensors РЅРµ РїРѕРІРёРЅРЅР° СЂСѓР№РЅСѓРІР°С‚Рё baseline training.
+MVP1 baseline path не можна ламати. Structural/EOPKG поля мають бути additive:
+відсутність optional MVP2.5 tensors не повинна руйнувати baseline training.
 
 ---
 
@@ -513,9 +543,9 @@ MVP1 baseline path РЅРµ РјРѕР¶РЅР° Р»Р°РјР°С‚Рё. Stru
 
 **Description (ukr):**
 
-РќРѕРІС– config keys РјР°СЋС‚СЊ РјР°С‚Рё С‡С–С‚РєРµ РјС–СЃС†Рµ. РЇРєС‰Рѕ РґРѕРґР°С”С‚СЊСЃСЏ РЅРѕРІРёР№ РєР»СЋС‡ Сѓ
+Нові config keys мають мати чітке місце. Якщо додається новий ключ у
 `experiment`, `data`, `mapping`, `model`, `training`, `tracking` Р°Р±Рѕ
-`sync_stats`, С‚СЂРµР±Р° РѕРЅРѕРІРёС‚Рё `configs/ui/config_catalog.yaml`.
+`sync_stats`, треба оновити `configs/ui/config_catalog.yaml`.
 
 ---
 
@@ -555,9 +585,9 @@ review.
 
 **Description (ukr):**
 
-Р¦С– С„Р°РєС‚Рё Р±СѓР»Рё Р·РІС–СЂРµРЅС– Р· РєРѕРґРѕРј РїС–Рґ С‡Р°СЃ РґРѕРєСѓРјРµРЅС‚Р°С†С–Р№РЅРѕРіРѕ audit. Р’РѕРЅРё РЅРµ С” РЅРѕРІРёРјРё
-runtime requirements, Р°Р»Рµ РґРѕРїРѕРјР°РіР°СЋС‚СЊ РЅР°СЃС‚СѓРїРЅРёРј Р°РіРµРЅС‚Р°Рј РІС–РґСЂС–Р·РЅРёС‚Рё С„Р°РєС‚РёС‡РЅРёР№
-СЃС‚Р°РЅ РІС–Рґ С–СЃС‚РѕСЂРёС‡РЅРёС… worklogs.
+Ці факти були звірені з кодом під час документаційного audit. Вони не є новими
+runtime requirements, але допомагають наступним агентам відрізнити фактичний
+стан від історичних worklogs.
 
 ---
 
@@ -573,9 +603,9 @@ Use project venv:
 
 **Description (ukr):**
 
-РЈ Codex sandbox plain `python` Р°Р±Рѕ `py -3` РјРѕР¶СѓС‚СЊ РЅРµ РїСЂР°С†СЋРІР°С‚Рё. РљР°РЅРѕРЅС–С‡РЅРѕ
-РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё `.\.venv-modern\Scripts\python.exe`. РЇРєС‰Рѕ sandbox Р±Р»РѕРєСѓС” Р·Р°РїСѓСЃРє base
-interpreter Р· AppData, С‚СЂРµР±Р° РїРѕРІС‚РѕСЂРёС‚Рё С‚РѕР№ СЃР°РјРёР№ venv command Р· escalation.
+У Codex sandbox plain `python` або `py -3` можуть не працювати. Канонічно
+використовувати `.\.venv-modern\Scripts\python.exe`. Якщо sandbox блокує запуск base
+interpreter з AppData, треба повторити той самий venv command з escalation.
 
 ---
 
@@ -593,8 +623,8 @@ interpreter Р· AppData, С‚СЂРµР±Р° РїРѕРІС‚РѕСЂРёС�
 
 **Description (ukr):**
 
-РџРѕС‚РѕС‡РЅРёР№ С„РѕРєСѓСЃ вЂ” РЅРµ РґРѕРґР°РІР°С‚Рё РЅРѕРІС– РІРµР»РёРєС– runtime С„С–С‡С– Р±РµР· РїРѕС‚СЂРµР±Рё, Р° СЃС‚Р°Р±С–Р»С–Р·СѓРІР°С‚Рё
-РґРѕРєСѓРјРµРЅС‚Р°С†С–СЋ, ADR-СЂС–С€РµРЅРЅСЏ С– P0 С‚РµС…Р±РѕСЂРі, СЏРєРёР№ Р±Р»РѕРєСѓС” РґРѕРєР°Р·РѕРІС– РµРєСЃРїРµСЂРёРјРµРЅС‚Рё.
+Поточний фокус — не додавати нові великі runtime фічі без потреби, а стабілізувати
+документацію, ADR-рішення і P0 техборг, який блокує доказові експерименти.
 
 ---
 

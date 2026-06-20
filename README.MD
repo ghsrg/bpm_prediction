@@ -25,8 +25,9 @@ tools so new hypotheses can be tested without rewriting the pipeline.
 
 ## Current Research Direction
 
-The central research question is whether a model can use the topology of the
-current process version before enough logs of that version exist for full
+The active research path is topology-conditioned prediction under structural
+process drift. The central question is whether a model can use the topology of
+the current process version before enough logs of that version exist for full
 retraining.
 
 Classic next-activity prediction usually predicts over a fixed activity
@@ -36,9 +37,22 @@ transitions. `EOPKGTopologyConditioned` instead scores candidates in the
 topology-native candidate space of the current version and uses impulse
 activation routing to align the observed prefix with the structural graph.
 
-The project also keeps negative controls and ablations, such as logs-only GNNs,
-LSTM/GRU baselines, GATv2 with topology-mask post-filtering, and EOPKG variants
-without impulse routing.
+```mermaid
+flowchart LR
+    P["Observed prefix"] --> O["Observed encoder"]
+    V["Process topology v"] --> C["Dynamic candidate space C^(v)"]
+    P --> S["Prefix state / impulse"]
+    S --> C
+    O --> R["Candidate scoring"]
+    C --> R
+    R --> Y["Next activity ranked over C^(v)"]
+```
+
+The project also keeps negative controls and experimental modes: logs-only
+GNNs, LSTM/GRU baselines, GATv2 with topology-mask post-filtering, historical
+EOPKG fusion modes, and EOPKG variants without impulse routing. These modes are
+retained to test alternative hypotheses and reviewer controls; they are not the
+primary topology-native research path.
 
 ## Repository Layout
 

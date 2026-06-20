@@ -16,6 +16,40 @@ This document complements:
 3. `DATA_MODEL_MVP2_5.MD` (DTO/contracts),
 4. `LLD_MVP2_5.MD` (low-level behavior).
 
+### 1.1 Active Research Path
+
+The active MVP2.5 research path is not another fixed-head structural
+`fusion_mode`. It is `EOPKGTopologyConditioned` with topology-native candidate
+scoring:
+
+1. the observed prefix is encoded from the instance graph/log prefix;
+2. the current process version supplies the dynamic candidate universe
+   `C^(v)`;
+3. `struct_prefix_state_x` injects an execution impulse into candidate nodes;
+4. the impulse is propagated over the current topology;
+5. the model returns `candidate_logits [B, C_v]`, not only fixed-vocabulary
+   logits `[B, C_train]`.
+
+```mermaid
+flowchart LR
+    X["Prefix graph x_t"] --> OBS["Observed encoder"]
+    OBS --> Z["Prefix representation z_t"]
+
+    G["Topology G^(v)"] --> C["Candidate nodes C^(v)"]
+    S["struct_prefix_state_x"] --> IMP["Impulse projection"]
+    IMP --> C
+    C --> TGNN["Topology candidate encoder"]
+
+    Z --> SCORE["Candidate scoring"]
+    TGNN --> SCORE
+    SCORE --> LOGITS["candidate_logits [B, C_v]"]
+    LOGITS --> PRED["argmax over current version candidates"]
+```
+
+Older `EOPKGGATv2.fusion_mode` variants remain supported as experimental
+controls and ablation modes. They are documented below, but they should not be
+confused with the topology-native candidate contract.
+
 ## 2. Model Registry and Source Files
 
 ### 2.1 Registered model types

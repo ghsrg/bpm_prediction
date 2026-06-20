@@ -13,6 +13,25 @@ implemented loss strategies, see `docs/GNN_LEARNING_METODOLOGY.MD`.
 
 ---
 
+## Active Research Path Note
+
+This document still covers historical and experimental structural modes because
+they are useful for ablations. The active topology-native path is:
+
+```yaml
+model.type: EOPKGTopologyConditioned
+model.topology_conditioning_mode: impulse_activation_routing
+training.candidate_contract_mode: candidate_id
+training.candidate_identity_mode: topology_native
+```
+
+For that path, the primary prediction surface is the version-specific candidate
+axis `C_v`. Fixed-vocabulary `fusion_mode` experiments remain available as
+controls, but they are not the main mechanism for dynamic candidate-space
+prediction.
+
+---
+
 ## Metadata
 
 - `status`: implemented

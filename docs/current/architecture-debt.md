@@ -27,6 +27,33 @@ historical debt worklogs.
 
 ---
 
+## Research Relevance Map
+
+Current primary research path:
+
+```text
+EOPKGTopologyConditioned
+  -> topology_native candidate identity
+  -> candidate_id loss/evaluation
+  -> impulse_activation_routing
+  -> drift-window evaluation over version-specific C_v
+```
+
+Debt that directly affects this path:
+
+- `dynamic_candidate_prediction_contract`
+- `candidate_batch_topology_grouping`
+- `topology_projection_alignment`
+- `preserve_gateway_semantic_masking` when `gateways=preserve`
+- `duplicate_activity_identity_ambiguity` when labels are not one-to-one with nodes
+- `topology_native_candidate_semantic_grounding` for stronger unseen-candidate ranking
+
+Other debt remains relevant for runtime quality, performance, or future
+extensions, but should not obscure the topology-native candidate-space and
+impulse-routing line of work.
+
+---
+
 ## P0 Research-Grade Debt
 
 ### dynamic_candidate_prediction_contract

@@ -13,11 +13,13 @@ from tools.desktop_ui.main_window import (
     group_fields_for_page,
 )
 
+AUDIT_MATRIX_PATH = Path("configs/ui/desktop_ui_field_dependency_matrix.csv")
+
 
 def test_registry_classifies_fields_from_audit_matrix():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     assert registry.field("data.log_path").ui_level == "project_setup"
@@ -29,7 +31,7 @@ def test_registry_classifies_fields_from_audit_matrix():
 def test_registry_defaults_emit_when_to_active_when():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     meta = registry.field("model.struct_xattn_heads")
@@ -41,7 +43,7 @@ def test_registry_defaults_emit_when_to_active_when():
 def test_registry_computes_active_state_from_current_values():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     inactive_values = {
@@ -62,7 +64,7 @@ def test_registry_computes_active_state_from_current_values():
 def test_registry_keeps_description_and_affects_for_inspector():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     meta = registry.field("experiment.mode")
@@ -83,7 +85,7 @@ def test_prototype_layout_defaults_allow_narrow_navigation_and_safe_run_form():
 def test_experiment_run_uses_workflow_tabs_instead_of_one_large_frequently_changed_group():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     groups = group_fields_for_page(registry, "experiment_run")
@@ -101,7 +103,7 @@ def test_experiment_run_uses_workflow_tabs_instead_of_one_large_frequently_chang
 def test_project_setup_uses_workflow_tabs_instead_of_one_large_source_group():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     groups = group_fields_for_page(registry, "project_setup")
@@ -125,7 +127,7 @@ def test_prototype_window_allows_narrow_navigation_without_collapsing_content(mo
     app = QApplication.instance() or QApplication([])
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     window = DesktopPrototypeWindow(registry=registry, root_dir=Path(".").resolve())
@@ -142,7 +144,7 @@ def test_prototype_window_allows_narrow_navigation_without_collapsing_content(mo
 def test_dynamic_field_dependencies():
     registry = DesktopFieldRegistry.load(
         catalog_path=Path("configs/ui/config_catalog.yaml"),
-        audit_matrix_path=Path("outputs/ui/desktop_ui_field_dependency_matrix.csv"),
+        audit_matrix_path=AUDIT_MATRIX_PATH,
     )
 
     # 1. Adapter dependency

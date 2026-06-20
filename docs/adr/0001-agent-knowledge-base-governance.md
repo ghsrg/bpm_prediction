@@ -1,4 +1,4 @@
-# ADR-0001: Agent Knowledge Base Governance
+﻿# ADR-0001: Agent Knowledge Base Governance
 
 Date: 2026-04-27
 Status: Accepted
@@ -14,8 +14,6 @@ risk of using stale guidance.
 
 Relevant historical context:
 
-- `docs/worklogs/MVP2_5_Context_Documentation_Sync_Analysis_2026-03-21.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
 
 ## Decision
 
@@ -53,7 +51,7 @@ Negative:
 2. Read `docs/current/project-state.md` second.
 3. Read `docs/current/architecture-debt.md` third.
 4. Read only task-routed documents after that.
-5. Do not treat `docs/worklogs/*` as current requirements unless explicitly routed.
+5. Do not treat local historical worklogs as current requirements unless explicitly routed.
 6. If a worklog and an accepted ADR conflict, the ADR wins.
 
 ## Affected Files
@@ -62,9 +60,5 @@ Negative:
 - `docs/current/project-state.md`
 - `docs/current/architecture-debt.md`
 - `docs/adr/`
-- `docs/worklogs/`
 
 ## Related
-
-- `docs/worklogs/MVP2_5_Context_Documentation_Sync_Analysis_2026-03-21.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`

@@ -1,4 +1,4 @@
-# ADR-0003: Immutable JSON Stats Snapshots
+﻿# ADR-0003: Immutable JSON Stats Snapshots
 
 Date: 2026-04-27
 Status: Accepted
@@ -67,5 +67,3 @@ Negative:
 - `docs/DATA_MODEL_MVP2_5.MD`
 - `docs/LLD_MVP2_5.MD`
 - `docs/DATA_FLOWS_MVP2_5.MD`
-- `docs/worklogs/Finish_MVP2_5_Plan.MD`
-

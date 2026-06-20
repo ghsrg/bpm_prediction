@@ -1,4 +1,4 @@
-# ADR-0006: Research-Grade Activity-to-Topology Alignment Gate
+﻿# ADR-0006: Research-Grade Activity-to-Topology Alignment Gate
 
 Date: 2026-04-27
 Status: Accepted
@@ -83,7 +83,5 @@ Research-grade behavior:
 
 ## Related
 
-- `docs/worklogs/MVP2_5_Dissertation_Alignment_and_Blocking_Debt_Analysis_2026-03-21.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
 - `docs/DATA_MODEL_MVP2_5.MD`
 - `docs/EVF_MVP2_5.MD`

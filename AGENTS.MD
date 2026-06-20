@@ -61,7 +61,6 @@ When documents conflict, use this priority:
    - `README.MD`
    - `docs/GLOSSARY.MD`
    - `docs/VARIABLES.MD`
-9. Historical worklogs in `docs/worklogs/`
 
 If implementation and documentation conflict, stop and ask unless the task is
 explicitly documentation synchronization.
@@ -171,7 +170,7 @@ Read:
 
 - `docs/runbooks/mvp2_5-commands.md`
 - `configs/ui/config_catalog.yaml` for config/UI changes
-- `outputs/ui/experiment_ui_presets.json` for active Experiment UI preset values
+- `configs/ui/experiment_ui_presets.json` for active Experiment UI preset values
 - `tools/experiment_ui.py` for legacy Tkinter desktop UI changes
 - `tools/desktop_ui/` for the new PySide6 desktop UI prototype
 - `docs/EVF_MVP2_5.MD` for experiment or evaluation semantics
@@ -183,7 +182,7 @@ Required rule:
   `configs/ui/config_catalog.yaml`.
 - Do not treat `configs/experiments/*.yaml` as the active Experiment UI preset
   source of truth. Active desktop UI presets are stored in
-  `outputs/ui/experiment_ui_presets.json`.
+  `configs/ui/experiment_ui_presets.json`.
 
 ---
 
@@ -218,14 +217,14 @@ source of truth.
 
 ---
 
-## Historical Worklog Policy
+## Historical Worklog And Archive Policy
 
-Ignore `docs/worklogs/` by default.
+Historical worklogs, superpowers specs, and archived agent contexts are local
+developer artifacts. They are ignored by Git and are not source of truth.
 
-Read worklogs only when directly referenced by the user, an ADR,
-`docs/current/*`, or when the task explicitly requires historical analysis.
-
-Worklogs are never source of truth.
+If a local copy exists, read it only when directly referenced by the user, an
+ADR, `docs/current/*`, or when the task explicitly requires historical
+analysis. Worklogs are never source of truth.
 
 ---
 

@@ -48,7 +48,7 @@ Subtabs:
 Launch:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py ui
+.\.venv-modern\Scripts\python.exe main.py ui
 ```
 
 Top-level navigation:
@@ -60,7 +60,7 @@ Top-level navigation:
 
 The prototype uses `tools/desktop_ui/field_registry.py` to classify fields from
 `configs/ui/config_catalog.yaml` plus the audit matrix
-`outputs/ui/desktop_ui_field_dependency_matrix.csv`.
+`configs/ui/desktop_ui_field_dependency_matrix.csv`.
 
 ## 4. Dynamic Forms
 Dynamic forms expose full pooled parameter set from merged configs under `configs/**` for sections:
@@ -111,7 +111,7 @@ Execution is blocked on validation errors.
 
 ## 8. State and Presets
 1. Autosave: `outputs/ui/experiment_ui_state.json`
-2. Presets: `outputs/ui/experiment_ui_presets.json`
+2. Presets: `configs/ui/experiment_ui_presets.json`
 3. Stored data includes scalar vars, dynamic forms, and YAML memo blocks.
 
 ## 9. Runtime Command Mapping

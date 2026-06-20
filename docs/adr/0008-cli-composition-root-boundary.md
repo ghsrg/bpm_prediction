@@ -1,4 +1,4 @@
-# ADR-0008: CLI Composition Root Boundary
+﻿# ADR-0008: CLI Composition Root Boundary
 
 Date: 2026-04-27
 Status: Proposed
@@ -71,7 +71,5 @@ Target behavior:
 
 ## Related
 
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
 - `docs/ARCHITECTURE_RULES.MD`
 - `docs/TARGET_ARCHITECTURE.MD`
-

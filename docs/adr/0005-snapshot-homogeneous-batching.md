@@ -1,4 +1,4 @@
-# ADR-0005: Snapshot-Homogeneous Batching
+﻿# ADR-0005: Snapshot-Homogeneous Batching
 
 Date: 2026-04-27
 Status: Proposed
@@ -74,8 +74,4 @@ Target behavior:
 
 ## Related
 
-- `docs/worklogs/MVP2_5_Stage4_2_OptionA_Unbatch_Fix_Report.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
-- `docs/worklogs/MVP2_5_Dissertation_Alignment_and_Blocking_Debt_Analysis_2026-03-21.MD`
 - `docs/LLD_MVP2_5.MD`
-

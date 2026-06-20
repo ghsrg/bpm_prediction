@@ -336,7 +336,7 @@ class DesktopPrototypeWindow:
 
         # Preset sliding drawer
         self.preset_drawer = PresetDrawer(
-            presets_path=self.root_dir / "outputs" / "ui" / "experiment_ui_presets.json",
+            presets_path=self.root_dir / "configs" / "ui" / "experiment_ui_presets.json",
             on_save_callback=self._get_flat_values,
         )
         self.preset_drawer.preset_loaded.connect(self._apply_preset_values)

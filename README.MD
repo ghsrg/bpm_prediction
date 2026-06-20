@@ -1,160 +1,146 @@
-# BPM Prediction Platform (Scientific Core)
+# BPM Prediction Research Toolkit
 
-**bpm_prediction** — це науково-дослідницька платформа для прогнозування поведінки бізнес-процесів (наступна активність, час виконання, результат, аномалії) з використанням Графових Нейронних Мереж (GNN).
+`bpm_prediction` is an active research toolkit for predictive business process
+monitoring experiments. It focuses on next-activity prediction under process
+version drift, with graph neural networks, topology-aware runtime artifacts,
+and EOPKG-style structural context.
 
-Проєкт реалізує новітню концепцію **Fusion Graph** — механізму динамічного збагачення фактичного стану процесу (Instance Graph) нормативним та організаційним контекстом, формалізованим у **EPOKG (Enterprise Process-Organizational Knowledge Graph)**.
+The repository is intentionally broader than a single-paper code dump. It keeps
+multiple model families, experiment controls, data adapters, diagnostics, and UI
+tools so new hypotheses can be tested without rewriting the pipeline.
 
-Це дозволяє моделям враховувати не лише лінійну історію подій, а й багатовимірні зв'язки та обмеження, закладені в архітектуру підприємства, що є критичним для прогнозування складних, багатоверсійних процесів.
+## What This Project Supports
 
----
+- fixed-vocabulary baselines: `LSTM_Baseline`, `BaselineGATv2`, `BaselineGCN`;
+- topology-aware EOPKG models: `EOPKGGATv2`, `EOPKGGCN`,
+  `EOPKGTopologyConditioned`;
+- topology-native candidate scoring for process versions with added or removed
+  activities;
+- version-aware train/eval/eval_drift workflows;
+- XES and Camunda-oriented ingestion paths;
+- offline topology and stats preparation through repository-backed artifacts;
+- MLflow-based metrics, calibration diagnostics, drift-window metrics, and
+  selective tracing;
+- desktop experiment UIs for editing presets and running experiments.
 
-## Documentation
+## Current Research Direction
 
-- [Documentation Index](docs/index.md) — повна карта документації.
-- [Project State](docs/current/project-state.md) — актуальний стан MVP2.5 Stage 4.2.
-- [Architecture Debt](docs/current/architecture-debt.md) — актуальний архітектурний борг.
-- [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md) — операційні команди.
-- [ADR](docs/adr/README.md) — зафіксовані архітектурні рішення.
-- [Glossary](docs/GLOSSARY.MD) і [Variables](docs/VARIABLES.MD) — терміни та позначення.
+The central research question is whether a model can use the topology of the
+current process version before enough logs of that version exist for full
+retraining.
 
+Classic next-activity prediction usually predicts over a fixed activity
+vocabulary observed during training. That becomes fragile when a deployed
+process version adds activities, removes activities, or changes valid
+transitions. `EOPKGTopologyConditioned` instead scores candidates in the
+topology-native candidate space of the current version and uses impulse
+activation routing to align the observed prefix with the structural graph.
 
-### `etalon/` — попередня реалізація (reference baseline)
-- `etalon/` зафіксований як **попередня (legacy) реалізація**, яку використовуємо як референс.
-- Реалізація була зосереджена на інтеграції з **Camunda BPMN/BPMS**, отриманні даних про документи з BPMS та експериментах, зокрема тестуванні на **довжину префікса**.
-- Має **одношарову архітектуру у форматі script-pipeline**, що вважається архітектурно некоректним для цільового стану (обмежена ізоляція відповідальностей).
-- Водночас підтримує **довільний процес** та **універсальний вхід для GNN**, тому залишається корисним baseline для порівняння й міграції.
-- Подальше використання `etalon/` виконується лише з урахуванням поточних викликів і затверджених архітектурних принципів проєкту.
+The project also keeps negative controls and ablations, such as logs-only GNNs,
+LSTM/GRU baselines, GATv2 with topology-mask post-filtering, and EOPKG variants
+without impulse routing.
 
-## 1. Проблематика та наукові GAPs (Бекграунд дослідження)
-Проєкт реалізує методологію, спрямовану на подолання фундаментальних обмежень сучасних систем предиктивного моніторингу бізнес-процесів (PPM), ідентифікованих у межах дисертаційного дослідження:
-* **Базовий документ дослідження:** **[Дисертація Коротенко.docx](docs/Дисертація Коротенко.docx)**.
-* **Статус:** це основний документ, який визначає цілі, принципи, гіпотези та пріоритети реалізації проєкту.
+## Repository Layout
 
+```text
+src/                     Domain, application, adapter, and infrastructure code
+tools/                   CLI helpers, UI tools, export utilities, audits
+configs/                 Tracked experiment, data, UI catalog, and UI presets
+tests/                   Unit, integration, regression, and architecture tests
+docs/current/            Current project state and active architecture debt
+docs/adr/                Accepted/proposed architecture decisions
+docs/runbooks/           Operational commands and experiment runbooks
+docs/GNN_*.MD            GNN runtime, learning strategy, and methodology docs
+data/camunda_exports/    Small checked-in mock process artifacts
+```
 
-### 1.1. Структурна сліпота та втрата контексту (GAP 2.4.1)
-* **Проблема:** Традиційні PPM-методи (LSTM, RNN) сприймають процеси як лінійні послідовності («сплющені логи»), ігноруючи топологічну складність регламентів: паралелізм, виключні шлюзи та ієрархічні зв'язки. Це призводить до критичної втрати точності на довгих трасах (Стаття 3).
-* **Рішення (Принцип Structural Awareness):** Впровадження динамічного структурного шару **EPOKG (Enterprise Process-Organizational Knowledge Graph)**. GNN-архітектура обробляє процес як багатовімірний граф, інтегруючи фактичні події з нормативною топологією BPMN.
+Local/generated paths are intentionally not tracked:
 
-### 1.2. Епістемічна впевненість та структурний дрейф (GAP 2.4.2)
-* **Проблема:** ML-моделі схильні до «галюцинацій» та помилкової впевненості при зміні регламентів (Structural Drift). Класичні системи не мають механізму самодіагностики меж власної компетенції в умовах еволюції підприємства.
-* **Рішення (Принцип Epistemic Caution):** Розробка **«Семафора надійності» (Reliability Semaphore)** на основі аналізу станів поза розподілом (Out-of-Distribution, OOD). Система використовує метрику відстані Вассерштейна ($\mathcal{W}_1$) для ідентифікації дрейфу та безпечної маршрутизації управління на експерта (Human-in-the-Loop).
+```text
+outputs/                 Generated figures, exported metrics, UI state
+scratch/                 Local analysis notes and temporary material
+mlruns/                  Local MLflow file-store runs
+checkpoints/             Local model checkpoints
+docs/worklogs/           Local historical plans/reports
+docs/superpowers/        Local agent planning specs
+docs/archive/            Local deprecated agent contexts
+```
 
+## Environment
 
-### 1.3. «Жадібність» прогнозів та стратегічна цілісність (GAP 2.4.3)
-* **Проблема:** Оптимізація локальної точності (наступного кроку) часто суперечить глобальній логіці процесу, що заводить виконання у структурні «глухі кути».
-* **Рішення (Принцип Goal-Oriented Execution):** Впровадження **Дуальної архітектури (Агент-Критик)**. Локальний генератор прогнозів (Агент) коригується модулем макро-планування (Критик), що забезпечує відповідність кожного кроку стратегічному регламенту $\kappa$.
+Use the modern local virtual environment:
 
-### 1.4. Відсутність прозорості та наукової відтворюваності (GAP 2.4.4)
-* **Проблема:** Дослідження в галузі PPM часто неможливо відтворити через «зашиті» в код параметри (hardcoded hyperparameters) та відсутність ізольованого аналізу внеску окремих компонентів.
-* **Рішення (Config-Driven Experimentation & Ablation Study):**
-    * **YAML-центричність:** Усі параметри архітектури (`model.yaml`), ознак (`features.yaml`) та стратегій навчання винесені за межі коду, що гарантує детермінованість експериментів.
-    * **Ablation Flags (Прапори абляції):** Система підтримує спеціальні перемикачі (наприклад, `use_epokg: true/false`, `use_critic: true/false`), що дозволяє проводити порівняльні експерименти для доведення наукової новизни (Розділ 4 дисертації) шляхом точної ізоляції впливу кожного модуля методології на фінальний результат.
----
+```powershell
+.\.venv-modern\Scripts\python.exe <command>
+```
 
-## 2. Наукова Гіпотеза та Стратегічна Візія
+Do not use `python`, `py -3`, or the old `.venv` path for project commands.
 
-Фундаментальна гіпотеза дослідження полягає в тому, що представлення бізнес-процесу у вигляді **Fusion Graph**, який формується шляхом проєкції динаміки виконання **(IG)** на розширений граф знань підприємства **(EPOKG)**, забезпечує алгоритмічну життєздатність (survivability) предиктивної системи в умовах структурного дрейфу.
+Install dependencies from the maintained requirements file used by your
+environment. If a frozen requirements file is present, prefer it for exact local
+reconstruction:
 
-### Ключові положення гіпотези:
-1. **Топологічна стабілізація:** **EPOKG** виступає як стабільний семантичний та регуляторний «якір». Це дозволяє моделі коректно інтерпретувати нові версії процесів ($\kappa \to \kappa+1$), зберігаючи високу точність прогнозування на довгих трасах, де традиційні методи (Logs-only) деградують.
-2. **Епістемічний контроль:** Використання метрик позарозподільних станів (OOD) у поєднанні з топологією графа дозволяє системі ідентифікувати межі власної компетенції («Семафор надійності»), мінімізуючи ризик хибних рішень.
-3. **Дуальна корекція:** Інтеграція модуля «Критик» (макро-плану) у процес інференсу дозволяє усунути структурні суперечності («глухі кути»), забезпечуючи цілеспрямованість прогнозів.
-
-> **Стратегічний наслідок:** Реалізація методології як **замкненого адаптивного циклу (Closed-loop control)** дозволяє створити самостійну інтелектуальну екосистему. Така система здатна до безперервного навчання (Continual Learning) та функціонування в динамічному Enterprise-середовищі протягом тривалого часу без необхідності ручного перепроектування архітектури при кожній зміні бізнес-регламентів.
----
-
-## 3. Методологічний фундамент
-
-Система базується на чотирьох фундаментальних принципах, що забезпечують алгоритмічну життєздатність (survivability):
-
-1. **Structural Awareness (Принцип структурної обізнаності):** Відмова від "flat logs". Використання `EPOKG` як динамічного обмеження.
-2. **Epistemic Caution (Принцип епістемічної обережності):** Механізм самодіагностики меж компетенції через `Reliability Semaphore` та OOD-детекцію.
-3. **Continual Adaptation (Принцип безперервної еволюції):** Синхронізація ваг моделі з версійністю регламентів ($\kappa$) через інкрементальне навчання.
-4. **Goal-Oriented Execution (Принцип цілеспрямованої дії):** Дуальна архітектура "Агент-Критик" для уникнення структурних "глухих кутів".
-
----
-
-## 4. Режими роботи системи
-
-Система проєктується як адаптивний регулятор, що функціонує у двох взаємодоповнюючих режимах, забезпечуючи як наукову валідацію, так і промислову стійкість.
-
-### Режим А: Scientific Benchmarking (Лабораторія валідації)
-* **Мета:** Проведення порівняльних досліджень та закриття наукових GAPs через верифікацію гіпотез дисертації.
-* **Ключовий функціонал (Ablation Study):**
-    * **Structural Sensitivity Analysis:** Дослідження впливу технічних вузлів (*Gateways, Events, Pools*) на точність предиктивного графа (Розділ 4.2).
-    * **Prefix-Length Resilience Test:** Оцінка деградації прогнозів на довгих трасах (Стаття 3) та підтвердження переваги GNN над RNN/LSTM.
-    * **OOD Calibration:** Тестування «Семафора надійності» на синтетичних дрейфах для визначення оптимального порогу епістемічної впевненості ($\beta$).
-    * **Порівняння в дуальній архітектурі:** Порівняння «жадібних» прогнозів Агента із суворо обмеженими прогнозами Критика.
-
-### Режим Б: Industrial Operations (Адаптивна експлуатація)
-* **Мета:** Забезпечення алгоритмічної життєздатності (survivability) предиктивного сервісу в реальному Enterprise-середовищі.
-* **Ключовий функціонал (Closed-loop Control):**
-    * **Real-time Fusion Inference:** Безперервне збагачення потоку подій з Camunda актуальною топологією POKG.
-    * **Active Epistemic Monitoring:** Робота «Семафора надійності» у режимі реального часу:
-        * 🟢 *Green:* Автоматичне виконання прогнозу.
-        * 🟡 *Yellow:* Детекція дрейфу, ініціалізація інкрементального донавчання (Continual Learning).
-        * 🔴 *Red:* Висока невизначеність, маршрутизація на експерта (Human-in-the-Loop).
-    * **Seamless Versioning ($\kappa \to \kappa+1$):** Автоматична адаптація моделі до нових версій процесів через механізм урахування версійного контексту ($\kappa$) без зупинки інференсу.
-
-## 5. Інтегрований життєвий цикл адаптивного управління
-
-Методологія розглядає предиктивну модель не як статичний артефакт, а як динамічний елемент замкненого циклу управління. Життєвий цикл системи інтегрує обидва режими роботи (A та Б) у безперервний процес:
-
-### 5.1. Фаза ініціалізації та калібрування (Режим А)
-1. **Cold Start:** Навчання базової GNN-моделі на історичних логах та актуальному **EPOKG**.
-2. **Calibration:** Проведення *Ablation Studies* для визначення оптимальної архітектури та ваги структурних ознак.
-3. **Threshold Setting:** Налаштування критичного порогу $\beta$ для «Семафора надійності» на основі ретроспективного аналізу дрейфів.
-
-### 5.2. Фаза активного моніторингу та інференсу (Режим Б)
-1. **Contextual Prediction:** Отримання події з BPMS $\to$ Формування `Fusion Graph` $\to$ Генерація прогнозу дуальною архітектурою (Агент-Критик).
-2. **Reliability Check:** Оцінка епістемічної невизначеності поточного стану.
-3. **Execution:** * Якщо стан «Зелений» — передача прогнозу в бізнес-контур.
-    * Якщо стан «Червоний» (OOD) — блокування автоматичного рішення та алерт експерту.
-
-### 5.3. Фаза адаптації та еволюції (Closed-loop)
-1. **Drift Detection:** При накопиченні критичної маси «жовтих» станів або при детекції нової версії регламенту $\kappa+1$, система ініціює цикл адаптації.
-2. **Continual Learning:** Запуск фонового інкрементального донавчання моделі з використанням версійного контексту ($\kappa$) для збереження знань попередніх епох.
-3. **Validation:** Автоматичне тестування оновленої моделі в режимі «Лабораторія» перед її переведенням в режим «Експлуатація».
-
-> **Результат циклу:** Забезпечення безперервної відповідності (alignment) інтелектуального шару та мінливої бізнес-логіки підприємства без деградації точності.
-
-
-## 6. Контакти та Авторство
-
-Цей проєкт є частиною наукового дослідження.
-* **Автор:** Serhii Korotenko
-* **Контакт:** kor.srg@gmail.com
-* **ORCID:** 0009-0003-9236-4775
-
+```powershell
+.\.venv-modern\Scripts\python.exe -m pip install -r requirements-freeze.txt
+```
 
 ## Quick Start
 
-Use the project virtual environment:
+Run an experiment config:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py --config configs/experiments/02_train_bpi2012.yaml
+.\.venv-modern\Scripts\python.exe main.py --config configs/experiments/<experiment>.yaml
 ```
 
-For the full command catalog, use [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md).
-
-## Validation
+Launch the legacy Tkinter experiment UI:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\architecture_guard.py
-.\.venv\Scripts\python.exe -m pytest -m mvp1_regression -v
-.\.venv\Scripts\python.exe -m pytest tests/ -v
+.\.venv-modern\Scripts\python.exe main.py experiment-ui
 ```
 
-## Current Runtime Workflow
+Launch the PySide6 desktop UI prototype:
 
-```mermaid
-flowchart LR
-    R1[sync-topology] --> R2[sync-stats-backfill timeline]
-    R2 --> R3[train/eval with strict_asof]
-    R3 --> R4[report with snapshot metadata]
+```powershell
+.\.venv-modern\Scripts\python.exe main.py ui
 ```
 
-For research-grade temporal runs:
+Active desktop UI presets are tracked in:
+
+```text
+configs/ui/experiment_ui_presets.json
+```
+
+Runtime UI state and generated configs are written under `outputs/ui/` and are
+not tracked.
+
+## Common Commands
+
+Prepare or synchronize process topology:
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py ingest-topology --config <config.yaml> --split train --out outputs/topology_ingest_summary.json
+.\.venv-modern\Scripts\python.exe main.py sync-topology --config <config.yaml> --out outputs/sync_topology_summary.json
+```
+
+Prepare statistics snapshots:
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py sync-stats --config <config.yaml> --out outputs/sync_stats_summary.json
+.\.venv-modern\Scripts\python.exe main.py sync-stats-backfill --config <config.yaml> --step weekly --out-dir outputs/stats_backfill
+```
+
+Clean graph dataset cache:
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py cache-clean --cache-dir .cache/graph_datasets --dry-run
+```
+
+For the full command catalog, see
+[docs/runbooks/mvp2_5-commands.md](docs/runbooks/mvp2_5-commands.md).
+
+## Reproducibility
+
+Research-grade temporal runs should use strict as-of statistics:
 
 ```yaml
 experiment:
@@ -162,80 +148,67 @@ experiment:
   on_missing_asof_snapshot: raise
 ```
 
-## Experiment Reporting Conventions
+Recommended reproducibility checklist:
 
-Scientific reports and article figures use short model names. Code, checkpoints,
-and MLflow runs may keep implementation-oriented names. Use this mapping when
-linking paper tables to repository artifacts:
+1. Record the preset name and the resolved generated YAML config.
+2. Record dataset version scope, `fraction`, `fraction_strategy`,
+   `split_strategy`, and seed.
+3. Record model type, topology mode, gateway mode, mask settings, and candidate
+   contract settings.
+4. Record checkpoint path and verify that eval/eval_drift uses the intended
+   checkpoint.
+5. Export MLflow metrics and drift-window metrics to `outputs/`.
+6. Keep generated figures, raw metric exports, and run tables as supplementary
+   artifacts outside the Git repository.
 
-| Paper name | Code / MLflow name | Role |
-| --- | --- | --- |
-| `LSTM` | `LSTM_Baseline` | Fixed-vocabulary recurrent baseline. |
-| `GATv2` | `BaselineGATv2` | Logs-only graph baseline. |
-| `GATv2+Mask` | `BaselineGATv2Mask` | Fixed-vocabulary GATv2 with topology-mask post-filtering. |
-| `EOPKG-WI` | `EOPKGTopologyConditionedWI` | EOPKG ablation without impulse routing. |
-| `EOPKG` | `EOPKGTopologyConditioned` | Topology-conditioned candidate-space model. |
+Experiment validity guards:
 
-When exporting figures for papers, use the article figure exporter so legends,
-model colors, and min/max seed bands remain consistent across figures:
+- `vocab_activity_size` must be greater than 1;
+- mask-aware runs must report meaningful `target_in_mask_rate`;
+- `F1=1.0` with `target_in_mask_rate=0` or `test_oos=1` is invalid until
+  explained;
+- for XES task-label prediction, `gateway_mode=collapse_for_prediction` is the
+  canonical setting unless preserve-mode behavior is being studied.
 
-```powershell
-.\.venv-modern\Scripts\python.exe tools\export_article_figures.py `
-  --input-dir outputs\Export_metrics\article_run_metrics `
-  --output-dir outputs\article_figures `
-  --formats svg,png,eps `
-  --dpi 600
-```
+## Validation
 
-The exporter writes SVG/EPS files for journal submission and high-DPI PNG files
-for Word drafts. By default, it exports the main article metric figures
-(`Fig3`-`Fig6`); the train/validation loss diagnostic is available as `FigS1`
-when requested explicitly. It clips learn curves to epochs 0-50 and keeps drift
-curves on the full chronological trajectory. Keep full run IDs, checkpoint
-names, YAML presets, and raw metric exports in supplementary/reproducibility
-materials rather than in the main article text.
-
-To prepare a Word draft from the Markdown article, use the Pandoc-based DOCX
-converter. Pandoc is required because it converts LaTeX math into native Word
-equations. The converter also patches body paragraph styles to justified text,
-0 cm left/right indentation, 1.27 cm first-line indentation, 0 pt before/after
-spacing, and 1.5 line spacing, while table-cell paragraphs keep 0 first-line
-indentation. It also removes paragraph indents from figure/table captions,
-stretches kept figures to the configured content width, and applies full-width
-uniform grid borders to all Word tables. Figures are replaced with placeholders
-by default and can be inserted manually in Word:
+Architecture boundary check:
 
 ```powershell
-.\.venv-modern\Scripts\python.exe tools\convert_article_md_to_docx.py `
-  --input "Драфт_статті_4_EOPKG_структурний_дрейф.MD" `
-  --output outputs\article_docx\EOPKG_structural_drift.docx
+.\.venv-modern\Scripts\python.exe tools\architecture_guard.py
 ```
 
-Use `--keep-images` only when all referenced figure files are available in a
-Word-compatible format. Use `--no-body-style` if a journal-provided
-`--reference-doc` should control paragraph formatting. Use
-`--content-width-inches` to adjust full-width figure scaling for a different
-page/margin template.
+MVP1 regression subset:
 
-Current control latency snapshot for the EOPKG structural-drift article:
+```powershell
+.\.venv-modern\Scripts\python.exe -m pytest -m mvp1_regression -v
+```
 
-| Paper name | Device / batch | Parameters | Inference time, ms per graph sample | Source metric |
-| --- | --- | ---: | ---: | --- |
-| `GATv2` | CPU / 64 | 58,562 | 2.776 | `test_inference_time_ms_per_graph` |
-| `LSTM` | CPU / 64 | 64,450 | 3.665 | `test_inference_time_ms_per_graph` |
-| `EOPKG` | CPU / 64 | 135,830 | 6.518 | `test_inference_time_ms_per_graph` |
+Full test suite:
 
-Append new experiment series below this block or move them to a dedicated
-reproducibility table when the result set grows. Each new series should record:
-paper model name, code/MLflow model name, dataset, run mode, train/eval version
-scope, seed set, key metrics, hardware/software setup, and artifact location.
+```powershell
+.\.venv-modern\Scripts\python.exe -m pytest tests/ -v
+```
 
-## Current Documentation
+## Documentation Map
 
-- [Documentation Index](docs/index.md)
-- [Project State](docs/current/project-state.md)
-- [Architecture Debt](docs/current/architecture-debt.md)
-- [MVP2.5 Commands Runbook](docs/runbooks/mvp2_5-commands.md)
-- [ADR](docs/adr/README.md)
+- [docs/index.md](docs/index.md) - documentation navigation.
+- [docs/current/project-state.md](docs/current/project-state.md) - current
+  runtime state.
+- [docs/current/architecture-debt.md](docs/current/architecture-debt.md) -
+  active architecture and research-grade debt.
+- [docs/GNN_RUNTIME_MVP2_5.MD](docs/GNN_RUNTIME_MVP2_5.MD) - model and tensor
+  runtime behavior.
+- [docs/GNN_LEARNING_STRATEGY.MD](docs/GNN_LEARNING_STRATEGY.MD) - training
+  strategy contract.
+- [docs/GNN_LEARNING_METODOLOGY.MD](docs/GNN_LEARNING_METODOLOGY.MD) -
+  topology-conditioned research methodology.
+- [docs/adr/README.md](docs/adr/README.md) - architecture decisions.
 
-Worklogs and historical plans are stored in [docs/worklogs](docs/worklogs/).
+## Development Notes
+
+This project is still evolving. Some model modes are experimental, some
+research directions are retained as ablations, and not every configuration is
+intended as a production-ready default. The canonical current state is kept in
+`docs/current/`, while historical local worklogs are intentionally excluded from
+the public repository.

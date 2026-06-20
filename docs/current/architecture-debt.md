@@ -129,23 +129,8 @@ loader/collate path should attach the shared payload at batch time.
 
 Keep this compatible with `snapshot_homogeneous_batching`: batching should not
 mix incompatible payload identities unless the research profile explicitly
-allows it.
-
-Implementation plan:
-
-`docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Plan_2026-05-12.MD`
-
-Implementation report:
-
-`docs/worklogs/MVP2_5_Stats_Backed_Structural_Payload_Caching_Report_2026-05-12.MD`
-
-Follow-up one-pass drift plan:
-
-`docs/worklogs/MVP2_5_One_Pass_Drift_Window_Evaluation_Plan_2026-05-13.MD`
-
-Follow-up one-pass drift report:
-
-`docs/worklogs/MVP2_5_One_Pass_Drift_Window_Evaluation_Report_2026-05-13.MD`
+allows it. Historical local worklogs may contain implementation notes, but they
+are not part of the public source-of-truth documentation.
 
 ---
 
@@ -225,9 +210,8 @@ for cases where mixed batches are intentionally accepted and split inside the
 trainer. Old sharded cache entries without `topology_segments` may still need a
 one-time shard scan or cache rebuild before candidate-id eval starts.
 
-Implementation plan:
-
-`docs/worklogs/MVP2_5_Single_Topology_Required_Guard_Plan_2026-05-25.MD`
+Historical local worklogs may contain the original guard implementation plan,
+but the current debt state above is the source of truth.
 
 ---
 
@@ -533,8 +517,7 @@ have one implementation and both CLI and trainer should delegate to it.
 - `adr`: none
 - `current_behavior`: Resolved. The parallel PySide6 desktop UI was refactored and completed, integrating styling system, sliding preset manager, run monitor with live subprocess tracking and logs, custom autocomplete checkpoint resolution, dynamic visibility engine, and warning constraints. It renders Project Setup, Experiment Run, and Advanced pages entirely from the field registry derived from configs/ui/config_catalog.yaml.
 - `target_state`: desktop UI renders Project Setup, Experiment Run, and Advanced fields from one field registry derived from `configs/ui/config_catalog.yaml`
-- `audit`: `docs/worklogs/MVP2_5_Desktop_UI_Field_Dependency_Audit_2026-05-22.MD`
-- `matrix`: `outputs/ui/desktop_ui_field_dependency_matrix.csv`
+- `matrix`: `configs/ui/desktop_ui_field_dependency_matrix.csv`
 
 **Description (ukr):**
 
@@ -669,18 +652,6 @@ representations і policy-мапи `Green/Yellow/Red -> runtime action`.
 **Next direction:**
 
 Create MVP3 ADR/spec after MVP2.5 research-grade blockers are closed.
-
----
-
-## Historical Sources
-
-Use these only as background context:
-
-1. `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
-2. `docs/worklogs/MVP2_5_Dissertation_Alignment_and_Blocking_Debt_Analysis_2026-03-21.MD`
-3. `docs/worklogs/MVP2_5_Stage4_2_OptionA_Unbatch_Fix_Report.MD`
-4. `docs/worklogs/mismatch_fix_plan.md`
-5. `docs/worklogs/change_attention_aproach.md`
 
 ---
 

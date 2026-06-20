@@ -1,10 +1,9 @@
 .env
 .env.local
-.venv-modern
+.venv-modern/
 .cache/
 logs/
 outputs/
-!outputs/ui
 data/*
 !data/camunda_exports/
 data/camunda_exports/*
@@ -14,11 +13,18 @@ scratch/
 etalon/
 checkpoints/
 src/config/secrets.py
-!public_data
+!public_data/
 mlruns/
 __pycache__/
 *.pyc
 configs/secrets/
+.idea/
+docs/worklogs/
+docs/superpowers/
+docs/archive/
+archive/
+archives/
+.archive/
 
 !configs/data/
 !configs/data/*.yaml

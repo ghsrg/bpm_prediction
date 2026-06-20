@@ -1,4 +1,4 @@
-# ADR-0004: Strict As-Of Research Policy
+﻿# ADR-0004: Strict As-Of Research Policy
 
 Date: 2026-04-27
 Status: Accepted
@@ -60,6 +60,3 @@ Negative:
 - `docs/EVF_MVP2_5.MD`
 - `docs/LLD_MVP2_5.MD`
 - `docs/DATA_FLOWS_MVP2_5.MD`
-- `docs/worklogs/MVP2_5_Dissertation_Alignment_and_Blocking_Debt_Analysis_2026-03-21.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
-

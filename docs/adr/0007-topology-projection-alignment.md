@@ -1,4 +1,4 @@
-# ADR-0007: Topology Projection Alignment
+﻿# ADR-0007: Topology Projection Alignment
 
 Date: 2026-04-27
 Status: Proposed
@@ -104,7 +104,6 @@ Out of scope:
 
 ## Related
 
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
 - `docs/current/architecture-debt.md#duplicate_activity_identity_ambiguity`
 - `docs/GNN_RUNTIME_MVP2_5.MD`
 - `docs/DATA_MODEL_MVP2_5.MD`

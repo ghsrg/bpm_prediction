@@ -1,4 +1,4 @@
-# ADR-0002: Offline Topology and Runtime Separation
+﻿# ADR-0002: Offline Topology and Runtime Separation
 
 Date: 2026-04-27
 Status: Accepted
@@ -58,5 +58,3 @@ Negative:
 - `docs/ARCHITECTURE_MVP2_5.MD`
 - `docs/DATA_FLOWS_MVP2_5.MD`
 - `docs/TARGET_ARCHITECTURE.MD`
-- `docs/worklogs/Finish_MVP2_5_Plan.MD`
-

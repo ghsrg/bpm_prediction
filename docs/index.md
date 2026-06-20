@@ -1,4 +1,4 @@
-# Documentation Index
+﻿# Documentation Index
 
 Documentation map for `bpm_prediction`.
 
@@ -22,70 +22,70 @@ entire repository.
 ### For Agents
 
 - `AGENTS.MD`
-  - **Description (ukr):** перший файл для агента. Визначає routing, truth
-    priority, validation commands, ADR policy і documentation update rule.
+  - **Description (ukr):** РїРµСЂС€РёР№ С„Р°Р№Р» РґР»СЏ Р°РіРµРЅС‚Р°. Р’РёР·РЅР°С‡Р°С” routing, truth
+    priority, validation commands, ADR policy С– documentation update rule.
 
 ### For Current Project State
 
 - `docs/current/project-state.md`
-  - **Description (ukr):** короткий актуальний стан MVP2.5 Stage 4.2: що вже
-    реалізовано, які runtime invariants діють, які validation gates використовувати.
+  - **Description (ukr):** РєРѕСЂРѕС‚РєРёР№ Р°РєС‚СѓР°Р»СЊРЅРёР№ СЃС‚Р°РЅ MVP2.5 Stage 4.2: С‰Рѕ РІР¶Рµ
+    СЂРµР°Р»С–Р·РѕРІР°РЅРѕ, СЏРєС– runtime invariants РґС–СЋС‚СЊ, СЏРєС– validation gates РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚Рё.
 
 - `docs/current/architecture-debt.md`
-  - **Description (ukr):** актуальний список архітектурного боргу з українськими
-    поясненнями проблем і посиланнями на ADR.
+  - **Description (ukr):** Р°РєС‚СѓР°Р»СЊРЅРёР№ СЃРїРёСЃРѕРє Р°СЂС…С–С‚РµРєС‚СѓСЂРЅРѕРіРѕ Р±РѕСЂРіСѓ Р· СѓРєСЂР°С—РЅСЃСЊРєРёРјРё
+    РїРѕСЏСЃРЅРµРЅРЅСЏРјРё РїСЂРѕР±Р»РµРј С– РїРѕСЃРёР»Р°РЅРЅСЏРјРё РЅР° ADR.
 
 ### For Users
 
 - `README.MD`
-  - **Description (ukr):** головна user-facing точка входу: опис проекту,
-    quick start і посилання на актуальні operational runbooks.
+  - **Description (ukr):** РіРѕР»РѕРІРЅР° user-facing С‚РѕС‡РєР° РІС…РѕРґСѓ: РѕРїРёСЃ РїСЂРѕРµРєС‚Сѓ,
+    quick start С– РїРѕСЃРёР»Р°РЅРЅСЏ РЅР° Р°РєС‚СѓР°Р»СЊРЅС– operational runbooks.
 
 ---
 
 ## Runbooks
 
 - `docs/runbooks/mvp2_5-commands.md`
-  - **Description (ukr):** актуальний каталог операційних команд MVP2.5:
+  - **Description (ukr):** Р°РєС‚СѓР°Р»СЊРЅРёР№ РєР°С‚Р°Р»РѕРі РѕРїРµСЂР°С†С–Р№РЅРёС… РєРѕРјР°РЅРґ MVP2.5:
     environment, validation, train/eval, topology preparation, stats snapshots,
-    research-safe workflow, visualization, tools, cache maintenance і UI commands.
+    research-safe workflow, visualization, tools, cache maintenance С– UI commands.
 
 ---
 
 ## ADR
 
 - `docs/adr/README.md`
-  - **Description (ukr):** правила ведення ADR, статуси, naming і шаблон.
+  - **Description (ukr):** РїСЂР°РІРёР»Р° РІРµРґРµРЅРЅСЏ ADR, СЃС‚Р°С‚СѓСЃРё, naming С– С€Р°Р±Р»РѕРЅ.
 
 - `docs/adr/0001-agent-knowledge-base-governance.md`
-  - **Description (ukr):** рішення про `AGENTS.MD`, ADR і обмеження ролі worklogs.
+  - **Description (ukr):** СЂС–С€РµРЅРЅСЏ РїСЂРѕ `AGENTS.MD`, ADR С– РѕР±РјРµР¶РµРЅРЅСЏ СЂРѕР»С– worklogs.
 
 - `docs/adr/0002-offline-topology-runtime-separation.md`
-  - **Description (ukr):** рішення про фізичне розділення offline topology/stats
-    preparation і runtime train/eval/infer.
+  - **Description (ukr):** СЂС–С€РµРЅРЅСЏ РїСЂРѕ С„С–Р·РёС‡РЅРµ СЂРѕР·РґС–Р»РµРЅРЅСЏ offline topology/stats
+    preparation С– runtime train/eval/infer.
 
 - `docs/adr/0003-immutable-json-stats-snapshots.md`
-  - **Description (ukr):** рішення про immutable JSON-only stats snapshots.
+  - **Description (ukr):** СЂС–С€РµРЅРЅСЏ РїСЂРѕ immutable JSON-only stats snapshots.
 
 - `docs/adr/0004-strict-asof-research-policy.md`
-  - **Description (ukr):** рішення про `strict_asof + raise` для research-grade
+  - **Description (ukr):** СЂС–С€РµРЅРЅСЏ РїСЂРѕ `strict_asof + raise` РґР»СЏ research-grade
     temporal experiments.
 
 - `docs/adr/0005-snapshot-homogeneous-batching.md`
-  - **Description (ukr):** proposed target для snapshot-homogeneous batching.
+  - **Description (ukr):** proposed target РґР»СЏ snapshot-homogeneous batching.
 
 - `docs/adr/0006-research-grade-activity-topology-alignment-gate.md`
-  - **Description (ukr):** proposed target для strict activity-to-topology
+  - **Description (ukr):** proposed target РґР»СЏ strict activity-to-topology
     alignment gate.
 
 - `docs/adr/0007-topology-projection-alignment.md`
-  - **Description (ukr):** proposed target для alignment після topology projection.
+  - **Description (ukr):** proposed target РґР»СЏ alignment РїС–СЃР»СЏ topology projection.
 
 - `docs/adr/0008-cli-composition-root-boundary.md`
-  - **Description (ukr):** proposed target для декомпозиції `src/cli.py`.
+  - **Description (ukr):** proposed target РґР»СЏ РґРµРєРѕРјРїРѕР·РёС†С–С— `src/cli.py`.
 
 - `docs/adr/0009-impulse-activation-topology-state-routing.md` (`Status: Proposed`)
-  - **Description (ukr):** proposed hypothesis / planned rework для `EOPKGTopologyConditioned`: динамічна імпульсна активація topology-native candidate graph через GNN індуктивності та топологічне трасування стану (Topology State Routing). Не є прийнятим рішенням, доки ADR має статус `Proposed`.
+  - **Description (ukr):** proposed hypothesis / planned rework РґР»СЏ `EOPKGTopologyConditioned`: РґРёРЅР°РјС–С‡РЅР° С–РјРїСѓР»СЊСЃРЅР° Р°РєС‚РёРІР°С†С–СЏ topology-native candidate graph С‡РµСЂРµР· GNN С–РЅРґСѓРєС‚РёРІРЅРѕСЃС‚С– С‚Р° С‚РѕРїРѕР»РѕРіС–С‡РЅРµ С‚СЂР°СЃСѓРІР°РЅРЅСЏ СЃС‚Р°РЅСѓ (Topology State Routing). РќРµ С” РїСЂРёР№РЅСЏС‚РёРј СЂС–С€РµРЅРЅСЏРј, РґРѕРєРё ADR РјР°С” СЃС‚Р°С‚СѓСЃ `Proposed`.
 
 
 ---
@@ -93,15 +93,15 @@ entire repository.
 ## Architecture Canon
 
 - `docs/ARCHITECTURE_GUIDELINES.MD`
-  - **Description (ukr):** архітектурна конституція: Clean/Hexagonal principles,
+  - **Description (ukr):** Р°СЂС…С–С‚РµРєС‚СѓСЂРЅР° РєРѕРЅСЃС‚РёС‚СѓС†С–СЏ: Clean/Hexagonal principles,
     modes, MVP stages, scientific integrity gate.
 
 - `docs/ARCHITECTURE_RULES.MD`
-  - **Description (ukr):** enforceable dependency boundaries для `domain`,
+  - **Description (ukr):** enforceable dependency boundaries РґР»СЏ `domain`,
     `application`, `adapters`.
 
 - `docs/TARGET_ARCHITECTURE.MD`
-  - **Description (ukr):** target blueprint незалежно від конкретного MVP:
+  - **Description (ukr):** target blueprint РЅРµР·Р°Р»РµР¶РЅРѕ РІС–Рґ РєРѕРЅРєСЂРµС‚РЅРѕРіРѕ MVP:
     module layout, ports, knowledge lifecycle, enterprise direction.
 
 ---
@@ -109,15 +109,15 @@ entire repository.
 ## Active MVP2.5 Reference
 
 - `docs/ARCHITECTURE_MVP2_5.MD`
-  - **Description (ukr):** системна архітектура MVP2.5: offline ingestion,
+  - **Description (ukr):** СЃРёСЃС‚РµРјРЅР° Р°СЂС…С–С‚РµРєС‚СѓСЂР° MVP2.5: offline ingestion,
     stats snapshots, repository-backed runtime.
 
 - `docs/DATA_MODEL_MVP2_5.MD`
-  - **Description (ukr):** DTO і artifact contracts: `ProcessStructureDTO`,
+  - **Description (ukr):** DTO С– artifact contracts: `ProcessStructureDTO`,
     stats snapshots, `GraphTensorContract`.
 
 - `docs/DATA_FLOWS_MVP2_5.MD`
-  - **Description (ukr):** data flows для `ingest-topology`, `sync-topology`,
+  - **Description (ukr):** data flows РґР»СЏ `ingest-topology`, `sync-topology`,
     `sync-stats`, train/eval/infer.
 
 - `docs/LLD_MVP2_5.MD`
@@ -167,14 +167,14 @@ entire repository.
   - **Description (ukr):** mathematical notation to code naming map.
 
 - `docs/research_comparation.MD`
-  - **Description (ukr):** наукова новизна та порівняльний аналіз літератури:
-    зіставлення EOPKGTopologyConditioned з сучасними SOTA моделями (Lischka, Wang,
-    Rizzi, ProcessGFM, SAGN, PROPHET, IPA-GNN, SNAP, TPOP) та обґрунтування плагіат-захисту.
+  - **Description (ukr):** РЅР°СѓРєРѕРІР° РЅРѕРІРёР·РЅР° С‚Р° РїРѕСЂС–РІРЅСЏР»СЊРЅРёР№ Р°РЅР°Р»С–Р· Р»С–С‚РµСЂР°С‚СѓСЂРё:
+    Р·С–СЃС‚Р°РІР»РµРЅРЅСЏ EOPKGTopologyConditioned Р· СЃСѓС‡Р°СЃРЅРёРјРё SOTA РјРѕРґРµР»СЏРјРё (Lischka, Wang,
+    Rizzi, ProcessGFM, SAGN, PROPHET, IPA-GNN, SNAP, TPOP) С‚Р° РѕР±Т‘СЂСѓРЅС‚СѓРІР°РЅРЅСЏ РїР»Р°РіС–Р°С‚-Р·Р°С…РёСЃС‚Сѓ.
 
 - `docs/dissertation_math_fix.MD`
-  - **Description (ukr):** математичні та архітектурні невідповідності:
-    аналіз розбіжностей між теоретичним описом у дисертації (модель злиття, онлайн-еволюція,
-    семафор надійності) та практичною програмною реалізацією Impulse Activation Routing.
+  - **Description (ukr):** РјР°С‚РµРјР°С‚РёС‡РЅС– С‚Р° Р°СЂС…С–С‚РµРєС‚СѓСЂРЅС– РЅРµРІС–РґРїРѕРІС–РґРЅРѕСЃС‚С–:
+    Р°РЅР°Р»С–Р· СЂРѕР·Р±С–Р¶РЅРѕСЃС‚РµР№ РјС–Р¶ С‚РµРѕСЂРµС‚РёС‡РЅРёРј РѕРїРёСЃРѕРј Сѓ РґРёСЃРµСЂС‚Р°С†С–С— (РјРѕРґРµР»СЊ Р·Р»РёС‚С‚СЏ, РѕРЅР»Р°Р№РЅ-РµРІРѕР»СЋС†С–СЏ,
+    СЃРµРјР°С„РѕСЂ РЅР°РґС–Р№РЅРѕСЃС‚С–) С‚Р° РїСЂР°РєС‚РёС‡РЅРѕСЋ РїСЂРѕРіСЂР°РјРЅРѕСЋ СЂРµР°Р»С–Р·Р°С†С–С”СЋ Impulse Activation Routing.
 
 
 
@@ -208,50 +208,8 @@ Use only for backward compatibility or historical context:
 
 **Description (ukr):**
 
-Ці файли не є active MVP2.5 source of truth, але важливі для backward
-compatibility, regression reasoning і розуміння еволюції.
-
----
-
-## Archive
-
-- `docs/archive/`
-  - **Description (ukr):** архів застарілих документів, які більше не є
-    active source of truth.
-
-### Deprecated Agent Contexts
-
-Use only when explicitly requested by the user:
-
-- `docs/archive/agent-contexts/AGENT_GUIDE.MD`
-- `docs/archive/agent-contexts/PROJECT_CONTEXT.md`
-- `docs/archive/agent-contexts/AGENT_CONTEXT_MVP1.MD`
-- `docs/archive/agent-contexts/AGENT_CONTEXT_MVP2.MD`
-- `docs/archive/agent-contexts/AGENT_CONTEXT_MVP2_5.MD`
-
-**Description (ukr):**
-
-Ці файли більше не є first-read entrypoint для агента. Актуальний маршрут:
-`AGENTS.MD` -> `docs/current/project-state.md` ->
-`docs/current/architecture-debt.md`.
-
----
-
-## Worklogs
-
-- `docs/worklogs/`
-  - **Description (ukr):** історичні плани, звіти і аналізи. Не source of truth
-    за замовчуванням. Використовувати тільки якщо на них посилається
-    `AGENTS.MD`, `docs/current/*`, ADR або користувач.
-
-Important current-context worklogs:
-
-- `docs/worklogs/Finish_MVP2_5_Plan.MD`
-- `docs/worklogs/MVP2_5_Canonical_Doc_Sync_and_Architecture_Debt_2026-04-24.MD`
-- `docs/worklogs/MVP2_5_Dissertation_Alignment_and_Blocking_Debt_Analysis_2026-03-21.MD`
-- `docs/worklogs/MVP2_5_Stage4_2_OptionA_Unbatch_Fix_Report.MD`
-- `docs/worklogs/mismatch_fix_plan.md`
-- `docs/worklogs/change_attention_aproach.md`
+Р¦С– С„Р°Р№Р»Рё РЅРµ С” active MVP2.5 source of truth, Р°Р»Рµ РІР°Р¶Р»РёРІС– РґР»СЏ backward
+compatibility, regression reasoning С– СЂРѕР·СѓРјС–РЅРЅСЏ РµРІРѕР»СЋС†С–С—.
 
 ---
 
@@ -275,11 +233,11 @@ docs/current/roadmap.md
 
 **Description (ukr):**
 
-Зараз roadmap частково живе в `ARCHITECTURE_GUIDELINES.MD` як high-level MVP
-послідовність, а target state — в `TARGET_ARCHITECTURE.MD`. Це нормально для
-стабільної стратегії. Окремий `docs/current/roadmap.md` потрібен лише тоді, коли
-треба регулярно оновлювати найближчі milestones, статуси блокерів, порядок
-закриття debt і критерії переходу до MVP3.
+Р—Р°СЂР°Р· roadmap С‡Р°СЃС‚РєРѕРІРѕ Р¶РёРІРµ РІ `ARCHITECTURE_GUIDELINES.MD` СЏРє high-level MVP
+РїРѕСЃР»С–РґРѕРІРЅС–СЃС‚СЊ, Р° target state вЂ” РІ `TARGET_ARCHITECTURE.MD`. Р¦Рµ РЅРѕСЂРјР°Р»СЊРЅРѕ РґР»СЏ
+СЃС‚Р°Р±С–Р»СЊРЅРѕС— СЃС‚СЂР°С‚РµРіС–С—. РћРєСЂРµРјРёР№ `docs/current/roadmap.md` РїРѕС‚СЂС–Р±РµРЅ Р»РёС€Рµ С‚РѕРґС–, РєРѕР»Рё
+С‚СЂРµР±Р° СЂРµРіСѓР»СЏСЂРЅРѕ РѕРЅРѕРІР»СЋРІР°С‚Рё РЅР°Р№Р±Р»РёР¶С‡С– milestones, СЃС‚Р°С‚СѓСЃРё Р±Р»РѕРєРµСЂС–РІ, РїРѕСЂСЏРґРѕРє
+Р·Р°РєСЂРёС‚С‚СЏ debt С– РєСЂРёС‚РµСЂС–С— РїРµСЂРµС…РѕРґСѓ РґРѕ MVP3.
 
 ### Do Not Duplicate
 

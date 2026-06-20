@@ -40,7 +40,7 @@ from src.infrastructure.config.yaml_loader import load_yaml_with_includes
 
 OUTPUT_DIR = ROOT_DIR / "outputs" / "ui"
 STATE_PATH = OUTPUT_DIR / "experiment_ui_state.json"
-PRESETS_PATH = OUTPUT_DIR / "experiment_ui_presets.json"
+PRESETS_PATH = ROOT_DIR / "configs" / "ui" / "experiment_ui_presets.json"
 CATALOG_PATH = ROOT_DIR / "configs" / "ui" / "config_catalog.yaml"
 PROGRESS_EVENT_PREFIX = "__BPM_PROGRESS__"
 

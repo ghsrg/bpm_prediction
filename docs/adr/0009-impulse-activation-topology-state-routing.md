@@ -1,4 +1,4 @@
-# ADR-0009: EOPKGTopologyConditioned Impulse Activation and Topology State Routing
+﻿# ADR-0009: EOPKGTopologyConditioned Impulse Activation and Topology State Routing
 
 Date: 2026-05-31
 Status: Proposed

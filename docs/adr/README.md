@@ -1,4 +1,4 @@
-# Architectural Decision Records
+﻿# Architectural Decision Records
 
 This directory contains Architecture Decision Records (ADR) for `bpm_prediction`.
 
@@ -20,7 +20,7 @@ worklogs, plans, or session notes.
 
 Accepted ADRs override historical worklogs.
 
-If an accepted ADR conflicts with old `docs/worklogs/*` content, the ADR wins.
+If an accepted ADR conflicts with local historical worklog content, the ADR wins.
 
 If an ADR conflicts with `AGENTS.MD`, stop and ask for clarification. `AGENTS.MD`
 is the routing and operating guide; ADRs are decision records.
@@ -84,4 +84,3 @@ Create or update an ADR when a change affects:
 5. fallback policy,
 6. tensor contract semantics,
 7. accepted architecture debt direction.
-

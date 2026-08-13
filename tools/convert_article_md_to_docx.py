@@ -21,6 +21,9 @@ W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 EMU_PER_INCH = 914400
+TWIPS_PER_INCH = 1440
+LETTER_WIDTH_TWIPS = 12240
+LETTER_HEIGHT_TWIPS = 15840
 ET.register_namespace("w", W_NS)
 ET.register_namespace("wp", WP_NS)
 ET.register_namespace("a", A_NS)
@@ -391,6 +394,24 @@ def patch_document_layout(document_xml: bytes, content_width_inches: float) -> E
 
     root = ET.fromstring(document_xml)
     content_width_emu = round(content_width_inches * EMU_PER_INCH)
+
+    sect_pr = root.find(f".//{qn('sectPr')}")
+    if sect_pr is None:
+        body = root.find(qn("body"))
+        if body is None:
+            raise RuntimeError("word/document.xml does not contain a document body.")
+        sect_pr = ET.SubElement(body, qn("sectPr"))
+
+    pg_sz = get_or_create(sect_pr, "pgSz")
+    pg_sz.set(qn("w"), str(LETTER_WIDTH_TWIPS))
+    pg_sz.set(qn("h"), str(LETTER_HEIGHT_TWIPS))
+
+    pg_mar = get_or_create(sect_pr, "pgMar")
+    for margin_name in ("top", "right", "bottom", "left"):
+        pg_mar.set(qn(margin_name), str(TWIPS_PER_INCH))
+    pg_mar.set(qn("header"), "720")
+    pg_mar.set(qn("footer"), "720")
+    pg_mar.set(qn("gutter"), "0")
 
     for table in root.findall(f".//{qn('tbl')}"):
         tbl_pr = get_or_create(table, "tblPr")

@@ -1,0 +1,18 @@
+data:
+  dataset_label: cdlg_dataset
+  dataset_name: cdlg_dataset
+  log_path: C:/Users/korsr/PycharmProjects/cdlg_tool-main/outputs/datasets/run-20260815T133924000710Z/dataset.xes
+mapping:
+  xes_adapter:
+    case_id_key: concept:name
+    activity_key: concept:name
+    timestamp_key: time:timestamp
+    resource_key: org:resource
+    lifecycle_key: lifecycle:transition
+    version_key: concept:version
+    start_transitions:
+      - start
+    complete_transitions:
+      - complete
+    pairing_strategy: by_instance
+    use_classifier: false

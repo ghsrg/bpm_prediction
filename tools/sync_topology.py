@@ -89,7 +89,8 @@ def _sync_xes_logs(
     per_dataset: List[Dict[str, Any]] = []
 
     for file_path in xes_files:
-        dataset_name = file_path.stem
+        explicit_name = str(data_cfg.get("dataset_name", "")).strip() or str(data_cfg.get("dataset_label", "")).strip()
+        dataset_name = explicit_name if (len(xes_files) == 1 and explicit_name) else file_path.stem
         mapping_cfg = _inject_dataset_name_mapping(mapping_raw, dataset_name)
         traces = list(adapter.read(str(file_path), mapping_cfg))
         total_traces += len(traces)

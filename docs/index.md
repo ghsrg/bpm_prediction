@@ -49,6 +49,11 @@ entire repository.
   - **Description (ukr):** актуальний список архітектурного боргу з українськими
     поясненнями проблем і посиланнями на ADR.
 
+- [docs/current/phase-2c-review-fix-plan.md](current/phase-2c-review-fix-plan.md)
+  - **Focus:** actionable review findings after Phase-2C completion: runtime
+    consistency, candidate topology batching, config/catalog wording, and
+    validation gaps to close before treating Phase-2C as cleanly complete.
+
 ### For Users
 
 - [README.MD](../README.MD)

@@ -8,6 +8,7 @@ data/*
 !data/camunda_exports/
 data/camunda_exports/*
 !data/camunda_exports/mock_*
+!data/knowledge_graph
 scratch/
 .venv*.zip
 etalon/

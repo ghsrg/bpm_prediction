@@ -127,7 +127,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         stats_enabled = bool(mapping.get("enabled", False))
         as_of_ts = (
             self._resolve_as_of_timestamp(prefix)
-            if self.stats_time_policy == "strict_asof"
+            if stats_enabled and self.stats_time_policy == "strict_asof"
             else None
         )
 

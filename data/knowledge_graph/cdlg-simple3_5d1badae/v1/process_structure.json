@@ -1,0 +1,580 @@
+{
+  "created_at_utc": "2026-08-30T09:13:23.474261+00:00",
+  "dto": {
+    "allowed_edges": [
+      [
+        "gateway_exclusive_join_a9f4bc62",
+        "end_event"
+      ],
+      [
+        "gateway_exclusive_join_f4fa7514",
+        "task_a_86f7e437"
+      ],
+      [
+        "gateway_exclusive_split_d379800c",
+        "gateway_exclusive_split_f4fa7514"
+      ],
+      [
+        "gateway_exclusive_split_d379800c",
+        "task_b_e9d71f5e"
+      ],
+      [
+        "gateway_exclusive_split_f4fa7514",
+        "task_c_84a51684"
+      ],
+      [
+        "gateway_exclusive_split_f4fa7514",
+        "task_d_3c363836"
+      ],
+      [
+        "start_event",
+        "gateway_exclusive_join_f4fa7514"
+      ],
+      [
+        "task_a_86f7e437",
+        "task_f_4a0a1921"
+      ],
+      [
+        "task_b_e9d71f5e",
+        "gateway_exclusive_join_f4fa7514"
+      ],
+      [
+        "task_c_84a51684",
+        "task_e_58e6b3a4"
+      ],
+      [
+        "task_d_3c363836",
+        "gateway_exclusive_join_a9f4bc62"
+      ],
+      [
+        "task_e_58e6b3a4",
+        "gateway_exclusive_join_a9f4bc62"
+      ],
+      [
+        "task_f_4a0a1921",
+        "gateway_exclusive_split_d379800c"
+      ]
+    ],
+    "call_bindings": {},
+    "deployment_id": "deployment_cdlg-simple3_5d1badae_v1",
+    "edge_statistics": [],
+    "edge_stats": {},
+    "edges": [
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_001",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_a9f4bc62",
+        "target": "end_event"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_002",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_f4fa7514",
+        "target": "task_a_86f7e437"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_003",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_d379800c",
+        "target": "gateway_exclusive_split_f4fa7514"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_004",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_d379800c",
+        "target": "task_b_e9d71f5e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_005",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_f4fa7514",
+        "target": "task_c_84a51684"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_006",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_f4fa7514",
+        "target": "task_d_3c363836"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_007",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "start_event",
+        "target": "gateway_exclusive_join_f4fa7514"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_008",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_a_86f7e437",
+        "target": "task_f_4a0a1921"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_009",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_b_e9d71f5e",
+        "target": "gateway_exclusive_join_f4fa7514"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_010",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_c_84a51684",
+        "target": "task_e_58e6b3a4"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_011",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_d_3c363836",
+        "target": "gateway_exclusive_join_a9f4bc62"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_012",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_e_58e6b3a4",
+        "target": "gateway_exclusive_join_a9f4bc62"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_013",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_f_4a0a1921",
+        "target": "gateway_exclusive_split_d379800c"
+      }
+    ],
+    "gnn_features": {},
+    "graph_topology": {
+      "allowed_edges": [
+        [
+          "gateway_exclusive_join_a9f4bc62",
+          "end_event"
+        ],
+        [
+          "gateway_exclusive_join_f4fa7514",
+          "task_a_86f7e437"
+        ],
+        [
+          "gateway_exclusive_split_d379800c",
+          "gateway_exclusive_split_f4fa7514"
+        ],
+        [
+          "gateway_exclusive_split_d379800c",
+          "task_b_e9d71f5e"
+        ],
+        [
+          "gateway_exclusive_split_f4fa7514",
+          "task_c_84a51684"
+        ],
+        [
+          "gateway_exclusive_split_f4fa7514",
+          "task_d_3c363836"
+        ],
+        [
+          "start_event",
+          "gateway_exclusive_join_f4fa7514"
+        ],
+        [
+          "task_a_86f7e437",
+          "task_f_4a0a1921"
+        ],
+        [
+          "task_b_e9d71f5e",
+          "gateway_exclusive_join_f4fa7514"
+        ],
+        [
+          "task_c_84a51684",
+          "task_e_58e6b3a4"
+        ],
+        [
+          "task_d_3c363836",
+          "gateway_exclusive_join_a9f4bc62"
+        ],
+        [
+          "task_e_58e6b3a4",
+          "gateway_exclusive_join_a9f4bc62"
+        ],
+        [
+          "task_f_4a0a1921",
+          "gateway_exclusive_split_d379800c"
+        ]
+      ],
+      "cycle_count": 1,
+      "cycles_detected": true,
+      "edge_count": 13,
+      "event_subprocess_node_ids": [],
+      "gateway_node_ids": [
+        "gateway_exclusive_join_a9f4bc62",
+        "gateway_exclusive_join_f4fa7514",
+        "gateway_exclusive_split_d379800c",
+        "gateway_exclusive_split_f4fa7514"
+      ],
+      "node_count": 12
+    },
+    "metadata": {
+      "cycles_detected": true,
+      "parsed_at_utc": "2026-08-30T09:13:23.472260+00:00",
+      "parser_mode": "recover",
+      "process_name": "cdlg-simple3_5d1badae",
+      "quarantine_error_codes": [
+        "empty_bpmn_payload",
+        "missing_bpmn_payload",
+        "missing_proc_def_id",
+        "no_process_element",
+        "xml_parse_error"
+      ],
+      "subprocess_mode": "flattened-no-subprocess-node",
+      "warning_count": 0,
+      "warnings": []
+    },
+    "node_metadata": {
+      "end_event": {
+        "activity_name": "end",
+        "activity_type": "endEvent"
+      },
+      "gateway_exclusive_join_a9f4bc62": {
+        "activity_name": "gateway_exclusive_join_a9f4bc62",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_f4fa7514": {
+        "activity_name": "gateway_exclusive_join_f4fa7514",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_d379800c": {
+        "activity_name": "gateway_exclusive_split_d379800c",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_f4fa7514": {
+        "activity_name": "gateway_exclusive_split_f4fa7514",
+        "activity_type": "exclusiveGateway"
+      },
+      "start_event": {
+        "activity_name": "start",
+        "activity_type": "startEvent"
+      },
+      "task_a_86f7e437": {
+        "activity_name": "a",
+        "activity_type": "task"
+      },
+      "task_b_e9d71f5e": {
+        "activity_name": "b",
+        "activity_type": "task"
+      },
+      "task_c_84a51684": {
+        "activity_name": "c",
+        "activity_type": "task"
+      },
+      "task_d_3c363836": {
+        "activity_name": "d",
+        "activity_type": "task"
+      },
+      "task_e_58e6b3a4": {
+        "activity_name": "e",
+        "activity_type": "task"
+      },
+      "task_f_4a0a1921": {
+        "activity_name": "f",
+        "activity_type": "task"
+      }
+    },
+    "node_stats": {},
+    "nodes": [
+      {
+        "activity_type": "endEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "endEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "end_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "end",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "endEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_a9f4bc62",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_a9f4bc62",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_f4fa7514",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_f4fa7514",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_d379800c",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_d379800c",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_f4fa7514",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_f4fa7514",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "startEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "startEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "start_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "start",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "startEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_a_86f7e437",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "a",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_b_e9d71f5e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "b",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_c_84a51684",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "c",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_d_3c363836",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "d",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_e_58e6b3a4",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "e",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_f_4a0a1921",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "f",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      }
+    ],
+    "proc_def_id": "cdlg-simple3_5d1badae_v1",
+    "proc_def_key": "cdlg-simple3_5d1badae",
+    "stats_diagnostics": {},
+    "version": "v1"
+  },
+  "process_name": "cdlg-simple3_5d1badae",
+  "repository_backend": "file",
+  "schema_version": "1.1",
+  "version": "v1"
+}

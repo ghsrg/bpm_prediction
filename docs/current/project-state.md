@@ -84,6 +84,24 @@ repository-backed train/eval path і Stage 4.2 stats integration. Основна
 
 ## Implemented Capabilities
 
+### cdlg_benchmark_sequential_runner
+
+- `status`: implemented in the current working tree; closure verification pending
+- `entrypoint`: `tools/run_cdlg_benchmark.py`
+- `plan`: `configs/ui/cdlg_benchmark_plan.yaml`
+- `artifacts`: generated configs, per-run logs, and `manifest.jsonl` under `outputs/cdlg_benchmark/`
+
+**Description (ukr):**
+
+Для CDLG benchmark є headless runner, який виконує лише явно перелічені
+пресети послідовно. Він показує в консолі номер запуску, назву preset-а,
+поточний stage, completed/remaining у черзі та ETA на основі structured
+progress events. Перед запуском рекомендовано виконати `--dry-run`.
+
+When `experiment.statistic_enabled=false`, the runtime keeps topology-based
+graph construction but does not resolve strict-as-of statistics snapshots or
+emit missing-snapshot warnings.
+
 ### offline_topology_preparation
 
 - `status`: implemented

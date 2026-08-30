@@ -2947,7 +2947,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -2960,9 +2960,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143803002497Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143803002497Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143803002497Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -3105,8 +3105,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex1",
-        "data.dataset_name": "cdlg-complex1_c53c0875",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex1",
+        "data.log_path": "outputs/datasets/run-20260829T143803002497Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -3245,7 +3245,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -3258,9 +3258,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143803002497Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143803002497Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143803002497Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -3403,8 +3403,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex1",
-        "data.dataset_name": "cdlg-complex1_c53c0875",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex1",
+        "data.log_path": "outputs/datasets/run-20260829T143803002497Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -3543,7 +3543,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -3556,9 +3556,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143803002497Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143803002497Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143803002497Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -3701,8 +3701,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex1",
-        "data.dataset_name": "cdlg-complex1_c53c0875",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex1",
+        "data.log_path": "outputs/datasets/run-20260829T143803002497Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -3841,7 +3841,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -3854,9 +3854,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143803002497Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143803002497Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143803002497Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -3999,8 +3999,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex1",
-        "data.dataset_name": "cdlg-complex1_c53c0875",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143803002497Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex1",
+        "data.log_path": "outputs/datasets/run-20260829T143803002497Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -4139,7 +4139,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -4152,9 +4152,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143826003808Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143826003808Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143826003808Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -4297,8 +4297,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex2",
-        "data.dataset_name": "cdlg-complex2_450f64bf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex2",
+        "data.log_path": "outputs/datasets/run-20260829T143826003808Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -4437,7 +4437,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -4450,9 +4450,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143826003808Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143826003808Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143826003808Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -4595,8 +4595,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex2",
-        "data.dataset_name": "cdlg-complex2_450f64bf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex2",
+        "data.log_path": "outputs/datasets/run-20260829T143826003808Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -4735,7 +4735,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -4748,9 +4748,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143826003808Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143826003808Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143826003808Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -4893,8 +4893,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex2",
-        "data.dataset_name": "cdlg-complex2_450f64bf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex2",
+        "data.log_path": "outputs/datasets/run-20260829T143826003808Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -5033,7 +5033,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -5046,9 +5046,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143826003808Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143826003808Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143826003808Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -5191,8 +5191,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex2",
-        "data.dataset_name": "cdlg-complex2_450f64bf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143826003808Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex2",
+        "data.log_path": "outputs/datasets/run-20260829T143826003808Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -5331,7 +5331,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -5344,9 +5344,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143859347788Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143859347788Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143859347788Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -5489,8 +5489,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex3",
-        "data.dataset_name": "cdlg-complex3_96524d66",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex3",
+        "data.log_path": "outputs/datasets/run-20260829T143859347788Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -5629,7 +5629,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -5642,9 +5642,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143859347788Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143859347788Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143859347788Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -5787,8 +5787,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex3",
-        "data.dataset_name": "cdlg-complex3_96524d66",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex3",
+        "data.log_path": "outputs/datasets/run-20260829T143859347788Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -5927,7 +5927,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -5940,9 +5940,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143859347788Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143859347788Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143859347788Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -6085,8 +6085,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex3",
-        "data.dataset_name": "cdlg-complex3_96524d66",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex3",
+        "data.log_path": "outputs/datasets/run-20260829T143859347788Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -6225,7 +6225,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -6238,9 +6238,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143859347788Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143859347788Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143859347788Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -6383,8 +6383,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex3",
-        "data.dataset_name": "cdlg-complex3_96524d66",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143859347788Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex3",
+        "data.log_path": "outputs/datasets/run-20260829T143859347788Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -6523,7 +6523,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -6536,9 +6536,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143921525410Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143921525410Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143921525410Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -6681,8 +6681,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex4",
-        "data.dataset_name": "cdlg-complex4_abe933a7",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex4",
+        "data.log_path": "outputs/datasets/run-20260829T143921525410Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -6821,7 +6821,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -6834,9 +6834,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143921525410Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143921525410Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143921525410Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -6979,8 +6979,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex4",
-        "data.dataset_name": "cdlg-complex4_abe933a7",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex4",
+        "data.log_path": "outputs/datasets/run-20260829T143921525410Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -7119,7 +7119,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -7132,9 +7132,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143921525410Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143921525410Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143921525410Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -7277,8 +7277,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex4",
-        "data.dataset_name": "cdlg-complex4_abe933a7",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex4",
+        "data.log_path": "outputs/datasets/run-20260829T143921525410Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -7417,7 +7417,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -7430,9 +7430,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143921525410Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143921525410Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143921525410Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -7575,8 +7575,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex4",
-        "data.dataset_name": "cdlg-complex4_abe933a7",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143921525410Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex4",
+        "data.log_path": "outputs/datasets/run-20260829T143921525410Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -7715,7 +7715,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -7728,9 +7728,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143940083380Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143940083380Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143940083380Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -7873,8 +7873,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex5",
-        "data.dataset_name": "cdlg-complex5_f9b045e9",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex5",
+        "data.log_path": "outputs/datasets/run-20260829T143940083380Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -8013,7 +8013,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -8026,9 +8026,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143940083380Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143940083380Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143940083380Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -8171,8 +8171,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex5",
-        "data.dataset_name": "cdlg-complex5_f9b045e9",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex5",
+        "data.log_path": "outputs/datasets/run-20260829T143940083380Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -8311,7 +8311,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -8324,9 +8324,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143940083380Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143940083380Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143940083380Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -8469,8 +8469,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex5",
-        "data.dataset_name": "cdlg-complex5_f9b045e9",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex5",
+        "data.log_path": "outputs/datasets/run-20260829T143940083380Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -8609,7 +8609,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -8622,9 +8622,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143940083380Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143940083380Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143940083380Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -8767,8 +8767,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-complex5",
-        "data.dataset_name": "cdlg-complex5_f9b045e9",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143940083380Z\\dataset.xes"
+        "data.dataset_name": "cdlg-complex5",
+        "data.log_path": "outputs/datasets/run-20260829T143940083380Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -8907,7 +8907,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -8920,9 +8920,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143619067583Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143619067583Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143619067583Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -9065,8 +9065,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium1",
-        "data.dataset_name": "cdlg-medium1_0786be77",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium1",
+        "data.log_path": "outputs/datasets/run-20260829T143619067583Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -9205,7 +9205,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -9218,9 +9218,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143619067583Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143619067583Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143619067583Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -9363,8 +9363,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium1",
-        "data.dataset_name": "cdlg-medium1_0786be77",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium1",
+        "data.log_path": "outputs/datasets/run-20260829T143619067583Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -9503,7 +9503,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -9516,9 +9516,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143619067583Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143619067583Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143619067583Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -9661,8 +9661,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium1",
-        "data.dataset_name": "cdlg-medium1_0786be77",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium1",
+        "data.log_path": "outputs/datasets/run-20260829T143619067583Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -9801,7 +9801,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -9814,9 +9814,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143619067583Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143619067583Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143619067583Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -9959,8 +9959,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium1",
-        "data.dataset_name": "cdlg-medium1_0786be77",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143619067583Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium1",
+        "data.log_path": "outputs/datasets/run-20260829T143619067583Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -10099,7 +10099,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -10112,9 +10112,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143645009295Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143645009295Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143645009295Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -10257,8 +10257,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium2",
-        "data.dataset_name": "cdlg-medium2_a3044edf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium2",
+        "data.log_path": "outputs/datasets/run-20260829T143645009295Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -10397,7 +10397,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -10410,9 +10410,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143645009295Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143645009295Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143645009295Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -10555,8 +10555,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium2",
-        "data.dataset_name": "cdlg-medium2_a3044edf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium2",
+        "data.log_path": "outputs/datasets/run-20260829T143645009295Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -10695,7 +10695,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -10708,9 +10708,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143645009295Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143645009295Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143645009295Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -10853,8 +10853,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium2",
-        "data.dataset_name": "cdlg-medium2_a3044edf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium2",
+        "data.log_path": "outputs/datasets/run-20260829T143645009295Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -10993,7 +10993,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -11006,9 +11006,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143645009295Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143645009295Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143645009295Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -11151,8 +11151,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium2",
-        "data.dataset_name": "cdlg-medium2_a3044edf",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143645009295Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium2",
+        "data.log_path": "outputs/datasets/run-20260829T143645009295Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -11291,7 +11291,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -11304,9 +11304,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143702590066Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143702590066Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143702590066Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -11449,8 +11449,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium3",
-        "data.dataset_name": "cdlg-medium3_7ecdb6c4",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium3",
+        "data.log_path": "outputs/datasets/run-20260829T143702590066Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -11589,7 +11589,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -11602,9 +11602,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143702590066Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143702590066Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143702590066Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -11747,8 +11747,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium3",
-        "data.dataset_name": "cdlg-medium3_7ecdb6c4",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium3",
+        "data.log_path": "outputs/datasets/run-20260829T143702590066Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -11887,7 +11887,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -11900,9 +11900,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143702590066Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143702590066Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143702590066Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -12045,8 +12045,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium3",
-        "data.dataset_name": "cdlg-medium3_7ecdb6c4",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium3",
+        "data.log_path": "outputs/datasets/run-20260829T143702590066Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -12185,7 +12185,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -12198,9 +12198,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143702590066Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143702590066Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143702590066Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -12343,8 +12343,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium3",
-        "data.dataset_name": "cdlg-medium3_7ecdb6c4",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143702590066Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium3",
+        "data.log_path": "outputs/datasets/run-20260829T143702590066Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -12483,7 +12483,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -12496,9 +12496,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143718221643Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143718221643Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143718221643Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -12641,8 +12641,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium4",
-        "data.dataset_name": "cdlg-medium4_d32da023",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium4",
+        "data.log_path": "outputs/datasets/run-20260829T143718221643Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -12781,7 +12781,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -12794,9 +12794,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143718221643Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143718221643Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143718221643Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -12939,8 +12939,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium4",
-        "data.dataset_name": "cdlg-medium4_d32da023",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium4",
+        "data.log_path": "outputs/datasets/run-20260829T143718221643Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -13079,7 +13079,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -13092,9 +13092,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143718221643Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143718221643Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143718221643Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -13237,8 +13237,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium4",
-        "data.dataset_name": "cdlg-medium4_d32da023",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium4",
+        "data.log_path": "outputs/datasets/run-20260829T143718221643Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -13377,7 +13377,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -13390,9 +13390,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143718221643Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143718221643Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143718221643Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -13535,8 +13535,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium4",
-        "data.dataset_name": "cdlg-medium4_d32da023",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143718221643Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium4",
+        "data.log_path": "outputs/datasets/run-20260829T143718221643Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -13675,7 +13675,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -13688,9 +13688,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143742323174Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143742323174Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143742323174Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -13833,8 +13833,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium5",
-        "data.dataset_name": "cdlg-medium5_bc266193",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium5",
+        "data.log_path": "outputs/datasets/run-20260829T143742323174Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -13973,7 +13973,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -13986,9 +13986,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143742323174Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143742323174Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143742323174Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -14131,8 +14131,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium5",
-        "data.dataset_name": "cdlg-medium5_bc266193",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium5",
+        "data.log_path": "outputs/datasets/run-20260829T143742323174Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -14271,7 +14271,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -14284,9 +14284,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143742323174Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143742323174Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143742323174Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -14429,8 +14429,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium5",
-        "data.dataset_name": "cdlg-medium5_bc266193",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium5",
+        "data.log_path": "outputs/datasets/run-20260829T143742323174Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -14569,7 +14569,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -14582,9 +14582,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143742323174Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143742323174Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143742323174Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -14727,8 +14727,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-medium5",
-        "data.dataset_name": "cdlg-medium5_bc266193",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143742323174Z\\dataset.xes"
+        "data.dataset_name": "cdlg-medium5",
+        "data.log_path": "outputs/datasets/run-20260829T143742323174Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -14867,7 +14867,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -14880,9 +14880,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143455717173Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143455717173Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143455717173Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -15025,8 +15025,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple1",
-        "data.dataset_name": "cdlg-simple1_0239663a",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple1",
+        "data.log_path": "outputs/datasets/run-20260829T143455717173Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -15165,7 +15165,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -15178,9 +15178,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143455717173Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143455717173Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143455717173Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -15323,8 +15323,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple1",
-        "data.dataset_name": "cdlg-simple1_0239663a",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple1",
+        "data.log_path": "outputs/datasets/run-20260829T143455717173Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -15463,7 +15463,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -15476,9 +15476,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143455717173Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143455717173Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143455717173Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -15621,8 +15621,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple1",
-        "data.dataset_name": "cdlg-simple1_0239663a",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple1",
+        "data.log_path": "outputs/datasets/run-20260829T143455717173Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -15761,7 +15761,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -15774,9 +15774,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143455717173Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143455717173Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143455717173Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -15919,8 +15919,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple1",
-        "data.dataset_name": "cdlg-simple1_0239663a",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143455717173Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple1",
+        "data.log_path": "outputs/datasets/run-20260829T143455717173Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -16059,7 +16059,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -16072,9 +16072,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143508792035Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143508792035Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143508792035Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -16217,8 +16217,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple2",
-        "data.dataset_name": "cdlg-simple2_6c835221",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple2",
+        "data.log_path": "outputs/datasets/run-20260829T143508792035Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -16357,7 +16357,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -16370,9 +16370,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143508792035Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143508792035Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143508792035Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -16515,8 +16515,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple2",
-        "data.dataset_name": "cdlg-simple2_6c835221",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple2",
+        "data.log_path": "outputs/datasets/run-20260829T143508792035Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -16655,7 +16655,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -16668,9 +16668,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143508792035Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143508792035Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143508792035Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -16813,8 +16813,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple2",
-        "data.dataset_name": "cdlg-simple2_6c835221",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple2",
+        "data.log_path": "outputs/datasets/run-20260829T143508792035Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -16953,7 +16953,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -16966,9 +16966,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143508792035Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143508792035Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143508792035Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -17111,8 +17111,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple2",
-        "data.dataset_name": "cdlg-simple2_6c835221",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143508792035Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple2",
+        "data.log_path": "outputs/datasets/run-20260829T143508792035Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -17251,7 +17251,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -17264,9 +17264,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143520100105Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143520100105Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143520100105Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -17409,8 +17409,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple3",
-        "data.dataset_name": "cdlg-simple3_5d1badae",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple3",
+        "data.log_path": "outputs/datasets/run-20260829T143520100105Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -17549,7 +17549,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -17562,9 +17562,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143520100105Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143520100105Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143520100105Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -17707,8 +17707,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple3",
-        "data.dataset_name": "cdlg-simple3_5d1badae",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple3",
+        "data.log_path": "outputs/datasets/run-20260829T143520100105Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -17847,7 +17847,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -17860,9 +17860,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143520100105Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143520100105Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143520100105Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -18005,8 +18005,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple3",
-        "data.dataset_name": "cdlg-simple3_5d1badae",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple3",
+        "data.log_path": "outputs/datasets/run-20260829T143520100105Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -18145,7 +18145,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -18158,9 +18158,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143520100105Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143520100105Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143520100105Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -18303,8 +18303,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple3",
-        "data.dataset_name": "cdlg-simple3_5d1badae",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143520100105Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple3",
+        "data.log_path": "outputs/datasets/run-20260829T143520100105Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -18443,7 +18443,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -18456,9 +18456,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143535063598Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143535063598Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143535063598Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -18601,8 +18601,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple4",
-        "data.dataset_name": "cdlg-simple4_8345c56e",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple4",
+        "data.log_path": "outputs/datasets/run-20260829T143535063598Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -18741,7 +18741,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -18754,9 +18754,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143535063598Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143535063598Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143535063598Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -18899,8 +18899,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple4",
-        "data.dataset_name": "cdlg-simple4_8345c56e",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple4",
+        "data.log_path": "outputs/datasets/run-20260829T143535063598Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -19039,7 +19039,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -19052,9 +19052,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143535063598Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143535063598Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143535063598Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -19197,8 +19197,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple4",
-        "data.dataset_name": "cdlg-simple4_8345c56e",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple4",
+        "data.log_path": "outputs/datasets/run-20260829T143535063598Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -19337,7 +19337,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -19350,9 +19350,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143535063598Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143535063598Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143535063598Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -19495,8 +19495,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple4",
-        "data.dataset_name": "cdlg-simple4_8345c56e",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143535063598Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple4",
+        "data.log_path": "outputs/datasets/run-20260829T143535063598Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -19635,7 +19635,7 @@
     "last_saved_at": "2026-08-15T16:29:41.463341+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -19648,9 +19648,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143558594672Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143558594672Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143558594672Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -19793,8 +19793,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple5",
-        "data.dataset_name": "cdlg-simple5_b119c809",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple5",
+        "data.log_path": "outputs/datasets/run-20260829T143558594672Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -19933,7 +19933,7 @@
     "last_saved_at": "2026-08-15T18:34:37.797062+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -19946,9 +19946,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143558594672Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143558594672Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143558594672Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -20091,8 +20091,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple5",
-        "data.dataset_name": "cdlg-simple5_b119c809",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple5",
+        "data.log_path": "outputs/datasets/run-20260829T143558594672Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -20231,7 +20231,7 @@
     "last_saved_at": "2026-08-15T18:47:11.853786+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -20244,9 +20244,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143558594672Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143558594672Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143558594672Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -20389,8 +20389,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple5",
-        "data.dataset_name": "cdlg-simple5_b119c809",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple5",
+        "data.log_path": "outputs/datasets/run-20260829T143558594672Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",
@@ -20529,7 +20529,7 @@
     "last_saved_at": "2026-08-15T19:27:59.329571+00:00",
     "payload": {
       "eopkg_backend_form": {
-        "mapping.knowledge_graph.backend": "file",
+        "mapping.knowledge_graph.backend": "neo4j",
         "mapping.knowledge_graph.ingest_split": "train",
         "mapping.knowledge_graph.neo4j.connection_profile": "",
         "mapping.knowledge_graph.neo4j.connections_file": "",
@@ -20542,9 +20542,9 @@
         "mapping.camunda_adapter.structure.call_activity.inference_fallback_strategy": "use_aggregated_stats",
         "mapping.camunda_adapter.structure.connection_profile": "",
         "mapping.camunda_adapter.structure.connections_file": "",
-        "mapping.camunda_adapter.structure.files.bpmn_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\bpmn",
-        "mapping.camunda_adapter.structure.files.catalog_file": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\models\\process_definitions.csv",
-        "mapping.camunda_adapter.structure.files.export_dir": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z",
+        "mapping.camunda_adapter.structure.files.bpmn_dir": "outputs/datasets/run-20260829T143558594672Z/models/bpmn",
+        "mapping.camunda_adapter.structure.files.catalog_file": "outputs/datasets/run-20260829T143558594672Z/models/process_definitions.csv",
+        "mapping.camunda_adapter.structure.files.export_dir": "outputs/datasets/run-20260829T143558594672Z",
         "mapping.camunda_adapter.structure.mssql.connection_profile": "",
         "mapping.camunda_adapter.structure.parser_mode": "recover",
         "mapping.camunda_adapter.structure.source": "bpmn",
@@ -20687,8 +20687,8 @@
       },
       "input_data_form": {
         "data.dataset_label": "cdlg-simple5",
-        "data.dataset_name": "cdlg-simple5_b119c809",
-        "data.log_path": "C:\\Users\\korsr\\PycharmProjects\\cdlg_tool-main\\outputs\\datasets\\run-20260829T143558594672Z\\dataset.xes"
+        "data.dataset_name": "cdlg-simple5",
+        "data.log_path": "outputs/datasets/run-20260829T143558594672Z/dataset.xes"
       },
       "input_xes_form": {
         "mapping.xes_adapter.activity_key": "concept:name",

@@ -417,6 +417,35 @@ Example
 
 ## UI Commands
 
+### cdlg_benchmark_runner
+
+Use this helper to execute only the CDLG presets listed in
+`configs/ui/cdlg_benchmark_plan.yaml`, in that file's exact order. Preset
+payloads remain in `configs/ui/experiment_ui_presets.json`.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\run_cdlg_benchmark.py --dry-run
+.\.venv-modern\Scripts\python.exe tools\run_cdlg_benchmark.py
+```
+
+Populate the explicit queue before running:
+
+```yaml
+runs:
+  - preset: _CDLG-simple1_GATv2
+  - preset: _CDLG-simple1_GATv2-drift
+```
+
+Always use `--dry-run` first. It validates names and prints the exact queue
+without launching a child process. Live console lines include `Run i/N`, preset
+name, completed/remaining queue counts, current stage, stage/run ETA, and the
+queue ETA once a completed run provides timing evidence.
+
+Generated configs, per-run logs, and `manifest.jsonl` are written below
+`outputs/cdlg_benchmark/`. The runner stops after the first failed child; if
+that child is a train entry, its directly paired later `-drift` entry is
+recorded as `blocked` and is not launched.
+
 ### experiment_ui
 
 ```powershell

@@ -1,0 +1,1894 @@
+{
+  "created_at_utc": "2026-08-30T09:15:27.684701+00:00",
+  "dto": {
+    "allowed_edges": [
+      [
+        "gateway_exclusive_join_126c749b",
+        "gateway_exclusive_split_24fe3bd4"
+      ],
+      [
+        "gateway_exclusive_join_1db5f9e7",
+        "gateway_exclusive_split_e434e608"
+      ],
+      [
+        "gateway_exclusive_join_6049dd02",
+        "gateway_parallel_join_d0a3d5db"
+      ],
+      [
+        "gateway_exclusive_join_979f814e",
+        "gateway_parallel_join_d0a3d5db"
+      ],
+      [
+        "gateway_exclusive_join_a72b3066",
+        "gateway_exclusive_split_1db5f9e7"
+      ],
+      [
+        "gateway_exclusive_join_ac628bab",
+        "gateway_exclusive_join_e434e608"
+      ],
+      [
+        "gateway_exclusive_join_b7b7a455",
+        "task_c_84a51684"
+      ],
+      [
+        "gateway_exclusive_join_e434e608",
+        "task_b_e9d71f5e"
+      ],
+      [
+        "gateway_exclusive_join_e653b593",
+        "gateway_exclusive_join_fb875a4a"
+      ],
+      [
+        "gateway_exclusive_join_fb875a4a",
+        "gateway_exclusive_join_979f814e"
+      ],
+      [
+        "gateway_exclusive_split_1db5f9e7",
+        "gateway_exclusive_join_979f814e"
+      ],
+      [
+        "gateway_exclusive_split_1db5f9e7",
+        "task_d_3c363836"
+      ],
+      [
+        "gateway_exclusive_split_24fe3bd4",
+        "gateway_exclusive_split_e653b593"
+      ],
+      [
+        "gateway_exclusive_split_24fe3bd4",
+        "task_l_07c342be"
+      ],
+      [
+        "gateway_exclusive_split_569e3f57",
+        "task_g_54fd1711"
+      ],
+      [
+        "gateway_exclusive_split_569e3f57",
+        "task_random_activity_1_31d045b5"
+      ],
+      [
+        "gateway_exclusive_split_a72b3066",
+        "gateway_exclusive_split_fb875a4a"
+      ],
+      [
+        "gateway_exclusive_split_a72b3066",
+        "task_a_86f7e437"
+      ],
+      [
+        "gateway_exclusive_split_ac4350df",
+        "task_h_27d5482e"
+      ],
+      [
+        "gateway_exclusive_split_ac4350df",
+        "task_j_5c2dd944"
+      ],
+      [
+        "gateway_exclusive_split_ac628bab",
+        "gateway_exclusive_join_b7b7a455"
+      ],
+      [
+        "gateway_exclusive_split_ac628bab",
+        "gateway_exclusive_split_a72b3066"
+      ],
+      [
+        "gateway_exclusive_split_e434e608",
+        "gateway_exclusive_join_126c749b"
+      ],
+      [
+        "gateway_exclusive_split_e434e608",
+        "task_f_4a0a1921"
+      ],
+      [
+        "gateway_exclusive_split_e653b593",
+        "task_m_6b0d31c0"
+      ],
+      [
+        "gateway_exclusive_split_e653b593",
+        "task_n_d1854cae"
+      ],
+      [
+        "gateway_exclusive_split_ebe93cc7",
+        "gateway_exclusive_split_569e3f57"
+      ],
+      [
+        "gateway_exclusive_split_ebe93cc7",
+        "gateway_exclusive_split_ac4350df"
+      ],
+      [
+        "gateway_exclusive_split_fb875a4a",
+        "task_i_042dc451"
+      ],
+      [
+        "gateway_exclusive_split_fb875a4a",
+        "task_k_13fbd79c"
+      ],
+      [
+        "gateway_parallel_join_d0a3d5db",
+        "end_event"
+      ],
+      [
+        "gateway_parallel_split_d0a3d5db",
+        "gateway_exclusive_join_e434e608"
+      ],
+      [
+        "gateway_parallel_split_d0a3d5db",
+        "gateway_exclusive_split_ac628bab"
+      ],
+      [
+        "start_event",
+        "gateway_parallel_split_d0a3d5db"
+      ],
+      [
+        "task_a_86f7e437",
+        "gateway_exclusive_join_fb875a4a"
+      ],
+      [
+        "task_b_e9d71f5e",
+        "gateway_exclusive_split_ebe93cc7"
+      ],
+      [
+        "task_c_84a51684",
+        "gateway_exclusive_join_1db5f9e7"
+      ],
+      [
+        "task_d_3c363836",
+        "gateway_exclusive_join_b7b7a455"
+      ],
+      [
+        "task_f_4a0a1921",
+        "gateway_exclusive_join_126c749b"
+      ],
+      [
+        "task_g_54fd1711",
+        "gateway_exclusive_join_ac628bab"
+      ],
+      [
+        "task_h_27d5482e",
+        "gateway_exclusive_join_6049dd02"
+      ],
+      [
+        "task_i_042dc451",
+        "gateway_exclusive_join_e653b593"
+      ],
+      [
+        "task_j_5c2dd944",
+        "gateway_exclusive_join_6049dd02"
+      ],
+      [
+        "task_k_13fbd79c",
+        "gateway_exclusive_join_e653b593"
+      ],
+      [
+        "task_l_07c342be",
+        "gateway_exclusive_join_1db5f9e7"
+      ],
+      [
+        "task_m_6b0d31c0",
+        "task_o_7a81af3e"
+      ],
+      [
+        "task_n_d1854cae",
+        "gateway_exclusive_join_a72b3066"
+      ],
+      [
+        "task_o_7a81af3e",
+        "gateway_exclusive_join_a72b3066"
+      ],
+      [
+        "task_random_activity_1_31d045b5",
+        "gateway_exclusive_join_ac628bab"
+      ]
+    ],
+    "call_bindings": {},
+    "deployment_id": "deployment_cdlg-complex4_abe933a7_v4",
+    "edge_statistics": [],
+    "edge_stats": {},
+    "edges": [
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_001",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_126c749b",
+        "target": "gateway_exclusive_split_24fe3bd4"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_002",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_1db5f9e7",
+        "target": "gateway_exclusive_split_e434e608"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_003",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_6049dd02",
+        "target": "gateway_parallel_join_d0a3d5db"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_004",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_979f814e",
+        "target": "gateway_parallel_join_d0a3d5db"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_005",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_a72b3066",
+        "target": "gateway_exclusive_split_1db5f9e7"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_006",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_ac628bab",
+        "target": "gateway_exclusive_join_e434e608"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_007",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_b7b7a455",
+        "target": "task_c_84a51684"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_008",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_e434e608",
+        "target": "task_b_e9d71f5e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_009",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_e653b593",
+        "target": "gateway_exclusive_join_fb875a4a"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_010",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_fb875a4a",
+        "target": "gateway_exclusive_join_979f814e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_011",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_1db5f9e7",
+        "target": "gateway_exclusive_join_979f814e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_012",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_1db5f9e7",
+        "target": "task_d_3c363836"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_013",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_24fe3bd4",
+        "target": "gateway_exclusive_split_e653b593"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_014",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_24fe3bd4",
+        "target": "task_l_07c342be"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_015",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_569e3f57",
+        "target": "task_g_54fd1711"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_016",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_569e3f57",
+        "target": "task_random_activity_1_31d045b5"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_017",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_a72b3066",
+        "target": "gateway_exclusive_split_fb875a4a"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_018",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_a72b3066",
+        "target": "task_a_86f7e437"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_019",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ac4350df",
+        "target": "task_h_27d5482e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_020",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ac4350df",
+        "target": "task_j_5c2dd944"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_021",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ac628bab",
+        "target": "gateway_exclusive_join_b7b7a455"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_022",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ac628bab",
+        "target": "gateway_exclusive_split_a72b3066"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_023",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_e434e608",
+        "target": "gateway_exclusive_join_126c749b"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_024",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_e434e608",
+        "target": "task_f_4a0a1921"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_025",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_e653b593",
+        "target": "task_m_6b0d31c0"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_026",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_e653b593",
+        "target": "task_n_d1854cae"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_027",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ebe93cc7",
+        "target": "gateway_exclusive_split_569e3f57"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_028",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_ebe93cc7",
+        "target": "gateway_exclusive_split_ac4350df"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_029",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_fb875a4a",
+        "target": "task_i_042dc451"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_030",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_fb875a4a",
+        "target": "task_k_13fbd79c"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_031",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_join_d0a3d5db",
+        "target": "end_event"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_032",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_d0a3d5db",
+        "target": "gateway_exclusive_join_e434e608"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_033",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_d0a3d5db",
+        "target": "gateway_exclusive_split_ac628bab"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_034",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "start_event",
+        "target": "gateway_parallel_split_d0a3d5db"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_035",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_a_86f7e437",
+        "target": "gateway_exclusive_join_fb875a4a"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_036",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_b_e9d71f5e",
+        "target": "gateway_exclusive_split_ebe93cc7"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_037",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_c_84a51684",
+        "target": "gateway_exclusive_join_1db5f9e7"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_038",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_d_3c363836",
+        "target": "gateway_exclusive_join_b7b7a455"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_039",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_f_4a0a1921",
+        "target": "gateway_exclusive_join_126c749b"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_040",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_g_54fd1711",
+        "target": "gateway_exclusive_join_ac628bab"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_041",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_h_27d5482e",
+        "target": "gateway_exclusive_join_6049dd02"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_042",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_i_042dc451",
+        "target": "gateway_exclusive_join_e653b593"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_043",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_j_5c2dd944",
+        "target": "gateway_exclusive_join_6049dd02"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_044",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_k_13fbd79c",
+        "target": "gateway_exclusive_join_e653b593"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_045",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_l_07c342be",
+        "target": "gateway_exclusive_join_1db5f9e7"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_046",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_m_6b0d31c0",
+        "target": "task_o_7a81af3e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_047",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_n_d1854cae",
+        "target": "gateway_exclusive_join_a72b3066"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_048",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_o_7a81af3e",
+        "target": "gateway_exclusive_join_a72b3066"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_049",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_random_activity_1_31d045b5",
+        "target": "gateway_exclusive_join_ac628bab"
+      }
+    ],
+    "gnn_features": {},
+    "graph_topology": {
+      "allowed_edges": [
+        [
+          "gateway_exclusive_join_126c749b",
+          "gateway_exclusive_split_24fe3bd4"
+        ],
+        [
+          "gateway_exclusive_join_1db5f9e7",
+          "gateway_exclusive_split_e434e608"
+        ],
+        [
+          "gateway_exclusive_join_6049dd02",
+          "gateway_parallel_join_d0a3d5db"
+        ],
+        [
+          "gateway_exclusive_join_979f814e",
+          "gateway_parallel_join_d0a3d5db"
+        ],
+        [
+          "gateway_exclusive_join_a72b3066",
+          "gateway_exclusive_split_1db5f9e7"
+        ],
+        [
+          "gateway_exclusive_join_ac628bab",
+          "gateway_exclusive_join_e434e608"
+        ],
+        [
+          "gateway_exclusive_join_b7b7a455",
+          "task_c_84a51684"
+        ],
+        [
+          "gateway_exclusive_join_e434e608",
+          "task_b_e9d71f5e"
+        ],
+        [
+          "gateway_exclusive_join_e653b593",
+          "gateway_exclusive_join_fb875a4a"
+        ],
+        [
+          "gateway_exclusive_join_fb875a4a",
+          "gateway_exclusive_join_979f814e"
+        ],
+        [
+          "gateway_exclusive_split_1db5f9e7",
+          "gateway_exclusive_join_979f814e"
+        ],
+        [
+          "gateway_exclusive_split_1db5f9e7",
+          "task_d_3c363836"
+        ],
+        [
+          "gateway_exclusive_split_24fe3bd4",
+          "gateway_exclusive_split_e653b593"
+        ],
+        [
+          "gateway_exclusive_split_24fe3bd4",
+          "task_l_07c342be"
+        ],
+        [
+          "gateway_exclusive_split_569e3f57",
+          "task_g_54fd1711"
+        ],
+        [
+          "gateway_exclusive_split_569e3f57",
+          "task_random_activity_1_31d045b5"
+        ],
+        [
+          "gateway_exclusive_split_a72b3066",
+          "gateway_exclusive_split_fb875a4a"
+        ],
+        [
+          "gateway_exclusive_split_a72b3066",
+          "task_a_86f7e437"
+        ],
+        [
+          "gateway_exclusive_split_ac4350df",
+          "task_h_27d5482e"
+        ],
+        [
+          "gateway_exclusive_split_ac4350df",
+          "task_j_5c2dd944"
+        ],
+        [
+          "gateway_exclusive_split_ac628bab",
+          "gateway_exclusive_join_b7b7a455"
+        ],
+        [
+          "gateway_exclusive_split_ac628bab",
+          "gateway_exclusive_split_a72b3066"
+        ],
+        [
+          "gateway_exclusive_split_e434e608",
+          "gateway_exclusive_join_126c749b"
+        ],
+        [
+          "gateway_exclusive_split_e434e608",
+          "task_f_4a0a1921"
+        ],
+        [
+          "gateway_exclusive_split_e653b593",
+          "task_m_6b0d31c0"
+        ],
+        [
+          "gateway_exclusive_split_e653b593",
+          "task_n_d1854cae"
+        ],
+        [
+          "gateway_exclusive_split_ebe93cc7",
+          "gateway_exclusive_split_569e3f57"
+        ],
+        [
+          "gateway_exclusive_split_ebe93cc7",
+          "gateway_exclusive_split_ac4350df"
+        ],
+        [
+          "gateway_exclusive_split_fb875a4a",
+          "task_i_042dc451"
+        ],
+        [
+          "gateway_exclusive_split_fb875a4a",
+          "task_k_13fbd79c"
+        ],
+        [
+          "gateway_parallel_join_d0a3d5db",
+          "end_event"
+        ],
+        [
+          "gateway_parallel_split_d0a3d5db",
+          "gateway_exclusive_join_e434e608"
+        ],
+        [
+          "gateway_parallel_split_d0a3d5db",
+          "gateway_exclusive_split_ac628bab"
+        ],
+        [
+          "start_event",
+          "gateway_parallel_split_d0a3d5db"
+        ],
+        [
+          "task_a_86f7e437",
+          "gateway_exclusive_join_fb875a4a"
+        ],
+        [
+          "task_b_e9d71f5e",
+          "gateway_exclusive_split_ebe93cc7"
+        ],
+        [
+          "task_c_84a51684",
+          "gateway_exclusive_join_1db5f9e7"
+        ],
+        [
+          "task_d_3c363836",
+          "gateway_exclusive_join_b7b7a455"
+        ],
+        [
+          "task_f_4a0a1921",
+          "gateway_exclusive_join_126c749b"
+        ],
+        [
+          "task_g_54fd1711",
+          "gateway_exclusive_join_ac628bab"
+        ],
+        [
+          "task_h_27d5482e",
+          "gateway_exclusive_join_6049dd02"
+        ],
+        [
+          "task_i_042dc451",
+          "gateway_exclusive_join_e653b593"
+        ],
+        [
+          "task_j_5c2dd944",
+          "gateway_exclusive_join_6049dd02"
+        ],
+        [
+          "task_k_13fbd79c",
+          "gateway_exclusive_join_e653b593"
+        ],
+        [
+          "task_l_07c342be",
+          "gateway_exclusive_join_1db5f9e7"
+        ],
+        [
+          "task_m_6b0d31c0",
+          "task_o_7a81af3e"
+        ],
+        [
+          "task_n_d1854cae",
+          "gateway_exclusive_join_a72b3066"
+        ],
+        [
+          "task_o_7a81af3e",
+          "gateway_exclusive_join_a72b3066"
+        ],
+        [
+          "task_random_activity_1_31d045b5",
+          "gateway_exclusive_join_ac628bab"
+        ]
+      ],
+      "cycle_count": 8,
+      "cycles_detected": true,
+      "edge_count": 49,
+      "event_subprocess_node_ids": [],
+      "gateway_node_ids": [
+        "gateway_exclusive_join_126c749b",
+        "gateway_exclusive_join_1db5f9e7",
+        "gateway_exclusive_join_6049dd02",
+        "gateway_exclusive_join_979f814e",
+        "gateway_exclusive_join_a72b3066",
+        "gateway_exclusive_join_ac628bab",
+        "gateway_exclusive_join_b7b7a455",
+        "gateway_exclusive_join_e434e608",
+        "gateway_exclusive_join_e653b593",
+        "gateway_exclusive_join_fb875a4a",
+        "gateway_exclusive_split_1db5f9e7",
+        "gateway_exclusive_split_24fe3bd4",
+        "gateway_exclusive_split_569e3f57",
+        "gateway_exclusive_split_a72b3066",
+        "gateway_exclusive_split_ac4350df",
+        "gateway_exclusive_split_ac628bab",
+        "gateway_exclusive_split_e434e608",
+        "gateway_exclusive_split_e653b593",
+        "gateway_exclusive_split_ebe93cc7",
+        "gateway_exclusive_split_fb875a4a",
+        "gateway_parallel_join_d0a3d5db",
+        "gateway_parallel_split_d0a3d5db"
+      ],
+      "node_count": 39
+    },
+    "metadata": {
+      "cycles_detected": true,
+      "parsed_at_utc": "2026-08-30T09:15:27.683701+00:00",
+      "parser_mode": "recover",
+      "process_name": "cdlg-complex4_abe933a7",
+      "quarantine_error_codes": [
+        "empty_bpmn_payload",
+        "missing_bpmn_payload",
+        "missing_proc_def_id",
+        "no_process_element",
+        "xml_parse_error"
+      ],
+      "subprocess_mode": "flattened-no-subprocess-node",
+      "warning_count": 0,
+      "warnings": []
+    },
+    "node_metadata": {
+      "end_event": {
+        "activity_name": "end",
+        "activity_type": "endEvent"
+      },
+      "gateway_exclusive_join_126c749b": {
+        "activity_name": "gateway_exclusive_join_126c749b",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_1db5f9e7": {
+        "activity_name": "gateway_exclusive_join_1db5f9e7",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_6049dd02": {
+        "activity_name": "gateway_exclusive_join_6049dd02",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_979f814e": {
+        "activity_name": "gateway_exclusive_join_979f814e",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_a72b3066": {
+        "activity_name": "gateway_exclusive_join_a72b3066",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_ac628bab": {
+        "activity_name": "gateway_exclusive_join_ac628bab",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_b7b7a455": {
+        "activity_name": "gateway_exclusive_join_b7b7a455",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_e434e608": {
+        "activity_name": "gateway_exclusive_join_e434e608",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_e653b593": {
+        "activity_name": "gateway_exclusive_join_e653b593",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_fb875a4a": {
+        "activity_name": "gateway_exclusive_join_fb875a4a",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_1db5f9e7": {
+        "activity_name": "gateway_exclusive_split_1db5f9e7",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_24fe3bd4": {
+        "activity_name": "gateway_exclusive_split_24fe3bd4",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_569e3f57": {
+        "activity_name": "gateway_exclusive_split_569e3f57",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_a72b3066": {
+        "activity_name": "gateway_exclusive_split_a72b3066",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_ac4350df": {
+        "activity_name": "gateway_exclusive_split_ac4350df",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_ac628bab": {
+        "activity_name": "gateway_exclusive_split_ac628bab",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_e434e608": {
+        "activity_name": "gateway_exclusive_split_e434e608",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_e653b593": {
+        "activity_name": "gateway_exclusive_split_e653b593",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_ebe93cc7": {
+        "activity_name": "gateway_exclusive_split_ebe93cc7",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_fb875a4a": {
+        "activity_name": "gateway_exclusive_split_fb875a4a",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_parallel_join_d0a3d5db": {
+        "activity_name": "gateway_parallel_join_d0a3d5db",
+        "activity_type": "parallelGateway"
+      },
+      "gateway_parallel_split_d0a3d5db": {
+        "activity_name": "gateway_parallel_split_d0a3d5db",
+        "activity_type": "parallelGateway"
+      },
+      "start_event": {
+        "activity_name": "start",
+        "activity_type": "startEvent"
+      },
+      "task_a_86f7e437": {
+        "activity_name": "a",
+        "activity_type": "task"
+      },
+      "task_b_e9d71f5e": {
+        "activity_name": "b",
+        "activity_type": "task"
+      },
+      "task_c_84a51684": {
+        "activity_name": "c",
+        "activity_type": "task"
+      },
+      "task_d_3c363836": {
+        "activity_name": "d",
+        "activity_type": "task"
+      },
+      "task_f_4a0a1921": {
+        "activity_name": "f",
+        "activity_type": "task"
+      },
+      "task_g_54fd1711": {
+        "activity_name": "g",
+        "activity_type": "task"
+      },
+      "task_h_27d5482e": {
+        "activity_name": "h",
+        "activity_type": "task"
+      },
+      "task_i_042dc451": {
+        "activity_name": "i",
+        "activity_type": "task"
+      },
+      "task_j_5c2dd944": {
+        "activity_name": "j",
+        "activity_type": "task"
+      },
+      "task_k_13fbd79c": {
+        "activity_name": "k",
+        "activity_type": "task"
+      },
+      "task_l_07c342be": {
+        "activity_name": "l",
+        "activity_type": "task"
+      },
+      "task_m_6b0d31c0": {
+        "activity_name": "m",
+        "activity_type": "task"
+      },
+      "task_n_d1854cae": {
+        "activity_name": "n",
+        "activity_type": "task"
+      },
+      "task_o_7a81af3e": {
+        "activity_name": "o",
+        "activity_type": "task"
+      },
+      "task_random_activity_1_31d045b5": {
+        "activity_name": "Random activity 1",
+        "activity_type": "task"
+      }
+    },
+    "node_stats": {},
+    "nodes": [
+      {
+        "activity_type": "endEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "endEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "end_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "end",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "endEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_126c749b",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_126c749b",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_1db5f9e7",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_1db5f9e7",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_6049dd02",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_6049dd02",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_979f814e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_979f814e",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_a72b3066",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_a72b3066",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_ac628bab",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_ac628bab",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_b7b7a455",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_b7b7a455",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_e434e608",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_e434e608",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_e653b593",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_e653b593",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_fb875a4a",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_fb875a4a",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_1db5f9e7",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_1db5f9e7",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_24fe3bd4",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_24fe3bd4",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_569e3f57",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_569e3f57",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_a72b3066",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_a72b3066",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_ac4350df",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_ac4350df",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_ac628bab",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_ac628bab",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_e434e608",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_e434e608",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_e653b593",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_e653b593",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_ebe93cc7",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_ebe93cc7",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_fb875a4a",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_fb875a4a",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_join_d0a3d5db",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_join_d0a3d5db",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_split_d0a3d5db",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_split_d0a3d5db",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "startEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "startEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "start_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "start",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "startEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_a_86f7e437",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "a",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_b_e9d71f5e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "b",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_c_84a51684",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "c",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_d_3c363836",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "d",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_f_4a0a1921",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "f",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_g_54fd1711",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "g",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_h_27d5482e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "h",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_i_042dc451",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "i",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_j_5c2dd944",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "j",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_k_13fbd79c",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "k",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_l_07c342be",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "l",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_m_6b0d31c0",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "m",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_n_d1854cae",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "n",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_o_7a81af3e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "o",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_random_activity_1_31d045b5",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "Random activity 1",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      }
+    ],
+    "proc_def_id": "cdlg-complex4_abe933a7_v4",
+    "proc_def_key": "cdlg-complex4_abe933a7",
+    "stats_diagnostics": {},
+    "version": "v4"
+  },
+  "process_name": "cdlg-complex4_abe933a7",
+  "repository_backend": "file",
+  "schema_version": "1.1",
+  "version": "v4"
+}

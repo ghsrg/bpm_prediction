@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import pytest
 import torch
 
@@ -379,6 +380,31 @@ def test_strict_asof_missing_snapshot_disables_stats_by_default(mock_feature_con
     assert contract.get("stats_missing_asof_snapshot") is True
     assert contract.get("stats_allowed") is False
     assert contract.get("struct_x") is None
+
+
+def test_strict_asof_does_not_resolve_or_warn_when_statistics_are_disabled(mock_feature_configs, caplog):
+    traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
+    dto = ProcessStructureDTO(
+        version="v1",
+        allowed_edges=[("Start", "Approve"), ("Approve", "End")],
+        metadata={"asof_snapshot_found": False, "asof_resolution": "missing_snapshot_fallback_base"},
+    )
+    probe_repo = _MissingAsOfProbePort(dto=dto)
+    builder = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=probe_repo,
+        process_name="dataset_a",
+        stats_time_policy="strict_asof",
+        graph_feature_mapping={"enabled": False},
+    )
+
+    with caplog.at_level(logging.WARNING):
+        contract = builder.build_graph(_prefix())
+
+    assert probe_repo.called_as_of_ts is None
+    assert contract.get("stats_missing_asof_snapshot") is False
+    assert "Strict as-of snapshot missing" not in caplog.text
 
 
 def test_strict_asof_missing_snapshot_raise_policy_raises(mock_feature_configs):

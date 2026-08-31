@@ -1,0 +1,1206 @@
+{
+  "created_at_utc": "2026-08-30T09:16:31.523212+00:00",
+  "dto": {
+    "allowed_edges": [
+      [
+        "gateway_exclusive_join_1d4b4b03",
+        "gateway_parallel_split_b834f2fa"
+      ],
+      [
+        "gateway_exclusive_join_69242ad5",
+        "task_random_activity_1_31d045b5"
+      ],
+      [
+        "gateway_exclusive_join_82b2d5df",
+        "gateway_parallel_split_116518e1"
+      ],
+      [
+        "gateway_exclusive_join_d7d35943",
+        "task_c_84a51684"
+      ],
+      [
+        "gateway_exclusive_split_1d4b4b03",
+        "gateway_exclusive_join_69242ad5"
+      ],
+      [
+        "gateway_exclusive_split_1d4b4b03",
+        "task_g_54fd1711"
+      ],
+      [
+        "gateway_exclusive_split_69242ad5",
+        "task_d_3c363836"
+      ],
+      [
+        "gateway_exclusive_split_69242ad5",
+        "task_f_4a0a1921"
+      ],
+      [
+        "gateway_exclusive_split_6d36e556",
+        "gateway_exclusive_join_d7d35943"
+      ],
+      [
+        "gateway_exclusive_split_6d36e556",
+        "task_a_86f7e437"
+      ],
+      [
+        "gateway_exclusive_split_bcc7ecd2",
+        "task_i_042dc451"
+      ],
+      [
+        "gateway_exclusive_split_bcc7ecd2",
+        "task_j_5c2dd944"
+      ],
+      [
+        "gateway_parallel_join_116518e1",
+        "gateway_parallel_join_b834f2fa"
+      ],
+      [
+        "gateway_parallel_join_b834f2fa",
+        "end_event"
+      ],
+      [
+        "gateway_parallel_split_116518e1",
+        "task_e_58e6b3a4"
+      ],
+      [
+        "gateway_parallel_split_116518e1",
+        "task_k_13fbd79c"
+      ],
+      [
+        "gateway_parallel_split_b834f2fa",
+        "gateway_exclusive_split_69242ad5"
+      ],
+      [
+        "gateway_parallel_split_b834f2fa",
+        "task_b_e9d71f5e"
+      ],
+      [
+        "start_event",
+        "gateway_exclusive_split_6d36e556"
+      ],
+      [
+        "task_a_86f7e437",
+        "gateway_exclusive_join_1d4b4b03"
+      ],
+      [
+        "task_b_e9d71f5e",
+        "gateway_parallel_join_b834f2fa"
+      ],
+      [
+        "task_c_84a51684",
+        "gateway_exclusive_split_1d4b4b03"
+      ],
+      [
+        "task_d_3c363836",
+        "gateway_exclusive_join_82b2d5df"
+      ],
+      [
+        "task_e_58e6b3a4",
+        "gateway_parallel_join_116518e1"
+      ],
+      [
+        "task_f_4a0a1921",
+        "gateway_exclusive_join_82b2d5df"
+      ],
+      [
+        "task_g_54fd1711",
+        "gateway_exclusive_join_d7d35943"
+      ],
+      [
+        "task_i_042dc451",
+        "gateway_exclusive_join_69242ad5"
+      ],
+      [
+        "task_j_5c2dd944",
+        "gateway_exclusive_join_1d4b4b03"
+      ],
+      [
+        "task_k_13fbd79c",
+        "gateway_parallel_join_116518e1"
+      ],
+      [
+        "task_random_activity_1_31d045b5",
+        "gateway_exclusive_split_bcc7ecd2"
+      ]
+    ],
+    "call_bindings": {},
+    "deployment_id": "deployment_cdlg-medium2_a3044edf_v5",
+    "edge_statistics": [],
+    "edge_stats": {},
+    "edges": [
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_001",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_1d4b4b03",
+        "target": "gateway_parallel_split_b834f2fa"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_002",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_69242ad5",
+        "target": "task_random_activity_1_31d045b5"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_003",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_82b2d5df",
+        "target": "gateway_parallel_split_116518e1"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_004",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_join_d7d35943",
+        "target": "task_c_84a51684"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_005",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_1d4b4b03",
+        "target": "gateway_exclusive_join_69242ad5"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_006",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_1d4b4b03",
+        "target": "task_g_54fd1711"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_007",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_69242ad5",
+        "target": "task_d_3c363836"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_008",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_69242ad5",
+        "target": "task_f_4a0a1921"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_009",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_6d36e556",
+        "target": "gateway_exclusive_join_d7d35943"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_010",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_6d36e556",
+        "target": "task_a_86f7e437"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_011",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_bcc7ecd2",
+        "target": "task_i_042dc451"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_012",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_exclusive_split_bcc7ecd2",
+        "target": "task_j_5c2dd944"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_013",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_join_116518e1",
+        "target": "gateway_parallel_join_b834f2fa"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_014",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_join_b834f2fa",
+        "target": "end_event"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_015",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_116518e1",
+        "target": "task_e_58e6b3a4"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_016",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_116518e1",
+        "target": "task_k_13fbd79c"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_017",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_b834f2fa",
+        "target": "gateway_exclusive_split_69242ad5"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_018",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "gateway_parallel_split_b834f2fa",
+        "target": "task_b_e9d71f5e"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_019",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "start_event",
+        "target": "gateway_exclusive_split_6d36e556"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_020",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_a_86f7e437",
+        "target": "gateway_exclusive_join_1d4b4b03"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_021",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_b_e9d71f5e",
+        "target": "gateway_parallel_join_b834f2fa"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_022",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_c_84a51684",
+        "target": "gateway_exclusive_split_1d4b4b03"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_023",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_d_3c363836",
+        "target": "gateway_exclusive_join_82b2d5df"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_024",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_e_58e6b3a4",
+        "target": "gateway_parallel_join_116518e1"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_025",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_f_4a0a1921",
+        "target": "gateway_exclusive_join_82b2d5df"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_026",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_g_54fd1711",
+        "target": "gateway_exclusive_join_d7d35943"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_027",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_i_042dc451",
+        "target": "gateway_exclusive_join_69242ad5"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_028",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_j_5c2dd944",
+        "target": "gateway_exclusive_join_1d4b4b03"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_029",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_k_13fbd79c",
+        "target": "gateway_parallel_join_116518e1"
+      },
+      {
+        "condition_complexity": 0.0,
+        "condition_expr": null,
+        "edge_type": "sequence",
+        "id": "flow_030",
+        "is_default": false,
+        "scope_level": 0,
+        "source": "task_random_activity_1_31d045b5",
+        "target": "gateway_exclusive_split_bcc7ecd2"
+      }
+    ],
+    "gnn_features": {},
+    "graph_topology": {
+      "allowed_edges": [
+        [
+          "gateway_exclusive_join_1d4b4b03",
+          "gateway_parallel_split_b834f2fa"
+        ],
+        [
+          "gateway_exclusive_join_69242ad5",
+          "task_random_activity_1_31d045b5"
+        ],
+        [
+          "gateway_exclusive_join_82b2d5df",
+          "gateway_parallel_split_116518e1"
+        ],
+        [
+          "gateway_exclusive_join_d7d35943",
+          "task_c_84a51684"
+        ],
+        [
+          "gateway_exclusive_split_1d4b4b03",
+          "gateway_exclusive_join_69242ad5"
+        ],
+        [
+          "gateway_exclusive_split_1d4b4b03",
+          "task_g_54fd1711"
+        ],
+        [
+          "gateway_exclusive_split_69242ad5",
+          "task_d_3c363836"
+        ],
+        [
+          "gateway_exclusive_split_69242ad5",
+          "task_f_4a0a1921"
+        ],
+        [
+          "gateway_exclusive_split_6d36e556",
+          "gateway_exclusive_join_d7d35943"
+        ],
+        [
+          "gateway_exclusive_split_6d36e556",
+          "task_a_86f7e437"
+        ],
+        [
+          "gateway_exclusive_split_bcc7ecd2",
+          "task_i_042dc451"
+        ],
+        [
+          "gateway_exclusive_split_bcc7ecd2",
+          "task_j_5c2dd944"
+        ],
+        [
+          "gateway_parallel_join_116518e1",
+          "gateway_parallel_join_b834f2fa"
+        ],
+        [
+          "gateway_parallel_join_b834f2fa",
+          "end_event"
+        ],
+        [
+          "gateway_parallel_split_116518e1",
+          "task_e_58e6b3a4"
+        ],
+        [
+          "gateway_parallel_split_116518e1",
+          "task_k_13fbd79c"
+        ],
+        [
+          "gateway_parallel_split_b834f2fa",
+          "gateway_exclusive_split_69242ad5"
+        ],
+        [
+          "gateway_parallel_split_b834f2fa",
+          "task_b_e9d71f5e"
+        ],
+        [
+          "start_event",
+          "gateway_exclusive_split_6d36e556"
+        ],
+        [
+          "task_a_86f7e437",
+          "gateway_exclusive_join_1d4b4b03"
+        ],
+        [
+          "task_b_e9d71f5e",
+          "gateway_parallel_join_b834f2fa"
+        ],
+        [
+          "task_c_84a51684",
+          "gateway_exclusive_split_1d4b4b03"
+        ],
+        [
+          "task_d_3c363836",
+          "gateway_exclusive_join_82b2d5df"
+        ],
+        [
+          "task_e_58e6b3a4",
+          "gateway_parallel_join_116518e1"
+        ],
+        [
+          "task_f_4a0a1921",
+          "gateway_exclusive_join_82b2d5df"
+        ],
+        [
+          "task_g_54fd1711",
+          "gateway_exclusive_join_d7d35943"
+        ],
+        [
+          "task_i_042dc451",
+          "gateway_exclusive_join_69242ad5"
+        ],
+        [
+          "task_j_5c2dd944",
+          "gateway_exclusive_join_1d4b4b03"
+        ],
+        [
+          "task_k_13fbd79c",
+          "gateway_parallel_join_116518e1"
+        ],
+        [
+          "task_random_activity_1_31d045b5",
+          "gateway_exclusive_split_bcc7ecd2"
+        ]
+      ],
+      "cycle_count": 2,
+      "cycles_detected": true,
+      "edge_count": 30,
+      "event_subprocess_node_ids": [],
+      "gateway_node_ids": [
+        "gateway_exclusive_join_1d4b4b03",
+        "gateway_exclusive_join_69242ad5",
+        "gateway_exclusive_join_82b2d5df",
+        "gateway_exclusive_join_d7d35943",
+        "gateway_exclusive_split_1d4b4b03",
+        "gateway_exclusive_split_69242ad5",
+        "gateway_exclusive_split_6d36e556",
+        "gateway_exclusive_split_bcc7ecd2",
+        "gateway_parallel_join_116518e1",
+        "gateway_parallel_join_b834f2fa",
+        "gateway_parallel_split_116518e1",
+        "gateway_parallel_split_b834f2fa"
+      ],
+      "node_count": 25
+    },
+    "metadata": {
+      "cycles_detected": true,
+      "parsed_at_utc": "2026-08-30T09:16:31.522085+00:00",
+      "parser_mode": "recover",
+      "process_name": "cdlg-medium2_a3044edf",
+      "quarantine_error_codes": [
+        "empty_bpmn_payload",
+        "missing_bpmn_payload",
+        "missing_proc_def_id",
+        "no_process_element",
+        "xml_parse_error"
+      ],
+      "subprocess_mode": "flattened-no-subprocess-node",
+      "warning_count": 0,
+      "warnings": []
+    },
+    "node_metadata": {
+      "end_event": {
+        "activity_name": "end",
+        "activity_type": "endEvent"
+      },
+      "gateway_exclusive_join_1d4b4b03": {
+        "activity_name": "gateway_exclusive_join_1d4b4b03",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_69242ad5": {
+        "activity_name": "gateway_exclusive_join_69242ad5",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_82b2d5df": {
+        "activity_name": "gateway_exclusive_join_82b2d5df",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_join_d7d35943": {
+        "activity_name": "gateway_exclusive_join_d7d35943",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_1d4b4b03": {
+        "activity_name": "gateway_exclusive_split_1d4b4b03",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_69242ad5": {
+        "activity_name": "gateway_exclusive_split_69242ad5",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_6d36e556": {
+        "activity_name": "gateway_exclusive_split_6d36e556",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_exclusive_split_bcc7ecd2": {
+        "activity_name": "gateway_exclusive_split_bcc7ecd2",
+        "activity_type": "exclusiveGateway"
+      },
+      "gateway_parallel_join_116518e1": {
+        "activity_name": "gateway_parallel_join_116518e1",
+        "activity_type": "parallelGateway"
+      },
+      "gateway_parallel_join_b834f2fa": {
+        "activity_name": "gateway_parallel_join_b834f2fa",
+        "activity_type": "parallelGateway"
+      },
+      "gateway_parallel_split_116518e1": {
+        "activity_name": "gateway_parallel_split_116518e1",
+        "activity_type": "parallelGateway"
+      },
+      "gateway_parallel_split_b834f2fa": {
+        "activity_name": "gateway_parallel_split_b834f2fa",
+        "activity_type": "parallelGateway"
+      },
+      "start_event": {
+        "activity_name": "start",
+        "activity_type": "startEvent"
+      },
+      "task_a_86f7e437": {
+        "activity_name": "a",
+        "activity_type": "task"
+      },
+      "task_b_e9d71f5e": {
+        "activity_name": "b",
+        "activity_type": "task"
+      },
+      "task_c_84a51684": {
+        "activity_name": "c",
+        "activity_type": "task"
+      },
+      "task_d_3c363836": {
+        "activity_name": "d",
+        "activity_type": "task"
+      },
+      "task_e_58e6b3a4": {
+        "activity_name": "e",
+        "activity_type": "task"
+      },
+      "task_f_4a0a1921": {
+        "activity_name": "f",
+        "activity_type": "task"
+      },
+      "task_g_54fd1711": {
+        "activity_name": "g",
+        "activity_type": "task"
+      },
+      "task_i_042dc451": {
+        "activity_name": "i",
+        "activity_type": "task"
+      },
+      "task_j_5c2dd944": {
+        "activity_name": "j",
+        "activity_type": "task"
+      },
+      "task_k_13fbd79c": {
+        "activity_name": "k",
+        "activity_type": "task"
+      },
+      "task_random_activity_1_31d045b5": {
+        "activity_name": "Random activity 1",
+        "activity_type": "task"
+      }
+    },
+    "node_stats": {},
+    "nodes": [
+      {
+        "activity_type": "endEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "endEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "end_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "end",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "endEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_1d4b4b03",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_1d4b4b03",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_69242ad5",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_69242ad5",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_82b2d5df",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_82b2d5df",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_join_d7d35943",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_join_d7d35943",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_1d4b4b03",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_1d4b4b03",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_69242ad5",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_69242ad5",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_6d36e556",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_6d36e556",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "exclusiveGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "exclusiveGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_exclusive_split_bcc7ecd2",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_exclusive_split_bcc7ecd2",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "exclusiveGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_join_116518e1",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_join_116518e1",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_join_b834f2fa",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_join_b834f2fa",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_split_116518e1",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_split_116518e1",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "parallelGateway",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "parallelGateway",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "gateway_parallel_split_b834f2fa",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "gateway_parallel_split_b834f2fa",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "parallelGateway",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "startEvent",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "startEvent",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "start_event",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "start",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "startEvent",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_a_86f7e437",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "a",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_b_e9d71f5e",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "b",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_c_84a51684",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "c",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_d_3c363836",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "d",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_e_58e6b3a4",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "e",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_f_4a0a1921",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "f",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_g_54fd1711",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "g",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_i_042dc451",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "i",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_j_5c2dd944",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "j",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_k_13fbd79c",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "k",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      },
+      {
+        "activity_type": "task",
+        "attached_to": null,
+        "binding_type": null,
+        "bpmn_tag": "task",
+        "called_element": null,
+        "camunda_type": "",
+        "extensions": {},
+        "id": "task_random_activity_1_31d045b5",
+        "is_event_subprocess": false,
+        "is_multi_instance": false,
+        "is_sequential_mi": null,
+        "loop_cardinality_expr": null,
+        "name": "Random activity 1",
+        "parent_scope_id": null,
+        "scope_level": 0,
+        "type": "task",
+        "version_number": null,
+        "version_tag": null
+      }
+    ],
+    "proc_def_id": "cdlg-medium2_a3044edf_v5",
+    "proc_def_key": "cdlg-medium2_a3044edf",
+    "stats_diagnostics": {},
+    "version": "v5"
+  },
+  "process_name": "cdlg-medium2_a3044edf",
+  "repository_backend": "file",
+  "schema_version": "1.1",
+  "version": "v5"
+}

@@ -125,7 +125,8 @@ configs/ui/experiment_ui_presets.json
 ```
 
 For an explicit ordered CDLG benchmark queue, use
-`tools/run_cdlg_benchmark.py`; see
+`tools/run_cdlg_benchmark.py`. For non-CDLG preset IDs, use
+`tools/run_benchmark.py`; see
 [docs/runbooks/mvp2_5-commands.md](docs/runbooks/mvp2_5-commands.md).
 
 Runtime UI state and generated configs are written under `outputs/ui/` and are

@@ -120,17 +120,35 @@ class QueueResult:
     exit_code: int
 
 
-def load_run_plan(plan_path: Path, presets: Mapping[str, Any]) -> list[PlannedRun]:
+def load_run_plan(plan_path: Path, presets: Mapping[str, Any], *, validate_cdlg_names: bool = True) -> list[PlannedRun]:
     raw = yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Benchmark plan must be a YAML mapping: {plan_path}")
     entries = raw.get("runs")
     if not isinstance(entries, list) or not entries:
         raise ValueError("Benchmark plan must contain a non-empty 'runs' list")
-    return [_resolve_planned_run(entry, presets) for entry in entries]
+    return [_resolve_planned_run(entry, presets, validate_cdlg_names=validate_cdlg_names) for entry in entries]
 
 
-def _resolve_planned_run(entry: Any, presets: Mapping[str, Any]) -> PlannedRun:
+def load_plan_preset_names(plan_path: Path) -> list[str]:
+    raw = yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Benchmark plan must be a YAML mapping: {plan_path}")
+    entries = raw.get("runs")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("Benchmark plan must contain a non-empty 'runs' list")
+    names: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("Each benchmark plan entry must be a mapping with a 'preset' key")
+        preset_name = str(entry.get("preset", "")).strip()
+        if not preset_name:
+            raise ValueError("Each benchmark plan entry must define a non-empty 'preset'")
+        names.append(preset_name)
+    return names
+
+
+def _resolve_planned_run(entry: Any, presets: Mapping[str, Any], *, validate_cdlg_names: bool) -> PlannedRun:
     if not isinstance(entry, dict):
         raise ValueError("Each benchmark plan entry must be a mapping with a 'preset' key")
     preset_name = str(entry.get("preset", "")).strip()
@@ -144,17 +162,47 @@ def _resolve_planned_run(entry: Any, presets: Mapping[str, Any]) -> PlannedRun:
         raise ValueError(f"Preset payload must be a mapping: {preset_name}")
 
     match = CDLG_PRESET_PATTERN.fullmatch(preset_name)
-    if match is None:
-        raise ValueError(f"Preset does not use the canonical CDLG name format: {preset_name}")
-    groups = match.groupdict()
+    if validate_cdlg_names:
+        if match is None:
+            raise ValueError(f"Preset does not use the canonical CDLG name format: {preset_name}")
+        groups = match.groupdict()
+        return PlannedRun(
+            preset_name=preset_name,
+            complexity=groups["complexity"],
+            case_index=int(groups["case_index"]),
+            model_label=groups["model_label"],
+            phase="drift" if groups["drift"] else "train",
+            payload=dict(payload),
+        )
+
+    variables = _mapping(payload, "vars")
+    mode = str(variables.get("mode", "")).strip().lower()
+    model_label = _infer_model_label(preset_name, payload)
     return PlannedRun(
         preset_name=preset_name,
-        complexity=groups["complexity"],
-        case_index=int(groups["case_index"]),
-        model_label=groups["model_label"],
-        phase="drift" if groups["drift"] else "train",
+        complexity=match.group("complexity") if match else "",
+        case_index=int(match.group("case_index")) if match else 0,
+        model_label=model_label,
+        phase="drift" if "drift" in mode or "drift" in preset_name.lower() else "train",
         payload=dict(payload),
     )
+
+
+def _infer_model_label(preset_name: str, payload: Mapping[str, Any]) -> str:
+    variables = _mapping(payload, "vars")
+    for key in ("model_type", "model_label"):
+        value = str(variables.get(key, "")).strip()
+        if value:
+            return value
+    model_form = _mapping(payload, "model_form")
+    for key in ("model.type", "model.model_label"):
+        value = str(model_form.get(key, "")).strip()
+        if value:
+            return value
+    for marker in ("MOU", "EOPKG", "GATv2", "GCN", "LSTM"):
+        if marker.lower() in preset_name.lower():
+            return marker
+    return ""
 
 
 def compose_preset_config(payload: Mapping[str, Any]) -> dict[str, Any]:

@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 from tools import run_cdlg_benchmark as runner
+from tools import run_benchmark
 
 
 def test_load_run_plan_preserves_explicit_order_and_metadata(tmp_path: Path) -> None:
@@ -37,6 +38,44 @@ def test_load_run_plan_rejects_unknown_preset(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="not found"):
         runner.load_run_plan(plan_path, {})
+
+
+def test_load_run_plan_can_skip_cdlg_name_validation_for_generic_benchmark(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.yaml"
+    plan_path.write_text(
+        "runs:\n  - preset: MOU-drift\n  - preset: _CDLG-simple1_MOU-drift\n",
+        encoding="utf-8",
+    )
+    payload = {"vars": {"mode": "eval_topology_mask_uniform"}}
+    presets = {
+        "MOU-drift": {"payload": payload},
+        "_CDLG-simple1_MOU-drift": {"payload": payload},
+    }
+
+    runs = runner.load_run_plan(plan_path, presets, validate_cdlg_names=False)
+
+    assert [run.preset_name for run in runs] == ["MOU-drift", "_CDLG-simple1_MOU-drift"]
+    assert [run.phase for run in runs] == ["drift", "drift"]
+    assert all(run.complexity == "" for run in runs)
+    assert all(run.case_index == 0 for run in runs)
+    assert all(run.model_label == "MOU" for run in runs)
+
+
+def test_generic_run_benchmark_dry_run_only_checks_preset_presence(tmp_path: Path, capsys) -> None:
+    plan_path = tmp_path / "plan.yaml"
+    presets_path = tmp_path / "presets.json"
+    plan_path.write_text("runs:\n  - preset: MOU-drift\n  - preset: missing-preset\n", encoding="utf-8")
+    presets_path.write_text(
+        json.dumps({"MOU-drift": {"payload": {"vars": {"mode": "eval_topology_mask_uniform"}}}}),
+        encoding="utf-8",
+    )
+
+    result = run_benchmark.main(["--plan", str(plan_path), "--presets-path", str(presets_path), "--dry-run"])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "Run 01/02 | MOU-drift" in captured.out
+    assert "Missing preset: missing-preset" in captured.out
 
 
 def test_compose_config_applies_ui_payload_and_gateway_mode(tmp_path: Path) -> None:
@@ -163,10 +202,14 @@ def test_execute_queue_stops_and_blocks_paired_drift_after_failed_train(tmp_path
     assert "Run 01/03" in capsys.readouterr().out
 
 
-def test_cli_script_bootstraps_repository_import_path() -> None:
+def test_cli_script_bootstraps_repository_import_path(tmp_path: Path) -> None:
     script = Path("tools/run_cdlg_benchmark.py").resolve()
+    plan_path = tmp_path / "cdlg_benchmark_plan.yaml"
+    presets_path = tmp_path / "experiment_ui_presets.json"
+    plan_path.write_text("runs:\n  - preset: _CDLG-simple1_GATv2\n", encoding="utf-8")
+    presets_path.write_text(json.dumps({"_CDLG-simple1_GATv2": {"payload": {}}}), encoding="utf-8")
     completed = subprocess.run(
-        [sys.executable, str(script), "--dry-run"],
+        [sys.executable, str(script), "--plan", str(plan_path), "--presets-path", str(presets_path), "--dry-run"],
         cwd=script.parents[1],
         capture_output=True,
         text=True,
@@ -176,3 +219,21 @@ def test_cli_script_bootstraps_repository_import_path() -> None:
     assert "Run 01/" in completed.stdout
     assert completed.stderr == ""
     assert "ModuleNotFoundError: No module named 'src'" not in completed.stderr
+
+
+def test_generic_cli_script_bootstraps_repository_import_path(tmp_path: Path) -> None:
+    script = Path("tools/run_benchmark.py").resolve()
+    plan_path = tmp_path / "benchmark_plan.yaml"
+    presets_path = tmp_path / "experiment_ui_presets.json"
+    plan_path.write_text("runs:\n  - preset: MOU-drift\n", encoding="utf-8")
+    presets_path.write_text(json.dumps({"MOU-drift": {"payload": {}}}), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, str(script), "--plan", str(plan_path), "--presets-path", str(presets_path), "--dry-run"],
+        cwd=script.parents[1],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "Run 01/" in completed.stdout
+    assert "ModuleNotFoundError: No module named 'tools'" not in completed.stderr

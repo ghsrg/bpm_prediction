@@ -695,6 +695,29 @@ compatibility diagnostics when candidates map to `candidate_class_index=-1`.
 
 Fixed a target-to-candidate alignment mismatch during `candidate_id` training with `topology_native` identity mode. Previously, raw target labels (usually node IDs like `t_approve_loan` from log `concept:name`) were compared only against human-readable `candidate_labels` (like `Approve Loan`), resulting in a 100% missing target rate and training failure. The target mapping helper `candidate_target_mask_from_labels` and the prediction model's `map_target_labels_to_candidate_mask` now match targets against both `candidate_ids` and `candidate_labels`.
 
+## 2026-08-31 MOU-001 Topology-Mask Uniform Baseline
+
+`MOU-001` is complete with closure evidence in
+`outputs/worklogs/2026-08-31-closure-mou-001.md`. The slice adds
+`experiment.mode=eval_topology_mask_uniform`, a non-neural reviewer baseline
+that evaluates `candidate_allowed_target_mask [B, C_v]` directly. The evaluator
+reports analytical `uniform_mask_expected_accuracy`, structural
+`test_target_in_mask_rate`, mask cardinality/reduction diagnostics, seeded
+Monte Carlo strict/hybrid F1 summaries, and scalar drift windows. It is
+evaluation-only and must load only `encoder_state` from the configured reference
+checkpoint. When MLflow tracking is enabled, this internal mode is recorded with
+the standard `mode=eval_drift` tag and `params.experiment.mode=eval_drift` for
+downstream run placement, while the original evaluator mode is retained in
+`evaluation_mode` and `params.experiment.evaluation_mode`. MOU runs use
+`model_type=MOU` / `model.type=MOU` and log drift-window scalar series using
+the standard `drift_window_*` metric namespace so MLflow comparison plots can
+overlay them with neural `eval_drift` runs. Drift windows use the same
+`experiment.drift_window_size` / `experiment.drift_window_sliding` policy and
+trace-axis drop-short-tail behavior as neural `eval_drift`, while each window
+contains all prefix records belonging to the selected traces. Progress is
+reported through the standard `eval_drift.one_pass_inference` and
+`eval_drift.windows` stages.
+
 ## Runtime Update 2026-06-12
 
 Extended topology-native candidate target matching for XES lifecycle-classified

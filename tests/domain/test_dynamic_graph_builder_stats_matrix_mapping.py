@@ -382,7 +382,7 @@ def test_strict_asof_missing_snapshot_disables_stats_by_default(mock_feature_con
     assert contract.get("struct_x") is None
 
 
-def test_strict_asof_does_not_resolve_or_warn_when_statistics_are_disabled(mock_feature_configs, caplog):
+def test_strict_asof_does_not_resolve_snapshot_when_statistics_are_disabled(mock_feature_configs, caplog):
     traces = [_trace("c1", "v1", ["Start", "Approve", "End"])]
     encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=traces)
     dto = ProcessStructureDTO(
@@ -396,6 +396,7 @@ def test_strict_asof_does_not_resolve_or_warn_when_statistics_are_disabled(mock_
         knowledge_port=probe_repo,
         process_name="dataset_a",
         stats_time_policy="strict_asof",
+        on_missing_asof_snapshot="raise",
         graph_feature_mapping={"enabled": False},
     )
 
@@ -404,6 +405,8 @@ def test_strict_asof_does_not_resolve_or_warn_when_statistics_are_disabled(mock_
 
     assert probe_repo.called_as_of_ts is None
     assert contract.get("stats_missing_asof_snapshot") is False
+    assert contract.get("stats_allowed") is False
+    assert contract.get("struct_x") is None
     assert "Strict as-of snapshot missing" not in caplog.text
 
 
@@ -426,6 +429,7 @@ def test_strict_asof_missing_snapshot_raise_policy_raises(mock_feature_configs):
         process_name="dataset_a",
         stats_time_policy="strict_asof",
         on_missing_asof_snapshot="raise",
+        graph_feature_mapping={"enabled": True},
     )
 
     with pytest.raises(ValueError, match="Strict as-of snapshot is missing"):

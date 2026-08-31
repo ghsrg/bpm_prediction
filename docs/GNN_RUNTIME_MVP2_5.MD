@@ -1736,6 +1736,43 @@ XES lifecycle aliases, so `Activity+COMPLETE` can match topology candidate
 Changing the gateway mode changes the candidate universe and must match the log
 source semantics.
 
+## 10.1 Topology-Mask Uniform Baseline
+
+`experiment.mode=eval_topology_mask_uniform` evaluates a non-neural reviewer
+control over the topology-native candidate axis `C_v`.
+
+Runtime contract:
+
+```text
+candidate_allowed_target_mask: [B, C_v]
+probability[j] = 1 / |M_t| when candidate j is allowed by M_t
+probability[j] = 0 outside M_t
+```
+
+The mode reads prebuilt topology artifacts and may load only `encoder_state`
+from `experiment.uniform_mask_encoder_checkpoint`. It must not create a model,
+load `model_state_dict`, instantiate `ModelTrainer`, create an optimizer, train,
+or fine-tune. `candidate_class_index=-1` candidates remain representable because
+the evaluator uses `candidate_ids`, `candidate_labels`, raw `target_label`, and
+the native `candidate_allowed_target_mask` directly.
+
+`test_target_in_mask_rate` is a structural ceiling indicator: it reports how
+often the topology admits at least one candidate matching the true target. It is
+not an F1 upper bound. `uniform_mask_expected_accuracy` and mask cardinality
+distribution explain how much predictive power the mask alone contributes.
+Discrete strict/hybrid F1 values are reported only as seeded Monte Carlo
+summaries with mean, sample standard deviation, and Monte Carlo sampling
+uncertainty interval (95%). MOU hybrid `test_macro_f1` follows the existing
+`ModelTrainer` ambiguous-mask policy: valid rows with mask cardinality greater
+than one and prediction inside the mask are treated as admissible for the
+hybrid target, while singleton rows remain strict. `strict_error_but_allowed`
+is draw-dependent; because valid MOU predictions are always inside the mask,
+each strict miss is reported as a structurally allowed error in the Monte Carlo
+summary.
+
+`MOU-fixed` over `allowed_target_mask [B, C_train]` is deferred P2 and is not
+part of the topology-native `MOU-001` contract.
+
 ## 11. Impulse Activation Routing
 
 `EOPKGTopologyConditioned` supports an experimental topology-native routing

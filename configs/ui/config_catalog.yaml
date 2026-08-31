@@ -48,6 +48,7 @@ fields:
     - train
     - eval_drift
     - eval_cross_dataset
+    - eval_topology_mask_uniform
     - sync-topology
     - sync-stats
     - sync-stats-backfill
@@ -308,6 +309,7 @@ fields:
     - train
     - eval_drift
     - eval_cross_dataset
+    - eval_topology_mask_uniform
     - sync-topology
     - sync-stats
     - sync-stats-backfill
@@ -326,6 +328,78 @@ fields:
       group: core
       order: 1
       priority: 1
+      tab: general
+  experiment.uniform_mask_empty_mask_policy:
+    affects: Controls empty topology-mask handling for the uniform baseline.
+    default: raise
+    description: Empty candidate-mask policy for topology-mask uniform evaluation.
+    enum:
+    - raise
+    - record_invalid
+    label: Uniform mask empty policy
+    path: experiment.uniform_mask_empty_mask_policy
+    required_in_modes:
+    - eval_topology_mask_uniform
+    required_when:
+      experiment.mode: eval_topology_mask_uniform
+    section: experiment
+    ui:
+      group: topology_mask_uniform
+      order: 40
+      priority: 2
+      tab: general
+  experiment.uniform_mask_encoder_checkpoint:
+    affects: Provides frozen encoder vocabularies without loading model weights.
+    default: ''
+    description: Reference checkpoint used only for encoder_state in topology-mask uniform evaluation.
+    enum: []
+    label: Uniform mask encoder checkpoint
+    path: experiment.uniform_mask_encoder_checkpoint
+    required_in_modes:
+    - eval_topology_mask_uniform
+    required_when:
+      experiment.mode: eval_topology_mask_uniform
+    section: experiment
+    ui:
+      group: topology_mask_uniform
+      order: 41
+      priority: 2
+      tab: general
+  experiment.uniform_mask_evaluation_seed:
+    affects: Reproducible seeded Monte Carlo draws for the uniform baseline.
+    default: 20260831
+    description: Evaluation seed for canonical uniform draws over allowed topology candidates.
+    enum: []
+    label: Uniform mask evaluation seed
+    path: experiment.uniform_mask_evaluation_seed
+    required_in_modes:
+    - eval_topology_mask_uniform
+    required_when:
+      experiment.mode: eval_topology_mask_uniform
+    section: experiment
+    type: int
+    ui:
+      group: topology_mask_uniform
+      order: 42
+      priority: 2
+      tab: general
+  experiment.uniform_mask_mc_draws:
+    affects: Monte Carlo sampling uncertainty for discrete baseline metrics.
+    default: 200
+    description: Number of seeded uniform draws; valid research reporting range is 100 to 1000.
+    enum: []
+    label: Uniform mask MC draws
+    path: experiment.uniform_mask_mc_draws
+    required_in_modes:
+    - eval_topology_mask_uniform
+    required_when:
+      experiment.mode: eval_topology_mask_uniform
+    section: experiment
+    type: int
+    ui:
+      group: topology_mask_uniform
+      order: 43
+      priority: 2
       tab: general
   experiment.name:
     affects: Execution route, data split, and evaluation mode behavior.

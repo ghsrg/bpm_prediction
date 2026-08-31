@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 from src.adapters.ingestion.camunda_trace_adapter import CamundaTraceAdapter
 from src.adapters.ingestion.xes_adapter import XESAdapter
 from src.application.ports.xes_adapter_port import IXESAdapter
+from src.application.use_cases.topology_mask_uniform_evaluator import TopologyMaskUniformEvaluator
 from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.entities.feature_config import parse_feature_configs
@@ -57,6 +58,7 @@ DEFAULT_IMPULSE_STATE_CHANNELS = [
     "prefix_executed_count_log1p",
     "prefix_recency_norm",
 ]
+TOPOLOGY_MASK_UNIFORM_MODE = "eval_topology_mask_uniform"
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -221,6 +223,21 @@ def _as_bool(raw: Any, *, default: bool = False) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return bool(default)
+
+
+def _load_uniform_mask_encoder_state(experiment_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    checkpoint_path = str(experiment_cfg.get("uniform_mask_encoder_checkpoint", "")).strip()
+    if not checkpoint_path:
+        raise ValueError("experiment.uniform_mask_encoder_checkpoint is required for eval_topology_mask_uniform.")
+    if not Path(checkpoint_path).exists():
+        raise ValueError(f"Uniform mask encoder checkpoint was not found: {checkpoint_path}")
+    checkpoint_payload = load_trusted_torch_artifact(checkpoint_path, map_location="cpu")
+    if not isinstance(checkpoint_payload, dict):
+        raise ValueError("Uniform mask encoder checkpoint payload must be a dictionary.")
+    encoder_state = checkpoint_payload.get("encoder_state")
+    if encoder_state is None:
+        raise ValueError("Uniform mask encoder checkpoint must contain encoder_state.")
+    return encoder_state
 
 
 def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1825,7 +1842,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     split_ratio = _parse_split_ratio(experiment_cfg)
     train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
-    if mode in {"eval_cross_dataset", "eval_drift"}:
+    if mode in {"eval_cross_dataset", "eval_drift", TOPOLOGY_MASK_UNIFORM_MODE}:
         split_ratio = (0.0, 0.0, 1.0)
 
     prefix_policy = PrefixPolicy()
@@ -2529,6 +2546,81 @@ def _compute_class_weights(train_dataset: Any, num_classes: int, device: torch.d
     return torch.tensor(weights, dtype=torch.float32, device=device)
 
 
+def _build_mou_progress_callback() -> Any:
+    reporters: Dict[str, ProgressReporter] = {}
+
+    def _report_progress(**event: Any) -> None:
+        stage = str(event.get("stage", "")).strip() or "mou.evaluate"
+        status = str(event.get("status", "update")).strip() or "update"
+        reporter = reporters.get(stage)
+        if reporter is None:
+            reporter = ProgressReporter(stage=stage, min_interval_sec=0.8)
+            reporters[stage] = reporter
+        kwargs = {
+            "message": str(event.get("message", "")),
+            "current": event.get("current"),
+            "total": event.get("total"),
+            "payload": event.get("payload") if isinstance(event.get("payload"), dict) else None,
+        }
+        if status == "start":
+            reporter.start(**kwargs)
+        elif status == "done":
+            reporter.done(**kwargs)
+        elif status == "error":
+            reporter.error(message=kwargs["message"], payload=kwargs["payload"])
+        else:
+            reporter.update(**kwargs)
+
+    return _report_progress
+
+
+def _log_mou_results_to_mlflow(tracker: Any, results: Mapping[str, Any]) -> None:
+    """Log scalar MOU metrics and per-window diagnostics to an active tracker."""
+    for key, value in (results.get("test_metrics", {}) or {}).items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            tracker.log_metric(str(key), float(value))
+
+    for key, value in (results.get("monte_carlo", {}) or {}).items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            tracker.log_metric(f"monte_carlo.{key}", float(value))
+
+    drift_metrics = results.get("drift_metrics", []) or []
+    if isinstance(drift_metrics, Sequence):
+        for window_index, row in enumerate(drift_metrics):
+            if not isinstance(row, Mapping):
+                continue
+            step = int(row.get("window_index", window_index))
+            has_canonical_strict = "window_strict_macro_f1" in row
+            has_canonical_hybrid = "window_macro_f1" in row
+            for key, value in row.items():
+                if key == "window_index":
+                    continue
+                if key == "window_strict_test_macro_f1_mc_mean" and has_canonical_strict:
+                    continue
+                if key == "window_test_macro_f1_mc_mean" and has_canonical_hybrid:
+                    continue
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    tracker.log_metric(_mou_drift_metric_key(str(key)), float(value), step=step)
+
+
+def _mou_drift_metric_key(key: str) -> str:
+    if key == "window_strict_test_macro_f1_mc_mean":
+        return "drift_window_strict_macro_f1"
+    if key == "window_test_macro_f1_mc_mean":
+        return "drift_window_macro_f1"
+    normalized = key.removeprefix("window_")
+    return f"drift_window_{normalized}"
+
+
+def _build_mou_mlflow_params(config: Mapping[str, Any]) -> Dict[str, Any]:
+    params = _build_mlflow_params(dict(config), max_value_len=480)
+    params["experiment.mode"] = "eval_drift"
+    params["experiment.evaluation_mode"] = TOPOLOGY_MASK_UNIFORM_MODE
+    params["model.type"] = "MOU"
+    params["model_type"] = "MOU"
+    return params
+
+
 def main() -> None:
     """Parse CLI args, wire dependencies, and run model training."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -2568,7 +2660,11 @@ def main() -> None:
     checkpoint_payload_for_resume: Dict[str, Any] | None = None
     checkpoint_epoch_for_resume = 0
 
-    if mode.startswith("eval_"):
+    if mode == TOPOLOGY_MASK_UNIFORM_MODE:
+        config["encoder_state"] = _load_uniform_mask_encoder_state(experiment_cfg)
+        resolved_checkpoint_path = str(experiment_cfg.get("uniform_mask_encoder_checkpoint", "")).strip()
+        resolved_resume_checkpoint_path = resolved_checkpoint_path
+    elif mode.startswith("eval_"):
         if not load_checkpoint_override:
             raise ValueError("Р”Р»СЏ eval СЂРµР¶РёРјС–РІ РЅРµРѕР±С…С–РґРЅРѕ РІРєР°Р·Р°С‚Рё С€Р»СЏС… РґРѕ С‡РµРєРїРѕС–РЅС‚Сѓ РІ experiment.load_checkpoint")
         resolved_checkpoint_path = load_checkpoint_override
@@ -2586,7 +2682,10 @@ def main() -> None:
         )
 
     early_checkpoint_path = resolved_checkpoint_path if mode.startswith("eval_") else resolved_resume_checkpoint_path
-    should_early_load_checkpoint = mode.startswith("eval_") or (resume_train_mode and Path(early_checkpoint_path).exists())
+    should_early_load_checkpoint = (
+        (mode.startswith("eval_") and mode != TOPOLOGY_MASK_UNIFORM_MODE)
+        or (resume_train_mode and Path(early_checkpoint_path).exists())
+    )
 
     if should_early_load_checkpoint:
         if mode.startswith("eval_") and not Path(early_checkpoint_path).exists():
@@ -2608,7 +2707,7 @@ def main() -> None:
             )
         config["encoder_state"] = encoder_state
 
-    if mode == "eval_drift":
+    if mode in {"eval_drift", TOPOLOGY_MASK_UNIFORM_MODE}:
         drift_window_size = int(experiment_cfg.get("drift_window_size", 500))
         if drift_window_size <= 0:
             raise ValueError("experiment.drift_window_size must be a positive integer.")
@@ -2626,6 +2725,49 @@ def main() -> None:
     prepared = prepare_data(config, trace_adapter=trace_adapter)
     activity_vocab = prepared["activity_vocab"]
     resource_vocab = prepared["resource_vocab"]
+
+    if mode == TOPOLOGY_MASK_UNIFORM_MODE:
+        evaluator = TopologyMaskUniformEvaluator(
+            empty_mask_policy=str(experiment_cfg.get("uniform_mask_empty_mask_policy", "raise")).strip() or "raise",
+            evaluation_seed=int(experiment_cfg.get("uniform_mask_evaluation_seed", 20260831)),
+            mc_draws=int(experiment_cfg.get("uniform_mask_mc_draws", 200)),
+            drift_window_size=int(experiment_cfg.get("drift_window_size", 0) or 0),
+            drift_window_sliding=int(experiment_cfg.get("drift_window_sliding", 0) or 0),
+            progress_callback=_build_mou_progress_callback(),
+        )
+        mou_tracker = None
+        if bool(tracking_cfg.get("enabled", False)):
+            tracking_experiment_name = _resolve_tracking_experiment_name(
+                str(experiment_cfg.get("project", "DefaultExperiment")),
+                mode,
+            )
+            mou_tracker = MLflowTracker(
+                experiment_name=tracking_experiment_name,
+                run_name=full_run_name,
+                tracking_uri=tracking_cfg.get("uri"),
+            )
+            mou_tracker.log_tag("tracking_project_base", str(experiment_cfg.get("project", "DefaultExperiment")))
+            mou_tracker.log_tag("mode", "eval_drift")
+            mou_tracker.log_tag("evaluation_mode", mode)
+            mou_tracker.log_tag("model_type", "MOU")
+            mou_tracker.log_params(_build_mou_mlflow_params(config))
+        try:
+            results = evaluator.evaluate(_iter_graphs_from_dataset_payload(prepared["test_dataset"]))
+            if mou_tracker is not None:
+                _log_mou_results_to_mlflow(mou_tracker, results)
+            logger.info(
+                "Topology mask uniform evaluation finished: encoder=%s seed=%d draws=%d",
+                str(experiment_cfg.get("uniform_mask_encoder_checkpoint", "")).strip(),
+                int(results.get("monte_carlo", {}).get("evaluation_seed", 20260831)),
+                int(results.get("monte_carlo", {}).get("draws", 0)),
+            )
+            print("=== Topology Mask Uniform Metrics ===")
+            for key, value in results.get("test_metrics", {}).items():
+                print(f"{key}: {value}")
+        finally:
+            if mou_tracker is not None:
+                mou_tracker.close()
+        return
 
     if not mode.startswith("eval_"):
         logger.info("Built vocabularies: activity_vocab=%d, resource_vocab=%d", len(activity_vocab), len(resource_vocab))

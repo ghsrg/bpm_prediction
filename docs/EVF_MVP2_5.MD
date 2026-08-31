@@ -62,6 +62,33 @@ an effective `k = min(3, n_classes - 1)` when `n_classes > 2`; for binary or
 single-class windows it falls back to plain accuracy. This avoids meaningless
 perfect top-k scores when `k >= n_classes`.
 
+### 6.1 Topology-Mask Uniform Baseline Metrics
+
+`eval_topology_mask_uniform` reports a topology-only control, not a learned
+model score. Primary fields:
+
+1. `uniform_mask_expected_accuracy`: analytical expected accuracy from uniform
+   probability mass over allowed topology candidates.
+2. `test_target_in_mask_rate`: structural ceiling indicator; it is not an F1
+   upper bound.
+3. `mask_failure_{count,rate}` and `ranking_eligible_{count,rate}`: separate
+   target-out-of-mask rows from in-mask ranking rows.
+4. `mask_card_{1,2,3_plus}_{count,rate}`, `mean_mask_cardinality`,
+   `median_mask_cardinality`, `candidate_reduction_ratio_{mean,median}`.
+5. `strict_test_macro_f1_mc_mean`, `strict_test_macro_f1_mc_std`, and
+   `strict_test_macro_f1_mc_sampling_uncertainty_95_{low,high}` for seeded
+   Monte Carlo draw reporting. The interval is conditional on the fixed
+   evaluation set and is not a dataset-level significance claim.
+6. `test_macro_f1_mc_*` follows the existing `ModelTrainer` hybrid semantics:
+   valid multi-candidate mask hits are treated as admissible for the hybrid
+   target, while singleton rows remain strict.
+7. `strict_error_but_allowed_rate_mc_*` is computed per seeded draw. For valid
+   MOU rows the prediction is always inside the topology mask, so each strict
+   miss is a structurally allowed error.
+
+The research default for empty masks is `raise`. `record_invalid` is allowed
+only to report empty rows without falling back to the whole candidate space.
+
 Optional sliced metrics:
 1. by process version
 2. by prefix length bins

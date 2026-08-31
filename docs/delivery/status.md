@@ -7,3 +7,11 @@
 - `source`: `docs/delivery/roadmap.md`
 - `blocking_condition`: none
 - `closure_evidence`: `outputs/worklogs/2026-08-30-closure-cbr-001.md`
+
+## MOU-001
+
+- `status`: complete
+- `owner`: local development
+- `source`: `docs/delivery/roadmap.md`
+- `blocking_condition`: none
+- `closure_evidence`: `outputs/worklogs/2026-08-31-closure-mou-001.md`

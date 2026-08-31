@@ -60,6 +60,44 @@ Use the project virtual environment:
 .\.venv-modern\Scripts\python.exe main.py --config <train_or_eval_experiment.yaml>
 ```
 
+### eval_topology_mask_uniform
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py --config configs/experiments/<topology_mask_uniform_eval>.yaml
+```
+
+Required config keys:
+
+```yaml
+experiment:
+  mode: eval_topology_mask_uniform
+  uniform_mask_empty_mask_policy: raise
+  uniform_mask_encoder_checkpoint: checkpoints/<reference_encoder>.pth
+  uniform_mask_evaluation_seed: 20260831
+  uniform_mask_mc_draws: 200
+  on_missing_asof_snapshot: raise
+mapping:
+  knowledge_graph:
+    strict_load: true
+topology_projection:
+  gateway_mode: collapse_for_prediction
+training:
+  candidate_identity_mode: topology_native
+```
+
+This mode evaluates the current topology/process-state mask only. It loads
+`encoder_state`, prepares data with strict topology artifacts, and does not
+create a neural model or trainer. With `tracking.enabled: true`, the run is
+recorded in MLflow with the standard `mode=eval_drift` tag and
+`params.experiment.mode=eval_drift`; the internal evaluator mode remains
+available as `evaluation_mode` and `params.experiment.evaluation_mode`. MOU runs
+log `model_type=MOU` / `model.type=MOU` and drift-window metrics under the
+standard `drift_window_*` namespace for comparison with neural drift runs. It
+uses the same `experiment.drift_window_size` / `experiment.drift_window_sliding`
+trace-axis window policy as `eval_drift` and includes all prefix records for
+the selected traces in each window. Progress is reported only through
+`eval_drift.one_pass_inference` and `eval_drift.windows`.
+
 ---
 
 ## Topology Preparation
@@ -445,6 +483,21 @@ Generated configs, per-run logs, and `manifest.jsonl` are written below
 `outputs/cdlg_benchmark/`. The runner stops after the first failed child; if
 that child is a train entry, its directly paired later `-drift` entry is
 recorded as `blocked` and is not launched.
+
+### generic_benchmark_runner
+
+Use this helper for an explicitly ordered Experiment UI preset queue where
+preset IDs are not required to follow the canonical CDLG naming pattern.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\run_benchmark.py --dry-run
+.\.venv-modern\Scripts\python.exe tools\run_benchmark.py
+```
+
+`--dry-run` checks only that every listed preset exists in
+`configs/ui/experiment_ui_presets.json`. A real run loads the preset payloads
+and executes them sequentially through the same generated-config, log, manifest,
+progress, and ETA path as `tools/run_cdlg_benchmark.py`.
 
 ### experiment_ui
 

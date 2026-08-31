@@ -129,6 +129,19 @@ def test_catalog_includes_mask_guided_policy():
     assert field["ui"]["group"] == "core"
 
 
+def test_catalog_exposes_topology_mask_uniform_controls():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    assert "eval_topology_mask_uniform" in catalog["experiment.mode"]["enum"]
+    assert catalog["experiment.uniform_mask_empty_mask_policy"]["enum"] == ["raise", "record_invalid"]
+    assert catalog["experiment.uniform_mask_encoder_checkpoint"]["path"] == (
+        "experiment.uniform_mask_encoder_checkpoint"
+    )
+    assert catalog["experiment.uniform_mask_evaluation_seed"]["default"] == 20260831
+    assert catalog["experiment.uniform_mask_mc_draws"]["default"] == 200
+
+
 def test_catalog_includes_versioned_fraction_split_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]

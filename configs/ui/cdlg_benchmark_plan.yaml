@@ -2,30 +2,19 @@
 # Preset payloads remain in experiment_ui_presets.json.
 # Remove or reorder entries before running the benchmark.
 runs:
-  - preset: _CDLG-medium4_GATv2
-  - preset: _CDLG-medium4_GATv2-drift
-  - preset: _CDLG-medium5_EOPKG
-  - preset: _CDLG-medium5_EOPKG-drift
-  - preset: _CDLG-medium5_GATv2
-  - preset: _CDLG-medium5_GATv2-drift
-  - preset: _CDLG-simple1_EOPKG
-  - preset: _CDLG-simple1_EOPKG-drift
-  - preset: _CDLG-simple1_GATv2
-  - preset: _CDLG-simple1_GATv2-drift
-  - preset: _CDLG-simple2_EOPKG
-  - preset: _CDLG-simple2_EOPKG-drift
-  - preset: _CDLG-simple2_GATv2
-  - preset: _CDLG-simple2_GATv2-drift
-  - preset: _CDLG-simple3_EOPKG
-  - preset: _CDLG-simple3_EOPKG-drift
-  - preset: _CDLG-simple3_GATv2
-  - preset: _CDLG-simple3_GATv2-drift
-  - preset: _CDLG-simple4_EOPKG
-  - preset: _CDLG-simple4_EOPKG-drift
-  - preset: _CDLG-simple4_GATv2
-  - preset: _CDLG-simple4_GATv2-drift
-  - preset: _CDLG-simple5_EOPKG
-  - preset: _CDLG-simple5_EOPKG-drift
-  - preset: _CDLG-simple5_GATv2
-  - preset: _CDLG-simple5_GATv2-drift
+  - preset: MOU-drift
+  - preset: _CDLG-complex2_MOU-drift
+  - preset: _CDLG-complex3_MOU-drift
+  - preset: _CDLG-complex4_MOU-drift
+  - preset: _CDLG-complex5_MOU-drift
+  - preset: _CDLG-medium1_MOU-drift
+  - preset: _CDLG-medium2_MOU-drift
+  - preset: _CDLG-medium3_MOU-drift
+  - preset: _CDLG-medium4_MOU-drift
+  - preset: _CDLG-medium5_MOU-drift
+  - preset: _CDLG-simple1_MOU-drift
+  - preset: _CDLG-simple2_MOU-drift
+  - preset: _CDLG-simple3_MOU-drift
+  - preset: _CDLG-simple4_MOU-drift
+  - preset: _CDLG-simple5_MOU-drift
 

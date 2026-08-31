@@ -127,7 +127,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         stats_enabled = bool(mapping.get("enabled", False))
         as_of_ts = (
             self._resolve_as_of_timestamp(prefix)
-            if stats_enabled and self.stats_time_policy == "strict_asof"
+            if self.stats_time_policy == "strict_asof" and stats_enabled
             else None
         )
 
@@ -145,6 +145,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
 
         missing_asof_snapshot = self._is_missing_asof_snapshot(dto=dto, as_of_ts=as_of_ts)
         stats_allowed, quality_reason = self._should_use_stats(dto=dto, version_key=raw_version)
+        if not stats_enabled:
+            stats_allowed = False
+            quality_reason = "stats_disabled"
         if missing_asof_snapshot:
             self._emit_missing_asof_warning(version_key=raw_version, as_of_ts=as_of_ts)
             if self.on_missing_asof_snapshot == "raise":
@@ -163,7 +166,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         contract["stats_missing_asof_snapshot"] = bool(missing_asof_snapshot)
         target_feature = self.feature_encoder.activity_feature_name
         activity_vocab = self.feature_encoder.categorical_vocabs.get(target_feature, {"<UNK>": 0})
-        if quality_reason not in {"ok", "quality_gate_disabled", "quality_metadata_not_required"}:
+        if quality_reason not in {"ok", "quality_gate_disabled", "quality_metadata_not_required", "stats_disabled"}:
             self._emit_quality_warning(version_key=raw_version, reason=quality_reason, stats_allowed=stats_allowed)
         compiled = self._resolve_compiled_topology(
             dto=dto,
@@ -889,7 +892,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         if self._should_cache_dto_lookup(as_of_ts=as_of_ts):
             mapping = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
             stats_enabled = bool(mapping.get("enabled", False))
-            resolved_as_of = as_of_ts if stats_enabled else None
+            resolved_as_of = as_of_ts if self.stats_time_policy == "strict_asof" else None
             cache_key = (
                 self.process_name or "__auto__",
                 tuple(str(item).strip() for item in candidate_versions),

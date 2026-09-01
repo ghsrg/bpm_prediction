@@ -302,3 +302,106 @@ def test_relaxed_reachability_keeps_completed_token_when_new_instance_is_active(
     assert bool(contract["allowed_target_mask"][b_idx]) is True
     assert bool(contract["candidate_allowed_target_mask"][b_idx]) is True
     assert int(contract["process_state_mask_target_suppressed_by_completed_filter_count"].item()) == 0
+
+
+def test_relaxed_reachability_keeps_lifecycle_start_token_when_direct_successors_are_transparent(
+    mock_feature_configs,
+):
+    events = [
+        _event(0, "A", lifecycle="start", instance_id="A_1"),
+        _event(1, "B", lifecycle="start", instance_id="B_1"),
+    ]
+    encoder = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train", "v1", events)],
+    )
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            nodes=[
+                {"id": "node_A", "bpmn_tag": "task", "type": "task", "name": "A"},
+                {"id": "join", "bpmn_tag": "parallelGateway", "type": "parallelGateway", "name": "join"},
+                {"id": "node_B", "bpmn_tag": "task", "type": "task", "name": "B"},
+            ],
+            allowed_edges=[
+                ("node_A", "join"),
+            ],
+        ),
+    )
+
+    prefix = PrefixSlice(
+        case_id="eval",
+        process_version="v1",
+        prefix_events=events[:1],
+        target_event=events[1],
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="topology_native",
+        process_state_mask_enabled=True,
+        process_state_mask_source="relaxed_reachability",
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    assert int(contract["candidate_allowed_target_mask"].sum().item()) == 1
+    assert int(contract["process_state_mask_active_candidate_count"].item()) == 1
+
+
+def test_relaxed_reachability_keeps_not_completed_initial_parallel_sibling_with_collapsed_gateways(
+    mock_feature_configs,
+):
+    events = [
+        _event(0, "A", lifecycle="complete", instance_id="A_1"),
+        _event(1, "B", lifecycle="complete", instance_id="B_1"),
+    ]
+    encoder = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train", "v1", events)],
+    )
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            nodes=[
+                {"id": "start", "bpmn_tag": "startEvent", "type": "startEvent", "name": "start"},
+                {"id": "parallel_split", "bpmn_tag": "parallelGateway", "type": "parallelGateway", "name": "split"},
+                {"id": "node_A", "bpmn_tag": "task", "type": "task", "name": "A"},
+                {"id": "node_B", "bpmn_tag": "task", "type": "task", "name": "B"},
+                {"id": "join", "bpmn_tag": "parallelGateway", "type": "parallelGateway", "name": "join"},
+            ],
+            allowed_edges=[
+                ("start", "parallel_split"),
+                ("parallel_split", "node_A"),
+                ("parallel_split", "node_B"),
+                ("node_A", "join"),
+                ("node_B", "join"),
+            ],
+        ),
+    )
+
+    prefix = PrefixSlice(
+        case_id="eval",
+        process_version="v1",
+        prefix_events=events[:1],
+        target_event=events[1],
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="topology_native",
+        process_state_mask_enabled=True,
+        process_state_mask_source="relaxed_reachability",
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    allowed_by_label = dict(zip(contract["candidate_labels"], contract["candidate_allowed_target_mask"].tolist()))
+    assert allowed_by_label["B"] is True
+    assert allowed_by_label["A"] is False

@@ -49,7 +49,7 @@ from src.infrastructure.tracking.mlflow_trace_recorder import MLflowTraceRecorde
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
-GRAPH_DATASET_CACHE_SCHEMA = 4
+GRAPH_DATASET_CACHE_SCHEMA = 5
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"

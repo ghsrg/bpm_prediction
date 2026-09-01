@@ -81,7 +81,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         self._resolved_snapshot_identities: set[tuple[str, str, str | None, str | None]] = set()
         self._dto_cache_max_entries = 32768
         self._topology_cache_max_entries = 512
-        self._topology_disk_cache_schema = 4
+        self._topology_disk_cache_schema = 5
         self._topology_disk_cache_dir = self._resolve_topology_disk_cache_dir(cache_dir)
         self.candidate_identity_mode = str(candidate_identity_mode or "fixed_vocab_bridge").strip().lower()
         self.process_state_mask_enabled = bool(process_state_mask_enabled)
@@ -609,7 +609,23 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             ).strip()
         if target_token and target_token in raw_result and target_token not in filtered:
             diagnostics["target_suppressed_by_completed_filter_count"] = 1
+        state_active_candidates = {
+            token
+            for token in active_tokens
+            if self._candidate_indices_for_token(compiled=compiled, token=token)
+        }
+        initial_candidates = {
+            str(token).strip()
+            for token in compiled.get("initial_candidate_labels", ())
+            if str(token).strip()
+            and str(token).strip() not in completed_tokens
+            and self._candidate_indices_for_token(compiled=compiled, token=str(token).strip())
+        }
+        filtered.update(state_active_candidates)
+        filtered.update(initial_candidates)
         final = self._cap_relaxed_candidates(result=filtered, compiled=compiled)
+        final.update(state_active_candidates)
+        final.update(initial_candidates)
         diagnostics["final_candidate_count"] = int(len(final))
         return final, diagnostics
 
@@ -1217,6 +1233,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
 
         candidate_class_index = torch.tensor(candidate_class_values, dtype=torch.long)
         candidate_is_unseen = candidate_class_index < 0
+        initial_candidate_labels = self._initial_prediction_candidate_labels(
+            dto=dto,
+            prediction_node_ids=projection_result.prediction_nodes,
+        )
 
         if self.candidate_identity_mode == "topology_native":
             struct_node_to_class_index = candidate_class_index.clone()
@@ -1273,6 +1293,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "candidate_is_unseen": candidate_is_unseen,
             "candidate_indices_by_label": candidate_indices_by_label,
             "candidate_indices_by_id": candidate_indices_by_id,
+            "initial_candidate_labels": tuple(initial_candidate_labels),
             "candidate_count": int(candidate_count),
             "struct_x": struct_x,
             "topology_projection_diagnostics": diagnostics,
@@ -1294,6 +1315,48 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             if value:
                 return value
         return ""
+
+    @classmethod
+    def _initial_prediction_candidate_labels(
+        cls,
+        *,
+        dto: ProcessStructureDTO,
+        prediction_node_ids: set[str],
+    ) -> tuple[str, ...]:
+        nodes = [node for node in list(dto.nodes or []) if isinstance(node, dict)]
+        if not nodes or not prediction_node_ids:
+            return ()
+        roles = TopologyProjectionCompiler.classify_nodes(nodes)
+        node_by_id = {str(node.get("id", "")).strip(): node for node in nodes if str(node.get("id", "")).strip()}
+        outgoing: dict[str, list[str]] = {}
+        for src, dst in dto.allowed_edges:
+            src_token = str(src).strip()
+            dst_token = str(dst).strip()
+            if src_token and dst_token:
+                outgoing.setdefault(src_token, []).append(dst_token)
+        start_nodes = [
+            node_id
+            for node_id, node in node_by_id.items()
+            if "startevent"
+            in " ".join(str(node.get(key, "")).strip().lower() for key in ("bpmn_tag", "type", "activity_type"))
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        ]
+        labels: set[str] = set()
+        for start_node in start_nodes:
+            queue = list(outgoing.get(start_node, []))
+            visited: set[str] = set()
+            while queue:
+                current = str(queue.pop(0)).strip()
+                if not current or current in visited:
+                    continue
+                visited.add(current)
+                if current in prediction_node_ids or roles.get(current) == "prediction":
+                    labels.add(cls._node_label(node_by_id.get(current, {"id": current})))
+                    continue
+                queue.extend(outgoing.get(current, []))
+        return tuple(sorted(label for label in labels if label))
 
     def _topology_native_candidates(
         self,

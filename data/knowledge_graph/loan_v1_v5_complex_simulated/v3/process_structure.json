@@ -1,0 +1,1117 @@
+{
+  "created_at_utc": "2026-09-01T04:07:57.479657+00:00",
+  "dto": {
+    "allowed_edges": [
+      [
+        "SaveCase_action",
+        "t_check_form"
+      ],
+      [
+        "t_Collect_Report",
+        "t_prepare_pack"
+      ],
+      [
+        "t_Collect_Report",
+        "t_reject_loan"
+      ],
+      [
+        "t_add_notes",
+        "t_final_review"
+      ],
+      [
+        "t_approve_loan",
+        "t_Notification2"
+      ],
+      [
+        "t_assess_eligibility",
+        "t_Collect_Report"
+      ],
+      [
+        "t_audit_case",
+        "t_monitor_seven"
+      ],
+      [
+        "t_book_loan",
+        "t_monitor_one"
+      ],
+      [
+        "t_call_client",
+        "t_add_notes"
+      ],
+      [
+        "t_cancel_loan",
+        "t_Notification"
+      ],
+      [
+        "t_check_form",
+        "t_identity_check"
+      ],
+      [
+        "t_check_form",
+        "t_return_form"
+      ],
+      [
+        "t_check_funding",
+        "t_confirm_payout"
+      ],
+      [
+        "t_check_quote",
+        "t_send_offer"
+      ],
+      [
+        "t_check_quote",
+        "t_send_quote"
+      ],
+      [
+        "t_collect_docs",
+        "t_create_account"
+      ],
+      [
+        "t_collect_docs",
+        "t_verify_docs"
+      ],
+      [
+        "t_complice_check",
+        "t_credit_check"
+      ],
+      [
+        "t_complice_check",
+        "t_property_check"
+      ],
+      [
+        "t_confirm_payout",
+        "t_audit_case"
+      ],
+      [
+        "t_confirm_payout",
+        "t_book_loan"
+      ],
+      [
+        "t_confirm_payout",
+        "t_plan_setup"
+      ],
+      [
+        "t_confirm_payout",
+        "t_send_notice"
+      ],
+      [
+        "t_create_account",
+        "t_reserve_funds"
+      ],
+      [
+        "t_credit_check",
+        "t_property_check"
+      ],
+      [
+        "t_credit_check",
+        "t_risk_assess"
+      ],
+      [
+        "t_final_review",
+        "t_approve_loan"
+      ],
+      [
+        "t_final_review",
+        "t_cancel_loan"
+      ],
+      [
+        "t_final_review",
+        "t_reopen_case"
+      ],
+      [
+        "t_identity_check",
+        "t_complice_check"
+      ],
+      [
+        "t_monitor_eight",
+        "t_monitor_one"
+      ],
+      [
+        "t_monitor_five",
+        "t_monitor_three"
+      ],
+      [
+        "t_monitor_four",
+        "t_monitor_two"
+      ],
+      [
+        "t_monitor_nine",
+        "t_monitor_one"
+      ],
+      [
+        "t_monitor_one",
+        "t_monitor_two"
+      ],
+      [
+        "t_monitor_seven",
+        "t_monitor_eight"
+      ],
+      [
+        "t_monitor_seven",
+        "t_monitor_nine"
+      ],
+      [
+        "t_monitor_six",
+        "t_monitor_three"
+      ],
+      [
+        "t_monitor_three",
+        "t_update_risk"
+      ],
+      [
+        "t_monitor_two",
+        "t_monitor_three"
+      ],
+      [
+        "t_plan_setup",
+        "t_monitor_one"
+      ],
+      [
+        "t_prepare_pack",
+        "t_check_quote"
+      ],
+      [
+        "t_property_check",
+        "t_assess_eligibility"
+      ],
+      [
+        "t_property_check",
+        "t_credit_check"
+      ],
+      [
+        "t_property_check",
+        "t_risk_assess"
+      ],
+      [
+        "t_receive_update",
+        "t_check_form"
+      ],
+      [
+        "t_reopen_case",
+        "t_check_form"
+      ],
+      [
+        "t_reserve_funds",
+        "t_check_funding"
+      ],
+      [
+        "t_return_form",
+        "t_receive_update"
+      ],
+      [
+        "t_revise_offer",
+        "t_send_offer"
+      ],
+      [
+        "t_revise_offer",
+        "t_send_quote"
+      ],
+      [
+        "t_risk_assess",
+        "t_assess_eligibility"
+      ],
+      [
+        "t_risk_assess",
+        "t_property_check"
+      ],
+      [
+        "t_send_notice",
+        "t_monitor_one"
+      ],
+      [
+        "t_send_offer",
+        "t_verify_terms"
+      ],
+      [
+        "t_send_quote",
+        "t_verify_terms"
+      ],
+      [
+        "t_update_risk",
+        "t_call_client"
+      ],
+      [
+        "t_verify_docs",
+        "t_reserve_funds"
+      ],
+      [
+        "t_verify_terms",
+        "t_collect_docs"
+      ],
+      [
+        "t_verify_terms",
+        "t_revise_offer"
+      ]
+    ],
+    "call_bindings": {},
+    "deployment_id": null,
+    "edge_statistics": [
+      {
+        "dst": "t_check_form",
+        "src": "SaveCase_action",
+        "stats": {
+          "count": 1218.0
+        }
+      },
+      {
+        "dst": "t_prepare_pack",
+        "src": "t_Collect_Report",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_reject_loan",
+        "src": "t_Collect_Report",
+        "stats": {
+          "count": 208.0
+        }
+      },
+      {
+        "dst": "t_final_review",
+        "src": "t_add_notes",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_Notification2",
+        "src": "t_approve_loan",
+        "stats": {
+          "count": 899.0
+        }
+      },
+      {
+        "dst": "t_Collect_Report",
+        "src": "t_assess_eligibility",
+        "stats": {
+          "count": 1254.0
+        }
+      },
+      {
+        "dst": "t_monitor_seven",
+        "src": "t_audit_case",
+        "stats": {
+          "count": 257.0
+        }
+      },
+      {
+        "dst": "t_monitor_one",
+        "src": "t_book_loan",
+        "stats": {
+          "count": 264.0
+        }
+      },
+      {
+        "dst": "t_add_notes",
+        "src": "t_call_client",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_Notification",
+        "src": "t_cancel_loan",
+        "stats": {
+          "count": 111.0
+        }
+      },
+      {
+        "dst": "t_identity_check",
+        "src": "t_check_form",
+        "stats": {
+          "count": 1254.0
+        }
+      },
+      {
+        "dst": "t_return_form",
+        "src": "t_check_form",
+        "stats": {
+          "count": 27.0
+        }
+      },
+      {
+        "dst": "t_confirm_payout",
+        "src": "t_check_funding",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_send_offer",
+        "src": "t_check_quote",
+        "stats": {
+          "count": 524.0
+        }
+      },
+      {
+        "dst": "t_send_quote",
+        "src": "t_check_quote",
+        "stats": {
+          "count": 522.0
+        }
+      },
+      {
+        "dst": "t_create_account",
+        "src": "t_collect_docs",
+        "stats": {
+          "count": 382.0
+        }
+      },
+      {
+        "dst": "t_verify_docs",
+        "src": "t_collect_docs",
+        "stats": {
+          "count": 664.0
+        }
+      },
+      {
+        "dst": "t_credit_check",
+        "src": "t_complice_check",
+        "stats": {
+          "count": 124.0
+        }
+      },
+      {
+        "dst": "t_property_check",
+        "src": "t_complice_check",
+        "stats": {
+          "count": 39.0
+        }
+      },
+      {
+        "dst": "t_audit_case",
+        "src": "t_confirm_payout",
+        "stats": {
+          "count": 257.0
+        }
+      },
+      {
+        "dst": "t_book_loan",
+        "src": "t_confirm_payout",
+        "stats": {
+          "count": 264.0
+        }
+      },
+      {
+        "dst": "t_plan_setup",
+        "src": "t_confirm_payout",
+        "stats": {
+          "count": 256.0
+        }
+      },
+      {
+        "dst": "t_send_notice",
+        "src": "t_confirm_payout",
+        "stats": {
+          "count": 269.0
+        }
+      },
+      {
+        "dst": "t_reserve_funds",
+        "src": "t_create_account",
+        "stats": {
+          "count": 382.0
+        }
+      },
+      {
+        "dst": "t_property_check",
+        "src": "t_credit_check",
+        "stats": {
+          "count": 130.0
+        }
+      },
+      {
+        "dst": "t_risk_assess",
+        "src": "t_credit_check",
+        "stats": {
+          "count": 1115.0
+        }
+      },
+      {
+        "dst": "t_approve_loan",
+        "src": "t_final_review",
+        "stats": {
+          "count": 899.0
+        }
+      },
+      {
+        "dst": "t_cancel_loan",
+        "src": "t_final_review",
+        "stats": {
+          "count": 111.0
+        }
+      },
+      {
+        "dst": "t_reopen_case",
+        "src": "t_final_review",
+        "stats": {
+          "count": 36.0
+        }
+      },
+      {
+        "dst": "t_complice_check",
+        "src": "t_identity_check",
+        "stats": {
+          "count": 1254.0
+        }
+      },
+      {
+        "dst": "t_monitor_one",
+        "src": "t_monitor_eight",
+        "stats": {
+          "count": 146.0
+        }
+      },
+      {
+        "dst": "t_monitor_three",
+        "src": "t_monitor_five",
+        "stats": {
+          "count": 432.0
+        }
+      },
+      {
+        "dst": "t_monitor_two",
+        "src": "t_monitor_four",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_monitor_one",
+        "src": "t_monitor_nine",
+        "stats": {
+          "count": 111.0
+        }
+      },
+      {
+        "dst": "t_monitor_two",
+        "src": "t_monitor_one",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_monitor_eight",
+        "src": "t_monitor_seven",
+        "stats": {
+          "count": 146.0
+        }
+      },
+      {
+        "dst": "t_monitor_nine",
+        "src": "t_monitor_seven",
+        "stats": {
+          "count": 111.0
+        }
+      },
+      {
+        "dst": "t_monitor_three",
+        "src": "t_monitor_six",
+        "stats": {
+          "count": 614.0
+        }
+      },
+      {
+        "dst": "t_update_risk",
+        "src": "t_monitor_three",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_monitor_three",
+        "src": "t_monitor_two",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_monitor_one",
+        "src": "t_plan_setup",
+        "stats": {
+          "count": 256.0
+        }
+      },
+      {
+        "dst": "t_check_quote",
+        "src": "t_prepare_pack",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_assess_eligibility",
+        "src": "t_property_check",
+        "stats": {
+          "count": 172.0
+        }
+      },
+      {
+        "dst": "t_credit_check",
+        "src": "t_property_check",
+        "stats": {
+          "count": 58.0
+        }
+      },
+      {
+        "dst": "t_risk_assess",
+        "src": "t_property_check",
+        "stats": {
+          "count": 138.0
+        }
+      },
+      {
+        "dst": "t_check_form",
+        "src": "t_receive_update",
+        "stats": {
+          "count": 27.0
+        }
+      },
+      {
+        "dst": "t_check_form",
+        "src": "t_reopen_case",
+        "stats": {
+          "count": 36.0
+        }
+      },
+      {
+        "dst": "t_check_funding",
+        "src": "t_reserve_funds",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_receive_update",
+        "src": "t_return_form",
+        "stats": {
+          "count": 27.0
+        }
+      },
+      {
+        "dst": "t_send_offer",
+        "src": "t_revise_offer",
+        "stats": {
+          "count": 12.0
+        }
+      },
+      {
+        "dst": "t_send_quote",
+        "src": "t_revise_offer",
+        "stats": {
+          "count": 15.0
+        }
+      },
+      {
+        "dst": "t_assess_eligibility",
+        "src": "t_risk_assess",
+        "stats": {
+          "count": 1082.0
+        }
+      },
+      {
+        "dst": "t_property_check",
+        "src": "t_risk_assess",
+        "stats": {
+          "count": 160.0
+        }
+      },
+      {
+        "dst": "t_monitor_one",
+        "src": "t_send_notice",
+        "stats": {
+          "count": 269.0
+        }
+      },
+      {
+        "dst": "t_verify_terms",
+        "src": "t_send_offer",
+        "stats": {
+          "count": 536.0
+        }
+      },
+      {
+        "dst": "t_verify_terms",
+        "src": "t_send_quote",
+        "stats": {
+          "count": 537.0
+        }
+      },
+      {
+        "dst": "t_call_client",
+        "src": "t_update_risk",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_reserve_funds",
+        "src": "t_verify_docs",
+        "stats": {
+          "count": 664.0
+        }
+      },
+      {
+        "dst": "t_collect_docs",
+        "src": "t_verify_terms",
+        "stats": {
+          "count": 1046.0
+        }
+      },
+      {
+        "dst": "t_revise_offer",
+        "src": "t_verify_terms",
+        "stats": {
+          "count": 27.0
+        }
+      }
+    ],
+    "edge_stats": {},
+    "edges": [],
+    "gnn_features": {},
+    "graph_topology": {
+      "allowed_edges": [
+        [
+          "SaveCase_action",
+          "t_check_form"
+        ],
+        [
+          "t_Collect_Report",
+          "t_prepare_pack"
+        ],
+        [
+          "t_Collect_Report",
+          "t_reject_loan"
+        ],
+        [
+          "t_add_notes",
+          "t_final_review"
+        ],
+        [
+          "t_approve_loan",
+          "t_Notification2"
+        ],
+        [
+          "t_assess_eligibility",
+          "t_Collect_Report"
+        ],
+        [
+          "t_audit_case",
+          "t_monitor_seven"
+        ],
+        [
+          "t_book_loan",
+          "t_monitor_one"
+        ],
+        [
+          "t_call_client",
+          "t_add_notes"
+        ],
+        [
+          "t_cancel_loan",
+          "t_Notification"
+        ],
+        [
+          "t_check_form",
+          "t_identity_check"
+        ],
+        [
+          "t_check_form",
+          "t_return_form"
+        ],
+        [
+          "t_check_funding",
+          "t_confirm_payout"
+        ],
+        [
+          "t_check_quote",
+          "t_send_offer"
+        ],
+        [
+          "t_check_quote",
+          "t_send_quote"
+        ],
+        [
+          "t_collect_docs",
+          "t_create_account"
+        ],
+        [
+          "t_collect_docs",
+          "t_verify_docs"
+        ],
+        [
+          "t_complice_check",
+          "t_credit_check"
+        ],
+        [
+          "t_complice_check",
+          "t_property_check"
+        ],
+        [
+          "t_confirm_payout",
+          "t_audit_case"
+        ],
+        [
+          "t_confirm_payout",
+          "t_book_loan"
+        ],
+        [
+          "t_confirm_payout",
+          "t_plan_setup"
+        ],
+        [
+          "t_confirm_payout",
+          "t_send_notice"
+        ],
+        [
+          "t_create_account",
+          "t_reserve_funds"
+        ],
+        [
+          "t_credit_check",
+          "t_property_check"
+        ],
+        [
+          "t_credit_check",
+          "t_risk_assess"
+        ],
+        [
+          "t_final_review",
+          "t_approve_loan"
+        ],
+        [
+          "t_final_review",
+          "t_cancel_loan"
+        ],
+        [
+          "t_final_review",
+          "t_reopen_case"
+        ],
+        [
+          "t_identity_check",
+          "t_complice_check"
+        ],
+        [
+          "t_monitor_eight",
+          "t_monitor_one"
+        ],
+        [
+          "t_monitor_five",
+          "t_monitor_three"
+        ],
+        [
+          "t_monitor_four",
+          "t_monitor_two"
+        ],
+        [
+          "t_monitor_nine",
+          "t_monitor_one"
+        ],
+        [
+          "t_monitor_one",
+          "t_monitor_two"
+        ],
+        [
+          "t_monitor_seven",
+          "t_monitor_eight"
+        ],
+        [
+          "t_monitor_seven",
+          "t_monitor_nine"
+        ],
+        [
+          "t_monitor_six",
+          "t_monitor_three"
+        ],
+        [
+          "t_monitor_three",
+          "t_update_risk"
+        ],
+        [
+          "t_monitor_two",
+          "t_monitor_three"
+        ],
+        [
+          "t_plan_setup",
+          "t_monitor_one"
+        ],
+        [
+          "t_prepare_pack",
+          "t_check_quote"
+        ],
+        [
+          "t_property_check",
+          "t_assess_eligibility"
+        ],
+        [
+          "t_property_check",
+          "t_credit_check"
+        ],
+        [
+          "t_property_check",
+          "t_risk_assess"
+        ],
+        [
+          "t_receive_update",
+          "t_check_form"
+        ],
+        [
+          "t_reopen_case",
+          "t_check_form"
+        ],
+        [
+          "t_reserve_funds",
+          "t_check_funding"
+        ],
+        [
+          "t_return_form",
+          "t_receive_update"
+        ],
+        [
+          "t_revise_offer",
+          "t_send_offer"
+        ],
+        [
+          "t_revise_offer",
+          "t_send_quote"
+        ],
+        [
+          "t_risk_assess",
+          "t_assess_eligibility"
+        ],
+        [
+          "t_risk_assess",
+          "t_property_check"
+        ],
+        [
+          "t_send_notice",
+          "t_monitor_one"
+        ],
+        [
+          "t_send_offer",
+          "t_verify_terms"
+        ],
+        [
+          "t_send_quote",
+          "t_verify_terms"
+        ],
+        [
+          "t_update_risk",
+          "t_call_client"
+        ],
+        [
+          "t_verify_docs",
+          "t_reserve_funds"
+        ],
+        [
+          "t_verify_terms",
+          "t_collect_docs"
+        ],
+        [
+          "t_verify_terms",
+          "t_revise_offer"
+        ]
+      ],
+      "cycle_count": 0,
+      "cycles_detected": false
+    },
+    "metadata": {},
+    "node_metadata": {
+      "SaveCase_action": {
+        "activity_name": "SaveCase_action",
+        "activity_type": ""
+      },
+      "t_Collect_Report": {
+        "activity_name": "t_Collect_Report",
+        "activity_type": ""
+      },
+      "t_Notification": {
+        "activity_name": "t_Notification",
+        "activity_type": ""
+      },
+      "t_Notification2": {
+        "activity_name": "t_Notification2",
+        "activity_type": ""
+      },
+      "t_add_notes": {
+        "activity_name": "t_add_notes",
+        "activity_type": ""
+      },
+      "t_approve_loan": {
+        "activity_name": "t_approve_loan",
+        "activity_type": ""
+      },
+      "t_assess_eligibility": {
+        "activity_name": "t_assess_eligibility",
+        "activity_type": ""
+      },
+      "t_audit_case": {
+        "activity_name": "t_audit_case",
+        "activity_type": ""
+      },
+      "t_book_loan": {
+        "activity_name": "t_book_loan",
+        "activity_type": ""
+      },
+      "t_call_client": {
+        "activity_name": "t_call_client",
+        "activity_type": ""
+      },
+      "t_cancel_loan": {
+        "activity_name": "t_cancel_loan",
+        "activity_type": ""
+      },
+      "t_check_form": {
+        "activity_name": "t_check_form",
+        "activity_type": ""
+      },
+      "t_check_funding": {
+        "activity_name": "t_check_funding",
+        "activity_type": ""
+      },
+      "t_check_quote": {
+        "activity_name": "t_check_quote",
+        "activity_type": ""
+      },
+      "t_collect_docs": {
+        "activity_name": "t_collect_docs",
+        "activity_type": ""
+      },
+      "t_complice_check": {
+        "activity_name": "t_complice_check",
+        "activity_type": ""
+      },
+      "t_confirm_payout": {
+        "activity_name": "t_confirm_payout",
+        "activity_type": ""
+      },
+      "t_create_account": {
+        "activity_name": "t_create_account",
+        "activity_type": ""
+      },
+      "t_credit_check": {
+        "activity_name": "t_credit_check",
+        "activity_type": ""
+      },
+      "t_final_review": {
+        "activity_name": "t_final_review",
+        "activity_type": ""
+      },
+      "t_identity_check": {
+        "activity_name": "t_identity_check",
+        "activity_type": ""
+      },
+      "t_monitor_eight": {
+        "activity_name": "t_monitor_eight",
+        "activity_type": ""
+      },
+      "t_monitor_five": {
+        "activity_name": "t_monitor_five",
+        "activity_type": ""
+      },
+      "t_monitor_four": {
+        "activity_name": "t_monitor_four",
+        "activity_type": ""
+      },
+      "t_monitor_nine": {
+        "activity_name": "t_monitor_nine",
+        "activity_type": ""
+      },
+      "t_monitor_one": {
+        "activity_name": "t_monitor_one",
+        "activity_type": ""
+      },
+      "t_monitor_seven": {
+        "activity_name": "t_monitor_seven",
+        "activity_type": ""
+      },
+      "t_monitor_six": {
+        "activity_name": "t_monitor_six",
+        "activity_type": ""
+      },
+      "t_monitor_three": {
+        "activity_name": "t_monitor_three",
+        "activity_type": ""
+      },
+      "t_monitor_two": {
+        "activity_name": "t_monitor_two",
+        "activity_type": ""
+      },
+      "t_plan_setup": {
+        "activity_name": "t_plan_setup",
+        "activity_type": ""
+      },
+      "t_prepare_pack": {
+        "activity_name": "t_prepare_pack",
+        "activity_type": ""
+      },
+      "t_property_check": {
+        "activity_name": "t_property_check",
+        "activity_type": ""
+      },
+      "t_receive_update": {
+        "activity_name": "t_receive_update",
+        "activity_type": ""
+      },
+      "t_reject_loan": {
+        "activity_name": "t_reject_loan",
+        "activity_type": ""
+      },
+      "t_reopen_case": {
+        "activity_name": "t_reopen_case",
+        "activity_type": ""
+      },
+      "t_reserve_funds": {
+        "activity_name": "t_reserve_funds",
+        "activity_type": ""
+      },
+      "t_return_form": {
+        "activity_name": "t_return_form",
+        "activity_type": ""
+      },
+      "t_revise_offer": {
+        "activity_name": "t_revise_offer",
+        "activity_type": ""
+      },
+      "t_risk_assess": {
+        "activity_name": "t_risk_assess",
+        "activity_type": ""
+      },
+      "t_send_notice": {
+        "activity_name": "t_send_notice",
+        "activity_type": ""
+      },
+      "t_send_offer": {
+        "activity_name": "t_send_offer",
+        "activity_type": ""
+      },
+      "t_send_quote": {
+        "activity_name": "t_send_quote",
+        "activity_type": ""
+      },
+      "t_update_risk": {
+        "activity_name": "t_update_risk",
+        "activity_type": ""
+      },
+      "t_verify_docs": {
+        "activity_name": "t_verify_docs",
+        "activity_type": ""
+      },
+      "t_verify_terms": {
+        "activity_name": "t_verify_terms",
+        "activity_type": ""
+      }
+    },
+    "node_stats": {},
+    "nodes": [],
+    "proc_def_id": null,
+    "proc_def_key": null,
+    "stats_diagnostics": {},
+    "version": "v3"
+  },
+  "process_name": "loan_v1_v5_complex_simulated",
+  "repository_backend": "file",
+  "schema_version": "1.1",
+  "version": "v3"
+}

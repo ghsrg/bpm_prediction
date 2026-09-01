@@ -855,6 +855,12 @@ New diagnostics include:
 - `*_process_state_mask_target_suppressed_by_completed_filter_rate`
 - `*_process_state_mask_completed_suppression_rate`
 
+For completion-only XES views over collapsed BPMN gateways, relaxed reachability
+also preserves not-yet-completed initial candidates reachable from `startEvent`
+through transparent gateways. This prevents valid parallel initial sibling
+tasks from producing empty topology-native candidate masks during MOU or
+mask-aware drift evaluation.
+
 ## Runtime Update 2026-06-10: Impulse State Channel Config Guard
 
 `model.impulse_state_channels` is now normalized by the CLI composition root

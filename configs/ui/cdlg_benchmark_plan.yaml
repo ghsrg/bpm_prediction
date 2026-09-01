@@ -2,16 +2,33 @@
 # Preset payloads remain in experiment_ui_presets.json.
 # Remove or reorder entries before running the benchmark.
 runs:
-  - preset: _CDLG-complex4_MOU-drift
-  - preset: _CDLG-complex5_MOU-drift
-  - preset: _CDLG-medium1_MOU-drift
-  - preset: _CDLG-medium2_MOU-drift
-  - preset: _CDLG-medium3_MOU-drift
-  - preset: _CDLG-medium4_MOU-drift
-  - preset: _CDLG-medium5_MOU-drift
-  - preset: _CDLG-simple1_MOU-drift
-  - preset: _CDLG-simple2_MOU-drift
-  - preset: _CDLG-simple3_MOU-drift
-  - preset: _CDLG-simple4_MOU-drift
-  - preset: _CDLG-simple5_MOU-drift
-
+  - preset: _CDLG-complex1_GATv2+Mask
+  - preset: _CDLG-complex1_GATv2+Mask-drift
+  - preset: _CDLG-complex2_GATv2+Mask
+  - preset: _CDLG-complex2_GATv2+Mask-drift
+  - preset: _CDLG-complex3_GATv2+Mask
+  - preset: _CDLG-complex3_GATv2+Mask-drift
+  - preset: _CDLG-complex4_GATv2+Mask
+  - preset: _CDLG-complex4_GATv2+Mask-drift
+  - preset: _CDLG-complex5_GATv2+Mask
+  - preset: _CDLG-complex5_GATv2+Mask-drift
+  - preset: _CDLG-medium1_GATv2+Mask
+  - preset: _CDLG-medium1_GATv2+Mask-drift
+  - preset: _CDLG-medium2_GATv2+Mask
+  - preset: _CDLG-medium2_GATv2+Mask-drift
+  - preset: _CDLG-medium3_GATv2+Mask
+  - preset: _CDLG-medium3_GATv2+Mask-drift
+  - preset: _CDLG-medium4_GATv2+Mask
+  - preset: _CDLG-medium4_GATv2+Mask-drift
+  - preset: _CDLG-medium5_GATv2+Mask
+  - preset: _CDLG-medium5_GATv2+Mask-drift
+  - preset: _CDLG-simple1_GATv2+Mask
+  - preset: _CDLG-simple1_GATv2+Mask-drift
+  - preset: _CDLG-simple2_GATv2+Mask
+  - preset: _CDLG-simple2_GATv2+Mask-drift
+  - preset: _CDLG-simple3_GATv2+Mask
+  - preset: _CDLG-simple3_GATv2+Mask-drift
+  - preset: _CDLG-simple4_GATv2+Mask
+  - preset: _CDLG-simple4_GATv2+Mask-drift
+  - preset: _CDLG-simple5_GATv2+Mask
+  - preset: _CDLG-simple5_GATv2+Mask-drift

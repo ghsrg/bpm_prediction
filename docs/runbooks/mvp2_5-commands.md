@@ -565,6 +565,31 @@ by_version_metrics.csv
 report.md
 ```
 
+### article_metric_export
+
+Use this to export article-source MLflow metric histories from all active
+finished runs in a selected experiment:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_mlflow_run_metrics_for_article.py `
+  --tracking-uri file:./mlruns `
+  --experiment-id 355548395761513983
+```
+
+`--tracking-uri` is the MLflow tracking root. Keep the experiment id separate;
+do not pass `file:./mlruns/<experiment-id>` as the tracking URI. Experiment
+selection exports only active `FINISHED` runs and routes them into the existing
+`learn/` and `drift/` output directories from each run's `experiment.mode`.
+
+For reproducible fixed run lists, keep using explicit selectors:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_mlflow_run_metrics_for_article.py `
+  --tracking-uri file:./mlruns `
+  --run-set drift `
+  --runs-file outputs\article_run_ids\drift_runs.txt
+```
+
 ### article_figure_export
 
 Use this after exporting and aggregating article run metrics to regenerate the

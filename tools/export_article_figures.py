@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 
-MODEL_ORDER = ["LSTM", "GATv2", "GATv2+Mask", "EOPKG-WI", "EOPKG"]
+MODEL_ORDER = ["LSTM", "GATv2", "GATv2+Mask", "EOPKG-WI", "EOPKG", "MOU"]
 
 MODEL_COLORS = {
     "LSTM": "#4C78A8",
@@ -28,6 +28,7 @@ MODEL_COLORS = {
     "GATv2+Mask": "#F58518",
     "EOPKG-WI": "#2CA02C",
     "EOPKG": "#2CA02C",
+    "MOU": "#9467BD",
 }
 
 MODEL_LINESTYLES = {
@@ -36,6 +37,7 @@ MODEL_LINESTYLES = {
     "GATv2+Mask": (0, (4, 2)),
     "EOPKG-WI": (0, (4, 2)),
     "EOPKG": "-",
+    "MOU": (0, (2, 2)),
 }
 
 MODEL_BAND_ALPHA = {
@@ -44,6 +46,7 @@ MODEL_BAND_ALPHA = {
     "GATv2+Mask": 0.20,
     "EOPKG-WI": 0.16,
     "EOPKG": 0.20,
+    "MOU": 0.14,
 }
 
 

@@ -72,6 +72,7 @@ METRIC_COLUMNS = [
     "experiment_id",
     "run_name",
     "preset_name",
+    "dataset_complexity",
     "seed",
     "metric",
     "step",
@@ -90,6 +91,7 @@ MANIFEST_COLUMNS = [
     "experiment_id",
     "run_name",
     "preset_name",
+    "dataset_complexity",
     "seed",
     "status",
     "start_time",
@@ -126,6 +128,15 @@ def _tag(tags: dict[str, str], *names: str) -> str:
     return ""
 
 
+def _dataset_complexity(params: dict[str, str], tags: dict[str, str]) -> str:
+    return _param(
+        params,
+        "dataset_complexity",
+        "dataset.complexity",
+        "data.dataset_complexity",
+    ) or _tag(tags, "dataset_complexity", "dataset.complexity", "data.dataset_complexity")
+
+
 def _normalize_paper_model(params: dict[str, str], tags: dict[str, str]) -> str:
     model_type = _param(params, "model.type", "type", "model_type") or _tag(tags, "model_type")
     model_label = _param(params, "model.model_label", "model_label")
@@ -146,7 +157,7 @@ def _normalize_paper_model(params: dict[str, str], tags: dict[str, str]) -> str:
     blob = " ".join([model_type, model_label, preset_name, run_name]).lower()
     if "lstm" in blob:
         return "LSTM"
-    if "MOU" in blob:
+    if "mou" in blob:
         return "MOU"
     if ("baselinegatv2" in blob or "gatv2" in blob or model_type == "BaselineGATv2") and (
         "mask" in blob or topology_mask_enabled.lower() == "true"
@@ -197,6 +208,38 @@ def _sort_metric_rows(rows: Iterable[dict[str, object]]) -> list[dict[str, objec
     )
 
 
+def _discover_run_ids(client: object, experiment_ids: list[str]) -> list[str]:
+    runs = client.search_runs(experiment_ids=experiment_ids)  # type: ignore[attr-defined]
+    eligible = [
+        run
+        for run in runs
+        if str(run.info.status).upper() == "FINISHED"
+        and str(getattr(run.info, "lifecycle_stage", "active")).lower() == "active"
+    ]
+    return sorted({str(run.info.run_id) for run in eligible})
+
+
+def _experiment_mode(params: dict[str, str], tags: dict[str, str]) -> str:
+    return (
+        _param(
+            params,
+            "experiment.mode",
+            "mode",
+            "experiment_mode",
+        )
+        or _tag(tags, "experiment.mode", "mode", "experiment_mode")
+    ).strip().lower()
+
+
+def _classify_run_set_from_mode(params: dict[str, str], tags: dict[str, str]) -> str:
+    mode = _experiment_mode(params, tags)
+    if mode in {"train", "learn"}:
+        return "learn"
+    if mode in {"eval_drift", "drift"}:
+        return "drift"
+    return ""
+
+
 def _write_csv(path: Path, fieldnames: list[str], rows: Iterable[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -231,6 +274,7 @@ def _export_run_set(
         run_name = _tag(tags, "mlflow.runName")
         seed = _param(params, "seed", "vars.seed")
         preset_name = _param(params, "preset_name", "vars.preset_name")
+        dataset_complexity = _dataset_complexity(params, tags)
         if not preset_name:
             preset_name = _derive_preset_name(run_name, seed)
 
@@ -255,6 +299,7 @@ def _export_run_set(
                 "experiment_id": run.info.experiment_id,
                 "run_name": run_name,
                 "preset_name": preset_name,
+                "dataset_complexity": dataset_complexity,
                 "seed": seed,
                 "status": str(run.info.status),
                 "start_time": run.info.start_time,
@@ -275,6 +320,7 @@ def _export_run_set(
                         "experiment_id": run.info.experiment_id,
                         "run_name": run_name,
                         "preset_name": preset_name,
+                        "dataset_complexity": dataset_complexity,
                         "seed": seed,
                         "metric": metric_name,
                         "step": int(point.step),
@@ -301,7 +347,20 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--tracking-uri", default="file:./mlruns")
     parser.add_argument("--output-dir", default="outputs/Export_metrics/article_run_metrics")
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
-    parser.add_argument(
+    selector_group = parser.add_mutually_exclusive_group()
+    selector_group.add_argument(
+        "--runs-id",
+        nargs="+",
+        default=None,
+        help="Explicit MLflow run ids to export. Requires --run-set learn or drift.",
+    )
+    selector_group.add_argument(
+        "--experiment-id",
+        nargs="+",
+        default=None,
+        help="MLflow experiment id(s) whose active FINISHED runs should be exported.",
+    )
+    selector_group.add_argument(
         "--runs-file",
         type=Path,
         default=None,
@@ -310,10 +369,31 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _partition_experiment_runs(client: object, run_ids: list[str]) -> tuple[dict[str, list[str]], list[tuple[str, str]]]:
+    run_sets: dict[str, list[str]] = {"learn": [], "drift": []}
+    unknown_modes: list[tuple[str, str]] = []
+    for run_id in run_ids:
+        run = client.get_run(run_id)  # type: ignore[attr-defined]
+        params = dict(run.data.params)
+        tags = dict(run.data.tags)
+        run_set = _classify_run_set_from_mode(params, tags)
+        if run_set:
+            run_sets[run_set].append(run_id)
+        else:
+            unknown_modes.append((run_id, _experiment_mode(params, tags)))
+    return run_sets, unknown_modes
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(list(argv or sys.argv[1:]))
+    try:
+        args = _parse_args(list(argv or sys.argv[1:]))
+    except SystemExit as exc:
+        return int(exc.code or 0)
     if args.runs_file is not None and args.run_set == "all":
         print("--runs-file requires --run-set learn or --run-set drift", file=sys.stderr)
+        return 2
+    if args.runs_id is not None and args.run_set == "all":
+        print("--runs-id requires --run-set learn or --run-set drift", file=sys.stderr)
         return 2
 
     try:
@@ -328,12 +408,23 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = Path(args.output_dir)
 
     run_sets: list[tuple[str, list[str]]] = []
-    if args.run_set in {"learn", "all"}:
-        run_sets.append(("learn", ARTICLE_LEARN_RUN_IDS))
-    if args.run_set in {"drift", "all"}:
-        run_sets.append(("drift", ARTICLE_DRIFT_RUN_IDS))
-    if args.runs_file is not None:
+    if args.experiment_id is not None:
+        discovered = _discover_run_ids(client, [str(item) for item in args.experiment_id])
+        partitioned, unknown_modes = _partition_experiment_runs(client, discovered)
+        if unknown_modes:
+            for run_id, mode in unknown_modes:
+                print(f"Run has unrecognized experiment.mode: run_id={run_id} mode={mode or '<empty>'}", file=sys.stderr)
+            return 1
+        run_sets = [("learn", partitioned["learn"]), ("drift", partitioned["drift"])]
+    elif args.runs_id is not None:
+        run_sets = [(args.run_set, [str(run_id).strip() for run_id in args.runs_id if str(run_id).strip()])]
+    elif args.runs_file is not None:
         run_sets = [(args.run_set, _read_runs_file(args.runs_file))]
+    else:
+        if args.run_set in {"learn", "all"}:
+            run_sets.append(("learn", ARTICLE_LEARN_RUN_IDS))
+        if args.run_set in {"drift", "all"}:
+            run_sets.append(("drift", ARTICLE_DRIFT_RUN_IDS))
 
     total_runs = 0
     total_missing = 0

@@ -102,6 +102,26 @@ When `experiment.statistic_enabled=false`, the runtime keeps topology-based
 graph construction but does not resolve strict-as-of statistics snapshots or
 emit missing-snapshot warnings.
 
+### article_metric_export
+
+- `status`: implemented
+- `entrypoint`: `tools/export_mlflow_run_metrics_for_article.py`
+- `selectors`:
+  - `--runs-id`
+  - `--runs-file`
+  - `--experiment-id`
+- `output_layout`: `learn/` and `drift/` metric CSV directories
+
+**Description (ukr):**
+
+Article metric export can discover active `FINISHED` MLflow runs by experiment
+id while preserving the existing explicit run-id and run-file paths. Experiment
+discovery uses the MLflow tracking root plus a separate experiment id, filters
+out incomplete/deleted runs, and routes eligible runs into the existing
+`learn/` or `drift/` directories from `experiment.mode`. The CSV contract keeps
+existing fields and adds metadata-only `dataset_complexity`, read only from
+explicit run params/tags.
+
 ### offline_topology_preparation
 
 - `status`: implemented

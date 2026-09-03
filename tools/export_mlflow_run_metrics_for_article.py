@@ -146,6 +146,8 @@ def _normalize_paper_model(params: dict[str, str], tags: dict[str, str]) -> str:
     blob = " ".join([model_type, model_label, preset_name, run_name]).lower()
     if "lstm" in blob:
         return "LSTM"
+    if "MOU" in blob:
+        return "MOU"
     if ("baselinegatv2" in blob or "gatv2" in blob or model_type == "BaselineGATv2") and (
         "mask" in blob or topology_mask_enabled.lower() == "true"
     ):

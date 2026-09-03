@@ -6504,7 +6504,8 @@ class ModelTrainer:
         """Log basic run parameters via tracker when available."""
         if self.tracker is None:
             return
-        self.tracker.log_param("model_type", self.model.__class__.__name__)
+        tracking_model_type = str(self.config.get("tracking_model_type", self.model.__class__.__name__)).strip()
+        self.tracker.log_param("model_type", tracking_model_type or self.model.__class__.__name__)
         self.tracker.log_param("learning_rate", self.learning_rate)
         self.tracker.log_param("batch_size", self.batch_size)
         self.tracker.log_param("epochs", self.epochs)

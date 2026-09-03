@@ -48,6 +48,43 @@ def test_build_mlflow_params_filters_sections_and_truncates_long_values():
     assert str(params["training.very_long"]).endswith("[truncated]")
 
 
+def test_build_mlflow_params_reports_hard_masked_gatv2_as_mask_baseline():
+    config = {
+        "experiment": {
+            "mode": "eval_drift",
+            "mask_guided_enabled": True,
+        },
+        "model": {
+            "type": "BaselineGATv2",
+            "model_label": "GATv2+Mask",
+        },
+        "training": {
+            "mask_guided_enabled": True,
+            "mask_guided_policy": "hard",
+            "mask_guided_apply_in_eval": True,
+        },
+    }
+
+    params = _build_mlflow_params(config)
+
+    assert params["model.type"] == "BaselineGATv2Mask"
+    assert params["model_type"] == "BaselineGATv2Mask"
+    assert params["model.base_type"] == "BaselineGATv2"
+
+
+def test_build_mlflow_params_keeps_unmasked_gatv2_type():
+    config = {
+        "model": {"type": "BaselineGATv2"},
+        "training": {"mask_guided_enabled": False, "mask_guided_policy": "hard"},
+    }
+
+    params = _build_mlflow_params(config)
+
+    assert params["model.type"] == "BaselineGATv2"
+    assert params["model_type"] == "BaselineGATv2"
+    assert "model.base_type" not in params
+
+
 def test_build_trace_recorder_returns_none_when_disabled(tmp_path):
     recorder = _build_trace_recorder(
         tracking_cfg={"tracing": {"enabled": False}},

@@ -74,7 +74,12 @@ def test_dynamic_graph_builder_adds_topology_prefix_state_features(mock_feature_
         target_event=_event(3, "End"),
     )
 
-    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        process_state_mask_enabled=True,
+        process_state_mask_include_active_candidates=True,
+    ).build_graph(prefix)
 
     state = contract["struct_prefix_state_x"]
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]

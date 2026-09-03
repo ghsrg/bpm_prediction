@@ -129,13 +129,135 @@ def test_dynamic_graph_builder_unions_active_and_struct_masks(mock_feature_confi
         prefix_events=prefix_events,
         target_event=_event(2, "Assess_eligibility"),
     )
-    contract = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        process_state_mask_enabled=True,
+        process_state_mask_include_active_candidates=True,
+    ).build_graph(prefix)
     mask = contract["allowed_target_mask"]
     assert isinstance(mask, torch.Tensor)
 
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
     assert bool(mask[activity_vocab["Assess_eligibility"]]) is True
     assert bool(mask[activity_vocab["Check_credit_history"]]) is True
+    candidate_idx = tuple(contract["candidate_labels"]).index("Check_credit_history")
+    assert bool(contract["candidate_allowed_target_mask"][candidate_idx]) is True
+    active_class_idx = int(activity_vocab["Check_credit_history"])
+    active_rows = (contract["struct_node_to_class_index"] == active_class_idx).nonzero(as_tuple=False).flatten()
+    assert active_rows.numel() > 0
+    assert any(float(contract["struct_prefix_state_x"][int(row), 5].item()) == 1.0 for row in active_rows)
+
+
+def test_dynamic_graph_builder_ignores_lifecycle_metadata_when_process_state_mask_disabled(mock_feature_configs):
+    train_traces = [
+        _trace("c1", "v1", ["A", "B"]),
+        _trace("c2", "v1", ["A", "C"]),
+    ]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "C", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[
+            _event(0, "A").model_copy(
+                update={
+                    "extra": {
+                        "concept:name": "A",
+                        "org:resource": "R1",
+                        "amount": 1.0,
+                        "active_activities_after_complete": ["C"],
+                        "active_activity_counts_after_complete": {"C": 1},
+                    }
+                }
+            )
+        ],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        process_state_mask_enabled=False,
+    ).build_graph(prefix)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(contract["allowed_target_mask"][activity_vocab["B"]]) is True
+    assert bool(contract["allowed_target_mask"][activity_vocab["C"]]) is False
+    candidate_idx = tuple(contract["candidate_labels"]).index("C")
+    assert bool(contract["candidate_allowed_target_mask"][candidate_idx]) is False
+    c_class_idx = int(activity_vocab["C"])
+    c_rows = (contract["struct_node_to_class_index"] == c_class_idx).nonzero(as_tuple=False).flatten()
+    assert c_rows.numel() > 0
+    assert all(float(contract["struct_prefix_state_x"][int(row), 5].item()) == 0.0 for row in c_rows)
+
+
+def test_dynamic_graph_builder_honors_active_candidate_inclusion_flag(mock_feature_configs):
+    train_traces = [
+        _trace("c1", "v1", ["A", "B"]),
+        _trace("c2", "v1", ["A", "C"]),
+    ]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("A", "B")],
+            nodes=[
+                {"id": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "B", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "C", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[
+            _event(0, "A").model_copy(
+                update={
+                    "extra": {
+                        "concept:name": "A",
+                        "org:resource": "R1",
+                        "amount": 1.0,
+                        "active_activities_after_complete": ["C"],
+                        "active_activity_counts_after_complete": {"C": 1},
+                    }
+                }
+            )
+        ],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        process_state_mask_enabled=True,
+        process_state_mask_include_active_candidates=False,
+    ).build_graph(prefix)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(contract["allowed_target_mask"][activity_vocab["B"]]) is True
+    assert bool(contract["allowed_target_mask"][activity_vocab["C"]]) is False
+    candidate_idx = tuple(contract["candidate_labels"]).index("C")
+    assert bool(contract["candidate_allowed_target_mask"][candidate_idx]) is False
+    c_class_idx = int(activity_vocab["C"])
+    c_rows = (contract["struct_node_to_class_index"] == c_class_idx).nonzero(as_tuple=False).flatten()
+    assert c_rows.numel() > 0
+    assert all(float(contract["struct_prefix_state_x"][int(row), 5].item()) == 0.0 for row in c_rows)
 
 
 def test_dynamic_graph_builder_collapses_gateway_path_for_prediction_mask(mock_feature_configs):
@@ -176,6 +298,191 @@ def test_dynamic_graph_builder_collapses_gateway_path_for_prediction_mask(mock_f
     assert isinstance(mask, torch.Tensor)
     activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
     assert bool(mask[activity_vocab["TaskB"]]) is True
+
+
+def test_dynamic_graph_builder_fixed_vocab_bridge_maps_bpmn_ids_to_activity_classes(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["A", "B"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("task_a_id", "gateway_1"), ("gateway_1", "task_b_id")],
+            nodes=[
+                {"id": "task_a_id", "name": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {
+                    "id": "gateway_1",
+                    "name": "Gateway",
+                    "bpmn_tag": "parallelGateway",
+                    "type": "parallelGateway",
+                    "activity_type": "parallelGateway",
+                },
+                {"id": "task_b_id", "name": "B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "A")],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="fixed_vocab_bridge",
+        graph_feature_mapping={"topology_projection": {"gateway_mode": "collapse_for_prediction"}},
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(contract["allowed_target_mask"][activity_vocab["B"]]) is True
+    assert bool(contract["candidate_allowed_target_mask"][activity_vocab["B"]]) is True
+    assert contract["structural_edge_index"].tolist() == [[activity_vocab["A"]], [activity_vocab["B"]]]
+    assert contract["topology_projection_skipped_edge_count"] == 0
+    assert contract["topology_projection_aligned"] is True
+
+
+def test_dynamic_graph_builder_fixed_vocab_bridge_skips_missing_activity_label(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["A", "B"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("task_a_id", "task_b_id")],
+            nodes=[
+                {"id": "task_a_id", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "task_b_id", "name": "B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "A")],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="fixed_vocab_bridge",
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(contract["allowed_target_mask"][activity_vocab["B"]]) is False
+    assert contract["structural_edge_index"].numel() == 0
+    assert contract["topology_projection_aligned"] is False
+    assert contract["topology_projection_skipped_edge_count"] == 1
+
+    compiled = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="fixed_vocab_bridge",
+        cache_policy="none",
+    )._resolve_compiled_topology(
+        dto=repository.get_process_structure("v1"),
+        activity_vocab=activity_vocab,
+        stats_allowed=False,
+    )
+    diagnostics = compiled["topology_projection_diagnostics"]
+    assert diagnostics.skipped_projected_edges == [
+        {"src": "task_a_id", "dst": "task_b_id", "reason": "src_missing_bridge_label"}
+    ]
+    assert "unsafe_fixed_vocab_bridge" in diagnostics.failure_reasons
+
+
+def test_dynamic_graph_builder_fixed_vocab_bridge_skips_duplicate_activity_label(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["A", "B"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("task_a_1", "task_b_id")],
+            nodes=[
+                {"id": "task_a_1", "name": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "task_a_2", "name": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "task_b_id", "name": "B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "A")],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="fixed_vocab_bridge",
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    activity_vocab = encoder.categorical_vocabs[encoder.activity_feature_name]
+    assert bool(contract["allowed_target_mask"][activity_vocab["B"]]) is False
+    assert contract["structural_edge_index"].numel() == 0
+    assert contract["topology_projection_aligned"] is False
+    assert contract["topology_projection_duplicate_label_count"] == 1
+
+    compiled = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="fixed_vocab_bridge",
+        cache_policy="none",
+    )._resolve_compiled_topology(
+        dto=repository.get_process_structure("v1"),
+        activity_vocab=activity_vocab,
+        stats_allowed=False,
+    )
+    diagnostics = compiled["topology_projection_diagnostics"]
+    assert diagnostics.skipped_projected_edges == [
+        {"src": "task_a_1", "dst": "task_b_id", "reason": "src_ambiguous_bridge_label"}
+    ]
+    assert "unsafe_fixed_vocab_bridge" in diagnostics.failure_reasons
+
+
+def test_dynamic_graph_builder_topology_native_keeps_bpmn_node_candidates(mock_feature_configs):
+    train_traces = [_trace("c1", "v1", ["A", "B"])]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs, traces=train_traces)
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(
+            version="v1",
+            allowed_edges=[("task_a_id", "task_b_id")],
+            nodes=[
+                {"id": "task_a_id", "name": "A", "bpmn_tag": "userTask", "type": "userTask", "activity_type": "userTask"},
+                {"id": "task_b_id", "name": "B", "bpmn_tag": "serviceTask", "type": "serviceTask", "activity_type": "serviceTask"},
+            ],
+        ),
+    )
+    prefix = PrefixSlice(
+        case_id="eval_case",
+        process_version="v1",
+        prefix_events=[_event(0, "A")],
+        target_event=_event(1, "B"),
+    )
+
+    contract = DynamicGraphBuilder(
+        feature_encoder=encoder,
+        knowledge_port=repository,
+        candidate_identity_mode="topology_native",
+        cache_policy="none",
+    ).build_graph(prefix)
+
+    assert contract["candidate_ids"] == ("task_a_id", "task_b_id")
+    assert contract["candidate_labels"] == ("A", "B")
+    assert contract["structural_edge_index"].tolist() == [[0], [1]]
+    assert bool(contract["candidate_allowed_target_mask"][1]) is True
 
 
 def test_dynamic_graph_builder_gateway_collapse_stops_at_next_prediction_node(mock_feature_configs):

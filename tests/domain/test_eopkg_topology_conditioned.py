@@ -5,6 +5,7 @@ import torch
 
 from src.domain.entities.feature_config import FeatureLayout
 from src.domain.models.factory import create_model, get_registered_models
+from tests.mock_graph_contract import brg_feature_layout, brg_mock_graph_contract
 
 
 def _layout() -> FeatureLayout:
@@ -217,6 +218,40 @@ def test_topology_conditioned_forward_candidate_uses_topology_candidate_axis_wit
     assert output.candidate_ids == ("node_c", "node_a", "node_b")
     assert output.candidate_is_unseen.tolist() == [True, False, False]
     assert output.map_target_labels_to_candidate_mask(["C"]).tolist() == [[True, False, False]]
+
+
+def test_brg_mock_graph_contract_is_accepted_by_baseline_gatv2():
+    model = create_model(
+        "BaselineGATv2",
+        feature_layout=brg_feature_layout(),
+        hidden_dim=8,
+        output_dim=4,
+        dropout=0.0,
+        pooling_strategy="last_node",
+    )
+
+    logits = model(brg_mock_graph_contract())
+
+    assert logits.shape == torch.Size([1, 4])
+    assert torch.isfinite(logits).all()
+
+
+def test_brg_mock_graph_contract_is_accepted_by_eopkg_topology_conditioned():
+    model = create_model(
+        "EOPKGTopologyConditioned",
+        feature_layout=brg_feature_layout(),
+        hidden_dim=8,
+        output_dim=4,
+        dropout=0.0,
+        pooling_strategy="last_node",
+    )
+
+    output = model.forward_candidate(brg_mock_graph_contract())
+
+    assert output.candidate_logits.shape == torch.Size([1, 4])
+    assert output.fixed_label_logits.shape == torch.Size([1, 4])
+    assert torch.isfinite(output.candidate_logits).all()
+    assert output.map_target_labels_to_candidate_mask(["C"]).tolist() == [[False, False, True, False]]
 
 
 def test_topology_conditioned_impulse_routing_returns_candidate_logits_not_fixed_vocab():

@@ -5,10 +5,12 @@ import torch
 from torch_geometric.data import Data
 
 from src.application.use_cases.topology_mask_uniform_evaluator import TopologyMaskUniformEvaluator
+from src.application.use_cases.trainer import ModelTrainer
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.prefix_slice import PrefixSlice
 from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.entities.raw_trace import RawTrace
+from tests.mock_graph_contract import brg_mock_graph_contract, brg_mock_uniform_data
 from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
 from src.domain.services.uniform_mask_scorer import UniformMaskScorer
@@ -70,6 +72,31 @@ def test_native_evaluator_assigns_one_third_to_target_inside_three_candidate_mas
     data.candidate_labels = ("B", "C", "D")
     result = TopologyMaskUniformEvaluator().evaluate([data])
     assert result["test_metrics"]["uniform_mask_expected_accuracy"] == pytest.approx(1.0 / 3.0)
+
+
+def test_brg_mock_graph_contract_hard_mask_suppresses_disallowed_fixed_classes():
+    trainer = ModelTrainer.__new__(ModelTrainer)
+    logits = torch.tensor([[1.0, 2.0, 3.0, 4.0]], dtype=torch.float32)
+    masked = trainer._apply_mask_guided_logits(
+        logits=logits,
+        allowed_mask=brg_mock_graph_contract()["allowed_target_mask"],
+        policy="hard",
+    )
+
+    assert torch.equal(masked[:, 1:3], logits[:, 1:3])
+    assert masked[0, 0] < -1.0e20
+    assert masked[0, 3] < -1.0e20
+    assert int(torch.argmax(masked, dim=1).item()) == 2
+
+
+def test_brg_mock_graph_contract_is_accepted_by_mou_evaluator():
+    result = TopologyMaskUniformEvaluator(evaluation_seed=41, mc_draws=100).evaluate([brg_mock_uniform_data()])
+    metrics = result["test_metrics"]
+
+    assert metrics["uniform_mask_expected_accuracy"] == pytest.approx(0.5)
+    assert metrics["test_target_in_mask_rate"] == pytest.approx(1.0)
+    assert metrics["test_oos"] == pytest.approx(0.0)
+    assert metrics["mean_mask_cardinality"] == pytest.approx(2.0)
 
 
 def test_target_outside_mask_is_reported_as_mask_failure_not_ranking_eligible():

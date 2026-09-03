@@ -132,6 +132,14 @@ class _ConstantClassZero3(nn.Module):
         return logits
 
 
+class _ParamTracker:
+    def __init__(self) -> None:
+        self.params = {}
+
+    def log_param(self, key, value):
+        self.params[key] = value
+
+
 class _DynamicCandidateModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -713,6 +721,32 @@ def test_mask_guided_policy_can_force_hard_in_eval_without_reliability_state():
         batch_target_in_mask_rate=None,
         batch_samples=4,
     ) == "hard"
+
+
+def test_trainer_logs_configured_tracking_model_type_for_mask_baseline():
+    tracker = _ParamTracker()
+    trainer = ModelTrainer(
+        xes_adapter=_DummyAdapter(),
+        prefix_policy=_DummyPrefixPolicy(),
+        graph_builder=_DummyGraphBuilder(),
+        model=_ConstantClassZero3(),
+        log_path="in_memory.xes",
+        tracker=tracker,
+        config={
+            "mode": "eval_drift",
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "tracking_model_type": "BaselineGATv2Mask",
+            "mask_guided_enabled": True,
+            "mask_guided_policy": "hard",
+            "mask_guided_apply_in_eval": True,
+        },
+    )
+
+    trainer._log_params()
+
+    assert tracker.params["model_type"] == "BaselineGATv2Mask"
 
 
 def test_mask_guided_logits_hard_and_soft_behaviour():

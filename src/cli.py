@@ -49,7 +49,7 @@ from src.infrastructure.tracking.mlflow_trace_recorder import MLflowTraceRecorde
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
-GRAPH_DATASET_CACHE_SCHEMA = 5
+GRAPH_DATASET_CACHE_SCHEMA = 7
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
@@ -137,7 +137,48 @@ def _build_mlflow_params(config: Dict[str, Any], max_value_len: int = 480) -> Di
                 params[key] = _truncate_param_value(value, max_len=max_value_len)
         else:
             params[prefix] = _truncate_param_value(payload, max_len=max_value_len)
+    _apply_tracking_model_identity(params, config, max_value_len=max_value_len)
     return params
+
+
+def _apply_tracking_model_identity(
+    params: Dict[str, Any],
+    config: Mapping[str, Any],
+    *,
+    max_value_len: int,
+) -> None:
+    model_cfg = config.get("model", {})
+    if not isinstance(model_cfg, Mapping):
+        model_cfg = {}
+    raw_model_type = str(model_cfg.get("type", model_cfg.get("model_type", params.get("model.type", "")))).strip()
+    if not raw_model_type:
+        return
+    tracking_model_type = _resolve_tracking_model_type(config)
+    params["model.type"] = _truncate_param_value(tracking_model_type, max_len=max_value_len)
+    params["model_type"] = _truncate_param_value(tracking_model_type, max_len=max_value_len)
+    if tracking_model_type != raw_model_type:
+        params["model.base_type"] = _truncate_param_value(raw_model_type, max_len=max_value_len)
+
+
+def _resolve_tracking_model_type(config: Mapping[str, Any]) -> str:
+    model_cfg = config.get("model", {})
+    training_cfg = config.get("training", {})
+    experiment_cfg = config.get("experiment", {})
+    if not isinstance(model_cfg, Mapping):
+        model_cfg = {}
+    if not isinstance(training_cfg, Mapping):
+        training_cfg = {}
+    if not isinstance(experiment_cfg, Mapping):
+        experiment_cfg = {}
+
+    model_type = str(model_cfg.get("type", model_cfg.get("model_type", "unknown_model"))).strip() or "unknown_model"
+    mask_guided_enabled = _as_bool(
+        training_cfg.get("mask_guided_enabled", experiment_cfg.get("mask_guided_enabled")),
+        default=False,
+    )
+    if model_type == "BaselineGATv2" and mask_guided_enabled:
+        return "BaselineGATv2Mask"
+    return model_type
 
 
 def _build_trace_recorder(
@@ -2880,6 +2921,7 @@ def main() -> None:
         "checkpoint_dir": checkpoint_dir,
         "checkpoint_path": resolved_checkpoint_path,
         "resume_checkpoint_path": resolved_resume_checkpoint_path,
+        "tracking_model_type": _resolve_tracking_model_type(config),
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
         "drift_window_sliding": int(experiment_cfg.get("drift_window_sliding", 0) or 0),

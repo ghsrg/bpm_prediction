@@ -6,6 +6,7 @@ import torch
 from torch_geometric.data import Data
 
 from src.cli import (
+    GRAPH_DATASET_CACHE_SCHEMA,
     _build_graph_dataset,
     _build_graph_dataset_sharded,
     _graph_dataset_cache_fingerprint,
@@ -120,6 +121,72 @@ def test_graph_dataset_cache_roundtrip(tmp_path: Path):
     assert len(loaded["test_dataset"]) == 1
     assert loaded["version_to_idx"] == version_to_idx
     assert loaded["stats_snapshot_version_to_idx"] == snapshot_to_idx
+
+
+def test_graph_dataset_cache_rejects_pre_lifecycle_mask_schema(tmp_path: Path):
+    cache_dir = tmp_path / "graph_cache"
+    dataset_name = "bpi2012"
+    fingerprint = "stale-mask-cache"
+    entry_dir = cache_dir / dataset_name / fingerprint
+    entry_dir.mkdir(parents=True)
+    torch.save([Data(y=torch.tensor([1], dtype=torch.long))], entry_dir / "train.pt")
+    torch.save([], entry_dir / "val.pt")
+    torch.save([], entry_dir / "test.pt")
+    (entry_dir / "meta.json").write_text(
+        "\n".join(
+            [
+                "{",
+                '  "schema": 5,',
+                '  "format": "list_v1",',
+                f'  "fingerprint": "{fingerprint}",',
+                '  "dataset_name": "bpi2012",',
+                '  "version_to_idx": {},',
+                '  "stats_snapshot_version_to_idx": {}',
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert GRAPH_DATASET_CACHE_SCHEMA > 5
+    assert _load_graph_dataset_cache(
+        cache_dir=str(cache_dir),
+        dataset_name=dataset_name,
+        fingerprint=fingerprint,
+    ) is None
+
+
+def test_graph_dataset_cache_rejects_pre_fixed_vocab_bridge_schema(tmp_path: Path):
+    cache_dir = tmp_path / "graph_cache"
+    dataset_name = "bpi2012"
+    fingerprint = "stale-bridge-cache"
+    entry_dir = cache_dir / dataset_name / fingerprint
+    entry_dir.mkdir(parents=True)
+    torch.save([Data(y=torch.tensor([1], dtype=torch.long))], entry_dir / "train.pt")
+    torch.save([], entry_dir / "val.pt")
+    torch.save([], entry_dir / "test.pt")
+    (entry_dir / "meta.json").write_text(
+        "\n".join(
+            [
+                "{",
+                '  "schema": 6,',
+                '  "format": "list_v1",',
+                f'  "fingerprint": "{fingerprint}",',
+                '  "dataset_name": "bpi2012",',
+                '  "version_to_idx": {},',
+                '  "stats_snapshot_version_to_idx": {}',
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert GRAPH_DATASET_CACHE_SCHEMA > 6
+    assert _load_graph_dataset_cache(
+        cache_dir=str(cache_dir),
+        dataset_name=dataset_name,
+        fingerprint=fingerprint,
+    ) is None
 
 
 def test_graph_dataset_cache_sharded_roundtrip(tmp_path: Path):

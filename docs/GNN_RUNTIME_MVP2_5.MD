@@ -174,6 +174,14 @@ training.process_state_mask_include_active_candidates: true
 `sim:activity_instance_id`. The tensor shape is unchanged: reconstructed active
 tasks populate the existing `struct_prefix_state_x[:, 5]` channel.
 
+When `training.process_state_mask_enabled=false`, lifecycle-active event
+metadata such as `active_activities_after_complete` and
+`active_activity_counts_after_complete` is ignored. The same metadata is also
+ignored when `training.process_state_mask_include_active_candidates=false`.
+In both cases, it must not expand `allowed_target_mask`,
+`candidate_allowed_target_mask`, or `struct_prefix_state_x[:, 5]`; only direct
+topology successors remain eligible when direct-successor masking is enabled.
+
 For flattened/completion-oriented parallel XES where already-active tasks are
 not enough, use approximate relaxed reachability:
 
@@ -198,6 +206,11 @@ BPMN marking replay. Track
 `*_process_state_mask_relaxed_candidate_count` to confirm that the mode expands
 the mask. Track `*_process_state_mask_target_suppressed_by_completed_filter_rate`
 to ensure completed-candidate suppression does not remove the true target.
+
+When `experiment.stats_time_policy=strict_asof`, the topology DTO itself is
+resolved as of the last prefix event timestamp. This applies even when
+stats-backed structural features are disabled, because process-state and
+candidate masks still depend on the temporal topology snapshot.
 
 ### 5.3 Snapshot metadata tensors
 1. `stats_snapshot_version_seq: int | None`
@@ -1310,7 +1323,13 @@ training.topology_flow_penalty_enabled: false
 ```
 
 `fixed_vocab_bridge` keeps the candidate axis fixed to the fitted
-`activity_vocab` and is intended for fixed-label/baseline compatibility.
+`activity_vocab` and is intended for fixed-label/baseline compatibility. When
+the BPMN topology uses node ids that differ from XES activity labels, projected
+prediction endpoints are bridged through unique DTO node metadata
+(`activity_label`, `label`, or `name`) before structural edges and
+`allowed_target_mask` are written in class space. Missing labels, labels absent
+from `activity_vocab`, or duplicate prediction labels are skipped with topology
+projection diagnostics; the bridge must not guess an arbitrary class.
 `topology_native` uses the version-specific BPMN candidate nodes and is intended
 for zero-shot topology-conditioned experiments.
 
@@ -1403,6 +1422,12 @@ mask to logits at inference time. With `training.mask_guided_policy=hard`,
 classes outside `allowed_target_mask` are suppressed before softmax/argmax.
 This can reduce OOS errors, but it cannot predict topology-native candidates
 that do not exist in `C_train`.
+
+For MLflow/reporting identity, a `BaselineGATv2` run with
+`training.mask_guided_enabled=true` is logged as `BaselineGATv2Mask` in
+`params.model.type` and `params.model_type`, with `params.model.base_type`
+retaining `BaselineGATv2`. This is a tracking label only; model construction
+still uses the registered `BaselineGATv2` factory type.
 
 StructXAttn contrastive formula:
 

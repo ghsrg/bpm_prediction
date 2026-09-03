@@ -125,11 +125,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         contract = super().build_graph(prefix)
         mapping = self.graph_feature_mapping if isinstance(self.graph_feature_mapping, dict) else {}
         stats_enabled = bool(mapping.get("enabled", False))
-        as_of_ts = (
-            self._resolve_as_of_timestamp(prefix)
-            if self.stats_time_policy == "strict_asof" and stats_enabled
-            else None
-        )
+        as_of_ts = self._resolve_as_of_timestamp(prefix) if self.stats_time_policy == "strict_asof" else None
 
         raw_version = str(prefix.process_version).strip() or "default"
         candidate_versions = [raw_version]
@@ -188,9 +184,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             dtype=torch.bool,
         )
         active_mask = torch.zeros(num_classes, dtype=torch.bool)
-        active_candidates = self._extract_active_candidates(
-            prefix.prefix_events[-1].extra if prefix.prefix_events else {},
-        )
+        active_candidates: set[str] = set()
         relaxed_candidates: set[str] = set()
         relaxed_diagnostics: dict[str, int] = {
             "raw_candidate_count": 0,
@@ -201,6 +195,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             "skipped_closed_anchor_count": 0,
         }
         if self.process_state_mask_enabled and self.process_state_mask_include_active_candidates:
+            active_candidates.update(
+                self._extract_active_candidates(
+                    prefix.prefix_events[-1].extra if prefix.prefix_events else {},
+                )
+            )
             if self.process_state_mask_source == "relaxed_reachability":
                 process_state_candidates, relaxed_diagnostics = self._relaxed_reachability_candidates(
                     prefix=prefix,
@@ -379,7 +378,6 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
 
         active_class_indices: set[int] = set()
         active_tokens = set(active_candidates or set())
-        active_tokens.update(self._extract_active_candidates(last_event.extra))
         for token in active_tokens:
             active_idx = activity_vocab.get(token)
             if active_idx is None:
@@ -999,7 +997,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         vocab_fingerprint = self._activity_vocab_fingerprint(activity_vocab)
         return (
             self.process_name or "__auto__",
-            "topology_native_candidate_identity_v1",
+            "topology_native_candidate_identity_v3",
             str(dto.version),
             self.candidate_identity_mode,
             self._clean_optional_text(snapshot.get("knowledge_version")),
@@ -1018,9 +1016,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         return hashlib.sha1(payload.encode("utf-8", errors="ignore")).hexdigest()
 
     @staticmethod
-    def _topology_nodes_fingerprint_payload(dto: ProcessStructureDTO) -> tuple[tuple[str, str, str, str, str], ...]:
+    def _topology_nodes_fingerprint_payload(dto: ProcessStructureDTO) -> tuple[tuple[str, str, str, str, str, str, str, str], ...]:
         nodes = dto.nodes or []
-        normalized: list[tuple[str, str, str, str, str]] = []
+        normalized: list[tuple[str, str, str, str, str, str, str, str]] = []
         for node in nodes:
             if not isinstance(node, dict):
                 continue
@@ -1034,6 +1032,9 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
                     str(node.get("type", "")).strip(),
                     str(node.get("activity_type", "")).strip(),
                     str(node.get("logical_type", "")).strip(),
+                    str(node.get("activity_label", "")).strip(),
+                    str(node.get("label", "")).strip(),
+                    str(node.get("name", "")).strip(),
                 )
             )
         return tuple(sorted(normalized))
@@ -1162,17 +1163,32 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         else:
             projection_result = TopologyProjectionCompiler(gateway_mode=self.topology_gateway_mode).project(
                 dto=dto,
-                activity_vocab=activity_vocab,
+                activity_vocab=self._bridge_projection_vocab(dto=dto, activity_vocab=activity_vocab),
             )
 
         projected_edge_paths = projection_result.projected_edge_paths
+        bridge_label_by_node, bridge_skipped_edges = self._fixed_vocab_bridge_labels(
+            dto=dto,
+            activity_vocab=activity_vocab,
+            prediction_node_ids=projection_result.prediction_nodes,
+            projected_edge_paths=projected_edge_paths,
+        )
         for src, dst in projected_edge_paths:
             src_token = str(src).strip()
             dst_token = str(dst).strip()
-            src_idx = activity_vocab.get(src_token)
-            dst_idx = activity_vocab.get(dst_token)
-            src_candidate_idx = candidate_id_to_index.get(src_token)
-            dst_candidate_idx = candidate_id_to_index.get(dst_token)
+            src_class_token = src_token
+            dst_class_token = dst_token
+            if self.candidate_identity_mode != "topology_native":
+                mapped_src = bridge_label_by_node.get(src_token)
+                mapped_dst = bridge_label_by_node.get(dst_token)
+                if mapped_src is None or mapped_dst is None:
+                    continue
+                src_class_token = mapped_src
+                dst_class_token = mapped_dst
+            src_idx = activity_vocab.get(src_class_token)
+            dst_idx = activity_vocab.get(dst_class_token)
+            src_candidate_idx = candidate_id_to_index.get(src_class_token)
+            dst_candidate_idx = candidate_id_to_index.get(dst_class_token)
 
             if self.candidate_identity_mode == "topology_native":
                 if src_candidate_idx is None or dst_candidate_idx is None:
@@ -1262,7 +1278,14 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             else None
         )
         struct_x_rows = int(struct_x.size(0)) if isinstance(struct_x, torch.Tensor) and struct_x.dim() >= 1 else None
-        diagnostics = projection_result.diagnostics.with_structural_payload(
+        base_diagnostics = projection_result.diagnostics
+        if self.candidate_identity_mode != "topology_native":
+            base_diagnostics = self._with_fixed_vocab_bridge_diagnostics(
+                diagnostics=base_diagnostics,
+                skipped_edges=bridge_skipped_edges,
+                num_classes=num_classes,
+            )
+        diagnostics = base_diagnostics.with_structural_payload(
             struct_x_rows=struct_x_rows,
             structural_edge_index_max=structural_edge_index_max,
         )
@@ -1315,6 +1338,130 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             if value:
                 return value
         return ""
+
+    @staticmethod
+    def _explicit_node_label(node: Dict[str, Any]) -> str:
+        for key in ("activity_label", "label", "name"):
+            value = str(node.get(key, "")).strip()
+            if value:
+                return value
+        return ""
+
+    @classmethod
+    def _bridge_projection_vocab(
+        cls,
+        *,
+        dto: ProcessStructureDTO,
+        activity_vocab: Dict[str, int],
+    ) -> Dict[str, int]:
+        bridge_vocab = dict(activity_vocab)
+        for idx, node in enumerate(dto.nodes or []):
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id", "")).strip()
+            if node_id:
+                bridge_vocab.setdefault(node_id, len(activity_vocab) + idx)
+        return bridge_vocab
+
+    @classmethod
+    def _fixed_vocab_bridge_labels(
+        cls,
+        *,
+        dto: ProcessStructureDTO,
+        activity_vocab: Dict[str, int],
+        prediction_node_ids: set[str],
+        projected_edge_paths: dict[tuple[str, str], list[list[str]]],
+    ) -> tuple[dict[str, str], list[dict[str, str]]]:
+        nodes = [node for node in (dto.nodes or []) if isinstance(node, dict)]
+        node_by_id = {str(node.get("id", "")).strip(): node for node in nodes if str(node.get("id", "")).strip()}
+        effective_prediction_ids = set(prediction_node_ids)
+        effective_prediction_ids.update(
+            str(item).strip()
+            for edge in projected_edge_paths
+            for item in edge
+            if str(item).strip()
+        )
+
+        label_to_nodes: dict[str, list[str]] = {}
+        for node_id in sorted(effective_prediction_ids):
+            node = node_by_id.get(node_id)
+            if node is None:
+                continue
+            label = cls._explicit_node_label(node)
+            if label:
+                label_to_nodes.setdefault(label, []).append(node_id)
+        ambiguous_labels = {label for label, node_ids in label_to_nodes.items() if len(node_ids) > 1}
+
+        label_by_node: dict[str, str] = {}
+        unsafe_by_node: dict[str, str] = {}
+        for node_id in sorted(effective_prediction_ids):
+            if node_id in activity_vocab:
+                label_by_node[node_id] = node_id
+                continue
+            node = node_by_id.get(node_id)
+            if node is None:
+                unsafe_by_node[node_id] = "missing_node_metadata"
+                continue
+            label = cls._explicit_node_label(node)
+            if not label:
+                unsafe_by_node[node_id] = "missing_bridge_label"
+                continue
+            if label in ambiguous_labels:
+                unsafe_by_node[node_id] = "ambiguous_bridge_label"
+                continue
+            if label not in activity_vocab:
+                unsafe_by_node[node_id] = "missing_bridge_label_vocab"
+                continue
+            label_by_node[node_id] = label
+
+        skipped: list[dict[str, str]] = []
+        for src, dst in projected_edge_paths:
+            src_token = str(src).strip()
+            dst_token = str(dst).strip()
+            src_reason = unsafe_by_node.get(src_token)
+            dst_reason = unsafe_by_node.get(dst_token)
+            if src_reason or dst_reason:
+                if src_reason and dst_reason:
+                    reason = f"src_{src_reason};dst_{dst_reason}"
+                elif src_reason:
+                    reason = f"src_{src_reason}"
+                else:
+                    reason = f"dst_{dst_reason}"
+                skipped.append({"src": src_token, "dst": dst_token, "reason": reason})
+        return label_by_node, skipped
+
+    @staticmethod
+    def _with_fixed_vocab_bridge_diagnostics(
+        *,
+        diagnostics: TopologyProjectionDiagnostics,
+        skipped_edges: list[dict[str, str]],
+        num_classes: int,
+    ) -> TopologyProjectionDiagnostics:
+        reasons = list(diagnostics.failure_reasons)
+        is_aligned = bool(diagnostics.is_aligned)
+        if skipped_edges and "unsafe_fixed_vocab_bridge" not in reasons:
+            reasons.append("unsafe_fixed_vocab_bridge")
+            is_aligned = False
+        return TopologyProjectionDiagnostics(
+            gateway_mode=diagnostics.gateway_mode,
+            node_count=diagnostics.node_count,
+            edge_count=diagnostics.edge_count,
+            prediction_node_count=diagnostics.prediction_node_count,
+            transparent_node_count=diagnostics.transparent_node_count,
+            projected_edge_count=diagnostics.projected_edge_count,
+            source_path_count=diagnostics.source_path_count,
+            skipped_projected_edges=list(diagnostics.skipped_projected_edges) + [dict(item) for item in skipped_edges],
+            missing_vocab_nodes=list(diagnostics.missing_vocab_nodes),
+            duplicate_activity_labels={
+                key: list(value) for key, value in diagnostics.duplicate_activity_labels.items()
+            },
+            missing_node_metadata=diagnostics.missing_node_metadata,
+            struct_x_rows=diagnostics.struct_x_rows,
+            num_classes=int(num_classes),
+            structural_edge_index_max=diagnostics.structural_edge_index_max,
+            is_aligned=is_aligned,
+            failure_reasons=reasons,
+        )
 
     @classmethod
     def _initial_prediction_candidate_labels(

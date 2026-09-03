@@ -233,6 +233,9 @@ to evaluate the static-vocabulary limitation under structural drift.
 `GATv2 + Mask` is available as a fixed-vocabulary reviewer-control baseline:
 it uses `BaselineGATv2` with inference-time hard topology post-filtering, while
 retaining the static `C_train` output head.
+For MLflow params, `BaselineGATv2` with `training.mask_guided_enabled=true`
+is reported as `BaselineGATv2Mask` in both `model.type` and `model_type`, while
+`model.base_type=BaselineGATv2` preserves the actual factory model identity.
 `training.learning_strategy=topology_conditioned` is implemented as a
 trainer-level methodology with known-version wrong-topology negatives,
 same-version physical `drop_edges`, train-time allowed-set loss, and
@@ -806,6 +809,13 @@ merges still-active tasks into both `allowed_target_mask` and
 `candidate_allowed_target_mask`. The existing `struct_prefix_state_x[:, 5]`
 active-candidate channel is reused, so tensor shape remains `[|V|, 6]`.
 
+When `training.process_state_mask_enabled=false`, lifecycle-active metadata on
+events (`active_activities_after_complete` and
+`active_activity_counts_after_complete`) is ignored. The metadata is also
+ignored when `training.process_state_mask_include_active_candidates=false`.
+This prevents oracle leakage from CDLG overlap metadata into class masks,
+candidate masks, and `struct_prefix_state_x[:, 5]`.
+
 This is intended for XES logs where parallel branch completions can appear after
 another branch's completion. Completion-only logs cannot reliably reconstruct
 the active set and should keep the default direct-successor behavior until a
@@ -860,6 +870,31 @@ also preserves not-yet-completed initial candidates reachable from `startEvent`
 through transparent gateways. This prevents valid parallel initial sibling
 tasks from producing empty topology-native candidate masks during MOU or
 mask-aware drift evaluation.
+
+## Runtime Update 2026-09-02: Strict-As-Of Mask Topology Lookup
+
+`DynamicGraphBuilder` now resolves the process structure DTO with
+`get_process_structure_as_of()` whenever `experiment.stats_time_policy` is
+`strict_asof`, using the last prefix event timestamp as the `as_of_ts`.
+
+This applies even when stats-backed structural features are disabled. The
+topology-native masks, including process-state and relaxed-reachability masks,
+still depend on the temporal topology snapshot and must not silently fall back
+to the latest structure.
+
+## Runtime Update 2026-09-03: Fixed-Vocab BPMN Topology Bridge
+
+`DynamicGraphBuilder` now supports BPMN node ids that differ from XES activity
+labels when `training.candidate_identity_mode=fixed_vocab_bridge`. The
+projection keeps BPMN ids for topology paths and edge-stat bookkeeping, then
+maps prediction endpoints through unique DTO node metadata into the fitted
+activity vocabulary before writing class-space `structural_edge_index`,
+`allowed_target_mask`, and `candidate_allowed_target_mask`.
+
+Unsafe bridge mappings are diagnostic-only skips: missing labels, labels absent
+from `activity_vocab`, and duplicate prediction labels do not guess a class.
+`topology_native` remains BPMN-node based. Graph dataset cache schema is `7`,
+so pre-bridge graph caches are rejected and rebuilt.
 
 ## Runtime Update 2026-06-10: Impulse State Channel Config Guard
 

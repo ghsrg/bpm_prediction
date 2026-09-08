@@ -205,6 +205,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         description="Aggregate article raw MLflow metric exports as mean ± std by model."
     )
     parser.add_argument("--input-dir", default="outputs/Export_metrics/article_run_metrics")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory for aggregated CSV files. Defaults to --input-dir for compatibility.",
+    )
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
     parser.add_argument("--decimals", type=int, default=3)
     return parser.parse_args(argv)
@@ -213,13 +218,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv or sys.argv[1:]))
     input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir) if args.output_dir is not None else input_dir
     run_sets = ["learn", "drift"] if args.run_set == "all" else [args.run_set]
 
     for run_set in run_sets:
-        run_dir = input_dir / run_set
-        if not run_dir.exists():
-            print(f"Missing run-set directory: {run_dir}", file=sys.stderr)
+        input_run_dir = input_dir / run_set
+        if not input_run_dir.exists():
+            print(f"Missing run-set directory: {input_run_dir}", file=sys.stderr)
             return 1
+        output_run_dir = output_dir / run_set
         strategy = "best_epoch" if run_set == "learn" else "last"
         summary_name = "summary_best_mean_std.csv" if run_set == "learn" else "summary_last_mean_std.csv"
         details_name = (
@@ -227,22 +234,22 @@ def main(argv: list[str] | None = None) -> int:
             if run_set == "learn"
             else "summary_last_mean_std_details.csv"
         )
-        summary_rows, detail_rows = _aggregate_run_set(run_dir, args.decimals, strategy)
-        _write_csv(run_dir / "summary_mean_std.csv", ["metric", *MODEL_ORDER], summary_rows)
+        summary_rows, detail_rows = _aggregate_run_set(input_run_dir, args.decimals, strategy)
+        _write_csv(output_run_dir / "summary_mean_std.csv", ["metric", *MODEL_ORDER], summary_rows)
         _write_csv(
-            run_dir / "summary_mean_std_details.csv",
+            output_run_dir / "summary_mean_std_details.csv",
             ["metric", "paper_model", "mean", "std", "n", "aggregation_scope", "run_ids"],
             detail_rows,
         )
-        _write_csv(run_dir / summary_name, ["metric", *MODEL_ORDER], summary_rows)
+        _write_csv(output_run_dir / summary_name, ["metric", *MODEL_ORDER], summary_rows)
         _write_csv(
-            run_dir / details_name,
+            output_run_dir / details_name,
             ["metric", "paper_model", "mean", "std", "n", "aggregation_scope", "run_ids"],
             detail_rows,
         )
         print(
             f"{run_set}: metrics={len(summary_rows)} "
-            f"strategy={strategy} summary={run_dir / summary_name}"
+            f"strategy={strategy} summary={output_run_dir / summary_name}"
         )
     return 0
 

@@ -600,7 +600,8 @@ publication figures from `outputs/Export_metrics/article_run_metrics`.
   --input-dir outputs\Export_metrics\article_run_metrics `
   --output-dir outputs\article_figures `
   --formats svg,png,eps `
-  --dpi 600
+  --dpi 600 `
+  --boundary-on
 ```
 
 The command writes SVG/EPS files for journal submission and high-DPI PNG files
@@ -610,6 +611,55 @@ metrics (`Fig3`-`Fig6`). The train/validation loss diagnostic is available as
 figures are clipped to epochs 0-50 for comparability across runs; drift figures
 use the full chronological drift trajectory. Model colors and legend labels are
 fixed across all figures.
+
+Bounded F1/rate figures use a fixed y-axis from `0` to `1.01` so curves at
+exactly `1.0` remain visibly separated from the top frame.
+
+Drift figures mark five equal-step version zones with dashed vertical
+boundaries and `v1`-`v5` labels above each axes when `--boundary-on` is passed.
+These are presentation boundaries derived from the common drift-step range,
+not version timestamps read from run metadata. Without the flag, drift figures
+are rendered without version boundaries. Each boundary also has a translucent
+gray transition zone covering `boundary - 10` through `boundary + 10` drift
+steps.
+
+### article_complexity_figure_export
+
+For CDLG complexity panels, use the dedicated exporter. It reads raw metric
+CSV files and writes figures with three columns: `simple`, `middle`, and
+`complex`. Seeds are averaged inside each generated dataset first; generated
+datasets are then averaged within each complexity, with the shaded range
+showing variation across generated datasets.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_article_complexity_figures.py `
+  --input-dir outputs\Export_metrics\article_run_metrics\CDLG `
+  --output-dir outputs\article_complexity_figures\CDLG `
+  --formats svg,png,eps `
+  --dpi 600
+```
+
+The default output is `Fig7`-`Fig10`, corresponding to the main article
+figures. `Fig10` expands the four-metric composite figure into four rows and
+three complexity columns.
+
+### article_metric_aggregation
+
+Keep raw per-metric exports separate from generated aggregate summaries by
+passing distinct input and output directories:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\aggregate_article_run_metrics.py `
+  --input-dir outputs\Export_metrics\article_run_metrics\CDLG `
+  --output-dir outputs\Export_metrics\article_aggregates\CDLG `
+  --run-set all
+```
+
+The same command can be run with `loan` instead of `CDLG`. The aggregator reads
+raw `learn/` and `drift/` metric CSV files from `--input-dir` and writes only
+summary CSV files to the matching subdirectories under `--output-dir`. When
+`--output-dir` is omitted, summaries are written beside the input files for
+backward compatibility.
 
 ### article_docx_export
 

@@ -89,3 +89,42 @@ def test_aggregation_retains_drift_only_mou_rows(tmp_path: Path):
             "run_ids": "mou-run",
         }
     ]
+
+
+def test_aggregation_writes_summaries_to_output_dir_without_mutating_raw_dir(tmp_path: Path):
+    input_dir = tmp_path / "raw" / "CDLG"
+    output_dir = tmp_path / "aggregated" / "CDLG"
+    learn_dir = input_dir / "learn"
+    drift_dir = input_dir / "drift"
+    learn_dir.mkdir(parents=True)
+    drift_dir.mkdir(parents=True)
+
+    for directory, metric, value in [
+        (learn_dir, "strict_val_macro_f1", "0.7"),
+        (drift_dir, "drift_window_strict_macro_f1", "0.4"),
+    ]:
+        with (directory / f"{metric}.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["paper_model", "run_id", "metric", "step", "timestamp", "value"],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "paper_model": "MOU",
+                    "run_id": "run-1",
+                    "metric": metric,
+                    "step": "0",
+                    "timestamp": "100",
+                    "value": value,
+                }
+            )
+
+    assert aggregate_article_run_metrics.main(
+        ["--input-dir", str(input_dir), "--output-dir", str(output_dir), "--run-set", "all"]
+    ) == 0
+
+    assert (output_dir / "learn" / "summary_mean_std.csv").exists()
+    assert (output_dir / "drift" / "summary_mean_std.csv").exists()
+    assert not (input_dir / "learn" / "summary_mean_std.csv").exists()
+    assert not (input_dir / "drift" / "summary_mean_std.csv").exists()

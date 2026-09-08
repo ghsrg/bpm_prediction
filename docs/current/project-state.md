@@ -111,6 +111,12 @@ emit missing-snapshot warnings.
   - `--runs-file`
   - `--experiment-id`
 - `output_layout`: `learn/` and `drift/` metric CSV directories
+- `aggregation_output`: optional separate `--output-dir` for summary CSV files
+- `complexity_figures`: `tools/export_article_complexity_figures.py` generates
+  `Fig7`-`Fig10` with `simple`/`middle`/`complex` panels and hierarchical
+  dataset/seed aggregation
+- `bounded_figure_ylim`: bounded article figures use `0.0`-`1.01` headroom
+- `article_figure_boundaries`: `tools/export_article_figures.py` draws drift version boundaries only with `--boundary-on`
 
 **Description (ukr):**
 

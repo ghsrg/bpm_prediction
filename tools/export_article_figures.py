@@ -49,6 +49,53 @@ MODEL_BAND_ALPHA = {
     "MOU": 0.14,
 }
 
+VERSION_COUNT = 5
+VERSION_BOUNDARY_HALF_WIDTH = 10.0
+
+
+def _version_boundaries(x_min: float, x_max: float, version_count: int = VERSION_COUNT) -> list[float]:
+    if version_count < 2 or x_max <= x_min:
+        return []
+    width = (x_max - x_min) / version_count
+    return [x_min + width * index for index in range(1, version_count)]
+
+
+def _version_labels(x_min: float, x_max: float, version_count: int = VERSION_COUNT) -> list[tuple[float, str]]:
+    if version_count < 1 or x_max <= x_min:
+        return []
+    width = (x_max - x_min) / version_count
+    return [(x_min + width * (index + 0.5), f"v{index + 1}") for index in range(version_count)]
+
+
+def _draw_version_boundaries(ax: plt.Axes, x_min: float, x_max: float) -> None:
+    if x_max <= x_min:
+        return
+    for x in _version_boundaries(x_min, x_max):
+        zone_start = max(x_min, x - VERSION_BOUNDARY_HALF_WIDTH)
+        zone_end = min(x_max, x + VERSION_BOUNDARY_HALF_WIDTH)
+        if zone_end > zone_start:
+            ax.axvspan(
+                zone_start,
+                zone_end,
+                color="#999999",
+                alpha=0.12,
+                linewidth=0,
+                zorder=0,
+            )
+        ax.axvline(x, color="#777777", linestyle=(0, (3, 3)), linewidth=0.8, alpha=0.75, zorder=0)
+    for x, label in _version_labels(x_min, x_max):
+        ax.text(
+            x,
+            1.015,
+            label,
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#555555",
+            clip_on=False,
+        )
+
 
 @dataclass(frozen=True)
 class PanelSpec:
@@ -91,6 +138,7 @@ FIGURES = {
         ),
         layout=(1, 1),
         max_step=50,
+        y_bounds=(0.5, 0.81),
         xlabel="Epoch",
     ),
     "Fig4": FigureSpec(
@@ -98,6 +146,7 @@ FIGURES = {
         source="drift",
         panels=(PanelSpec("drift_window_strict_macro_f1", "Strict macro-F1 under structural drift", "Strict macro-F1"),),
         layout=(1, 1),
+        y_bounds=(0.0, 1.01),
         xlabel="Drift step",
         line_width_scale=0.8,
     ),
@@ -249,7 +298,7 @@ def _plot_panel(
             linewidth=(1.75 if model == "EOPKG" else 1.45) * line_width_scale,
         )
 
-    ax.set_title(panel.title, fontsize=11, pad=8)
+    ax.set_title(panel.title, fontsize=11, pad=16)
     ax.set_xlabel(xlabel, fontsize=10)
     ax.set_ylabel(panel.ylabel, fontsize=10)
     ax.grid(True, color="#D9D9D9", linewidth=0.7, alpha=0.75)
@@ -265,13 +314,28 @@ def _figure_size(layout: tuple[int, int]) -> tuple[float, float]:
     return 11.5, 7.2
 
 
-def _render_figure(input_dir: Path, output_dir: Path, spec: FigureSpec, formats: list[str], dpi: int) -> list[Path]:
+def _render_figure(
+    input_dir: Path,
+    output_dir: Path,
+    spec: FigureSpec,
+    formats: list[str],
+    dpi: int,
+    *,
+    boundary_on: bool = False,
+) -> list[Path]:
     panel_series = [_metric_series(input_dir, spec, panel) for panel in spec.panels]
     rows, cols = spec.layout
     fig, axes = plt.subplots(rows, cols, figsize=_figure_size(spec.layout), squeeze=False)
     flat_axes = [axis for row in axes for axis in row]
 
     shared_ylim = _shared_ylim(panel_series, spec.y_bounds) if spec.shared_y else None
+    drift_x_values = [
+        row[0]
+        for series in panel_series
+        for rows in series.values()
+        for row in rows
+    ]
+    drift_x_bounds = (min(drift_x_values), max(drift_x_values)) if drift_x_values else None
 
     for ax, panel, series in zip(flat_axes, spec.panels, panel_series):
         _plot_panel(ax, series, panel, spec.xlabel, spec.line_width_scale)
@@ -281,6 +345,8 @@ def _render_figure(input_dir: Path, output_dir: Path, spec: FigureSpec, formats:
             lower, upper = spec.y_bounds
             current_lower, current_upper = ax.get_ylim()
             ax.set_ylim(lower if lower is not None else current_lower, upper if upper is not None else current_upper)
+        if boundary_on and spec.source == "drift" and drift_x_bounds is not None:
+            _draw_version_boundaries(ax, *drift_x_bounds)
 
     for ax in flat_axes[len(spec.panels) :]:
         ax.axis("off")
@@ -298,7 +364,7 @@ def _render_figure(input_dir: Path, output_dir: Path, spec: FigureSpec, formats:
         fontsize=10,
         bbox_to_anchor=(0.5, 0.01),
     )
-    fig.tight_layout(rect=(0.0, 0.08, 1.0, 1.0))
+    fig.tight_layout(rect=(0.0, 0.08, 1.0, 0.92) if spec.source == "drift" else (0.0, 0.08, 1.0, 1.0))
 
     saved: list[Path] = []
     for fmt in formats:
@@ -350,6 +416,11 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated output formats: svg,png,pdf,eps. Default: svg,png.",
     )
     parser.add_argument("--dpi", type=int, default=600, help="PNG export DPI. Default: 600.")
+    parser.add_argument(
+        "--boundary-on",
+        action="store_true",
+        help="Draw nominal version boundaries on drift figures.",
+    )
     return parser.parse_args()
 
 
@@ -359,7 +430,16 @@ def main() -> int:
     saved: list[Path] = []
 
     for spec in selected:
-        saved.extend(_render_figure(args.input_dir, args.output_dir, spec, args.formats, args.dpi))
+        saved.extend(
+            _render_figure(
+                args.input_dir,
+                args.output_dir,
+                spec,
+                args.formats,
+                args.dpi,
+                boundary_on=args.boundary_on,
+            )
+        )
 
     print("Exported article figures:")
     for path in saved:

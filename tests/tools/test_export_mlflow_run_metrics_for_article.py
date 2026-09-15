@@ -224,3 +224,86 @@ def test_experiment_export_preserves_mou_metadata_and_metric_layout(tmp_path: Pa
     assert "mou-drift" in drift_manifest
     assert "gat-learn" in learn_manifest
     assert not (tmp_path / "all").exists()
+
+
+def test_rs01_audit_export_requires_explicit_tagged_drift_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = FakeMlflowClient(
+        [
+            FakeRun(
+                "audit-run",
+                params={
+                    "experiment.mode": "eval_drift",
+                    "model.type": "mou",
+                    "seed": "42",
+                    "rs01.audit_enabled": "true",
+                    "rs01.audit_batch_id": "rs01_demo",
+                    "rs01.metric_contract_id": "mou_native_candidate_label_mask.v1",
+                    "rs01.prediction_space": "mou_native_candidate_label",
+                    "rs01.mask_space": "mou_native_candidate_label",
+                },
+                tags={"mlflow.runName": "MOU audit"},
+                metrics={
+                    "parallelism_admissible_error_rate": 0.25,
+                    "valid_prediction_count": 100.0,
+                    "audited_prefix_count": 100.0,
+                },
+            )
+        ]
+    )
+    _install_fake_mlflow(monkeypatch, client)
+    output_dir = tmp_path / "article_audits" / "rs01_demo" / "article_run_metrics" / "loan"
+
+    rc = exporter.main(
+        [
+            "--tracking-uri",
+            "file:./mlruns",
+            "--runs-id",
+            "audit-run",
+            "--run-set",
+            "drift",
+            "--output-dir",
+            str(output_dir),
+            "--audit-batch-id",
+            "rs01_demo",
+            "--require-audit-tag",
+            "rs01.audit_enabled=true",
+            "--require-metric-contract-id",
+            "mou_native_candidate_label_mask.v1",
+        ]
+    )
+
+    assert rc == 0
+    assert (output_dir / "drift" / "run_manifest.csv").exists()
+    assert (output_dir / "audit_run_registry.csv").exists()
+    assert not (tmp_path / "article_run_metrics" / "drift" / "run_manifest.csv").exists()
+
+
+def test_rs01_audit_export_rejects_untagged_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    client = FakeMlflowClient(
+        [
+            FakeRun(
+                "historical-run",
+                params={"experiment.mode": "eval_drift", "model.type": "BaselineGATv2"},
+                tags={"mlflow.runName": "historical"},
+                metrics={"strict_test_macro_f1": 0.5},
+            )
+        ]
+    )
+    _install_fake_mlflow(monkeypatch, client)
+
+    rc = exporter.main(
+        [
+            "--runs-id",
+            "historical-run",
+            "--run-set",
+            "drift",
+            "--output-dir",
+            str(tmp_path / "article_audits" / "rs01_demo"),
+            "--audit-batch-id",
+            "rs01_demo",
+            "--require-audit-tag",
+            "rs01.audit_enabled=true",
+        ]
+    )
+
+    assert rc == 1

@@ -69,6 +69,27 @@ class _UnseenCandidateModel(nn.Module):
         )
 
 
+class _KnownCandidateModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.output_dim = 2
+
+    def forward_candidate(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        logits = torch.tensor([[0.0, 5.0]], dtype=torch.float32, device=batch.device).repeat(num_graphs, 1)
+        return CandidatePredictionOutput(
+            candidate_logits=logits,
+            candidate_class_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            node_logits=logits,
+            node_to_candidate_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            node_to_class_index=torch.tensor([0, 1], dtype=torch.long, device=batch.device),
+            candidate_ids=("node_a", "node_b"),
+            candidate_labels=("A", "B"),
+            candidate_is_unseen=torch.tensor([False, False], dtype=torch.bool, device=batch.device),
+        )
+
+
 class _FakeTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[str, float, int | None]] = []
@@ -192,6 +213,34 @@ def _candidate_trainer(tmp_path) -> ModelTrainer:
     )
 
 
+def _known_candidate_trainer(tmp_path) -> ModelTrainer:
+    return ModelTrainer(
+        xes_adapter=_FailOnReadAdapter(),
+        prefix_policy=_NoopPrefixPolicy(),  # type: ignore[arg-type]
+        graph_builder=_NoopGraphBuilder(),  # type: ignore[arg-type]
+        model=_KnownCandidateModel(),  # type: ignore[arg-type]
+        log_path="in_memory.xes",
+        config={
+            "epochs": 1,
+            "batch_size": 4,
+            "learning_rate": 0.001,
+            "device": "cpu",
+            "show_progress": False,
+            "tqdm_disable": True,
+            "checkpoint_dir": str(tmp_path),
+            "candidate_contract_mode": "candidate_id",
+            "candidate_identity_mode": "topology_native",
+            "experiment_config": {
+                "name": "pytest_known_candidate_one_pass_drift",
+                "mode": "eval_drift",
+                "drift_window_size": 1,
+                "drift_window_sliding": 1,
+            },
+        },
+        prepared_data={"idx_to_version": {0: "v1"}},
+    )
+
+
 def test_collect_drift_inference_records_is_compact(tmp_path):
     trainer = _trainer(tmp_path)
     loader = DataLoader(
@@ -231,6 +280,42 @@ def test_one_pass_candidate_id_metrics_use_unseen_candidate_space(tmp_path):
     assert metrics["strict_test_macro_f1"] == pytest.approx(1.0)
     assert metrics["fixed_label_strict_test_accuracy"] == pytest.approx(0.0)
     assert metrics["fixed_label_strict_test_macro_f1"] == pytest.approx(0.0)
+
+
+def test_one_pass_rs01_candidate_audit_projects_fixed_mask_when_native_mask_missing(tmp_path):
+    trainer = _known_candidate_trainer(tmp_path)
+    sample = _sample(trace_idx=0, target=1, pred=0, mask=[False, True])
+    sample.target_label = "B"
+    loader = DataLoader([sample], batch_size=1, shuffle=False)
+
+    records = trainer._collect_drift_inference_records(loader)
+    metrics = trainer._compute_test_metrics_from_records(records, np.asarray([0], dtype=np.int64))
+
+    assert metrics["audited_prefix_count"] == 1
+    assert metrics["valid_prediction_count"] == 1
+    assert metrics["unresolved_mapping_count"] == 0
+    assert metrics["excluded_count"] == 0
+    assert metrics["strict_correct_rate"] == pytest.approx(1.0)
+
+
+def test_one_pass_rs01_candidate_audit_keeps_batch_native_mask_rows(tmp_path):
+    trainer = _known_candidate_trainer(tmp_path)
+    samples = []
+    for trace_idx in range(64):
+        sample = _sample(trace_idx=trace_idx, target=1, pred=0, mask=[False, True])
+        sample.candidate_allowed_target_mask = torch.tensor([False, True], dtype=torch.bool)
+        sample.target_label = "B"
+        samples.append(sample)
+    loader = DataLoader(samples, batch_size=64, shuffle=False)
+
+    records = trainer._collect_drift_inference_records(loader)
+    metrics = trainer._compute_test_metrics_from_records(records, np.arange(records.y_true.shape[0]))
+
+    assert metrics["audited_prefix_count"] == 64
+    assert metrics["valid_prediction_count"] == 64
+    assert metrics["unresolved_mapping_count"] == 0
+    assert metrics["excluded_count"] == 0
+    assert metrics["strict_correct_rate"] == pytest.approx(1.0)
 
 
 def test_collect_drift_inference_records_emits_one_pass_progress_events(tmp_path, monkeypatch, capsys):
@@ -287,6 +372,42 @@ def test_record_metrics_match_evaluate_test_for_full_dataset(tmp_path):
         "test_ambiguous_prefix_rate",
     ]:
         assert new_metrics[key] == pytest.approx(legacy_metrics[key])
+
+
+def test_one_pass_records_emit_rs01_outcome_partition(tmp_path):
+    trainer = _trainer(tmp_path)
+    samples = [
+        _sample(trace_idx=0, target=1, pred=1, mask=[False, True, False]),
+        _sample(trace_idx=1, target=2, pred=1, mask=[False, True, True]),
+        _sample(trace_idx=2, target=0, pred=2, mask=[True, False, False]),
+    ]
+
+    records = trainer._collect_drift_inference_records(DataLoader(samples, batch_size=3, shuffle=False))
+    metrics = trainer._compute_test_metrics_from_records(records, np.arange(records.y_true.shape[0]))
+
+    assert metrics["strict_correct_count"] == 1
+    assert metrics["parallelism_admissible_error_count"] == 1
+    assert metrics["oos_error_count"] == 1
+    assert metrics["valid_prediction_count"] == 3
+    assert metrics["partition_sum"] == pytest.approx(1.0)
+    assert metrics["strict_test_accuracy"] == pytest.approx(metrics["strict_correct_rate"])
+    assert metrics["parallelism_admissible_error_rate"] == pytest.approx(
+        metrics["test_strict_error_but_allowed_rate"]
+    )
+
+
+def test_one_pass_rs01_exact_outside_mask_is_not_oos(tmp_path):
+    trainer = _trainer(tmp_path)
+    samples = [
+        _sample(trace_idx=0, target=1, pred=1, mask=[True, False, False]),
+    ]
+
+    records = trainer._collect_drift_inference_records(DataLoader(samples, batch_size=1, shuffle=False))
+    metrics = trainer._compute_test_metrics_from_records(records, np.asarray([0], dtype=np.int64))
+
+    assert metrics["strict_correct_count"] == 1
+    assert metrics["exact_outside_mask_count"] == 1
+    assert metrics["oos_error_count"] == 0
 
 
 def test_resolve_drift_window_record_indices_uses_trace_idx_ranges(tmp_path):
@@ -381,6 +502,9 @@ def test_one_pass_drift_rows_preserve_legacy_output_keys(tmp_path):
         "window_target_in_mask_rate",
         "window_pred_in_mask_rate",
         "window_strict_error_but_allowed_rate",
+        "window_parallelism_admissible_error_rate",
+        "window_oos_error_rate",
+        "window_partition_sum",
         "window_ambiguous_prefix_rate",
     }
     assert expected_keys.issubset(rows[0].keys())
@@ -411,9 +535,22 @@ def test_one_pass_drift_logs_legacy_tracker_metric_names(tmp_path):
         "drift_window_target_in_mask_rate",
         "drift_window_pred_in_mask_rate",
         "drift_window_strict_error_but_allowed_rate",
+        "drift_window_parallelism_admissible_error_rate",
+        "drift_window_oos_error_rate",
+        "drift_window_partition_sum",
         "drift_window_ambiguous_prefix_rate",
         "drift_window_start_ts",
         "drift_window_end_ts",
+        "strict_correct_rate",
+        "parallelism_admissible_error_rate",
+        "oos_error_rate",
+        "audited_prefix_count",
+        "valid_prediction_count",
+        "excluded_count",
+        "unresolved_mapping_count",
+        "strict_test_macro_f1",
+        "strict_test_accuracy",
+        "test_oos",
     }.issubset(logged_names)
 
 

@@ -146,6 +146,7 @@ def _aggregate_run_set(
     run_dir: Path,
     decimals: int,
     strategy: str,
+    audit_mode: str = "",
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     summary_rows: list[dict[str, object]] = []
     detail_rows: list[dict[str, object]] = []
@@ -163,6 +164,11 @@ def _aggregate_run_set(
             continue
         metric_name = str(rows[0].get("metric", "")).strip() or metric_file.stem
         latest = _last_points_by_run(rows, strategy=strategy, best_epoch_by_run=best_epoch_by_run)
+        if audit_mode == "rs01" and metric_name == "partition_sum":
+            for (_paper_model, run_id), row in latest.items():
+                value = _safe_float(row.get("value", ""))
+                if value is not None and abs(value - 1.0) > 1.0e-9:
+                    raise ValueError(f"RS-01 partition_sum invalid for run_id={run_id}: {value}")
         values_by_model: dict[str, list[float]] = defaultdict(list)
         run_ids_by_model: dict[str, list[str]] = defaultdict(list)
         scopes_by_model: dict[str, set[str]] = defaultdict(set)
@@ -212,6 +218,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
     parser.add_argument("--decimals", type=int, default=3)
+    parser.add_argument("--audit-mode", choices=["", "rs01"], default="")
     return parser.parse_args(argv)
 
 
@@ -223,6 +230,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for run_set in run_sets:
         input_run_dir = input_dir / run_set
+        if args.audit_mode == "rs01" and run_set != "drift":
+            print("--audit-mode rs01 accepts only drift input", file=sys.stderr)
+            return 2
         if not input_run_dir.exists():
             print(f"Missing run-set directory: {input_run_dir}", file=sys.stderr)
             return 1
@@ -234,7 +244,16 @@ def main(argv: list[str] | None = None) -> int:
             if run_set == "learn"
             else "summary_last_mean_std_details.csv"
         )
-        summary_rows, detail_rows = _aggregate_run_set(input_run_dir, args.decimals, strategy)
+        try:
+            summary_rows, detail_rows = _aggregate_run_set(
+                input_run_dir,
+                args.decimals,
+                strategy,
+                audit_mode=args.audit_mode,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         _write_csv(output_run_dir / "summary_mean_std.csv", ["metric", *MODEL_ORDER], summary_rows)
         _write_csv(
             output_run_dir / "summary_mean_std_details.csv",
@@ -247,6 +266,12 @@ def main(argv: list[str] | None = None) -> int:
             ["metric", "paper_model", "mean", "std", "n", "aggregation_scope", "run_ids"],
             detail_rows,
         )
+        if args.audit_mode == "rs01":
+            _write_csv(
+                output_run_dir / "summary_rs01_endpoint_details.csv",
+                ["metric", "paper_model", "mean", "std", "n", "aggregation_scope", "run_ids"],
+                detail_rows,
+            )
         print(
             f"{run_set}: metrics={len(summary_rows)} "
             f"strategy={strategy} summary={output_run_dir / summary_name}"

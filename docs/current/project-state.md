@@ -128,6 +128,16 @@ out incomplete/deleted runs, and routes eligible runs into the existing
 existing fields and adds metadata-only `dataset_complexity`, read only from
 explicit run params/tags.
 
+RS-01 audit export is available as an explicit, isolated path. Audit exports
+require explicit run IDs, `run_set=drift`, `rs01.audit_enabled=true`, and an
+`article_audits/rs01_<batch_id>` output namespace. The bundle builder writes
+`outcome_partition.csv`, `endpoint_error_profile.csv`,
+`source_manifest.csv`, and `metric_contract_audit.md` without copying into the
+article repository. Endpoint RS-01 exports include denominator QC fields such
+as `audited_prefix_count`, `valid_prediction_count`, `excluded_count`, and
+`unresolved_mapping_count`; overlapping drift-window series are not used as the
+article endpoint denominator.
+
 ### offline_topology_preparation
 
 - `status`: implemented

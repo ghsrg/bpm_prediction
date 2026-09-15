@@ -2659,6 +2659,15 @@ def _build_mou_mlflow_params(config: Mapping[str, Any]) -> Dict[str, Any]:
     params["experiment.evaluation_mode"] = TOPOLOGY_MASK_UNIFORM_MODE
     params["model.type"] = "MOU"
     params["model_type"] = "MOU"
+    experiment_cfg = config.get("experiment", {}) if isinstance(config.get("experiment"), Mapping) else {}
+    params["rs01.audit_enabled"] = str(
+        _as_bool(experiment_cfg.get("rs01_audit_enabled"), default=False)
+    ).lower()
+    params["rs01.audit_batch_id"] = str(experiment_cfg.get("rs01_audit_batch_id", "") or "")
+    params["rs01.metric_contract_id"] = "mou_native_candidate_label_mask.v1"
+    params["rs01.prediction_space"] = "mou_native_candidate_label"
+    params["rs01.mask_space"] = "mou_native_candidate_label"
+    params["rs01.mc_draws"] = str(experiment_cfg.get("uniform_mask_mc_draws", ""))
     return params
 
 

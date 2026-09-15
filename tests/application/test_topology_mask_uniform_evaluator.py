@@ -218,6 +218,29 @@ def test_strict_error_but_allowed_rate_is_reported_per_draw_for_uniform_misses()
     )
 
 
+def test_mou_reports_rs01_draw_level_outcome_partition():
+    result = TopologyMaskUniformEvaluator(evaluation_seed=41, mc_draws=100).evaluate(
+        [
+            _native_data([True, True, False], "A"),
+        ]
+    )
+    metrics = result["test_metrics"]
+
+    assert (
+        metrics["strict_correct_rate_mc_mean"]
+        + metrics["parallelism_admissible_error_rate_mc_mean"]
+        + metrics["oos_error_rate_mc_mean"]
+    ) == pytest.approx(1.0)
+    assert metrics["parallelism_admissible_error_count_mc_std"] >= 0.0
+    assert metrics["parallelism_admissible_error_rate_mc_sampling_uncertainty_95_low"] <= metrics[
+        "parallelism_admissible_error_rate_mc_mean"
+    ]
+    assert metrics["parallelism_admissible_error_rate_mc_sampling_uncertainty_95_high"] >= metrics[
+        "parallelism_admissible_error_rate_mc_mean"
+    ]
+    assert metrics["partition_sum_mc_mean"] == pytest.approx(1.0)
+
+
 def test_mou_hybrid_macro_f1_uses_model_trainer_ambiguous_mask_policy():
     result = TopologyMaskUniformEvaluator(evaluation_seed=41, mc_draws=100).evaluate(
         [

@@ -661,6 +661,32 @@ summary CSV files to the matching subdirectories under `--output-dir`. When
 `--output-dir` is omitted, summaries are written beside the input files for
 backward compatibility.
 
+### article_structure_drift_export
+
+Use this to extract reproducible structural-drift evidence directly from the
+prebuilt `data/knowledge_graph/*/v*/process_structure.json` artifacts. It does
+not parse BPMN. It supports both explicit `dto.nodes` + `dto.edges` artifacts
+and projected `dto.node_metadata` + allowed-edge artifacts used by prediction.
+The tool requires exactly `v1` through `v5` for each selected process, validates
+metadata for every projected-edge endpoint, and fails on ambiguous task labels
+instead of merging them.
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\extract_structure_drift_metrics.py --dataset loan
+.\.venv-modern\Scripts\python.exe tools\extract_structure_drift_metrics.py --dataset cdlg
+```
+
+The commands write version, adjacent-transition, canonical task-relation delta,
+source-inventory, and validation CSV files to
+`outputs\Export_metrics\article_aggregates\loan\structure_metrics` and
+`outputs\Export_metrics\article_aggregates\CDLG\structure_metrics`. CDLG
+also receives stratum aggregates for `simple`, `middle`, and `complex`.
+`structure_metric_dictionary.md` records metric definitions and the provenance
+boundary: this is evidence of structurally diverse and controlled drift
+scenarios, not a claim about live process-change prevalence. The bounded
+`activity_set_delta` and `relation_set_delta` fields are Jaccard distances;
+`net_*_count_delta` fields are descriptive signed count changes only.
+
 ### article_docx_export
 
 Use this to convert the Markdown article draft into a DOCX draft with native
@@ -689,6 +715,57 @@ page/margin template.
 
 ## Key Config Attributes
 
+## RS-01 Audit Export
+
+RS-01 is evaluation-only. Run the three-run reconciliation gate first: one
+EOPKG audit run, one MOU audit run with the frozen MC draw count, and one
+GATv2+Mask audit run. Use `experiment.mode=eval_drift`,
+`training.retrain=false`, a non-empty checkpoint, MLflow tracking, and:
+
+```yaml
+experiment:
+  rs01_audit_enabled: true
+  rs01_audit_batch_id: rs01_<batch_id>
+```
+
+Export only explicit audit run IDs into an isolated namespace:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\export_mlflow_run_metrics_for_article.py `
+  --tracking-uri file:./mlruns `
+  --runs-file outputs\worklogs\rs01_<batch_id>_audit_runs.txt `
+  --run-set drift `
+  --output-dir outputs\Export_metrics\article_audits\rs01_<batch_id>\article_run_metrics\loan `
+  --audit-batch-id rs01_<batch_id> `
+  --require-audit-tag rs01.audit_enabled=true
+```
+
+Aggregate RS-01 endpoint metrics without treating overlapping windows as
+independent replicates:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\aggregate_article_run_metrics.py `
+  --input-dir outputs\Export_metrics\article_audits\rs01_<batch_id>\article_run_metrics\loan `
+  --output-dir outputs\Export_metrics\article_audits\rs01_<batch_id>\article_aggregates\loan `
+  --run-set drift `
+  --audit-mode rs01
+```
+
+Build the local bundle:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\build_rs01_audit_bundle.py `
+  --audit-root outputs\Export_metrics\article_audits\rs01_<batch_id> `
+  --raw-metrics-dir outputs\Export_metrics\article_audits\rs01_<batch_id>\article_run_metrics\loan\drift `
+  --registry outputs\Export_metrics\article_audits\rs01_<batch_id>\article_run_metrics\loan\audit_run_registry.csv
+```
+
+Author-approved handoff destination, copied manually only after reconciliation:
+
+```text
+C:/Users/korsr/PycharmProjects/eopkg_structural_drift_article/submissions/DATAK-D-26-01322/R1_major_revision_2026-08-11/Export_metrics/article_audits/RS-01_<batch_id>/
+```
+
 ### experiment
 
 - `mode`: `train | eval_drift | eval_cross_dataset`
@@ -703,6 +780,8 @@ page/margin template.
 - `max_ram_gb`: soft RSS limit for spill flushes; `0` disables RAM guard
 - `stats_time_policy`: `latest | strict_asof`
 - `on_missing_asof_snapshot`: `disable_stats | use_base | raise`
+- `rs01_audit_enabled`: audit-only RS-01 outcome partition flag
+- `rs01_audit_batch_id`: batch identifier for isolated RS-01 exports
 
 **Description (ukr):**
 

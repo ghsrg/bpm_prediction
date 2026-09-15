@@ -97,6 +97,27 @@ MANIFEST_COLUMNS = [
     "start_time",
     "end_time",
     "metric_count",
+    "rs01_audit_enabled",
+    "rs01_audit_batch_id",
+    "rs01_metric_contract_id",
+    "rs01_prediction_space",
+    "rs01_mask_space",
+    "audited_prefix_count",
+    "valid_prediction_count",
+]
+
+AUDIT_REGISTRY_COLUMNS = [
+    "historical_run_id",
+    "audit_run_id",
+    "experiment_id",
+    "paper_model",
+    "seed",
+    "checkpoint_sha256",
+    "config_sha256",
+    "data_sha256",
+    "code_revision",
+    "contract_id",
+    "status",
 ]
 
 
@@ -126,6 +147,10 @@ def _tag(tags: dict[str, str], *names: str) -> str:
         if name in tags and str(tags[name]).strip():
             return str(tags[name]).strip()
     return ""
+
+
+def _audit_attr(params: dict[str, str], tags: dict[str, str], name: str) -> str:
+    return _param(params, name) or _tag(tags, name)
 
 
 def _dataset_complexity(params: dict[str, str], tags: dict[str, str]) -> str:
@@ -255,9 +280,13 @@ def _export_run_set(
     run_set: str,
     run_ids: list[str],
     output_dir: Path,
+    audit_batch_id: str = "",
+    require_audit_tag: str = "",
+    require_metric_contract_id: str = "",
 ) -> tuple[int, int, int]:
     metric_rows_by_name: dict[str, list[dict[str, object]]] = defaultdict(list)
     manifest_rows: list[dict[str, object]] = []
+    registry_rows: list[dict[str, object]] = []
     missing_rows: list[dict[str, object]] = []
 
     for run_id in run_ids:
@@ -269,6 +298,17 @@ def _export_run_set(
 
         params = dict(run.data.params)
         tags = dict(run.data.tags)
+        if require_audit_tag:
+            key, expected = require_audit_tag.split("=", 1)
+            actual = _audit_attr(params, tags, key)
+            if actual.lower() != expected.lower():
+                raise ValueError(f"Run {run_id} does not satisfy {require_audit_tag}.")
+        contract_id = _audit_attr(params, tags, "rs01.metric_contract_id")
+        if require_metric_contract_id and contract_id != require_metric_contract_id:
+            raise ValueError(
+                f"Run {run_id} has metric_contract_id={contract_id or '<empty>'}, "
+                f"expected {require_metric_contract_id}."
+            )
         model_type = _param(params, "model.type", "type", "model_type") or _tag(tags, "model_type")
         paper_model = _normalize_paper_model(params, tags)
         run_name = _tag(tags, "mlflow.runName")
@@ -305,6 +345,28 @@ def _export_run_set(
                 "start_time": run.info.start_time,
                 "end_time": run.info.end_time,
                 "metric_count": len(metric_names),
+                "rs01_audit_enabled": _audit_attr(params, tags, "rs01.audit_enabled"),
+                "rs01_audit_batch_id": _audit_attr(params, tags, "rs01.audit_batch_id") or audit_batch_id,
+                "rs01_metric_contract_id": contract_id,
+                "rs01_prediction_space": _audit_attr(params, tags, "rs01.prediction_space"),
+                "rs01_mask_space": _audit_attr(params, tags, "rs01.mask_space"),
+                "audited_prefix_count": run.data.metrics.get("audited_prefix_count", ""),
+                "valid_prediction_count": run.data.metrics.get("valid_prediction_count", ""),
+            }
+        )
+        registry_rows.append(
+            {
+                "historical_run_id": _audit_attr(params, tags, "rs01.historical_run_id"),
+                "audit_run_id": run_id,
+                "experiment_id": run.info.experiment_id,
+                "paper_model": paper_model,
+                "seed": seed,
+                "checkpoint_sha256": _audit_attr(params, tags, "rs01.checkpoint_sha256"),
+                "config_sha256": _audit_attr(params, tags, "rs01.config_sha256"),
+                "data_sha256": _audit_attr(params, tags, "rs01.data_sha256"),
+                "code_revision": _audit_attr(params, tags, "rs01.code_revision"),
+                "contract_id": contract_id,
+                "status": "EXPORTED",
             }
         )
 
@@ -332,6 +394,8 @@ def _export_run_set(
     run_output_dir = output_dir / run_set
     _write_csv(run_output_dir / "run_manifest.csv", MANIFEST_COLUMNS, manifest_rows)
     _write_csv(run_output_dir / "missing_runs.csv", ["run_set", "run_id", "error"], missing_rows)
+    if audit_batch_id:
+        _write_csv(output_dir / "audit_run_registry.csv", AUDIT_REGISTRY_COLUMNS, registry_rows)
 
     for metric_name, rows in sorted(metric_rows_by_name.items()):
         file_name = _safe_metric_filename(metric_name) + ".csv"
@@ -347,6 +411,9 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--tracking-uri", default="file:./mlruns")
     parser.add_argument("--output-dir", default="outputs/Export_metrics/article_run_metrics")
     parser.add_argument("--run-set", choices=["learn", "drift", "all"], default="all")
+    parser.add_argument("--audit-batch-id", default="")
+    parser.add_argument("--require-audit-tag", default="")
+    parser.add_argument("--require-metric-contract-id", default="")
     selector_group = parser.add_mutually_exclusive_group()
     selector_group.add_argument(
         "--runs-id",
@@ -395,6 +462,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.runs_id is not None and args.run_set == "all":
         print("--runs-id requires --run-set learn or --run-set drift", file=sys.stderr)
         return 2
+    if args.audit_batch_id:
+        if args.experiment_id is not None:
+            print("--audit-batch-id requires explicit --runs-id or --runs-file", file=sys.stderr)
+            return 2
+        if args.runs_id is None and args.runs_file is None:
+            print("--audit-batch-id requires explicit --runs-id or --runs-file", file=sys.stderr)
+            return 2
+        if args.run_set != "drift":
+            print("--audit-batch-id requires --run-set drift", file=sys.stderr)
+            return 2
 
     try:
         import mlflow
@@ -406,6 +483,11 @@ def main(argv: list[str] | None = None) -> int:
     mlflow.set_tracking_uri(args.tracking_uri)
     client = MlflowClient(tracking_uri=args.tracking_uri)
     output_dir = Path(args.output_dir)
+    if args.audit_batch_id:
+        parts = {part.lower() for part in output_dir.resolve().parts}
+        if "article_audits" not in parts:
+            print("--audit-batch-id output-dir must be below article_audits", file=sys.stderr)
+            return 2
 
     run_sets: list[tuple[str, list[str]]] = []
     if args.experiment_id is not None:
@@ -429,12 +511,19 @@ def main(argv: list[str] | None = None) -> int:
     total_runs = 0
     total_missing = 0
     for run_set, run_ids in run_sets:
-        exported, missing, metric_files = _export_run_set(
-            client=client,
-            run_set=run_set,
-            run_ids=run_ids,
-            output_dir=output_dir,
-        )
+        try:
+            exported, missing, metric_files = _export_run_set(
+                client=client,
+                run_set=run_set,
+                run_ids=run_ids,
+                output_dir=output_dir,
+                audit_batch_id=str(args.audit_batch_id or ""),
+                require_audit_tag=str(args.require_audit_tag or ""),
+                require_metric_contract_id=str(args.require_metric_contract_id or ""),
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         total_runs += exported
         total_missing += missing
         print(

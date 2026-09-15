@@ -1703,6 +1703,32 @@ Drift evaluation path: one_pass_prebuilt_dataset
 Drift one-pass records: samples=<n> traces=<n> max_trace_idx=<n>
 ```
 
+One-pass `eval_drift` also records an audit-only RS-01 observation per prefix
+when prediction, target, and mask identities can be compared in one contract.
+Fixed-head runs use `fixed_vocab_label_mask.v1`; topology-native candidate runs
+use `topology_native_candidate_label_mask.v1`; MOU uses
+`mou_native_candidate_label_mask.v1`. This observation layer does not alter
+model forward, mask construction, prediction selection, or existing
+`strict_*`/hybrid macro-F1 metrics.
+
+For topology-native candidate audits, `candidate_allowed_target_mask` is the
+preferred mask source. If a cached graph only exposes fixed-vocabulary
+`allowed_target_mask`, the trainer projects that mask through
+`candidate_class_index` before building RS-01 allowed identities. This keeps the
+audit denominator aligned with the same topology mask used by inference metrics.
+`candidate_allowed_target_mask` is a per-prefix mask and must remain batch
+shaped as `[B, C_v]` after PyG collation; only static topology payloads such as
+candidate ids, labels, and class indexes may be selected from the first graph in
+a topology-homogeneous batch. One-pass `eval_drift` logs endpoint-scope RS-01
+rates and denominator QC once, without `drift_window_` prefixes, before
+emitting overlapping window series.
+
+`parallelism_admissible_error_rate` means the selected prediction was wrong but
+inside the current mask. It is a mask-admissible alternative error rate, not a
+causal BPMN parallelism classifier. Exact-correct predictions outside the mask
+are counted in `exact_outside_mask_*` and remain strict-correct for the
+three-cell partition.
+
 Fallback behavior:
 
 ```text

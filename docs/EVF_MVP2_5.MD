@@ -89,6 +89,43 @@ model score. Primary fields:
 The research default for empty masks is `raise`. `record_invalid` is allowed
 only to report empty rows without falling back to the whole candidate space.
 
+### 6.2 RS-01 Outcome Partition Audit
+
+`RS-01` is an evaluation-only audit contract for `eval_drift` and MOU
+diagnostics. It does not change logits, masks, checkpoints, datasets, training,
+or historical metric definitions.
+
+The valid audited population is partitioned into exactly three instance-level
+cells:
+
+1. `strict_correct`
+2. `parallelism_admissible_error`
+3. `oos_error`
+
+`parallelism_admissible_error_rate` is an instance-level mask-admissible
+alternative error rate. It is not a BPMN parallel-gateway detector and does not
+establish causal source. `strict_test_macro_f1` is class-balanced and is not
+additive with the error partition.
+
+For valid audited rows only:
+
+```text
+strict_correct_rate + parallelism_admissible_error_rate + oos_error_rate = 1
+```
+
+Exact-correct predictions outside the current mask are retained as
+`exact_outside_mask_*` diagnostics and do not enter `oos_error_rate`. Empty
+masks, unknown targets, unknown predictions, and unresolved mappings are
+excluded from the valid denominator and reported against `audited_prefix_count`.
+Overlapping drift windows are descriptive slices and are not independent
+observations.
+
+`eval_drift` logs the same three RS-01 rates once at endpoint scope over the
+selected non-overlapping evaluation population, alongside `audited_prefix_count`,
+`valid_prediction_count`, `excluded_count`, and `unresolved_mapping_count`.
+These endpoint metrics are the article-facing denominator evidence; moving
+window metrics remain temporal diagnostics only.
+
 Optional sliced metrics:
 1. by process version
 2. by prefix length bins

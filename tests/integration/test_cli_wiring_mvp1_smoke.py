@@ -141,6 +141,9 @@ def test_cli_mou_mode_logs_as_eval_drift_to_mlflow(monkeypatch, tmp_path):
     assert tracker.params["model.type"] == "MOU"
     assert tracker.params["model_type"] == "MOU"
     assert tracker.metrics["uniform_mask_expected_accuracy"] == 1.0
+    assert tracker.metrics["parallelism_admissible_error_rate_mc_mean"] == 0.25
+    assert tracker.metrics["drift_window_parallelism_admissible_error_rate_mc_mean"] == 0.25
+    assert tracker.metrics["drift_window_partition_sum_mc_mean"] == 1.0
     assert tracker.metrics["drift_window_strict_macro_f1"] == 0.5
     assert tracker.metrics["drift_window_macro_f1"] == 0.6
     assert tracker.closed is True
@@ -157,13 +160,18 @@ class _RecordingMouEvaluator:
         rows = list(samples)
         type(self).last_samples = len(rows)
         return {
-            "test_metrics": {"uniform_mask_expected_accuracy": 1.0},
+            "test_metrics": {
+                "uniform_mask_expected_accuracy": 1.0,
+                "parallelism_admissible_error_rate_mc_mean": 0.25,
+            },
             "monte_carlo": {"evaluation_seed": self.last_kwargs["evaluation_seed"], "draws": self.last_kwargs["mc_draws"]},
             "drift_metrics": [
                 {
                     "window_index": 0,
                     "window_strict_test_macro_f1_mc_mean": 0.5,
                     "window_test_macro_f1_mc_mean": 0.6,
+                    "window_parallelism_admissible_error_rate_mc_mean": 0.25,
+                    "window_partition_sum_mc_mean": 1.0,
                 }
             ],
         }

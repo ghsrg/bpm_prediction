@@ -9,6 +9,7 @@ from typing import Any, Callable, Iterable, Sequence
 import torch
 
 from src.application.services.candidate_target_mapping import candidate_target_mask_from_labels
+from src.application.services.outcome_partition_audit import AuditObservation, aggregate_outcomes
 from src.domain.services.candidate_label_matching import candidate_label_metric_key
 from src.domain.services.uniform_mask_scorer import UniformMaskScorer
 
@@ -217,6 +218,7 @@ class TopologyMaskUniformEvaluator:
         eligible_pred: list[str] = []
         strict_correct = []
         strict_error_but_allowed = []
+        audit_observations: list[AuditObservation] = []
         for record in valid:
             pred_idx = self._sample_prediction(record, draw_index)
             pred_label = record.candidate_labels[pred_idx] if pred_idx >= 0 else "__invalid_candidate_prediction__"
@@ -228,12 +230,27 @@ class TopologyMaskUniformEvaluator:
             strict_correct.append(1.0 if is_correct else 0.0)
             pred_in_mask = pred_idx >= 0 and bool(record.allowed_mask[pred_idx])
             strict_error_but_allowed.append(1.0 if (not is_correct and pred_in_mask) else 0.0)
+            allowed_identities = frozenset(
+                candidate_label_metric_key(label)
+                for label, allowed in zip(record.candidate_labels, record.allowed_mask)
+                if allowed
+            )
+            audit_observations.append(
+                AuditObservation(
+                    prediction_identity=pred_key if pred_idx >= 0 else None,
+                    target_identity=true_key,
+                    allowed_identities=allowed_identities,
+                    prediction_space="mou_native_candidate_label",
+                    mask_space="mou_native_candidate_label",
+                    metric_contract_id="mou_native_candidate_label_mask.v1",
+                )
+            )
             hybrid_true.append(pred_key if record.mask_cardinality > 1 and pred_in_mask else true_key)
             hybrid_pred.append(pred_key)
             if record.target_in_mask:
                 eligible_true.append(true_key)
                 eligible_pred.append(pred_key)
-        return {
+        metrics = {
             "strict_test_macro_f1": self._macro_f1(strict_true, strict_pred),
             "test_macro_f1": self._macro_f1(hybrid_true, hybrid_pred),
             "legacy_test_macro_f1": self._macro_f1(strict_true, strict_pred),
@@ -243,6 +260,13 @@ class TopologyMaskUniformEvaluator:
             if strict_error_but_allowed
             else 0.0,
         }
+        summary = aggregate_outcomes(audit_observations)
+        for key, value in summary.as_metrics().items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                metrics[key] = float(value)
+        metrics["topology_tolerant_macro_f1"] = metrics["test_macro_f1"]
+        metrics["topology_tolerant_macro_f1_gain"] = metrics["test_macro_f1"] - metrics["strict_test_macro_f1"]
+        return metrics
 
     def _sample_prediction(self, record: UniformMaskEvaluationRecord, draw_index: int) -> int:
         key = (int(draw_index), record.sample_key)
@@ -267,11 +291,32 @@ class TopologyMaskUniformEvaluator:
             ("legacy_test_macro_f1", "legacy_test_macro_f1"),
             ("ranking_eligible_macro_f1", "ranking_eligible_macro_f1"),
             ("strict_error_but_allowed_rate", "strict_error_but_allowed_rate"),
+            ("strict_correct_count", "strict_correct_count"),
+            ("strict_correct_rate", "strict_correct_rate"),
+            ("parallelism_admissible_error_count", "parallelism_admissible_error_count"),
+            ("parallelism_admissible_error_rate", "parallelism_admissible_error_rate"),
+            ("oos_error_count", "oos_error_count"),
+            ("oos_error_rate", "oos_error_rate"),
+            ("exact_outside_mask_count", "exact_outside_mask_count"),
+            ("exact_outside_mask_rate", "exact_outside_mask_rate"),
+            ("valid_prediction_count", "valid_prediction_count"),
+            ("audited_prefix_count", "audited_prefix_count"),
+            ("empty_mask_count", "empty_mask_count"),
+            ("unknown_target_count", "unknown_target_count"),
+            ("unknown_prediction_count", "unknown_prediction_count"),
+            ("excluded_count", "excluded_count"),
+            ("partition_sum", "partition_sum"),
+            ("topology_tolerant_macro_f1", "topology_tolerant_macro_f1"),
+            ("topology_tolerant_macro_f1_gain", "topology_tolerant_macro_f1_gain"),
         ):
-            values = [row[source_key] for row in draw_metrics]
+            values = [row[source_key] for row in draw_metrics if source_key in row]
             out.update(self._summary(prefix, values))
         out["strict_error_but_allowed_rate"] = out["strict_error_but_allowed_rate_mc_mean"]
         out["test_strict_error_but_allowed_rate"] = out["strict_error_but_allowed_rate_mc_mean"]
+        out["parallelism_admissible_error_rate"] = out["parallelism_admissible_error_rate_mc_mean"]
+        out["strict_correct_rate"] = out["strict_correct_rate_mc_mean"]
+        out["oos_error_rate"] = out["oos_error_rate_mc_mean"]
+        out["partition_sum"] = out["partition_sum_mc_mean"]
         return out
 
     def _append_cardinality_metrics(

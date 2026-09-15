@@ -16,7 +16,7 @@ import random
 from pathlib import Path
 import tempfile
 from time import perf_counter
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import warnings
 
 import numpy as np
@@ -44,6 +44,11 @@ from src.application.services.candidate_target_mapping import (
     candidate_set_cross_entropy,
     candidate_target_summary,
     candidate_set_predictions,
+)
+from src.application.services.outcome_partition_audit import (
+    AuditObservation,
+    OutcomePartitionSummary,
+    aggregate_outcomes,
 )
 from src.application.services.structural_trace_payload_builder import build_structural_prediction_trace_event
 from src.application.services.topology_conditioned_learning import (
@@ -125,6 +130,7 @@ class DriftInferenceRecords:
     fixed_confidence: np.ndarray
     fixed_correct: np.ndarray
     fixed_set_nll: np.ndarray
+    audit_observations: tuple[AuditObservation, ...] = ()
 
 
 def _data_topology_key(graph: Data) -> str:
@@ -812,6 +818,158 @@ class ModelTrainer:
             pred_keys.append(candidate_label_metric_key(raw_pred_key) if not raw_pred_key.startswith("class:") else raw_pred_key)
             true_keys.append(true_key)
         return true_keys, pred_keys
+
+    def _fixed_head_allowed_identity_sets(
+        self,
+        allowed_mask: torch.Tensor | None,
+    ) -> list[frozenset[str] | None]:
+        if not isinstance(allowed_mask, torch.Tensor):
+            return []
+        mask = allowed_mask.detach().cpu().bool()
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        if mask.dim() != 2:
+            return []
+        rows: list[frozenset[str] | None] = []
+        for row in mask:
+            identities: set[str] = set()
+            for idx, allowed in enumerate(row.tolist()):
+                if not bool(allowed):
+                    continue
+                raw_key = self._reverse_activity_vocab.get(int(idx), f"class:{int(idx)}")
+                identities.add(
+                    candidate_label_metric_key(raw_key)
+                    if not str(raw_key).startswith("class:")
+                    else str(raw_key)
+                )
+            rows.append(frozenset(identities))
+        return rows
+
+    @staticmethod
+    def _candidate_allowed_identity_sets(
+        candidate_output: CandidatePredictionOutput,
+        allowed_mask: torch.Tensor | None,
+    ) -> list[frozenset[str] | None]:
+        if not isinstance(allowed_mask, torch.Tensor):
+            return []
+        mask = allowed_mask.detach().cpu().bool()
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(0)
+        if mask.dim() != 2:
+            return []
+        candidate_labels = [str(label).strip() for label in candidate_output.candidate_labels]
+        rows: list[frozenset[str] | None] = []
+        for row in mask:
+            identities: set[str] = set()
+            for idx, allowed in enumerate(row.tolist()):
+                if bool(allowed) and idx < len(candidate_labels) and candidate_labels[idx]:
+                    identities.add(candidate_label_metric_key(candidate_labels[idx]))
+            rows.append(frozenset(identities))
+        return rows
+
+    @staticmethod
+    def _audit_metrics_from_summary(summary: OutcomePartitionSummary) -> Dict[str, float]:
+        raw = summary.as_metrics()
+        return {
+            key: float(value)
+            for key, value in raw.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        }
+
+    @staticmethod
+    def _window_audit_metrics(metrics: Mapping[str, Any]) -> Dict[str, float]:
+        keys = (
+            "audited_prefix_count",
+            "valid_prediction_count",
+            "strict_correct_count",
+            "strict_correct_rate",
+            "parallelism_admissible_error_count",
+            "parallelism_admissible_error_rate",
+            "oos_error_count",
+            "oos_error_rate",
+            "exact_outside_mask_count",
+            "exact_outside_mask_rate",
+            "empty_mask_count",
+            "empty_mask_rate",
+            "unknown_target_count",
+            "unknown_target_rate",
+            "unknown_prediction_count",
+            "unknown_prediction_rate",
+            "unresolved_mapping_count",
+            "unresolved_mapping_rate",
+            "excluded_count",
+            "excluded_rate",
+            "partition_sum",
+            "audit_contract_discrepancy_count",
+            "audit_contract_discrepancy_rate",
+            "topology_tolerant_macro_f1",
+            "topology_tolerant_macro_f1_gain",
+        )
+        out: Dict[str, float] = {}
+        for key in keys:
+            value = metrics.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[f"window_{key}"] = float(value)
+        return out
+
+    @staticmethod
+    def _endpoint_audit_metrics(metrics: Mapping[str, Any]) -> Dict[str, float]:
+        keys = (
+            "test_accuracy",
+            "test_macro_f1",
+            "test_weighted_f1",
+            "test_set_nll",
+            "test_ece",
+            "test_oos",
+            "test_target_in_mask_rate",
+            "test_pred_in_mask_rate",
+            "test_strict_error_but_allowed_rate",
+            "test_ambiguous_prefix_rate",
+            "strict_test_accuracy",
+            "strict_test_macro_f1",
+            "strict_test_weighted_f1",
+            "fixed_label_strict_test_accuracy",
+            "fixed_label_strict_test_macro_f1",
+            "audited_prefix_count",
+            "valid_prediction_count",
+            "strict_correct_count",
+            "strict_correct_rate",
+            "parallelism_admissible_error_count",
+            "parallelism_admissible_error_rate",
+            "oos_error_count",
+            "oos_error_rate",
+            "exact_outside_mask_count",
+            "exact_outside_mask_rate",
+            "empty_mask_count",
+            "empty_mask_rate",
+            "unknown_target_count",
+            "unknown_target_rate",
+            "unknown_prediction_count",
+            "unknown_prediction_rate",
+            "unresolved_mapping_count",
+            "unresolved_mapping_rate",
+            "excluded_count",
+            "excluded_rate",
+            "partition_sum",
+            "audit_contract_discrepancy_count",
+            "audit_contract_discrepancy_rate",
+            "topology_tolerant_macro_f1",
+            "topology_tolerant_macro_f1_gain",
+        )
+        out: Dict[str, float] = {}
+        for key in keys:
+            value = metrics.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[key] = float(value)
+        return out
+
+    def _log_eval_drift_endpoint_audit_metrics(self, records: DriftInferenceRecords) -> None:
+        if self.tracker is None or int(records.y_true.shape[0]) == 0:
+            return
+        idxs = np.arange(int(records.y_true.shape[0]), dtype=np.int64)
+        metrics = self._compute_test_metrics_from_records(records, idxs)
+        for key, value in self._endpoint_audit_metrics(metrics).items():
+            self.tracker.log_metric(key, float(value), step=0)
 
     def _fixed_head_label_target_probabilities(
         self,
@@ -2667,6 +2825,7 @@ class ModelTrainer:
         all_fixed_confidence: List[float] = []
         all_fixed_correct: List[float] = []
         all_fixed_set_nll: List[float] = []
+        all_audit_observations: List[AuditObservation] = []
         all_probs: List[np.ndarray] = []
         all_oos_flags_aligned: List[float] = []
         all_target_in_mask_flags: List[float] = []
@@ -3290,6 +3449,7 @@ class ModelTrainer:
         all_fixed_confidence: List[float] = []
         all_fixed_correct: List[float] = []
         all_fixed_set_nll: List[float] = []
+        all_audit_observations: List[AuditObservation] = []
         all_top3_hit: List[float] = []
         all_oos_flags: List[float] = []
         all_target_in_mask_flags: List[float] = []
@@ -3508,6 +3668,7 @@ class ModelTrainer:
                     batch_candidate_invalid_probability_mass = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_candidate_valid_probability_mass = np.full(batch_size, np.nan, dtype=np.float32)
                     batch_candidate_valid_invalid_logit_margin = np.full(batch_size, np.nan, dtype=np.float32)
+                    candidate_allowed_mask = None
                     batch_hybrid_correct = correct_tensor
                     batch_hybrid_set_nll = batch_stable_set_nll
                     batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
@@ -3553,6 +3714,42 @@ class ModelTrainer:
                             strict_error_but_allowed.float().detach().cpu().numpy().astype(np.float32, copy=False)
                         )
                         batch_mask_cardinality = mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
+
+                    if (
+                        candidate_output is not None
+                        and self.candidate_identity_mode == "topology_native"
+                    ):
+                        native_mask = contract.get("candidate_allowed_target_mask")
+                        if not isinstance(native_mask, torch.Tensor):
+                            native_mask = candidate_allowed_mask
+                        native_allowed_sets = self._candidate_allowed_identity_sets(
+                            candidate_output,
+                            native_mask if isinstance(native_mask, torch.Tensor) else None,
+                        )
+                        prediction_space = "topology_native_candidate_label"
+                        mask_space = "topology_native_candidate_label"
+                        metric_contract_id = "topology_native_candidate_label_mask.v1"
+                    else:
+                        native_allowed_sets = self._fixed_head_allowed_identity_sets(allowed_mask)
+                        prediction_space = "fixed_vocab_label"
+                        mask_space = "fixed_vocab_label"
+                        metric_contract_id = "fixed_vocab_label_mask.v1"
+                    for row_idx in range(batch_size):
+                        allowed_identities = (
+                            native_allowed_sets[row_idx]
+                            if row_idx < len(native_allowed_sets)
+                            else None
+                        )
+                        all_audit_observations.append(
+                            AuditObservation(
+                                prediction_identity=str(pred_keys[row_idx]) if row_idx < len(pred_keys) else None,
+                                target_identity=str(true_keys[row_idx]) if row_idx < len(true_keys) else None,
+                                allowed_identities=allowed_identities,
+                                prediction_space=prediction_space,
+                                mask_space=mask_space,
+                                metric_contract_id=metric_contract_id,
+                            )
+                        )
 
                     self._maybe_record_prediction_traces(
                         stage_label="eval_drift_one_pass",
@@ -3686,6 +3883,7 @@ class ModelTrainer:
             fixed_confidence=np.asarray(all_fixed_confidence, dtype=np.float32),
             fixed_correct=np.asarray(all_fixed_correct, dtype=np.float32),
             fixed_set_nll=np.asarray(all_fixed_set_nll, dtype=np.float32),
+            audit_observations=tuple(all_audit_observations),
         )
 
     def _compute_test_metrics_from_records(self, records: DriftInferenceRecords, idxs: np.ndarray) -> Dict[str, Any]:
@@ -3796,6 +3994,30 @@ class ModelTrainer:
         metrics["test_target_in_mask_rate"] = self._nanmean_or_none(target_in_mask_flags)
         metrics["test_pred_in_mask_rate"] = self._nanmean_or_none(pred_in_mask_flags)
         metrics["test_strict_error_but_allowed_rate"] = self._nanmean_or_none(strict_error_but_allowed_flags)
+        if records.audit_observations:
+            selected_observations = [
+                records.audit_observations[int(idx)]
+                for idx in idxs.tolist()
+                if int(idx) < len(records.audit_observations)
+            ]
+            audit_summary = aggregate_outcomes(selected_observations)
+            metrics.update(self._audit_metrics_from_summary(audit_summary))
+            if int(audit_summary.valid_prediction_count) == int(y_true.shape[0]):
+                if abs(float(metrics["strict_test_accuracy"]) - float(audit_summary.strict_correct_rate)) > 1.0e-9:
+                    raise ValueError("RS-01 strict_correct_rate does not match strict_test_accuracy.")
+                strict_allowed_rate = metrics.get("test_strict_error_but_allowed_rate")
+                if strict_allowed_rate is not None and abs(
+                    float(strict_allowed_rate) - float(audit_summary.parallelism_admissible_error_rate)
+                ) <= 1.0e-9:
+                    metrics["audit_contract_discrepancy_count"] = 0.0
+                    metrics["audit_contract_discrepancy_rate"] = 0.0
+                elif strict_allowed_rate is not None:
+                    metrics["audit_contract_discrepancy_count"] = 1.0
+                    metrics["audit_contract_discrepancy_rate"] = 1.0
+        metrics["topology_tolerant_macro_f1"] = float(metrics["test_macro_f1"])
+        metrics["topology_tolerant_macro_f1_gain"] = float(metrics["test_macro_f1"]) - float(
+            metrics["strict_test_macro_f1"]
+        )
         metrics["candidate_oos_rate"] = self._nanmean_or_none(candidate_oos_flags)
         metrics["candidate_invalid_probability_mass"] = self._nanmean_or_none(candidate_invalid_probability_mass)
         metrics["candidate_valid_probability_mass"] = self._nanmean_or_none(candidate_valid_probability_mass)
@@ -3926,6 +4148,7 @@ class ModelTrainer:
             window_candidate_invalid_mass = metrics.get("candidate_invalid_probability_mass")
             window_candidate_valid_mass = metrics.get("candidate_valid_probability_mass")
             window_candidate_margin = metrics.get("candidate_valid_invalid_logit_margin")
+            audit_window_metrics = self._window_audit_metrics(metrics)
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
@@ -3987,6 +4210,8 @@ class ModelTrainer:
                         float(window_candidate_margin),
                         step=window_idx,
                     )
+                for key, value in audit_window_metrics.items():
+                    self.tracker.log_metric(f"drift_{key}", float(value), step=window_idx)
 
             start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
             end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
@@ -4045,6 +4270,7 @@ class ModelTrainer:
                     "window_candidate_valid_invalid_logit_margin": (
                         float(window_candidate_margin) if window_candidate_margin is not None else float("nan")
                     ),
+                    **audit_window_metrics,
                 }
             )
 
@@ -4111,6 +4337,7 @@ class ModelTrainer:
             unique_traces,
             max_trace_idx,
         )
+        self._log_eval_drift_endpoint_audit_metrics(records)
 
         resolved_windows = self._resolve_drift_window_record_indices(records, traces)
         total_windows = len(resolved_windows)
@@ -4147,6 +4374,7 @@ class ModelTrainer:
             window_ambiguous_prefix = metrics.get("test_ambiguous_prefix_rate")
             window_set_nll = metrics.get("test_set_nll")
             window_oos_confidence_mean = metrics.get("test_oos_confidence_mean")
+            audit_window_metrics = self._window_audit_metrics(metrics)
 
             iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "ece": f"{ece:.4f}"})
 
@@ -4180,6 +4408,8 @@ class ModelTrainer:
                         float(window_ambiguous_prefix),
                         step=window_idx,
                     )
+                for key, value in audit_window_metrics.items():
+                    self.tracker.log_metric(f"drift_{key}", float(value), step=window_idx)
 
             window_trace_count = max(0, int(idxs.shape[0]))
             window_end_trace = int(start)
@@ -4218,6 +4448,7 @@ class ModelTrainer:
                     "window_ambiguous_prefix_rate": (
                         float(window_ambiguous_prefix) if window_ambiguous_prefix is not None else float("nan")
                     ),
+                    **audit_window_metrics,
                 }
             )
 
@@ -6203,10 +6434,29 @@ class ModelTrainer:
         candidate_is_unseen = self._slice_first(candidate_is_unseen, "candidate_is_unseen", slice_dict, dim=0)
 
         if isinstance(candidate_allowed_target_mask, torch.Tensor):
-            if candidate_allowed_target_mask.dim() == 2:
-                candidate_allowed_target_mask = candidate_allowed_target_mask[0:1]
-            else:
-                candidate_allowed_target_mask = self._slice_first(candidate_allowed_target_mask, "candidate_allowed_target_mask", slice_dict, dim=0)
+            if candidate_allowed_target_mask.dim() == 1:
+                slices = (
+                    slice_dict.get("candidate_allowed_target_mask")
+                    if isinstance(slice_dict, dict)
+                    else None
+                )
+                if (
+                    isinstance(slices, torch.Tensor)
+                    and int(slices.numel()) == graph_count + 1
+                    and graph_count > 1
+                ):
+                    starts = slices.detach().cpu().long().tolist()
+                    widths = [int(starts[idx + 1] - starts[idx]) for idx in range(graph_count)]
+                    if widths and len(set(widths)) == 1 and widths[0] > 0:
+                        rows = [
+                            candidate_allowed_target_mask[int(starts[idx]) : int(starts[idx + 1])]
+                            for idx in range(graph_count)
+                        ]
+                        candidate_allowed_target_mask = torch.stack(rows, dim=0)
+                    else:
+                        candidate_allowed_target_mask = candidate_allowed_target_mask.unsqueeze(0)
+                else:
+                    candidate_allowed_target_mask = candidate_allowed_target_mask.unsqueeze(0)
 
         def get_first_list_attr(val):
             if val is not None:

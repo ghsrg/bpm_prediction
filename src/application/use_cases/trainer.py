@@ -3672,6 +3672,7 @@ class ModelTrainer:
                     batch_hybrid_correct = correct_tensor
                     batch_hybrid_set_nll = batch_stable_set_nll
                     batch_ambiguous = torch.zeros(batch_size, dtype=torch.float32, device=pred_tensor.device)
+                    effective_native_mask = None
 
                     if isinstance(allowed_mask, torch.Tensor):
                         if allowed_mask.dim() == 1:
@@ -3722,9 +3723,61 @@ class ModelTrainer:
                         native_mask = contract.get("candidate_allowed_target_mask")
                         if not isinstance(native_mask, torch.Tensor):
                             native_mask = candidate_allowed_mask
+                        if isinstance(native_mask, torch.Tensor):
+                            effective_native_mask = native_mask.to(device=raw_logits.device, dtype=torch.bool)
+                            if effective_native_mask.dim() == 1:
+                                effective_native_mask = effective_native_mask.unsqueeze(0)
+                            if (
+                                effective_native_mask.dim() == 2
+                                and int(effective_native_mask.size(0)) == batch_size
+                                and int(effective_native_mask.size(1)) == int(raw_logits.size(1))
+                            ):
+                                native_pred = candidate_set_predictions(raw_logits.detach())
+                                row_ids = torch.arange(batch_size, device=raw_logits.device)
+                                native_pred_in_mask = effective_native_mask[row_ids, native_pred].bool()
+                                native_strict_error = correct_tensor.to(device=raw_logits.device) <= 0.5
+                                native_oos = native_strict_error & (~native_pred_in_mask)
+                                native_strict_error_but_allowed = native_strict_error & native_pred_in_mask
+                                native_mask_cardinality = effective_native_mask.sum(dim=1).float()
+                                native_ambiguous = native_mask_cardinality > 1.0
+                                batch_oos = native_oos.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                                batch_pred_in_mask = (
+                                    native_pred_in_mask.float().detach().cpu().numpy().astype(np.float32, copy=False)
+                                )
+                                batch_strict_error_but_allowed = (
+                                    native_strict_error_but_allowed.float()
+                                    .detach()
+                                    .cpu()
+                                    .numpy()
+                                    .astype(np.float32, copy=False)
+                                )
+                                batch_mask_cardinality = (
+                                    native_mask_cardinality.detach().cpu().numpy().astype(np.float32, copy=False)
+                                )
+                                batch_hybrid_correct = torch.where(
+                                    native_ambiguous,
+                                    native_pred_in_mask.float(),
+                                    correct_tensor.to(device=raw_logits.device),
+                                )
+                                batch_ambiguous = native_ambiguous.float()
+                                if (
+                                    isinstance(target_candidate_mask, torch.Tensor)
+                                    and target_candidate_mask.shape == effective_native_mask.shape
+                                ):
+                                    native_target_in_mask = (
+                                        target_candidate_mask.to(device=raw_logits.device, dtype=torch.bool)
+                                        & effective_native_mask
+                                    ).any(dim=1)
+                                    batch_target_in_mask = (
+                                        native_target_in_mask.float()
+                                        .detach()
+                                        .cpu()
+                                        .numpy()
+                                        .astype(np.float32, copy=False)
+                                    )
                         native_allowed_sets = self._candidate_allowed_identity_sets(
                             candidate_output,
-                            native_mask if isinstance(native_mask, torch.Tensor) else None,
+                            effective_native_mask if isinstance(effective_native_mask, torch.Tensor) else None,
                         )
                         prediction_space = "topology_native_candidate_label"
                         mask_space = "topology_native_candidate_label"
@@ -4003,12 +4056,13 @@ class ModelTrainer:
             audit_summary = aggregate_outcomes(selected_observations)
             metrics.update(self._audit_metrics_from_summary(audit_summary))
             if int(audit_summary.valid_prediction_count) == int(y_true.shape[0]):
-                if abs(float(metrics["strict_test_accuracy"]) - float(audit_summary.strict_correct_rate)) > 1.0e-9:
+                audit_contract_tolerance = 1.0e-6
+                if abs(float(metrics["strict_test_accuracy"]) - float(audit_summary.strict_correct_rate)) > audit_contract_tolerance:
                     raise ValueError("RS-01 strict_correct_rate does not match strict_test_accuracy.")
                 strict_allowed_rate = metrics.get("test_strict_error_but_allowed_rate")
                 if strict_allowed_rate is not None and abs(
                     float(strict_allowed_rate) - float(audit_summary.parallelism_admissible_error_rate)
-                ) <= 1.0e-9:
+                ) <= audit_contract_tolerance:
                     metrics["audit_contract_discrepancy_count"] = 0.0
                     metrics["audit_contract_discrepancy_rate"] = 0.0
                 elif strict_allowed_rate is not None:

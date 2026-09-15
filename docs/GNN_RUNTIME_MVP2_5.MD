@@ -1723,6 +1723,12 @@ a topology-homogeneous batch. One-pass `eval_drift` logs endpoint-scope RS-01
 rates and denominator QC once, without `drift_window_` prefixes, before
 emitting overlapping window series.
 
+For topology-native EOPKG one-pass drift evaluation, legacy-compatible
+`test_oos`, `test_pred_in_mask_rate`, `test_target_in_mask_rate`,
+`test_strict_error_but_allowed_rate`, and their drift-window aggregates use the
+same effective native candidate mask as RS-01. Fixed-vocabulary models keep
+using `allowed_target_mask` because they do not have a native candidate axis.
+
 `parallelism_admissible_error_rate` means the selected prediction was wrong but
 inside the current mask. It is a mask-admissible alternative error rate, not a
 causal BPMN parallelism classifier. Exact-correct predictions outside the mask

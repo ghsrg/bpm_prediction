@@ -10,7 +10,8 @@ from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
-from src.application.use_cases.trainer import ModelTrainer
+from src.application.services.outcome_partition_audit import AuditObservation
+from src.application.use_cases.trainer import DriftInferenceRecords, ModelTrainer
 from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
@@ -318,6 +319,25 @@ def test_one_pass_rs01_candidate_audit_keeps_batch_native_mask_rows(tmp_path):
     assert metrics["strict_correct_rate"] == pytest.approx(1.0)
 
 
+def test_one_pass_topology_native_legacy_oos_uses_native_candidate_mask(tmp_path):
+    trainer = _known_candidate_trainer(tmp_path)
+    sample = _sample(trace_idx=0, target=0, pred=0, mask=[True, False])
+    sample.candidate_allowed_target_mask = torch.tensor([False, True], dtype=torch.bool)
+    sample.target_label = "A"
+
+    records = trainer._collect_drift_inference_records(DataLoader([sample], batch_size=1, shuffle=False))
+    metrics = trainer._compute_test_metrics_from_records(records, np.asarray([0], dtype=np.int64))
+
+    assert metrics["strict_test_accuracy"] == pytest.approx(metrics["strict_correct_rate"])
+    assert metrics["test_oos"] == pytest.approx(metrics["oos_error_rate"])
+    assert metrics["test_strict_error_but_allowed_rate"] == pytest.approx(
+        metrics["parallelism_admissible_error_rate"]
+    )
+    assert metrics["strict_correct_rate"] == pytest.approx(0.0)
+    assert metrics["parallelism_admissible_error_rate"] == pytest.approx(1.0)
+    assert metrics["oos_error_rate"] == pytest.approx(0.0)
+
+
 def test_collect_drift_inference_records_emits_one_pass_progress_events(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
     trainer = _trainer(tmp_path)
@@ -393,6 +413,78 @@ def test_one_pass_records_emit_rs01_outcome_partition(tmp_path):
     assert metrics["strict_test_accuracy"] == pytest.approx(metrics["strict_correct_rate"])
     assert metrics["parallelism_admissible_error_rate"] == pytest.approx(
         metrics["test_strict_error_but_allowed_rate"]
+    )
+
+
+def test_rs01_contract_discrepancy_tolerates_float32_rounding(tmp_path):
+    trainer = _trainer(tmp_path)
+    strict_count = 106_474
+    allowed_count = 31_185
+    oos_count = 7_153
+    total = strict_count + allowed_count + oos_count
+    y_true = np.asarray(["A"] * total, dtype=object)
+    y_pred = np.asarray(
+        ["A"] * strict_count + ["B"] * allowed_count + ["B"] * oos_count,
+        dtype=object,
+    )
+    correct = np.asarray([1.0] * strict_count + [0.0] * (allowed_count + oos_count), dtype=np.float32)
+    pred_in_mask = np.asarray([1.0] * strict_count + [1.0] * allowed_count + [0.0] * oos_count, dtype=np.float32)
+    target_in_mask = np.ones(total, dtype=np.float32)
+    strict_error_but_allowed = np.asarray(
+        [0.0] * strict_count + [1.0] * allowed_count + [0.0] * oos_count,
+        dtype=np.float32,
+    )
+    oos_flags = np.asarray([0.0] * (strict_count + allowed_count) + [1.0] * oos_count, dtype=np.float32)
+    observations = (
+        tuple(
+            AuditObservation("A", "A", frozenset({"A"}), "test", "test", "test.v1")
+            for _ in range(strict_count)
+        )
+        + tuple(
+            AuditObservation("B", "A", frozenset({"B"}), "test", "test", "test.v1")
+            for _ in range(allowed_count)
+        )
+        + tuple(
+            AuditObservation("B", "A", frozenset({"C"}), "test", "test", "test.v1")
+            for _ in range(oos_count)
+        )
+    )
+    records = DriftInferenceRecords(
+        trace_idx=np.arange(total, dtype=np.int64),
+        y_true=y_true,
+        y_pred=y_pred,
+        confidence=np.ones(total, dtype=np.float32),
+        correct=correct,
+        top3_hit=correct,
+        oos_flags=oos_flags,
+        target_in_mask_flags=target_in_mask,
+        pred_in_mask_flags=pred_in_mask,
+        strict_error_but_allowed_flags=strict_error_but_allowed,
+        mask_cardinality=np.ones(total, dtype=np.float32),
+        candidate_oos_flags=oos_flags,
+        candidate_invalid_probability_mass=np.zeros(total, dtype=np.float32),
+        candidate_valid_probability_mass=np.ones(total, dtype=np.float32),
+        candidate_valid_invalid_logit_margin=np.zeros(total, dtype=np.float32),
+        hybrid_correct_flags=pred_in_mask,
+        hybrid_set_nll=np.zeros(total, dtype=np.float32),
+        ambiguous_flags=np.ones(total, dtype=np.float32),
+        prefix_lengths=np.ones(total, dtype=np.int64),
+        version_labels=[],
+        inference_ms_per_graph=0.0,
+        fixed_y_true=np.zeros(total, dtype=np.int64),
+        fixed_y_pred=np.zeros(total, dtype=np.int64),
+        fixed_confidence=np.ones(total, dtype=np.float32),
+        fixed_correct=correct,
+        fixed_set_nll=np.zeros(total, dtype=np.float32),
+        audit_observations=observations,
+    )
+
+    metrics = trainer._compute_test_metrics_from_records(records, np.arange(total, dtype=np.int64))
+
+    assert metrics["audit_contract_discrepancy_count"] == 0.0
+    assert metrics["test_strict_error_but_allowed_rate"] == pytest.approx(
+        metrics["parallelism_admissible_error_rate"],
+        abs=1.0e-6,
     )
 
 

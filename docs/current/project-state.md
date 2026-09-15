@@ -138,6 +138,14 @@ as `audited_prefix_count`, `valid_prediction_count`, `excluded_count`, and
 `unresolved_mapping_count`; overlapping drift-window series are not used as the
 article endpoint denominator.
 
+Common cross-model RS-01 evaluation is available under
+`state_aware_activity_label_mask.v2`. It uses an explicit reference state-aware
+policy, preserves structural-candidate cardinality before activity-label
+projection, evaluates the final model prediction, and reports common OOS,
+target-in-mask, abstention, and coverage evidence. Graph cache schema 8 includes
+the reference policy in its fingerprint. Historical mask contracts remain
+readable but must not be pooled with v2 evidence.
+
 ### offline_topology_preparation
 
 - `status`: implemented

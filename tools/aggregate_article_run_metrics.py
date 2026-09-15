@@ -149,6 +149,14 @@ def _aggregate_run_set(
     audit_mode: str = "",
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     summary_rows: list[dict[str, object]] = []
+    manifest = run_dir / "run_manifest.csv"
+    if manifest.exists():
+        manifest_rows = _read_rows(manifest)
+        contracts = {row.get("rs01_metric_contract_id", "") for row in manifest_rows}
+        if "state_aware_activity_label_mask.v2" in contracts:
+            policies = {row.get("rs01_mask_policy_id", "") for row in manifest_rows}
+            if len(contracts) != 1 or len(policies) != 1 or "" in policies:
+                raise ValueError("Common safety aggregation requires one reference policy and contract")
     detail_rows: list[dict[str, object]] = []
     best_epoch_by_run = _best_epoch_by_run(run_dir) if strategy == "best_epoch" else {}
 

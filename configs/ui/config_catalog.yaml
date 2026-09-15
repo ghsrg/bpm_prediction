@@ -1,4 +1,19 @@
 fields:
+  experiment.rs01_admissibility_policy:
+    affects: Common reference mask for audit only; does not change decoding.
+    default: null
+    description: Explicit reference state-aware policy object; all nine policy fields are required.
+    enum: []
+    label: RS-01 reference admissibility policy
+    path: experiment.rs01_admissibility_policy
+    required_in_modes: []
+    required_when: {}
+    section: experiment
+    ui:
+      group: advanced
+      order: 1001
+      priority: 30
+      tab: general
   data.dataset_label:
     affects: Input loading and process identity.
     default: ''

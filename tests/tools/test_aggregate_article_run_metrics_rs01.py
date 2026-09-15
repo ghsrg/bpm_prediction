@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import csv
+import pytest
 from pathlib import Path
 
 from tools import aggregate_article_run_metrics as aggregate
+
+
+def test_common_safety_aggregation_rejects_mixed_reference_policies(tmp_path):
+    with (tmp_path / "run_manifest.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["run_id", "rs01_metric_contract_id", "rs01_mask_policy_id"])
+        writer.writeheader()
+        for idx, policy in enumerate(["policy-a", "policy-b"]):
+            writer.writerow(dict(run_id=str(idx), rs01_metric_contract_id="state_aware_activity_label_mask.v2",
+                                 rs01_mask_policy_id=policy))
+    with pytest.raises(ValueError, match="reference"):
+        aggregate._aggregate_run_set(tmp_path, 3, "last", audit_mode="rs01")
 
 
 def _write_metric(path: Path, metric: str, rows: list[dict[str, object]]) -> None:

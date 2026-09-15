@@ -87,6 +87,9 @@ def test_graph_dataset_fingerprint_changes_when_graph_feature_mapping_changes():
     fp_base = _graph_dataset_cache_fingerprint(graph_feature_mapping=base_mapping, **common_kwargs)
     fp_changed = _graph_dataset_cache_fingerprint(graph_feature_mapping=changed_mapping, **common_kwargs)
     assert fp_base != fp_changed
+    config["experiment"] = {"rs01_admissibility_policy": {"source": "lifecycle_active_set"}}
+    fp_audit = _graph_dataset_cache_fingerprint(graph_feature_mapping=base_mapping, **common_kwargs)
+    assert fp_audit != fp_base
 
 
 def test_graph_dataset_cache_roundtrip(tmp_path: Path):

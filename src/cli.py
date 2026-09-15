@@ -49,7 +49,7 @@ from src.infrastructure.tracking.mlflow_trace_recorder import MLflowTraceRecorde
 from src.infrastructure.tracking.mlflow_tracker import MLflowTracker
 from src.infrastructure.runtime.progress_events import ProgressReporter, emit_progress_event, progress_events_enabled
 
-GRAPH_DATASET_CACHE_SCHEMA = 7
+GRAPH_DATASET_CACHE_SCHEMA = 8
 GRAPH_DATASET_CACHE_FORMAT_LEGACY = "list_v1"
 GRAPH_DATASET_CACHE_FORMAT_SHARDED = "sharded_v2"
 GRAPH_DATASET_SHARD_FORMAT_DEDUP_STRUCTURAL = "dedup_structural_payloads"
@@ -873,6 +873,7 @@ def _graph_dataset_cache_fingerprint(
         "policies": config.get("policies", {}),
         "features": features_cfg,
         "model": config.get("model", {}),
+        "rs01_admissibility_policy": config.get("experiment", {}).get("rs01_admissibility_policy"),
     }
     encoded = json.dumps(_normalize_for_json(payload), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(encoded.encode("utf-8", errors="ignore")).hexdigest()
@@ -1501,6 +1502,8 @@ def _build_graph_dataset_sharded(
                     if candidate_allowed_mask.dim() == 1
                     else candidate_allowed_mask
                 )
+            if "audit_payload_json" in contract:
+                payload["audit_payload_json"] = contract["audit_payload_json"]
             target_label = contract.get("target_label")
             if target_label is not None:
                 payload["target_label"] = str(target_label)
@@ -1695,6 +1698,8 @@ def _build_graph_dataset(
                     if candidate_allowed_mask.dim() == 1
                     else candidate_allowed_mask
                 )
+            if "audit_payload_json" in contract:
+                payload["audit_payload_json"] = contract["audit_payload_json"]
             target_label = contract.get("target_label")
             if target_label is not None:
                 payload["target_label"] = str(target_label)
@@ -2163,6 +2168,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     )
     logger.info("=================================")
     graph_builder = DynamicGraphBuilder(
+        rs01_admissibility_policy=experiment_cfg.get("rs01_admissibility_policy"),
         feature_encoder=feature_encoder,
         knowledge_port=knowledge_repo,
         process_name=dataset_name,
@@ -2668,6 +2674,14 @@ def _build_mou_mlflow_params(config: Mapping[str, Any]) -> Dict[str, Any]:
     params["rs01.prediction_space"] = "mou_native_candidate_label"
     params["rs01.mask_space"] = "mou_native_candidate_label"
     params["rs01.mc_draws"] = str(experiment_cfg.get("uniform_mask_mc_draws", ""))
+    policy = experiment_cfg.get("rs01_admissibility_policy")
+    if policy is not None:
+        params["rs01.metric_contract_id"] = "state_aware_activity_label_mask.v2"
+        params["rs01.prediction_space"] = "activity_label"
+        params["rs01.mask_space"] = "activity_label"
+        params["rs01.mask_policy_id"] = hashlib.sha256(
+            json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
     return params
 
 

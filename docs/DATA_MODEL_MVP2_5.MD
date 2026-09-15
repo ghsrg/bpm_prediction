@@ -142,16 +142,20 @@ Optional fields used by EOPKG path:
 1. `structural_edge_index: torch.LongTensor | None`
 2. `structural_edge_weight: torch.FloatTensor | None`
 3. `allowed_target_mask: torch.BoolTensor | None`
-4. `struct_node_to_class_index: torch.LongTensor | None`
-5. `struct_x: torch.FloatTensor | None`
-6. `struct_prefix_state_x: torch.FloatTensor | None`
-7. `stats_snapshot_version_seq: int | None`
-8. `stats_snapshot_as_of_epoch: float | None`
-9. `stats_allowed: bool | None`
-10. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
-11. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
-12. `stats_missing_asof_snapshot: bool | None` (strict_asof fallback marker)
-13. `stats_missing_asof_snapshot_batch: list[bool] | None` (batch logging/diagnostics)
+4. `audit_payload_json: str | None` for RS-01 common-mask evaluation. The JSON
+   contains per-prefix canonical allowed activity labels, resolution status,
+   process version, policy fingerprint, and the structural-candidate cardinality
+   basis. It is audit metadata and is not a model-forward tensor.
+5. `struct_node_to_class_index: torch.LongTensor | None`
+6. `struct_x: torch.FloatTensor | None`
+7. `struct_prefix_state_x: torch.FloatTensor | None`
+8. `stats_snapshot_version_seq: int | None`
+9. `stats_snapshot_as_of_epoch: float | None`
+10. `stats_allowed: bool | None`
+11. `stats_snapshot_versions: list[str] | None` (batch logging/diagnostics)
+12. `stats_snapshot_as_of_ts_batch: list[str] | None` (batch logging/diagnostics)
+13. `stats_missing_asof_snapshot: bool | None` (strict_asof fallback marker)
+14. `stats_missing_asof_snapshot_batch: list[bool] | None` (batch logging/diagnostics)
 
 Current Stage 4.2 semantics:
 1. `struct_x` is built from `metadata.stats_index` mapping.

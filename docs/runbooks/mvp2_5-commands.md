@@ -726,7 +726,25 @@ GATv2+Mask audit run. Use `experiment.mode=eval_drift`,
 experiment:
   rs01_audit_enabled: true
   rs01_audit_batch_id: rs01_<batch_id>
+  rs01_admissibility_policy:
+    source: relaxed_reachability
+    include_direct_successors: true
+    include_active_candidates: true
+    relaxed_lookback_events: 8
+    relaxed_max_depth: 1
+    relaxed_max_cardinality_ratio: 0.35
+    relaxed_suppress_completed: true
+    relaxed_anchor_policy: open_successors
+    relaxed_loop_policy: keep_direct_successor_repeats
 ```
+
+Use the same complete policy object for every compared model. These values match
+the current state-aware relaxed-reachability reference presets; changing any
+field creates a different policy fingerprint and a different graph-cache entry.
+The policy controls RS-01 evaluation only and does not replace a model's decoding
+mask. Article safety tables should use `common_oos_rate`,
+`common_pred_in_mask_rate`, and `common_target_in_mask_rate`; label historical `test_oos` with its original mask
+semantics.
 
 Export only explicit audit run IDs into an isolated namespace:
 

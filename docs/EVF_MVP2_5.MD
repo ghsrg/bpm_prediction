@@ -95,6 +95,14 @@ only to report empty rows without falling back to the whole candidate space.
 diagnostics. It does not change logits, masks, checkpoints, datasets, training,
 or historical metric definitions.
 
+For cross-model comparisons, contract `state_aware_activity_label_mask.v2`
+uses one explicit `experiment.rs01_admissibility_policy`. A model may still use
+its own decoding mask to select a prediction. The selected prediction is then
+evaluated against the common state-aware mask. Mask construction preserves the
+reference structural-candidate identities and cardinality basis before projecting
+the selected candidates to canonical activity labels. Duplicate activity labels
+therefore do not alter structural cardinality limits.
+
 The valid audited population is partitioned into exactly three instance-level
 cells:
 
@@ -115,8 +123,26 @@ strict_correct_rate + parallelism_admissible_error_rate + oos_error_rate = 1
 
 Exact-correct predictions outside the current mask are retained as
 `exact_outside_mask_*` diagnostics and do not enter `oos_error_rate`. Empty
-masks, unknown targets, unknown predictions, and unresolved mappings are
-excluded from the valid denominator and reported against `audited_prefix_count`.
+masks are valid under the v2 common-mask contract: exact predictions remain
+strict-correct and wrong predictions are out-of-mask errors. Unknown predictions,
+unknown observed targets, and unresolved mask construction are excluded from the
+valid denominator and reported against `audited_prefix_count`. An activity label
+observed in XES remains a valid target when it is absent from a checkpoint's
+closed vocabulary.
+
+The common safety bridge is:
+
+```text
+common_oos_rate = oos_error_rate + exact_outside_mask_rate
+common_pred_in_mask_rate = 1 - common_oos_rate
+```
+
+Both identities and `common_target_in_mask_rate` use
+`common_safety_denominator_count=valid_prediction_count`. Exports must include
+the numerator counts, `audited_prefix_count`, exclusions, abstentions, prediction
+coverage, audit coverage, the metric contract, and the reference policy identity.
+Legacy `test_oos` retains its historical mask semantics and must be labelled as
+such when presented alongside common safety metrics.
 Overlapping drift windows are descriptive slices and are not independent
 observations.
 

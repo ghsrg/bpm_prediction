@@ -1703,13 +1703,21 @@ Drift evaluation path: one_pass_prebuilt_dataset
 Drift one-pass records: samples=<n> traces=<n> max_trace_idx=<n>
 ```
 
-One-pass `eval_drift` also records an audit-only RS-01 observation per prefix
-when prediction, target, and mask identities can be compared in one contract.
-Fixed-head runs use `fixed_vocab_label_mask.v1`; topology-native candidate runs
-use `topology_native_candidate_label_mask.v1`; MOU uses
-`mou_native_candidate_label_mask.v1`. This observation layer does not alter
-model forward, mask construction, prediction selection, or existing
-`strict_*`/hybrid macro-F1 metrics.
+One-pass `eval_drift` also records an audit-only RS-01 observation per prefix.
+Historical contracts retain their original mask semantics. Common cross-model
+evaluation uses `state_aware_activity_label_mask.v2`, configured through the
+explicit `experiment.rs01_admissibility_policy`. The model first selects its
+final prediction using its normal decoding behavior. RS-01 then evaluates that
+prediction against the independent common mask. This does not alter model
+forward, decoding masks, prediction selection, or existing predictive metrics.
+
+The reference algorithm traverses structural candidate identities and applies
+its cardinality limit using structural candidate count. Only the resulting
+admissible candidates are projected to canonical activity labels. This preserves
+the reference semantics when multiple structural nodes share one activity label.
+The v2 graph payload stores `audit_payload_json` per prefix with mask status,
+allowed labels, process version, policy fingerprint, and cardinality basis.
+Graph dataset cache schema 8 fingerprints the audit policy.
 
 For topology-native candidate audits, `candidate_allowed_target_mask` is the
 preferred mask source. If a cached graph only exposes fixed-vocabulary
@@ -1723,11 +1731,14 @@ a topology-homogeneous batch. One-pass `eval_drift` logs endpoint-scope RS-01
 rates and denominator QC once, without `drift_window_` prefixes, before
 emitting overlapping window series.
 
-For topology-native EOPKG one-pass drift evaluation, legacy-compatible
-`test_oos`, `test_pred_in_mask_rate`, `test_target_in_mask_rate`,
-`test_strict_error_but_allowed_rate`, and their drift-window aggregates use the
-same effective native candidate mask as RS-01. Fixed-vocabulary models keep
-using `allowed_target_mask` because they do not have a native candidate axis.
+Legacy-compatible mask metrics retain their own decoding/native-mask semantics.
+Common safety comparisons use `common_oos_rate`, `common_pred_in_mask_rate`,
+`common_target_in_mask_rate`,
+and the three v2 partition rates with `valid_prediction_count` as the explicit
+denominator. A target observed in XES remains valid even when absent from a
+closed checkpoint vocabulary. A resolved empty common mask classifies a wrong
+fallback prediction as out-of-mask; inability to resolve the common mask remains
+an exclusion, and true absence of a prediction is reported as abstention.
 
 `parallelism_admissible_error_rate` means the selected prediction was wrong but
 inside the current mask. It is a mask-admissible alternative error rate, not a

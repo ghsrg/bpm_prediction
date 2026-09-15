@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from copy import copy
 import hashlib
 import json
 import math
@@ -54,6 +55,7 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         process_state_mask_relaxed_suppress_completed: bool = True,
         process_state_mask_relaxed_anchor_policy: str = "open_successors",
         process_state_mask_relaxed_loop_policy: str = "keep_direct_successor_repeats",
+        rs01_admissibility_policy: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(feature_encoder=feature_encoder)
         self.knowledge_port = knowledge_port
@@ -111,6 +113,81 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         ).strip().lower()
         if self.process_state_mask_relaxed_loop_policy not in {"keep_direct_successor_repeats"}:
             self.process_state_mask_relaxed_loop_policy = "keep_direct_successor_repeats"
+        self._audit_worker = None
+        self._audit_policy_id = None
+        if rs01_admissibility_policy is not None:
+            policy = dict(rs01_admissibility_policy)
+            names = (
+                "source", "include_direct_successors", "include_active_candidates",
+                "relaxed_lookback_events", "relaxed_max_depth", "relaxed_max_cardinality_ratio",
+                "relaxed_suppress_completed", "relaxed_anchor_policy", "relaxed_loop_policy",
+            )
+            if set(policy) != set(names):
+                raise ValueError("rs01_admissibility_policy must explicitly specify all reference policy fields")
+            if policy["source"] not in {"lifecycle_active_set", "event_active_candidates", "relaxed_reachability"}:
+                raise ValueError("Invalid RS-01 source")
+            if policy["relaxed_anchor_policy"] not in {"recent_prefix", "open_successors"}:
+                raise ValueError("Invalid RS-01 anchor policy")
+            if policy["relaxed_loop_policy"] != "keep_direct_successor_repeats":
+                raise ValueError("Invalid RS-01 loop policy")
+            for name in ("include_direct_successors", "include_active_candidates", "relaxed_suppress_completed"):
+                if not isinstance(policy[name], bool):
+                    raise ValueError(f"RS-01 {name} must be boolean")
+            for name in ("relaxed_lookback_events", "relaxed_max_depth"):
+                if type(policy[name]) is not int or policy[name] < 1:
+                    raise ValueError(f"RS-01 {name} must be a positive integer")
+            ratio = policy["relaxed_max_cardinality_ratio"]
+            if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0.01 <= ratio <= 1:
+                raise ValueError("RS-01 cardinality ratio must be in [0.01, 1]")
+            worker = copy(self)
+            worker.candidate_identity_mode = "topology_native"
+            worker.process_state_mask_enabled = True
+            for name, value in policy.items():
+                setattr(worker, f"process_state_mask_{name}", value)
+            self._audit_worker = worker
+            self._audit_policy_id = hashlib.sha256(
+                json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+
+    def _common_audit_payload(self, *, dto, prefix, last_activity):
+        worker = self._audit_worker
+        compiled = worker._resolve_compiled_topology(dto=dto, activity_vocab={}, stats_allowed=False)
+        active = set()
+        relaxed_indices: set[int] = set()
+        if worker.process_state_mask_include_active_candidates:
+            active.update(worker._extract_active_candidates(prefix.prefix_events[-1].extra))
+            if worker.process_state_mask_source == "relaxed_reachability":
+                relaxed_indices = worker._relaxed_reachability_candidate_indices(
+                    prefix=prefix,
+                    compiled=compiled,
+                    active_candidates=active,
+                )
+                expanded = {
+                    str(compiled["candidate_labels"][idx])
+                    for idx in relaxed_indices
+                }
+            else:
+                expanded = worker._process_state_active_candidates(
+                    prefix=prefix, compiled=compiled, activity_vocab={})
+            active.update(expanded)
+        indices = set(relaxed_indices)
+        if worker.process_state_mask_include_direct_successors:
+            for src in worker._candidate_indices_for_token(compiled=compiled, token=last_activity):
+                mask = compiled.get("candidate_allowed_masks_by_src", {}).get(src)
+                if isinstance(mask, torch.Tensor):
+                    indices.update(torch.nonzero(mask, as_tuple=False).reshape(-1).tolist())
+        for token in active:
+            indices.update(worker._candidate_indices_for_token(compiled=compiled, token=token))
+        labels = sorted({str(compiled["candidate_labels"][idx]) for idx in indices})
+        return {
+            "audit_allowed_activity_labels": labels,
+            "audit_mask_status": "resolved" if compiled.get("candidate_count", 0) else "unresolved",
+            "audit_mask_policy_id": self._audit_policy_id,
+            "audit_cardinality_basis": "structural_candidate_count_reference_label_selection",
+            "audit_structural_candidate_count": len(indices),
+            "audit_projected_label_count": len(labels),
+            "process_version": str(prefix.process_version),
+        }
 
     def cache_diagnostics(self) -> dict[str, int]:
         return {
@@ -137,6 +214,11 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         dto = self._resolve_dto(as_of_ts=as_of_ts, candidate_versions=candidate_versions)
         if dto is None or not prefix.prefix_events:
             contract["allowed_target_mask"] = None
+            if self._audit_worker is not None:
+                contract["audit_payload_json"] = json.dumps({
+                    "audit_allowed_activity_labels": [], "audit_mask_status": "unresolved",
+                    "audit_mask_policy_id": self._audit_policy_id,
+                })
             return contract
 
         missing_asof_snapshot = self._is_missing_asof_snapshot(dto=dto, as_of_ts=as_of_ts)
@@ -178,6 +260,10 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
             )
         )
         num_classes = len(activity_vocab)
+        if self._audit_worker is not None:
+            audit_payload = self._common_audit_payload(dto=dto, prefix=prefix, last_activity=last_activity)
+            contract.update(audit_payload)
+            contract["audit_payload_json"] = json.dumps(audit_payload, sort_keys=True)
         allowed_mask = torch.zeros(num_classes, dtype=torch.bool)
         candidate_allowed_mask = torch.zeros(
             int(compiled.get("candidate_count", 0) or 0),
@@ -626,6 +712,81 @@ class DynamicGraphBuilder(BaselineGraphBuilder):
         final.update(initial_candidates)
         diagnostics["final_candidate_count"] = int(len(final))
         return final, diagnostics
+
+    def _relaxed_reachability_candidate_indices(
+        self,
+        *,
+        prefix: PrefixSlice,
+        compiled: Dict[str, Any],
+        active_candidates: set[str],
+    ) -> set[int]:
+        """Apply relaxed reachability on structural identities before label projection."""
+        anchors = self._recent_prefix_activity_tokens(
+            prefix,
+            limit=self.process_state_mask_relaxed_lookback_events,
+        )
+        masks_by_src = compiled.get("candidate_allowed_masks_by_src", {})
+        labels = tuple(str(item) for item in compiled.get("candidate_labels", ()))
+        ids = tuple(str(item) for item in compiled.get("candidate_ids", ()))
+        prefix_state = self._prefix_process_state(prefix)
+        completed = set(prefix_state["completed_tokens"])
+        active = set(prefix_state["active_tokens"])
+        active.update(str(item).strip() for item in active_candidates if str(item).strip())
+        last_successors = self._direct_successor_labels_for_token(
+            compiled=compiled,
+            token=anchors[0] if anchors else "",
+        )
+        selected: set[int] = set()
+        for anchor in anchors:
+            direct = self._direct_successor_labels_for_token(compiled=compiled, token=anchor)
+            if (
+                self.process_state_mask_relaxed_anchor_policy == "open_successors"
+                and direct
+                and direct.issubset(completed)
+                and not direct.intersection(active)
+                and str(anchor).strip() not in direct
+            ):
+                continue
+            frontier = self._candidate_indices_for_token(compiled=compiled, token=anchor)
+            visited = {int(item) for item in frontier}
+            for _depth in range(self.process_state_mask_relaxed_max_depth):
+                next_frontier: list[int] = []
+                for src_idx in frontier:
+                    mask = masks_by_src.get(int(src_idx)) if isinstance(masks_by_src, dict) else None
+                    if not isinstance(mask, torch.Tensor):
+                        continue
+                    for dst_idx_raw in torch.nonzero(mask, as_tuple=False).reshape(-1).tolist():
+                        dst_idx = int(dst_idx_raw)
+                        if dst_idx in visited:
+                            continue
+                        visited.add(dst_idx)
+                        next_frontier.append(dst_idx)
+                        selected.add(dst_idx)
+                frontier = next_frontier
+                if not frontier:
+                    break
+        if self.process_state_mask_relaxed_suppress_completed:
+            selected = {
+                idx for idx in selected
+                if labels[idx] not in completed
+                or labels[idx] in last_successors
+                or labels[idx] in active
+                or self._candidate_has_loop_or_rework_evidence(compiled=compiled, token=labels[idx])
+            }
+        guaranteed: set[int] = set()
+        for token in active:
+            guaranteed.update(self._candidate_indices_for_token(compiled=compiled, token=token))
+        for token in compiled.get("initial_candidate_labels", ()):
+            token_text = str(token).strip()
+            if token_text and token_text not in completed:
+                guaranteed.update(self._candidate_indices_for_token(compiled=compiled, token=token_text))
+        selected.update(guaranteed)
+        candidate_count = int(compiled.get("candidate_count", 0) or len(ids))
+        max_count = max(1, int(math.ceil(candidate_count * self.process_state_mask_relaxed_max_cardinality_ratio)))
+        if len(selected) > max_count:
+            selected = set(sorted(selected, key=lambda idx: (ids[idx], idx))[:max_count])
+        selected.update(guaranteed)
+        return selected
 
     def _cap_relaxed_candidates(self, *, result: set[str], compiled: Dict[str, Any]) -> set[str]:
         candidate_count = int(compiled.get("candidate_count", 0) or 0)

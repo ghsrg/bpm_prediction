@@ -448,5 +448,8 @@ def test_candidate_id_fields_propagation_in_data_to_contract():
     assert torch.equal(contract.get("candidate_class_index"), candidate_class_index)
     assert torch.equal(contract.get("candidate_is_unseen"), candidate_is_unseen)
     assert torch.equal(contract.get("struct_node_to_candidate_index"), struct_node_to_candidate_index)
-    assert torch.equal(contract.get("candidate_allowed_target_mask"), candidate_allowed_target_mask)
+    assert torch.equal(
+        contract.get("candidate_allowed_target_mask"),
+        candidate_allowed_target_mask.unsqueeze(0),
+    )
     assert contract.get("target_label") == "A"

@@ -240,6 +240,7 @@ def test_rs01_audit_export_requires_explicit_tagged_drift_runs(tmp_path: Path, m
                     "rs01.metric_contract_id": "mou_native_candidate_label_mask.v1",
                     "rs01.prediction_space": "mou_native_candidate_label",
                     "rs01.mask_space": "mou_native_candidate_label",
+                    "rs01.mask_policy_id": "reference-policy",
                 },
                 tags={"mlflow.runName": "MOU audit"},
                 metrics={
@@ -275,6 +276,7 @@ def test_rs01_audit_export_requires_explicit_tagged_drift_runs(tmp_path: Path, m
     assert rc == 0
     assert (output_dir / "drift" / "run_manifest.csv").exists()
     assert (output_dir / "audit_run_registry.csv").exists()
+    assert "reference-policy" in (output_dir / "drift" / "run_manifest.csv").read_text(encoding="utf-8")
     assert not (tmp_path / "article_run_metrics" / "drift" / "run_manifest.csv").exists()
 
 

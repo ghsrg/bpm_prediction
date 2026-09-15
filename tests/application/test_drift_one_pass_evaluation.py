@@ -10,7 +10,11 @@ from torch import nn
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
-from src.application.services.outcome_partition_audit import AuditObservation
+from src.application.services.outcome_partition_audit import (
+    AuditObservation,
+    aggregate_outcomes,
+    classify_observation,
+)
 from src.application.use_cases.trainer import DriftInferenceRecords, ModelTrainer
 from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.event_record import EventRecord
@@ -46,6 +50,19 @@ class _PredictFromXNumModel(nn.Module):
         pred = contract["x_num"].view(-1).long().clamp(min=0, max=self.output_dim - 1)
         logits = torch.full((int(pred.shape[0]), self.output_dim), -5.0, device=pred.device)
         logits[torch.arange(int(pred.shape[0]), device=pred.device), pred] = 5.0
+        return logits
+
+
+class _CountingLogitModel(_PredictFromXNumModel):
+    def __init__(self, output_dim: int = 3) -> None:
+        super().__init__(output_dim=output_dim)
+        self.forward_calls = 0
+        self.raw_logits: list[torch.Tensor] = []
+
+    def forward(self, contract):
+        self.forward_calls += 1
+        logits = super().forward(contract)
+        self.raw_logits.append(logits.detach().cpu().clone())
         return logits
 
 
@@ -158,12 +175,18 @@ def _sample(*, trace_idx: int, target: int, pred: int, mask: list[bool] | None =
     return Data(**payload)
 
 
-def _trainer(tmp_path, *, drift_window_size: int = 2, drift_window_sliding: int = 1) -> ModelTrainer:
+def _trainer(
+    tmp_path,
+    *,
+    drift_window_size: int = 2,
+    drift_window_sliding: int = 1,
+    model: nn.Module | None = None,
+) -> ModelTrainer:
     return ModelTrainer(
         xes_adapter=_FailOnReadAdapter(),
         prefix_policy=_NoopPrefixPolicy(),  # type: ignore[arg-type]
         graph_builder=_NoopGraphBuilder(),  # type: ignore[arg-type]
-        model=_PredictFromXNumModel(output_dim=3),  # type: ignore[arg-type]
+        model=model or _PredictFromXNumModel(output_dim=3),  # type: ignore[arg-type]
         log_path="in_memory.xes",
         config={
             "epochs": 1,
@@ -264,6 +287,88 @@ def test_collect_drift_inference_records_is_compact(tmp_path):
     assert records.target_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert records.pred_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert not hasattr(records, "y_prob")
+
+
+def test_common_audit_uses_final_prediction_and_keeps_unseen_target(tmp_path):
+    trainer = _trainer(tmp_path)
+    trainer.mask_guided_enabled = True
+    trainer.mask_guided_policy = "hard"
+    trainer.mask_guided_apply_in_eval = True
+    trainer._reverse_activity_vocab = {0: "A", 1: "B", 2: "C"}
+    samples = []
+    for idx, (decoding, common) in enumerate([
+        ([False, True, False], ["C"]), ([False, False, False], ["B"])
+    ]):
+        sample = _sample(trace_idx=idx, target=0, pred=1, mask=decoding)
+        sample.target_label = "unseen_observed"
+        sample.audit_payload_json = json.dumps({
+            "audit_allowed_activity_labels": common, "audit_mask_status": "resolved",
+            "audit_mask_policy_id": "reference-policy",
+        })
+        samples.append(sample)
+    loader = DataLoader(samples, batch_size=2, shuffle=False)
+    records = trainer._collect_drift_inference_records(loader)
+    metrics = trainer._compute_test_metrics_from_records(records, np.array([0, 1]))
+    assert records.y_pred.tolist() == ["B", "B"]
+    assert records.y_true.tolist() == ["unseen_observed", "unseen_observed"]
+    assert metrics["valid_prediction_count"] == 2
+    assert metrics["oos_error_count"] == 1
+    assert metrics["parallelism_admissible_error_count"] == 1
+    assert metrics["common_oos_rate"] == 0.5
+    records.version_labels = ["v3", "v5"]
+    trainer.tracker = _FakeTracker()
+    trainer._log_eval_drift_endpoint_audit_metrics(records)
+    logged = {key: value for key, value, _ in trainer.tracker.metrics}
+    assert logged["endpoint_v5_audited_prefix_count"] == 1
+    assert logged["endpoint_v3_v4_v5_audited_prefix_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("decoding_mask", "expected_prediction", "common_labels", "expected_outcome"),
+    [
+        ([False, True, False], "B", ["C"], "oos_error"),
+        ([False, False, False], "C", ["C"], "parallelism_admissible_error"),
+    ],
+)
+def test_common_audit_preserves_hard_mask_and_empty_mask_fallback_prediction(
+    tmp_path, decoding_mask, expected_prediction, common_labels, expected_outcome
+):
+    control_model = _CountingLogitModel()
+    audited_model = _CountingLogitModel()
+    control = _trainer(tmp_path / "control", model=control_model)
+    audited = _trainer(tmp_path / "audited", model=audited_model)
+    for trainer in (control, audited):
+        trainer.mask_guided_enabled = True
+        trainer.mask_guided_policy = "hard"
+        trainer.mask_guided_apply_in_eval = True
+        trainer._reverse_activity_vocab = {0: "A", 1: "B", 2: "C"}
+
+    control_sample = _sample(trace_idx=0, target=0, pred=2, mask=decoding_mask)
+    audited_sample = _sample(trace_idx=0, target=0, pred=2, mask=decoding_mask)
+    audited_sample.audit_payload_json = json.dumps({
+        "audit_allowed_activity_labels": common_labels,
+        "audit_mask_status": "resolved",
+        "audit_mask_policy_id": "reference-policy",
+    })
+    control_records = control._collect_drift_inference_records(
+        DataLoader([control_sample], batch_size=1, shuffle=False)
+    )
+    audited_records = audited._collect_drift_inference_records(
+        DataLoader([audited_sample], batch_size=1, shuffle=False)
+    )
+
+    assert control_model.forward_calls == audited_model.forward_calls == 1
+    assert torch.equal(control_model.raw_logits[0], audited_model.raw_logits[0])
+    assert control_records.y_pred.tolist() == audited_records.y_pred.tolist() == [expected_prediction]
+    for field in (
+        "oos_flags", "target_in_mask_flags", "pred_in_mask_flags",
+        "strict_error_but_allowed_flags", "mask_cardinality",
+    ):
+        assert np.array_equal(getattr(control_records, field), getattr(audited_records, field))
+    summary = aggregate_outcomes(audited_records.audit_observations)
+    assert summary.valid_prediction_count == summary.audited_prefix_count == 1
+    assert summary.excluded_count == 0
+    assert classify_observation(audited_records.audit_observations[0]).outcome == expected_outcome
 
 
 def test_one_pass_candidate_id_metrics_use_unseen_candidate_space(tmp_path):

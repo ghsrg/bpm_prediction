@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import pytest
+import torch
 
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.prefix_slice import PrefixSlice
@@ -8,7 +10,162 @@ from src.domain.entities.process_structure import ProcessStructureDTO
 from src.domain.entities.raw_trace import RawTrace
 from src.domain.services.dynamic_graph_builder import DynamicGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
+from src.domain.services.prefix_policy import PrefixPolicy
 from src.infrastructure.repositories.in_memory_networkx_repository import InMemoryNetworkXRepository
+
+
+def _audit_policy(**overrides):
+    policy = {
+        "source": "lifecycle_active_set",
+        "include_direct_successors": True,
+        "include_active_candidates": True,
+        "relaxed_lookback_events": 8,
+        "relaxed_max_depth": 1,
+        "relaxed_max_cardinality_ratio": 0.35,
+        "relaxed_suppress_completed": True,
+        "relaxed_anchor_policy": "open_successors",
+        "relaxed_loop_policy": "keep_direct_successor_repeats",
+    }
+    policy.update(overrides)
+    return policy
+
+
+def _audit_payload(builder, prefix):
+    contract = builder.build_graph(prefix)
+    return json.loads(contract["audit_payload_json"]), contract
+
+
+def test_common_audit_policy_preserves_decoding_and_unseen_labels(mock_feature_configs):
+    events = [_event(0, "A"), _event(1, "B"), _event(2, "unseen")]
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs,
+                             traces=[_trace("train", "v1", events[:2])])
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure("v1", ProcessStructureDTO(
+        version="v1", allowed_edges=[("A", "B"), ("A", "unseen")]))
+    prefix = PrefixSlice(case_id="eval", process_version="v1",
+                         prefix_events=events[:1], target_event=events[2])
+    policy = dict(source="lifecycle_active_set", include_direct_successors=True,
+                  include_active_candidates=True, relaxed_lookback_events=8,
+                  relaxed_max_depth=1, relaxed_max_cardinality_ratio=0.35,
+                  relaxed_suppress_completed=True, relaxed_anchor_policy="open_successors",
+                  relaxed_loop_policy="keep_direct_successor_repeats")
+    plain = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository).build_graph(prefix)
+    audited = DynamicGraphBuilder(feature_encoder=encoder, knowledge_port=repository,
+                                  rs01_admissibility_policy=policy).build_graph(prefix)
+    assert set(audited["audit_allowed_activity_labels"]) == {"B", "unseen"}
+    assert audited["audit_mask_status"] == "resolved"
+    for key, value in plain.items():
+        if isinstance(value, torch.Tensor):
+            assert torch.equal(value, audited[key]), key
+
+
+def test_common_mask_is_invariant_across_eopkg_gatv2_mask_lstm_target_and_future(mock_feature_configs):
+    shared_prefix = [_event(0, "A")]
+    trace_a = _trace("eval-a", "v1", [*shared_prefix, _event(1, "B"), _event(2, "C")])
+    trace_b = _trace("eval-b", "v1", [*shared_prefix, _event(1, "B"), _event(2, "Z")])
+    prefix_a = PrefixPolicy().generate_slices(trace_a)[0]
+    prefix_b = PrefixPolicy().generate_slices(trace_b)[0]
+    target_changed = PrefixSlice(
+        case_id="eval-target",
+        process_version="v1",
+        prefix_events=shared_prefix,
+        target_event=_event(1, "unseen_target"),
+    )
+    repository = InMemoryNetworkXRepository()
+    repository.save_process_structure(
+        "v1",
+        ProcessStructureDTO(version="v1", allowed_edges=[("A", "B"), ("A", "C")]),
+    )
+    encoder_small = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train-small", "v1", [_event(0, "A"), _event(1, "B")])],
+    )
+    encoder_other = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train-other", "v1", [_event(0, "A"), _event(1, "Z")])],
+    )
+    encoder_lstm = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train-lstm", "v1", [_event(0, "A"), _event(1, "C"), _event(2, "Y")])],
+    )
+    builders = [
+        DynamicGraphBuilder(
+            feature_encoder=encoder,
+            knowledge_port=repository,
+            process_state_mask_enabled=enabled,
+            process_state_mask_include_direct_successors=enabled,
+            rs01_admissibility_policy=_audit_policy(),
+        )
+        for _model_family, encoder, enabled in (
+            ("EOPKG", encoder_small, True),
+            ("GATv2+Mask", encoder_other, False),
+            ("LSTM", encoder_lstm, False),
+        )
+    ]
+    payloads = [
+        _audit_payload(builder, prefix)[0]
+        for builder in builders
+        for prefix in (prefix_a, prefix_b, target_changed)
+    ]
+    assert {tuple(payload["audit_allowed_activity_labels"]) for payload in payloads} == {("B", "C")}
+    assert len({payload["audit_mask_policy_id"] for payload in payloads}) == 1
+    assert not torch.equal(
+        builders[0].build_graph(prefix_a)["allowed_target_mask"],
+        builders[1].build_graph(prefix_a)["allowed_target_mask"],
+    )
+
+
+def test_common_mask_changes_with_topology_and_policy_fingerprint_changes_with_policy(mock_feature_configs):
+    encoder = FeatureEncoder(
+        feature_configs=mock_feature_configs,
+        traces=[_trace("train", "v1", [_event(0, "A"), _event(1, "B"), _event(2, "C")])],
+    )
+    prefix = PrefixSlice(
+        case_id="eval", process_version="v1",
+        prefix_events=[_event(0, "A")], target_event=_event(1, "B"),
+    )
+    payloads = []
+    for edge, policy in (
+        (("A", "B"), _audit_policy()),
+        (("A", "C"), _audit_policy()),
+        (("A", "B"), _audit_policy(include_direct_successors=False)),
+    ):
+        repository = InMemoryNetworkXRepository()
+        repository.save_process_structure("v1", ProcessStructureDTO(version="v1", allowed_edges=[edge]))
+        payloads.append(_audit_payload(DynamicGraphBuilder(
+            feature_encoder=encoder,
+            knowledge_port=repository,
+            rs01_admissibility_policy=policy,
+        ), prefix)[0])
+    assert payloads[0]["audit_allowed_activity_labels"] == ["B"]
+    assert payloads[1]["audit_allowed_activity_labels"] == ["C"]
+    assert payloads[0]["audit_mask_policy_id"] == payloads[1]["audit_mask_policy_id"]
+    assert payloads[0]["audit_mask_policy_id"] != payloads[2]["audit_mask_policy_id"]
+
+
+def test_reference_cardinality_preserves_structural_identities_before_label_projection(mock_feature_configs):
+    encoder = FeatureEncoder(feature_configs=mock_feature_configs,
+                             traces=[_trace("train", "v1", [_event(0, "A")])])
+    builder = DynamicGraphBuilder(feature_encoder=encoder,
+                                  knowledge_port=InMemoryNetworkXRepository(),
+                                  process_state_mask_relaxed_max_cardinality_ratio=0.5)
+    compiled = {
+        "candidate_count": 4,
+        "candidate_ids": ("a1", "a2", "b", "c"),
+        "candidate_labels": ("A", "A", "B", "C"),
+        "candidate_indices_by_label": {"start": [0], "A": [0, 1], "B": [2], "C": [3]},
+        "candidate_indices_by_id": {"a1": [0], "a2": [1], "b": [2], "c": [3]},
+        "candidate_allowed_masks_by_src": {
+            0: torch.tensor([False, True, True, True]),
+        },
+        "initial_candidate_labels": (),
+    }
+    prefix = PrefixSlice(case_id="eval", process_version="v1",
+                         prefix_events=[_event(0, "start")], target_event=_event(1, "C"))
+    selected = builder._relaxed_reachability_candidate_indices(
+        prefix=prefix, compiled=compiled, active_candidates=set())
+    assert selected == {1, 2}
+    assert {compiled["candidate_labels"][idx] for idx in selected} == {"A", "B"}
 
 
 def _event(

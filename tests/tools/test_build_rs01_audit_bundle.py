@@ -139,3 +139,31 @@ def test_build_rs01_audit_bundle_fails_on_invalid_partition_sum(tmp_path: Path):
     _metric(raw_dir, "partition_sum", 0.9)
 
     assert bundle.main(["--audit-root", str(audit_root), "--raw-metrics-dir", str(raw_dir), "--registry", str(registry)]) == 1
+
+
+def test_build_common_mask_bundle_exports_common_safety_identity(tmp_path: Path):
+    audit_root = tmp_path / "article_audits" / "rs01_common"
+    raw_dir = audit_root / "raw" / "drift"
+    registry = audit_root / "audit_run_registry.csv"
+    _write_csv(registry, ["audit_run_id", "paper_model", "contract_id", "status"], [{
+        "audit_run_id": "audit-run", "paper_model": "GATv2+Mask",
+        "contract_id": "state_aware_activity_label_mask.v2", "status": "EXPORTED",
+    }])
+    values = {
+        "partition_sum": 1.0, "strict_correct_rate": 0.7,
+        "parallelism_admissible_error_rate": 0.2, "oos_error_rate": 0.1,
+        "exact_outside_mask_rate": 0.05, "common_oos_rate": 0.15,
+        "common_oos_count": 15, "common_pred_in_mask_count": 85,
+        "common_pred_in_mask_rate": 0.85, "common_target_in_mask_count": 90,
+        "common_target_in_mask_rate": 0.9, "common_safety_denominator_count": 100,
+        "valid_prediction_count": 100, "audited_prefix_count": 101,
+        "excluded_count": 1, "unresolved_mapping_count": 1,
+    }
+    for metric, value in values.items():
+        _metric(raw_dir, metric, value)
+    assert bundle.main(["--audit-root", str(audit_root), "--raw-metrics-dir", str(raw_dir),
+                        "--registry", str(registry)]) == 0
+    row = next(csv.DictReader((audit_root / "outcome_partition.csv").open(encoding="utf-8")))
+    assert row["common_oos_rate"] == "0.15"
+    assert row["common_pred_in_mask_rate"] == "0.85"
+    assert row["common_target_in_mask_rate"] == "0.9"

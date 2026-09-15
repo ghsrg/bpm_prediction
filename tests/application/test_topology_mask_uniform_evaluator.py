@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import json
 import torch
 from torch_geometric.data import Data
 
@@ -31,6 +32,19 @@ def _native_data(mask, target_label):
         trace_start_ts=torch.tensor([10.0]),
         trace_end_ts=torch.tensor([20.0]),
     )
+
+
+def test_common_mask_does_not_change_mou_sampling():
+    data = _native_data([True, False, False], "unseen")
+    data.audit_payload_json = json.dumps({
+        "audit_allowed_activity_labels": ["A"], "audit_mask_status": "resolved",
+        "audit_mask_policy_id": "reference-policy", "process_version": "v5",
+    })
+    metrics = TopologyMaskUniformEvaluator(mc_draws=100).evaluate([data])["test_metrics"]
+    assert metrics["strict_test_macro_f1_mc_mean"] == 0
+    assert metrics["common_oos_rate"] == 1
+    assert metrics["valid_prediction_count"] == 1
+    assert metrics["endpoint_v5_common_oos_rate"] == 1
 
 
 def test_native_evaluator_uses_exact_candidate_mask_and_duplicate_target_set():

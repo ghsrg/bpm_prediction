@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import json
 import math
 from statistics import mean, median
 from typing import Any, Callable, Iterable, Sequence
@@ -9,7 +10,9 @@ from typing import Any, Callable, Iterable, Sequence
 import torch
 
 from src.application.services.candidate_target_mapping import candidate_target_mask_from_labels
-from src.application.services.outcome_partition_audit import AuditObservation, aggregate_outcomes
+from src.application.services.outcome_partition_audit import (
+    AuditObservation, aggregate_outcomes, COMMON_SAFETY_KEYS, common_mask_observation,
+)
 from src.domain.services.candidate_label_matching import candidate_label_metric_key
 from src.domain.services.uniform_mask_scorer import UniformMaskScorer
 
@@ -31,6 +34,8 @@ class UniformMaskEvaluationRecord:
     trace_idx: int
     trace_start_ts: float
     trace_end_ts: float
+    audit_payload_json: str | None = None
+    process_version: str = ""
 
 
 class TopologyMaskUniformEvaluator:
@@ -150,6 +155,13 @@ class TopologyMaskUniformEvaluator:
             trace_idx=payload["trace_idx"],
             trace_start_ts=payload["trace_start_ts"],
             trace_end_ts=payload["trace_end_ts"],
+            audit_payload_json=getattr(data, "audit_payload_json", None),
+            process_version=(
+                str(json.loads(getattr(data, "audit_payload_json"))["process_version"])
+                if getattr(data, "audit_payload_json", None)
+                and "process_version" in json.loads(getattr(data, "audit_payload_json"))
+                else ""
+            ),
         )
 
     def _resolve_native_payload(self, data: Any) -> dict[str, Any]:
@@ -219,6 +231,9 @@ class TopologyMaskUniformEvaluator:
         strict_correct = []
         strict_error_but_allowed = []
         audit_observations: list[AuditObservation] = []
+        scoped_observations: dict[str, list[AuditObservation]] = {
+            "v3": [], "v4": [], "v5": [], "v3_v4_v5": [],
+        }
         for record in valid:
             pred_idx = self._sample_prediction(record, draw_index)
             pred_label = record.candidate_labels[pred_idx] if pred_idx >= 0 else "__invalid_candidate_prediction__"
@@ -245,6 +260,14 @@ class TopologyMaskUniformEvaluator:
                     metric_contract_id="mou_native_candidate_label_mask.v1",
                 )
             )
+            if record.audit_payload_json is not None:
+                audit_observations[-1] = common_mask_observation(
+                    record.audit_payload_json, pred_key if pred_idx >= 0 else None,
+                    true_key, abstained=pred_idx < 0,
+                )
+                if record.process_version in {"v3", "v4", "v5"}:
+                    scoped_observations[record.process_version].append(audit_observations[-1])
+                    scoped_observations["v3_v4_v5"].append(audit_observations[-1])
             hybrid_true.append(pred_key if record.mask_cardinality > 1 and pred_in_mask else true_key)
             hybrid_pred.append(pred_key)
             if record.target_in_mask:
@@ -260,10 +283,25 @@ class TopologyMaskUniformEvaluator:
             if strict_error_but_allowed
             else 0.0,
         }
+        for record in records:
+            if record.invalid and record.audit_payload_json is not None:
+                audit_observations.append(common_mask_observation(
+                    record.audit_payload_json, None, candidate_label_metric_key(record.target_label),
+                    abstained=True,
+                ))
+                if record.process_version in {"v3", "v4", "v5"}:
+                    scoped_observations[record.process_version].append(audit_observations[-1])
+                    scoped_observations["v3_v4_v5"].append(audit_observations[-1])
         summary = aggregate_outcomes(audit_observations)
         for key, value in summary.as_metrics().items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 metrics[key] = float(value)
+        for scope, observations in scoped_observations.items():
+            if not observations:
+                continue
+            for key, value in aggregate_outcomes(observations).as_metrics().items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    metrics[f"endpoint_{scope}_{key}"] = float(value)
         metrics["topology_tolerant_macro_f1"] = metrics["test_macro_f1"]
         metrics["topology_tolerant_macro_f1_gain"] = metrics["test_macro_f1"] - metrics["strict_test_macro_f1"]
         return metrics
@@ -317,6 +355,24 @@ class TopologyMaskUniformEvaluator:
         out["strict_correct_rate"] = out["strict_correct_rate_mc_mean"]
         out["oos_error_rate"] = out["oos_error_rate_mc_mean"]
         out["partition_sum"] = out["partition_sum_mc_mean"]
+        for key in COMMON_SAFETY_KEYS:
+            values = [row[key] for row in draw_metrics if key in row]
+            if values:
+                out.update(self._summary(key, values))
+                out[key] = mean(values)
+        if "common_oos_rate" in out:
+            for key in ("valid_prediction_count", "audited_prefix_count", "excluded_count",
+                        "exact_outside_mask_count", "exact_outside_mask_rate",
+                        "strict_correct_count", "parallelism_admissible_error_count", "oos_error_count",
+                        "unresolved_mapping_count"):
+                values = [row[key] for row in draw_metrics if key in row]
+                if values:
+                    out[key] = mean(values)
+        endpoint_prefixes = ("endpoint_v3_", "endpoint_v4_", "endpoint_v5_", "endpoint_v3_v4_v5_")
+        for source_key in sorted({key for row in draw_metrics for key in row if key.startswith(endpoint_prefixes)}):
+            values = [row[source_key] for row in draw_metrics if source_key in row]
+            out.update(self._summary(source_key, values))
+            out[source_key] = mean(values)
         return out
 
     def _append_cardinality_metrics(

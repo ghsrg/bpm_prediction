@@ -102,6 +102,7 @@ MANIFEST_COLUMNS = [
     "rs01_metric_contract_id",
     "rs01_prediction_space",
     "rs01_mask_space",
+    "rs01_mask_policy_id",
     "audited_prefix_count",
     "valid_prediction_count",
 ]
@@ -117,6 +118,7 @@ AUDIT_REGISTRY_COLUMNS = [
     "data_sha256",
     "code_revision",
     "contract_id",
+    "mask_policy_id",
     "status",
 ]
 
@@ -350,6 +352,7 @@ def _export_run_set(
                 "rs01_metric_contract_id": contract_id,
                 "rs01_prediction_space": _audit_attr(params, tags, "rs01.prediction_space"),
                 "rs01_mask_space": _audit_attr(params, tags, "rs01.mask_space"),
+                "rs01_mask_policy_id": _audit_attr(params, tags, "rs01.mask_policy_id"),
                 "audited_prefix_count": run.data.metrics.get("audited_prefix_count", ""),
                 "valid_prediction_count": run.data.metrics.get("valid_prediction_count", ""),
             }
@@ -366,6 +369,7 @@ def _export_run_set(
                 "data_sha256": _audit_attr(params, tags, "rs01.data_sha256"),
                 "code_revision": _audit_attr(params, tags, "rs01.code_revision"),
                 "contract_id": contract_id,
+                "mask_policy_id": _audit_attr(params, tags, "rs01.mask_policy_id"),
                 "status": "EXPORTED",
             }
         )

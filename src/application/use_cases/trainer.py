@@ -46,6 +46,7 @@ from src.application.services.candidate_target_mapping import (
     candidate_set_predictions,
 )
 from src.application.services.outcome_partition_audit import (
+    COMMON_MASK_CONTRACT, COMMON_SAFETY_KEYS, common_mask_observation,
     AuditObservation,
     OutcomePartitionSummary,
     aggregate_outcomes,
@@ -878,7 +879,7 @@ class ModelTrainer:
 
     @staticmethod
     def _window_audit_metrics(metrics: Mapping[str, Any]) -> Dict[str, float]:
-        keys = (
+        keys = COMMON_SAFETY_KEYS + (
             "audited_prefix_count",
             "valid_prediction_count",
             "strict_correct_count",
@@ -914,7 +915,7 @@ class ModelTrainer:
 
     @staticmethod
     def _endpoint_audit_metrics(metrics: Mapping[str, Any]) -> Dict[str, float]:
-        keys = (
+        keys = COMMON_SAFETY_KEYS + (
             "test_accuracy",
             "test_macro_f1",
             "test_weighted_f1",
@@ -968,8 +969,31 @@ class ModelTrainer:
             return
         idxs = np.arange(int(records.y_true.shape[0]), dtype=np.int64)
         metrics = self._compute_test_metrics_from_records(records, idxs)
+        if records.audit_observations:
+            summary = aggregate_outcomes(records.audit_observations)
+            self.tracker.log_param("rs01.metric_contract_id", summary.metric_contract_id)
+            self.tracker.log_param("rs01.mask_space", summary.mask_space)
+            self.tracker.log_param("rs01.prediction_space", summary.prediction_space)
+            if summary.mask_policy_id:
+                self.tracker.log_param("rs01.mask_policy_id", summary.mask_policy_id)
         for key, value in self._endpoint_audit_metrics(metrics).items():
             self.tracker.log_metric(key, float(value), step=0)
+        if records.audit_observations and summary.metric_contract_id == COMMON_MASK_CONTRACT:
+            for scope, versions in (
+                ("v3", {"v3"}),
+                ("v4", {"v4"}),
+                ("v5", {"v5"}),
+                ("v3_v4_v5", {"v3", "v4", "v5"}),
+            ):
+                selected = np.asarray(
+                    [idx for idx, version in enumerate(records.version_labels) if version in versions],
+                    dtype=np.int64,
+                )
+                if selected.size == 0:
+                    continue
+                scoped_metrics = self._compute_test_metrics_from_records(records, selected)
+                for key, value in self._endpoint_audit_metrics(scoped_metrics).items():
+                    self.tracker.log_metric(f"endpoint_{scope}_{key}", float(value), step=0)
 
     def _fixed_head_label_target_probabilities(
         self,
@@ -3788,6 +3812,15 @@ class ModelTrainer:
                         mask_space = "fixed_vocab_label"
                         metric_contract_id = "fixed_vocab_label_mask.v1"
                     for row_idx in range(batch_size):
+                        audit_payloads = getattr(data, "audit_payload_json", None)
+                        if audit_payloads is not None:
+                            if isinstance(audit_payloads, str):
+                                audit_payloads = [audit_payloads]
+                            if len(audit_payloads) != batch_size:
+                                raise ValueError("Common audit payload must preserve one row per prefix")
+                            all_audit_observations.append(common_mask_observation(
+                                audit_payloads[row_idx], pred_keys[row_idx], true_keys[row_idx]))
+                            continue
                         allowed_identities = (
                             native_allowed_sets[row_idx]
                             if row_idx < len(native_allowed_sets)
@@ -4059,7 +4092,11 @@ class ModelTrainer:
                 audit_contract_tolerance = 1.0e-6
                 if abs(float(metrics["strict_test_accuracy"]) - float(audit_summary.strict_correct_rate)) > audit_contract_tolerance:
                     raise ValueError("RS-01 strict_correct_rate does not match strict_test_accuracy.")
-                strict_allowed_rate = metrics.get("test_strict_error_but_allowed_rate")
+                strict_allowed_rate = (
+                    audit_summary.parallelism_admissible_error_rate
+                    if audit_summary.metric_contract_id == COMMON_MASK_CONTRACT
+                    else metrics.get("test_strict_error_but_allowed_rate")
+                )
                 if strict_allowed_rate is not None and abs(
                     float(strict_allowed_rate) - float(audit_summary.parallelism_admissible_error_rate)
                 ) <= audit_contract_tolerance:

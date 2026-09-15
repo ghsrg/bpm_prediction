@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Iterable, Mapping
+from src.domain.services.candidate_label_matching import candidate_label_metric_key
 
 
 OUTCOME_STRICT_CORRECT = "strict_correct"
@@ -12,6 +14,14 @@ REASON_UNKNOWN_PREDICTION = "unknown_prediction"
 REASON_UNKNOWN_TARGET = "unknown_target"
 REASON_UNRESOLVED_MAPPING = "unresolved_mask_mapping"
 REASON_EMPTY_MASK = "empty_mask"
+COMMON_MASK_CONTRACT = "state_aware_activity_label_mask.v2"
+REASON_ABSTENTION = "abstention"
+COMMON_SAFETY_KEYS = (
+    "abstention_count", "abstention_rate", "audit_coverage", "prediction_coverage",
+    "common_safety_denominator_count", "common_oos_count", "common_oos_rate",
+    "common_pred_in_mask_count", "common_pred_in_mask_rate",
+    "common_target_in_mask_count", "common_target_in_mask_rate",
+)
 
 
 @dataclass(frozen=True)
@@ -23,6 +33,7 @@ class AuditObservation:
     mask_space: str
     metric_contract_id: str
     exclusion_reason: str | None = None
+    mask_policy_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,9 @@ class OutcomePartitionSummary:
     metric_contract_id: str | None
     prediction_space: str | None
     mask_space: str | None
+    abstention_count: int = 0
+    common_target_in_mask_count: int = 0
+    mask_policy_id: str | None = None
 
     @property
     def strict_correct_rate(self) -> float:
@@ -84,7 +98,12 @@ class OutcomePartitionSummary:
 
     @property
     def exact_outside_mask_rate(self) -> float:
-        return _rate(self.exact_outside_mask_count, self.audited_prefix_count)
+        denominator = (
+            self.valid_prediction_count
+            if self.metric_contract_id == COMMON_MASK_CONTRACT
+            else self.audited_prefix_count
+        )
+        return _rate(self.exact_outside_mask_count, denominator)
 
     @property
     def unknown_prediction_rate(self) -> float:
@@ -136,8 +155,32 @@ class OutcomePartitionSummary:
             "excluded_rate": self.excluded_rate,
             "partition_sum": self.partition_sum,
         }
+        if self.metric_contract_id == COMMON_MASK_CONTRACT:
+            common_oos_count = self.oos_error_count + self.exact_outside_mask_count
+            common_pred_in_mask_count = self.valid_prediction_count - common_oos_count
+            metrics.update({
+                "abstention_count": self.abstention_count,
+                "abstention_rate": _rate(self.abstention_count, self.audited_prefix_count),
+                "audit_coverage": _rate(self.valid_prediction_count, self.audited_prefix_count),
+                "prediction_coverage": _rate(
+                    self.audited_prefix_count - self.abstention_count, self.audited_prefix_count
+                ),
+                "common_safety_denominator_count": self.valid_prediction_count,
+                "common_oos_count": common_oos_count,
+                "common_oos_rate": _rate(common_oos_count, self.valid_prediction_count),
+                "common_pred_in_mask_count": common_pred_in_mask_count,
+                "common_pred_in_mask_rate": _rate(
+                    common_pred_in_mask_count, self.valid_prediction_count
+                ),
+                "common_target_in_mask_count": self.common_target_in_mask_count,
+                "common_target_in_mask_rate": _rate(
+                    self.common_target_in_mask_count, self.valid_prediction_count
+                ),
+            })
         if self.metric_contract_id is not None:
             metrics["metric_contract_id"] = self.metric_contract_id
+        if self.mask_policy_id is not None:
+            metrics["mask_policy_id"] = self.mask_policy_id
         if self.prediction_space is not None:
             metrics["prediction_space"] = self.prediction_space
         if self.mask_space is not None:
@@ -154,7 +197,7 @@ def classify_observation(observation: AuditObservation) -> AuditClassification:
         return AuditClassification.unresolved(REASON_UNKNOWN_TARGET)
     if observation.allowed_identities is None:
         return AuditClassification.unresolved(REASON_UNRESOLVED_MAPPING)
-    if not observation.allowed_identities:
+    if not observation.allowed_identities and observation.metric_contract_id != COMMON_MASK_CONTRACT:
         return AuditClassification.unresolved(REASON_EMPTY_MASK)
     if observation.prediction_identity == observation.target_identity:
         return AuditClassification.strict_correct(
@@ -165,11 +208,34 @@ def classify_observation(observation: AuditObservation) -> AuditClassification:
     return AuditClassification.oos_error()
 
 
+def common_mask_observation(payload_json: str, prediction: str | None,
+                            target: str | None, *, abstained: bool = False) -> AuditObservation:
+    payload = json.loads(payload_json)
+    if payload.get("audit_mask_status") not in {"resolved", "unresolved"}:
+        raise ValueError("Invalid common audit mask status")
+    if not payload.get("audit_mask_policy_id"):
+        raise ValueError("Common audit mask policy identity is required")
+    labels = payload.get("audit_allowed_activity_labels")
+    if not isinstance(labels, list) or any(not isinstance(label, str) or not label.strip() for label in labels):
+        raise ValueError("Common audit mask requires activity labels")
+    return AuditObservation(
+        prediction_identity=prediction,
+        target_identity=target,
+        allowed_identities=(frozenset(candidate_label_metric_key(label) for label in labels)
+                            if payload["audit_mask_status"] == "resolved" else None),
+        prediction_space="activity_label", mask_space="activity_label",
+        metric_contract_id=COMMON_MASK_CONTRACT,
+        exclusion_reason=REASON_ABSTENTION if abstained else None,
+        mask_policy_id=payload["audit_mask_policy_id"],
+    )
+
+
 def aggregate_outcomes(observations: Iterable[AuditObservation]) -> OutcomePartitionSummary:
     rows = list(observations)
     contract_id = _single_value("metric_contract_id", (row.metric_contract_id for row in rows))
     prediction_space = _single_value("prediction_space", (row.prediction_space for row in rows))
     mask_space = _single_value("mask_space", (row.mask_space for row in rows))
+    mask_policy_id = _single_value("mask_policy_id", (row.mask_policy_id for row in rows))
     counts: dict[str, int] = {
         "strict_correct": 0,
         "parallelism_admissible_error": 0,
@@ -180,11 +246,17 @@ def aggregate_outcomes(observations: Iterable[AuditObservation]) -> OutcomeParti
         "empty_mask": 0,
         "unresolved_mapping": 0,
         "excluded": 0,
+        "abstention": 0,
+        "target_in_mask": 0,
     }
 
     for observation in rows:
         result = classify_observation(observation)
         if result.valid:
+            if observation.allowed_identities == frozenset():
+                counts["empty_mask"] += 1
+            if observation.target_identity in observation.allowed_identities:
+                counts["target_in_mask"] += 1
             if result.outcome == OUTCOME_STRICT_CORRECT:
                 counts["strict_correct"] += 1
             elif result.outcome == OUTCOME_PARALLELISM_ADMISSIBLE_ERROR:
@@ -199,7 +271,9 @@ def aggregate_outcomes(observations: Iterable[AuditObservation]) -> OutcomeParti
 
         counts["excluded"] += 1
         reason = result.exclusion_reason
-        if reason == REASON_UNKNOWN_PREDICTION:
+        if reason == REASON_ABSTENTION:
+            counts["abstention"] += 1
+        elif reason == REASON_UNKNOWN_PREDICTION:
             counts["unknown_prediction"] += 1
         elif reason == REASON_UNKNOWN_TARGET:
             counts["unknown_target"] += 1
@@ -224,6 +298,9 @@ def aggregate_outcomes(observations: Iterable[AuditObservation]) -> OutcomeParti
         metric_contract_id=contract_id,
         prediction_space=prediction_space,
         mask_space=mask_space,
+        abstention_count=counts["abstention"],
+        common_target_in_mask_count=counts["target_in_mask"],
+        mask_policy_id=mask_policy_id,
     )
     if valid_count != (
         summary.strict_correct_count

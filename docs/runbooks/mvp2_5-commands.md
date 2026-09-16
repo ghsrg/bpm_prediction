@@ -720,28 +720,10 @@ page/margin template.
 RS-01 is evaluation-only. Run the three-run reconciliation gate first: one
 EOPKG audit run, one MOU audit run with the frozen MC draw count, and one
 GATv2+Mask audit run. Use `experiment.mode=eval_drift`,
-`training.retrain=false`, a non-empty checkpoint, MLflow tracking, and:
+`training.retrain=false`, a non-empty checkpoint, and MLflow tracking.
 
-```yaml
-experiment:
-  rs01_audit_enabled: true
-  rs01_audit_batch_id: rs01_<batch_id>
-  rs01_admissibility_policy:
-    source: relaxed_reachability
-    include_direct_successors: true
-    include_active_candidates: true
-    relaxed_lookback_events: 8
-    relaxed_max_depth: 1
-    relaxed_max_cardinality_ratio: 0.35
-    relaxed_suppress_completed: true
-    relaxed_anchor_policy: open_successors
-    relaxed_loop_policy: keep_direct_successor_repeats
-```
-
-Use the same complete policy object for every compared model. These values match
-the current state-aware relaxed-reachability reference presets; changing any
-field creates a different policy fingerprint and a different graph-cache entry.
-The policy controls RS-01 evaluation only and does not replace a model's decoding
+Every `eval_*` run automatically uses the canonical lifecycle-active-set RS-01
+reference policy. The policy controls RS-01 evaluation only and does not replace a model's decoding
 mask. Article safety tables should use `common_oos_rate`,
 `common_pred_in_mask_rate`, and `common_target_in_mask_rate`; label historical `test_oos` with its original mask
 semantics.
@@ -798,8 +780,8 @@ C:/Users/korsr/PycharmProjects/eopkg_structural_drift_article/submissions/DATAK-
 - `max_ram_gb`: soft RSS limit for spill flushes; `0` disables RAM guard
 - `stats_time_policy`: `latest | strict_asof`
 - `on_missing_asof_snapshot`: `disable_stats | use_base | raise`
-- `rs01_audit_enabled`: audit-only RS-01 outcome partition flag
-- `rs01_audit_batch_id`: batch identifier for isolated RS-01 exports
+- RS-01 common-mask auditing is automatic for every `eval_*` mode; no UI or
+  YAML switch is required.
 
 **Description (ukr):**
 

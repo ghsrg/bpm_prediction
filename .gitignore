@@ -12,7 +12,8 @@ data/camunda_exports/*
 scratch/
 .venv*.zip
 etalon/
-checkpoints/
+checkpoints/*
+!checkpoints/models/
 src/config/secrets.py
 !public_data/
 mlruns/

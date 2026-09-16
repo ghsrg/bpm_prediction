@@ -9,14 +9,17 @@ from src.cli import (
     GRAPH_DATASET_CACHE_SCHEMA,
     _build_graph_dataset,
     _build_graph_dataset_sharded,
+    _build_mlflow_params,
     _graph_dataset_cache_fingerprint,
     _iter_graphs_from_dataset_payload,
     _load_graph_dataset_cache,
+    _resolve_rs01_admissibility_policy,
     _save_graph_dataset_cache,
     _save_graph_dataset_cache_sharded,
     _strip_structural_payload,
     _structural_payload_key_from_data,
     _attach_structural_payload,
+    _apply_experiment_switch_overrides,
 )
 from src.domain.services.baseline_graph_builder import BaselineGraphBuilder
 from src.domain.services.feature_encoder import FeatureEncoder
@@ -150,13 +153,56 @@ def test_graph_dataset_cache_rejects_pre_lifecycle_mask_schema(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-
     assert GRAPH_DATASET_CACHE_SCHEMA > 5
     assert _load_graph_dataset_cache(
         cache_dir=str(cache_dir),
         dataset_name=dataset_name,
         fingerprint=fingerprint,
     ) is None
+
+
+def test_eval_modes_use_the_canonical_rs01_policy_without_ui_configuration():
+    expected_policy = {
+        "source": "lifecycle_active_set",
+        "include_direct_successors": True,
+        "include_active_candidates": True,
+        "relaxed_lookback_events": 8,
+        "relaxed_max_depth": 1,
+        "relaxed_max_cardinality_ratio": 0.35,
+        "relaxed_suppress_completed": True,
+        "relaxed_anchor_policy": "open_successors",
+        "relaxed_loop_policy": "keep_direct_successor_repeats",
+    }
+    for mode in ("eval_drift", "eval_cross_dataset", "eval_topology_mask_uniform"):
+        assert _resolve_rs01_admissibility_policy({"experiment": {"mode": mode}}) == expected_policy
+    assert _resolve_rs01_admissibility_policy({"experiment": {"mode": "train"}}) is None
+
+
+def test_legacy_rs01_ui_fields_are_replaced_by_the_canonical_evaluation_policy():
+    config = {
+        "experiment": {
+            "mode": "eval_drift",
+            "rs01_audit_enabled": False,
+            "rs01_audit_batch_id": "legacy-batch",
+            "rs01_admissibility_policy": {},
+        },
+    }
+
+    patched = _apply_experiment_switch_overrides(config)
+
+    assert patched["experiment"]["rs01_admissibility_policy"] == _resolve_rs01_admissibility_policy(
+        {"experiment": {"mode": "eval_drift"}},
+    )
+    assert "rs01_audit_enabled" not in patched["experiment"]
+    assert "rs01_audit_batch_id" not in patched["experiment"]
+
+
+def test_eval_mode_mlflow_params_mark_automatic_rs01_audit():
+    params = _build_mlflow_params(
+        {"experiment": {"mode": "eval_drift"}, "model": {"type": "BaselineGATv2"}},
+    )
+
+    assert params["rs01.audit_enabled"] == "true"
 
 
 def test_graph_dataset_cache_rejects_pre_fixed_vocab_bridge_schema(tmp_path: Path):

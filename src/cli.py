@@ -59,6 +59,17 @@ DEFAULT_IMPULSE_STATE_CHANNELS = [
     "prefix_recency_norm",
 ]
 TOPOLOGY_MASK_UNIFORM_MODE = "eval_topology_mask_uniform"
+CANONICAL_RS01_ADMISSIBILITY_POLICY = {
+    "source": "lifecycle_active_set",
+    "include_direct_successors": True,
+    "include_active_candidates": True,
+    "relaxed_lookback_events": 8,
+    "relaxed_max_depth": 1,
+    "relaxed_max_cardinality_ratio": 0.35,
+    "relaxed_suppress_completed": True,
+    "relaxed_anchor_policy": "open_successors",
+    "relaxed_loop_policy": "keep_direct_successor_repeats",
+}
 
 
 def _resolve_config_path(config_arg: str) -> Path:
@@ -137,6 +148,8 @@ def _build_mlflow_params(config: Dict[str, Any], max_value_len: int = 480) -> Di
                 params[key] = _truncate_param_value(value, max_len=max_value_len)
         else:
             params[prefix] = _truncate_param_value(payload, max_len=max_value_len)
+    if _resolve_rs01_admissibility_policy(config) is not None:
+        params["rs01.audit_enabled"] = "true"
     _apply_tracking_model_identity(params, config, max_value_len=max_value_len)
     return params
 
@@ -266,6 +279,17 @@ def _as_bool(raw: Any, *, default: bool = False) -> bool:
     return bool(default)
 
 
+def _resolve_rs01_admissibility_policy(config: Mapping[str, Any]) -> Dict[str, Any] | None:
+    """Return the single common-mask audit policy for evaluation modes."""
+    experiment_cfg = config.get("experiment", {})
+    if not isinstance(experiment_cfg, Mapping):
+        return None
+    mode = str(experiment_cfg.get("mode", "train")).strip().lower()
+    if not mode.startswith("eval_"):
+        return None
+    return dict(CANONICAL_RS01_ADMISSIBILITY_POLICY)
+
+
 def _load_uniform_mask_encoder_state(experiment_cfg: Mapping[str, Any]) -> dict[str, Any]:
     checkpoint_path = str(experiment_cfg.get("uniform_mask_encoder_checkpoint", "")).strip()
     if not checkpoint_path:
@@ -314,6 +338,12 @@ def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]
             graph_feature_mapping_cfg = {}
             mapping_cfg["graph_feature_mapping"] = graph_feature_mapping_cfg
         graph_feature_mapping_cfg["enabled"] = _as_bool(experiment_cfg.get("statistic_enabled"), default=False)
+    rs01_policy = _resolve_rs01_admissibility_policy(config)
+    experiment_cfg.pop("rs01_audit_enabled", None)
+    experiment_cfg.pop("rs01_audit_batch_id", None)
+    experiment_cfg.pop("rs01_admissibility_policy", None)
+    if rs01_policy is not None:
+        experiment_cfg["rs01_admissibility_policy"] = rs01_policy
     return config
 
 
@@ -2666,10 +2696,6 @@ def _build_mou_mlflow_params(config: Mapping[str, Any]) -> Dict[str, Any]:
     params["model.type"] = "MOU"
     params["model_type"] = "MOU"
     experiment_cfg = config.get("experiment", {}) if isinstance(config.get("experiment"), Mapping) else {}
-    params["rs01.audit_enabled"] = str(
-        _as_bool(experiment_cfg.get("rs01_audit_enabled"), default=False)
-    ).lower()
-    params["rs01.audit_batch_id"] = str(experiment_cfg.get("rs01_audit_batch_id", "") or "")
     params["rs01.metric_contract_id"] = "mou_native_candidate_label_mask.v1"
     params["rs01.prediction_space"] = "mou_native_candidate_label"
     params["rs01.mask_space"] = "mou_native_candidate_label"

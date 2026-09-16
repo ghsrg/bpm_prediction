@@ -1,19 +1,4 @@
 fields:
-  experiment.rs01_admissibility_policy:
-    affects: Common reference mask for audit only; does not change decoding.
-    default: null
-    description: Explicit reference state-aware policy object; all nine policy fields are required.
-    enum: []
-    label: RS-01 reference admissibility policy
-    path: experiment.rs01_admissibility_policy
-    required_in_modes: []
-    required_when: {}
-    section: experiment
-    ui:
-      group: advanced
-      order: 1001
-      priority: 30
-      tab: general
   data.dataset_label:
     affects: Input loading and process identity.
     default: ''
@@ -416,37 +401,6 @@ fields:
       order: 43
       priority: 2
       tab: general
-  experiment.rs01_audit_enabled:
-    affects: Enables audit-only RS-01 outcome partition metrics during eval_drift or MOU evaluation.
-    default: false
-    description: Audit-only flag for exporting per-prefix RS-01 outcome partition metrics.
-    enum: []
-    label: RS-01 audit enabled
-    path: experiment.rs01_audit_enabled
-    required_in_modes: []
-    required_when: {}
-    section: experiment
-    type: bool
-    ui:
-      group: audit
-      order: 44
-      priority: 2
-      tab: advanced
-  experiment.rs01_audit_batch_id:
-    affects: Groups RS-01 audit-only runs for isolated export and reconciliation.
-    default: ''
-    description: Batch identifier for RS-01 audit exports.
-    enum: []
-    label: RS-01 audit batch
-    path: experiment.rs01_audit_batch_id
-    required_in_modes: []
-    required_when: {}
-    section: experiment
-    ui:
-      group: audit
-      order: 45
-      priority: 2
-      tab: advanced
   experiment.name:
     affects: Execution route, data split, and evaluation mode behavior.
     default: ''

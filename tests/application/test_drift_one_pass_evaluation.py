@@ -371,6 +371,77 @@ def test_common_audit_preserves_hard_mask_and_empty_mask_fallback_prediction(
     assert classify_observation(audited_records.audit_observations[0]).outcome == expected_outcome
 
 
+def test_rs01_common_audit_covers_all_evaluated_prefixes(tmp_path):
+    trainer = _trainer(tmp_path)
+    trainer.mask_guided_enabled = True
+    trainer.mask_guided_policy = "hard"
+    trainer.mask_guided_apply_in_eval = True
+    trainer._reverse_activity_vocab = {0: "A", 1: "B", 2: "C"}
+    samples = []
+    for trace_idx, prediction in enumerate((0, 1, 2)):
+        sample = _sample(
+            trace_idx=trace_idx,
+            target=0,
+            pred=prediction,
+            mask=[False, False, False],
+        )
+        sample.audit_payload_json = json.dumps({
+            "audit_allowed_activity_labels": ["B"],
+            "audit_mask_status": "resolved",
+            "audit_mask_policy_id": "reference-policy",
+        })
+        samples.append(sample)
+
+    records = trainer._collect_drift_inference_records(
+        DataLoader(samples, batch_size=3, shuffle=False)
+    )
+    metrics = trainer._compute_test_metrics_from_records(
+        records,
+        np.asarray([0, 1, 2], dtype=np.int64),
+    )
+    summary = aggregate_outcomes(records.audit_observations)
+
+    assert summary.metric_contract_id == "state_aware_activity_label_mask.v2"
+    assert metrics["valid_prediction_count"] == metrics["audited_prefix_count"] == 3
+    assert metrics["excluded_count"] == 0
+    assert metrics["unresolved_mapping_count"] == 0
+    assert (
+        metrics["strict_correct_count"]
+        + metrics["parallelism_admissible_error_count"]
+        + metrics["oos_error_count"]
+        == metrics["valid_prediction_count"]
+    )
+    assert abs(
+        metrics["strict_correct_rate"]
+        + metrics["parallelism_admissible_error_rate"]
+        + metrics["oos_error_rate"]
+        - 1.0
+    ) <= 1.0e-6
+    assert abs(metrics["strict_correct_rate"] - metrics["strict_test_accuracy"]) <= 1.0e-6
+
+
+def test_rs01_legacy_fallback_is_not_common_coverage_evidence(tmp_path):
+    trainer = _trainer(tmp_path)
+    trainer.mask_guided_enabled = True
+    trainer.mask_guided_policy = "hard"
+    trainer.mask_guided_apply_in_eval = True
+    trainer._reverse_activity_vocab = {0: "A", 1: "B", 2: "C"}
+    sample = _sample(trace_idx=0, target=0, pred=1, mask=[False, False, False])
+
+    records = trainer._collect_drift_inference_records(
+        DataLoader([sample], batch_size=1, shuffle=False)
+    )
+    metrics = trainer._compute_test_metrics_from_records(
+        records,
+        np.asarray([0], dtype=np.int64),
+    )
+    summary = aggregate_outcomes(records.audit_observations)
+
+    assert summary.metric_contract_id == "fixed_vocab_label_mask.v1"
+    assert metrics["valid_prediction_count"] == 0
+    assert metrics["excluded_count"] == 1
+
+
 def test_one_pass_candidate_id_metrics_use_unseen_candidate_space(tmp_path):
     trainer = _candidate_trainer(tmp_path)
     sample = _sample(trace_idx=0, target=0, pred=0, mask=[True, False, False])

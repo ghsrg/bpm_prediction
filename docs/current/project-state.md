@@ -129,7 +129,8 @@ existing fields and adds metadata-only `dataset_complexity`, read only from
 explicit run params/tags.
 
 RS-01 audit export is available as an explicit, isolated path. Audit exports
-require explicit run IDs, `run_set=drift`, `rs01.audit_enabled=true`, and an
+require explicit run IDs, `run_set=drift`, the automatically logged
+`rs01.audit_enabled=true` marker, and an
 `article_audits/rs01_<batch_id>` output namespace. The bundle builder writes
 `outcome_partition.csv`, `endpoint_error_profile.csv`,
 `source_manifest.csv`, and `metric_contract_audit.md` without copying into the
@@ -139,8 +140,8 @@ as `audited_prefix_count`, `valid_prediction_count`, `excluded_count`, and
 article endpoint denominator.
 
 Common cross-model RS-01 evaluation is available under
-`state_aware_activity_label_mask.v2`. It uses an explicit reference state-aware
-policy, preserves structural-candidate cardinality before activity-label
+`state_aware_activity_label_mask.v2`. Every `eval_*` run uses its canonical
+reference state-aware policy automatically, preserves structural-candidate cardinality before activity-label
 projection, evaluates the final model prediction, and reports common OOS,
 target-in-mask, abstention, and coverage evidence. Graph cache schema 8 includes
 the reference policy in its fingerprint. Historical mask contracts remain

@@ -96,7 +96,7 @@ diagnostics. It does not change logits, masks, checkpoints, datasets, training,
 or historical metric definitions.
 
 For cross-model comparisons, contract `state_aware_activity_label_mask.v2`
-uses one explicit `experiment.rs01_admissibility_policy`. A model may still use
+uses one canonical policy applied automatically to every `eval_*` run. A model may still use
 its own decoding mask to select a prediction. The selected prediction is then
 evaluated against the common state-aware mask. Mask construction preserves the
 reference structural-candidate identities and cardinality basis before projecting

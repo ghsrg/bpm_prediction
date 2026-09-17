@@ -147,6 +147,14 @@ target-in-mask, abstention, and coverage evidence. Graph cache schema 8 includes
 the reference policy in its fingerprint. Historical mask contracts remain
 readable but must not be pooled with v2 evidence.
 
+`tools/aggregate_article_run_metrics.py --run-set drift --audit-mode rs01
+--versions v3,v4,v5` produces an article-facing equal endpoint mean. Loan
+outputs aggregate per seed; CDLG outputs derive process identity and the
+`simple`/`middle`/`complex` stratum from preset or run names when necessary,
+then aggregate process-and-seed observations within each stratum. It blocks mixed
+contracts, failed endpoint QC, missing or duplicate endpoint records, invalid
+partitions, and EOPKG/EOPKG-WI run overlap rather than emitting a partial table.
+
 ### offline_topology_preparation
 
 - `status`: implemented

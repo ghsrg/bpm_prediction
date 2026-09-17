@@ -751,6 +751,33 @@ independent replicates:
   --audit-mode rs01
 ```
 
+To aggregate only an exact withheld-version endpoint scope, pass the canonical
+comma-separated version set. For example, `--versions v3,v4,v5` reads the
+three nominal endpoint series (`endpoint_v3_*`, `endpoint_v4_*`, and
+`endpoint_v5_*`). Loan runs compute an equal per-seed mean across endpoints,
+then compute mean and standard deviation across seeds. CDLG process runs are
+identified from `preset_name` or `run_name` when the exported
+`dataset_complexity` field is blank; they are grouped into `simple`, `middle`,
+and `complex` strata, with one endpoint mean per process and seed before
+computing mean and standard deviation across process runs and seeds. It excludes all moving
+drift-window metrics:
+
+```powershell
+.\.venv-modern\Scripts\python.exe tools\aggregate_article_run_metrics.py `
+  --input-dir outputs\Export_metrics\article_run_metrics\loan_RS01 `
+  --output-dir outputs\Export_metrics\article_aggregates\loan_RS01_v3_v5 `
+  --run-set drift `
+  --audit-mode rs01 `
+  --versions v3,v4,v5
+```
+
+The command requires four metrics at every endpoint: `strict_test_macro_f1`,
+`strict_correct_rate`, `parallelism_admissible_error_rate`, and
+`oos_error_rate`. It fails on missing or duplicate `(model, complexity, process,
+seed, endpoint, metric)` records, a non-v2 common contract, failed endpoint QC, a non-unit
+RS-01 partition, or overlapping EOPKG/EOPKG-WI runs. The exclusions CSV records
+the blocking source runs; the tool never produces a partial article table.
+
 Build the local bundle:
 
 ```powershell

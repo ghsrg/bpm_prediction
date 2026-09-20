@@ -17,6 +17,7 @@ from pathlib import Path
 import tempfile
 from time import perf_counter
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from uuid import uuid4
 import warnings
 
 import numpy as np
@@ -39,7 +40,9 @@ from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.services.learning_strategy_config import LearningStrategyConfig
 from src.application.services.drift_release_policy import (
+    adaptive_window_start_trace,
     eligible_released_trace_indices,
+    newly_observed_trace_indices,
     released_trace_indices,
 )
 from src.application.services.candidate_target_mapping import (
@@ -1326,11 +1329,9 @@ class ModelTrainer:
         prebuilt_test_dataset: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Run prequential drift evaluation with released-window fine-tuning."""
-        self._save_finetune_checkpoint(
-            epoch=best_epoch,
-            val_loss=best_val_loss,
-            checkpoint=checkpoint,
-            update_index=0,
+        self.finetune_checkpoint_path = self._derive_finetune_checkpoint_path(
+            self.checkpoint_path,
+            run_token=uuid4().hex[:12],
         )
         self._finetune_source_checkpoint = checkpoint
         drift_metrics = self._evaluate_drift_finetune_windows_from_prebuilt_dataset(
@@ -1658,16 +1659,19 @@ class ModelTrainer:
         return checkpoint_path.with_name(f"{stem}_last{suffix}")
 
     @staticmethod
-    def _derive_finetune_checkpoint_path(checkpoint_path: Path) -> Path:
+    def _derive_finetune_checkpoint_path(checkpoint_path: Path, *, run_token: str | None = None) -> Path:
         """Derive sidecar checkpoint path for adaptive fine-tuned weights."""
         name = checkpoint_path.name
         if name.endswith("_best.pth"):
-            return checkpoint_path.with_name(f"{name[:-9]}_finetune.pth")
+            stem = name[:-9]
+            return checkpoint_path.with_name(f"{stem}_{run_token}_finetune.pth" if run_token else f"{stem}_finetune.pth")
         stem = checkpoint_path.stem
         suffix = checkpoint_path.suffix or ".pth"
         if stem.endswith("_best"):
-            return checkpoint_path.with_name(f"{stem[:-5]}_finetune{suffix}")
-        return checkpoint_path.with_name(f"{stem}_finetune{suffix}")
+            stem = stem[:-5]
+        return checkpoint_path.with_name(
+            f"{stem}_{run_token}_finetune{suffix}" if run_token else f"{stem}_finetune{suffix}"
+        )
 
     def _save_finetune_checkpoint(
         self,
@@ -1692,7 +1696,19 @@ class ModelTrainer:
         feature_encoder = getattr(self.graph_builder, "feature_encoder", None)
         if feature_encoder is not None and hasattr(feature_encoder, "get_state"):
             payload["encoder_state"] = feature_encoder.get_state()
-        torch.save(payload, self.finetune_checkpoint_path)
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            suffix=".pth.tmp",
+            dir=self.finetune_checkpoint_path.parent,
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+        try:
+            torch.save(payload, temporary_path)
+            temporary_path.replace(self.finetune_checkpoint_path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
 
     def _resolve_resume_checkpoint_path(self) -> Optional[Path]:
         """Resolve training-resume checkpoint path, preferring explicit resume/last checkpoint."""
@@ -2468,6 +2484,9 @@ class ModelTrainer:
         contract_sanitized_batches = 0
         logits_sanitized_batches = 0
         non_finite_loss_batches = 0
+        non_finite_gradient_batches = 0
+        non_finite_parameter_batches = 0
+        optimizer_steps = 0
         phase_name = "train" if training else "validation"
         stage_name = "train.batches" if training else "validation.batches"
         batch_reporter = ProgressReporter(stage=stage_name, min_interval_sec=0.8)
@@ -2850,6 +2869,19 @@ class ModelTrainer:
                 if training and optimizer is not None:
                     if not skip_optimizer_step:
                         loss.backward()
+                        gradients_finite = all(
+                            param.grad is None or self._is_finite_tensor(param.grad)
+                            for param in self.model.parameters()
+                        )
+                        if not gradients_finite:
+                            non_finite_gradient_batches += 1
+                            logger.warning(
+                                "Numeric guard [epoch:train]: non-finite gradients detected. "
+                                "Skipping optimizer step for this batch."
+                            )
+                            optimizer.zero_grad(set_to_none=True)
+                            skip_optimizer_step = True
+                    if not skip_optimizer_step:
                         grad_norms = self._parameter_grad_norm_groups(self.model)
                         for group_name, group_norm in grad_norms.items():
                             forward_stats[f"grad_norm_{group_name}_sum"] = float(
@@ -2858,6 +2890,15 @@ class ModelTrainer:
                         forward_stats["grad_norm_batches"] = int(forward_stats.get("grad_norm_batches", 0)) + 1
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                         optimizer.step()
+                        optimizer_steps += 1
+                        parameters_finite = all(
+                            self._is_finite_tensor(param.detach())
+                            for param in self.model.parameters()
+                            if not isinstance(param, UninitializedParameter)
+                        )
+                        if not parameters_finite:
+                            non_finite_parameter_batches += 1
+                            raise RuntimeError("Numeric guard [epoch:train]: optimizer step produced non-finite parameters.")
 
             total_loss += float(loss.detach().cpu().item())
             batches += 1
@@ -2907,6 +2948,12 @@ class ModelTrainer:
                 epoch_progress_callback(int(batch_idx), int(total_batches), phase_name)
 
         duration = perf_counter() - started
+        self._last_epoch_update_summary = {
+            "optimizer_steps": int(optimizer_steps),
+            "non_finite_loss_batches": int(non_finite_loss_batches),
+            "non_finite_gradient_batches": int(non_finite_gradient_batches),
+            "non_finite_parameter_batches": int(non_finite_parameter_batches),
+        }
         if batches == 0:
             batch_reporter.done(
                 message=f"{phase_name.title()} epoch {epoch_index}/{total_epochs} completed (empty)",
@@ -4570,10 +4617,84 @@ class ModelTrainer:
         wanted = {int(value) for value in trace_indices}
         return [graph for graph in graphs if self._graph_trace_idx(graph) in wanted]
 
+    def _index_prebuilt_graphs_by_trace(self, graphs: Sequence[Data]) -> dict[int, list[tuple[int, Data]]]:
+        indexed: dict[int, list[tuple[int, Data]]] = {}
+        for position, graph in enumerate(graphs):
+            indexed.setdefault(self._graph_trace_idx(graph), []).append((position, graph))
+        return indexed
+
+    def _select_indexed_graphs(
+        self,
+        indexed: Mapping[int, Sequence[tuple[int, Data]]],
+        trace_indices: Iterable[int],
+    ) -> List[Data]:
+        selected = [
+            item
+            for trace_idx in {int(value) for value in trace_indices}
+            for item in indexed.get(trace_idx, ())
+        ]
+        return [graph for _, graph in sorted(selected, key=lambda item: item[0])]
+
     def _ensure_training_criterion(self) -> None:
         if not hasattr(self, "criterion"):
             class_weights = self.class_weights.to(self.device) if self.class_weights is not None else None
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    def _run_finetune_update(self, release_graphs: Sequence[Data]) -> Dict[str, Any]:
+        """Run one fully-valid adaptive update without using future class weights."""
+        trainable_params = [param for param in self.model.parameters() if param.requires_grad]
+        if not release_graphs or not trainable_params:
+            return {
+                "optimizer_steps": 0,
+                "attempted_batches": 0,
+                "skipped_batches": 0,
+                "non_finite_loss_batches": 0,
+                "parameters_changed": False,
+                "optimizer": None,
+            }
+
+        before = [param.detach().clone() for param in trainable_params]
+        optimizer = Adam(trainable_params, lr=self.finetune_learning_rate)
+        release_loader = self._build_loader_from_dataset(release_graphs, shuffle=True)
+        original_criterion = self.criterion
+        self.criterion = nn.CrossEntropyLoss(weight=None)
+        optimizer_steps = 0
+        skipped_batches = 0
+        non_finite_loss_batches = 0
+        attempted_batches = 0
+        try:
+            for epoch in range(1, int(self.finetune_epochs) + 1):
+                self._run_epoch(
+                    release_loader,
+                    optimizer=optimizer,
+                    training=True,
+                    epoch_index=epoch,
+                    total_epochs=int(self.finetune_epochs),
+                )
+                summary = self._last_epoch_update_summary
+                optimizer_steps += int(summary["optimizer_steps"])
+                non_finite_loss_batches += int(summary["non_finite_loss_batches"])
+                skipped_batches += (
+                    int(summary["non_finite_loss_batches"])
+                    + int(summary["non_finite_gradient_batches"])
+                    + int(summary["non_finite_parameter_batches"])
+                )
+                attempted_batches += int(len(release_loader))
+        finally:
+            self.criterion = original_criterion
+
+        parameters_changed = any(
+            not torch.equal(before_value, parameter.detach())
+            for before_value, parameter in zip(before, trainable_params)
+        )
+        return {
+            "optimizer_steps": int(optimizer_steps),
+            "attempted_batches": int(attempted_batches),
+            "skipped_batches": int(skipped_batches),
+            "non_finite_loss_batches": int(non_finite_loss_batches),
+            "parameters_changed": bool(parameters_changed),
+            "optimizer": optimizer,
+        }
 
     def _log_drift_window_metrics(
         self,
@@ -4617,39 +4738,68 @@ class ModelTrainer:
         self.tracker.log_metric("finetune_traces_this_update", float(finetune_traces_this_update), step=window_idx)
         self.tracker.log_metric("finetune_start_ratio", float(finetune_start_ratio), step=window_idx)
         self.tracker.log_metric("finetune_start_trace", float(finetune_start_trace), step=window_idx)
+        self.tracker.log_metric("finetune_effective_start_trace", float(finetune_start_trace), step=window_idx)
+
+    def _log_finetune_update_metrics(
+        self,
+        *,
+        window_idx: int,
+        optimizer_steps: int,
+        skipped_optimizer_steps: int,
+        applied: bool,
+    ) -> None:
+        if self.tracker is None:
+            return
+        self.tracker.log_metric("finetune_optimizer_steps", float(optimizer_steps), step=window_idx)
+        self.tracker.log_metric("finetune_skipped_optimizer_steps", float(skipped_optimizer_steps), step=window_idx)
+        self.tracker.log_metric("finetune_update_applied", 1.0 if applied else 0.0, step=window_idx)
 
     def _evaluate_drift_finetune_windows_from_prebuilt_dataset(
         self,
         traces: Sequence[RawTrace],
         prebuilt_test_dataset: Optional[Any],
     ) -> Optional[List[Dict[str, float]]]:
-        """Evaluate each drift window with current weights, then train released traces."""
+        """Replay drift windows causally, adapting only after each adaptive forecast."""
         if not self._prebuilt_dataset_has_trace_idx(prebuilt_test_dataset):
             return None
         if self.drift_window_size <= 0:
             raise ValueError("drift_window_size must be positive.")
 
         graphs = self._iter_prebuilt_graphs(prebuilt_test_dataset)
+        graphs_by_trace = self._index_prebuilt_graphs_by_trace(graphs)
         windows = self._generate_drift_windows(traces)
         total_windows = len(windows)
+        if total_windows <= 0:
+            return []
+        window_step = self._resolve_drift_step()
+        finetune_start_trace = int(len(traces) * self.finetune_start_ratio)
+        effective_start_trace = adaptive_window_start_trace(
+            cut_trace=finetune_start_trace,
+            window_step=window_step,
+        )
+        baseline_windows = [
+            (window_idx, start, window_traces)
+            for window_idx, (start, window_traces) in enumerate(windows)
+            if int(start) < effective_start_trace
+        ]
+        adaptive_windows = [
+            (window_idx, start, window_traces)
+            for window_idx, (start, window_traces) in enumerate(windows)
+            if int(start) >= effective_start_trace
+        ]
+        if adaptive_windows and len(adaptive_windows) < 2:
+            raise ValueError("eval_drift_finetune needs an adaptive window with a successor to apply an update.")
         logger.info(
             "Drift finetune windows prepared: size=%d, step=%d, keep_short_tail=false, windows=%d",
             self.drift_window_size,
-            self._resolve_drift_step(),
+            window_step,
             total_windows,
         )
-        finetune_start_trace = int(len(traces) * self.finetune_start_ratio)
         logger.info(
-            "Drift finetune adaptive updates start at trace index %d (ratio=%.4f).",
+            "Drift finetune adaptive updates start at trace index %d (effective boundary=%d, ratio=%.4f).",
             finetune_start_trace,
+            effective_start_trace,
             self.finetune_start_ratio,
-        )
-        emit_progress_event(
-            stage="eval_drift.windows",
-            status="start",
-            message="Evaluating adaptive drift windows",
-            current=0,
-            total=total_windows,
         )
 
         drift_results: List[Dict[str, float]] = []
@@ -4658,20 +4808,19 @@ class ModelTrainer:
         traces_this_completed_update = 0
         self._ensure_training_criterion()
 
-        iterator = tqdm(
-            list(enumerate(windows)),
-            desc="Eval drift finetune",
-            leave=self.tqdm_leave,
-            disable=self._is_tqdm_disabled(),
-        )
-        for window_idx, (start, window_traces) in iterator:
+        def evaluate_window(
+            *,
+            window_idx: int,
+            start: int,
+            window_traces: Sequence[RawTrace],
+            records: DriftInferenceRecords,
+            phase: str,
+        ) -> None:
+            nonlocal traces_this_completed_update
             current_trace_indices = tuple(range(int(start), int(start) + len(window_traces)))
-            window_graphs = self._select_prebuilt_graphs_by_trace_indices(graphs, current_trace_indices)
-            if not window_graphs:
+            idxs = np.where(np.isin(records.trace_idx, np.asarray(current_trace_indices, dtype=np.int64)))[0]
+            if idxs.size == 0:
                 raise ValueError(f"eval_drift_finetune found no graph samples for window {window_idx}.")
-            window_loader = self._build_loader_from_dataset(window_graphs, shuffle=False)
-            records = self._collect_drift_inference_records(window_loader)
-            idxs = np.arange(int(records.trace_idx.shape[0]), dtype=np.int64)
             metrics = self._compute_test_metrics_from_records(records, idxs)
             macro_f1 = float(metrics.get("test_macro_f1", 0.0))
             strict_macro_f1 = float(metrics.get("strict_test_macro_f1", 0.0))
@@ -4688,7 +4837,7 @@ class ModelTrainer:
                 finetune_unique_traces_seen=len(seen_trace_indices),
                 finetune_traces_this_update=traces_this_completed_update,
                 finetune_start_ratio=self.finetune_start_ratio,
-                finetune_start_trace=finetune_start_trace,
+                finetune_start_trace=effective_start_trace,
             )
             drift_results.append(
                 {
@@ -4704,56 +4853,122 @@ class ModelTrainer:
                     "finetune_unique_traces_seen": float(len(seen_trace_indices)),
                     "finetune_traces_this_update": float(traces_this_completed_update),
                     "finetune_start_ratio": float(self.finetune_start_ratio),
-                    "finetune_start_trace": float(finetune_start_trace),
+                    "finetune_start_trace": float(effective_start_trace),
                 }
             )
-            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "updates": completed_updates})
             emit_progress_event(
                 stage="eval_drift.windows",
                 status="update",
-                message=f"Adaptive window {window_idx + 1}/{total_windows}",
+                message=f"{'Baseline' if phase == 'baseline_one_pass' else 'Adaptive'} window {window_idx + 1}/{total_windows}",
                 current=int(window_idx + 1),
                 total=total_windows,
                 payload={
+                    "phase": phase,
                     "macro_f1": float(macro_f1),
                     "strict_macro_f1": float(strict_macro_f1),
                     "updates_completed": int(completed_updates),
-                    "window_graphs": int(len(window_graphs)),
+                    "window_graphs": int(idxs.size),
                 },
             )
 
+        if baseline_windows:
+            last_baseline_start, last_baseline_traces = baseline_windows[-1][1:]
+            baseline_trace_indices = tuple(range(int(last_baseline_start) + len(last_baseline_traces)))
+            baseline_graphs = self._select_indexed_graphs(graphs_by_trace, baseline_trace_indices)
+            if not baseline_graphs:
+                raise ValueError("eval_drift_finetune found no graph samples for baseline windows.")
+            emit_progress_event(
+                stage="eval_drift.baseline_one_pass",
+                status="start",
+                message="Drift baseline one-pass inference",
+                current=0,
+                total=len(baseline_graphs),
+            )
+            baseline_records = self._collect_drift_inference_records(
+                self._build_loader_from_dataset(baseline_graphs, shuffle=False)
+            )
+            emit_progress_event(
+                stage="eval_drift.baseline_one_pass",
+                status="done",
+                message="Drift baseline one-pass inference completed",
+                current=len(baseline_graphs),
+                total=len(baseline_graphs),
+            )
+            for window_idx, start, window_traces in baseline_windows:
+                evaluate_window(
+                    window_idx=window_idx,
+                    start=start,
+                    window_traces=window_traces,
+                    records=baseline_records,
+                    phase="baseline_one_pass",
+                )
+                self._log_finetune_update_metrics(
+                    window_idx=window_idx,
+                    optimizer_steps=0,
+                    skipped_optimizer_steps=0,
+                    applied=False,
+                )
+
+        emit_progress_event(
+            stage="eval_drift.windows",
+            status="start",
+            message="Evaluating adaptive drift windows",
+            current=len(baseline_windows),
+            total=total_windows,
+        )
+        for adaptive_position, (window_idx, start, window_traces) in enumerate(adaptive_windows):
+            current_trace_indices = tuple(range(int(start), int(start) + len(window_traces)))
+            window_graphs = self._select_indexed_graphs(graphs_by_trace, current_trace_indices)
+            if not window_graphs:
+                raise ValueError(f"eval_drift_finetune found no graph samples for window {window_idx}.")
+            records = self._collect_drift_inference_records(
+                self._build_loader_from_dataset(window_graphs, shuffle=False)
+            )
+            evaluate_window(
+                window_idx=window_idx,
+                start=start,
+                window_traces=window_traces,
+                records=records,
+                phase="adaptive_window",
+            )
             traces_this_completed_update = 0
-            if window_idx >= total_windows - 1:
+            if adaptive_position >= len(adaptive_windows) - 1:
+                self._log_finetune_update_metrics(
+                    window_idx=window_idx,
+                    optimizer_steps=0,
+                    skipped_optimizer_steps=0,
+                    applied=False,
+                )
                 continue
-            next_start, next_window_traces = windows[window_idx + 1]
+            _, next_start, next_window_traces = adaptive_windows[adaptive_position + 1]
             following_trace_indices = tuple(range(int(next_start), int(next_start) + len(next_window_traces)))
-            release_indices = released_trace_indices(
+            release_indices = newly_observed_trace_indices(
                 current_trace_indices,
                 following_trace_indices,
                 frozenset(seen_trace_indices),
             )
-            eligible_release_indices = eligible_released_trace_indices(
-                release_indices,
-                start_trace_index=finetune_start_trace,
-            )
-            if not eligible_release_indices:
-                continue
-            release_graphs = self._select_prebuilt_graphs_by_trace_indices(graphs, eligible_release_indices)
-            trainable_params = [param for param in self.model.parameters() if param.requires_grad]
-            if not release_graphs or not trainable_params:
-                continue
-            optimizer = Adam(trainable_params, lr=self.finetune_learning_rate)
-            release_loader = self._build_loader_from_dataset(release_graphs, shuffle=True)
-            for epoch in range(1, int(self.finetune_epochs) + 1):
-                self._run_epoch(
-                    release_loader,
-                    optimizer=optimizer,
-                    training=True,
-                    epoch_index=epoch,
-                    total_epochs=int(self.finetune_epochs),
+            release_graphs = self._select_indexed_graphs(graphs_by_trace, release_indices)
+            update = self._run_finetune_update(release_graphs)
+            if (
+                int(update["optimizer_steps"]) != int(update["attempted_batches"])
+                or int(update["skipped_batches"]) != 0
+                or not bool(update["parameters_changed"])
+            ):
+                self._log_finetune_update_metrics(
+                    window_idx=window_idx,
+                    optimizer_steps=int(update["optimizer_steps"]),
+                    skipped_optimizer_steps=int(update["skipped_batches"]),
+                    applied=False,
                 )
-            seen_trace_indices.update(int(idx) for idx in eligible_release_indices)
-            traces_this_completed_update = len(set(int(idx) for idx in eligible_release_indices))
+                raise RuntimeError("eval_drift_finetune incomplete or ineffective update; run is invalid.")
+            self._log_finetune_update_metrics(
+                window_idx=window_idx,
+                optimizer_steps=int(update["optimizer_steps"]),
+                skipped_optimizer_steps=int(update["skipped_batches"]),
+                applied=True,
+            )
+            seen_trace_indices.update(int(idx) for idx in release_indices)
+            traces_this_completed_update = len(set(int(idx) for idx in release_indices))
             completed_updates += 1
             source_checkpoint = getattr(self, "_finetune_source_checkpoint", None)
             source_val_loss = (
@@ -4771,7 +4986,7 @@ class ModelTrainer:
                 val_loss=source_val_loss,
                 checkpoint=source_checkpoint if isinstance(source_checkpoint, dict) else None,
                 update_index=completed_updates,
-                optimizer=optimizer,
+                optimizer=update["optimizer"],
             )
 
         emit_progress_event(
@@ -5058,26 +5273,36 @@ class ModelTrainer:
         batch_samples: int,
     ) -> str:
         if not self.mask_guided_enabled:
-            return "off"
-        if self.mask_guided_policy in {"off", "soft", "hard"}:
+            effective_policy = "off"
+        elif self.mask_guided_policy in {"off", "soft", "hard"}:
             if not training and not self.mask_guided_apply_in_eval:
-                return "off"
-            return self.mask_guided_policy
-        if training:
+                effective_policy = "off"
+            else:
+                effective_policy = self.mask_guided_policy
+        elif training:
             if batch_target_in_mask_rate is None:
-                return "soft"
-            if int(batch_samples) >= int(self.mask_guided_min_samples_for_hard) and float(batch_target_in_mask_rate) >= float(
+                effective_policy = "soft"
+            elif int(batch_samples) >= int(self.mask_guided_min_samples_for_hard) and float(batch_target_in_mask_rate) >= float(
                 self.mask_guided_hard_threshold
             ):
-                return "hard"
+                effective_policy = "hard"
+            else:
+                effective_policy = "soft"
+        elif not self.mask_guided_apply_in_eval:
+            effective_policy = "off"
+        else:
+            rate = self._mask_guided_reliability_rate
+            samples = int(self._mask_guided_reliability_samples)
+            effective_policy = (
+                "hard"
+                if rate is not None
+                and samples >= int(self.mask_guided_min_samples_for_hard)
+                and float(rate) >= float(self.mask_guided_hard_threshold)
+                else "soft"
+            )
+        if training and self.mode == "eval_drift_finetune" and effective_policy == "hard":
             return "soft"
-        if not self.mask_guided_apply_in_eval:
-            return "off"
-        rate = self._mask_guided_reliability_rate
-        samples = int(self._mask_guided_reliability_samples)
-        if rate is not None and samples >= int(self.mask_guided_min_samples_for_hard) and float(rate) >= float(self.mask_guided_hard_threshold):
-            return "hard"
-        return "soft"
+        return effective_policy
 
     def _apply_mask_guided_logits(
         self,

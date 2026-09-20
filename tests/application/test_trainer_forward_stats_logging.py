@@ -1110,6 +1110,41 @@ def test_trainer_numeric_guard_keeps_run_epoch_finite_with_nan_logits():
     assert math.isfinite(float(weighted_f1))
 
 
+def test_finetune_update_uses_unweighted_loss_and_softens_hard_training_mask():
+    snapshot_epoch = float(datetime(2026, 3, 20, 12, 0, tzinfo=timezone.utc).timestamp())
+    sample = _sample(1, snapshot_idx=7, snapshot_epoch=snapshot_epoch)
+    sample.allowed_target_mask = torch.tensor([[True, False]], dtype=torch.bool)
+    trainer = _make_trainer(
+        model=_TrainableBinaryModel(),
+        config_overrides={
+            "mode": "eval_drift_finetune",
+            "mask_guided_enabled": True,
+            "mask_guided_policy": "hard",
+        },
+    )
+    trainer.class_weights = torch.zeros(2, dtype=torch.float32)
+    trainer.criterion = nn.CrossEntropyLoss(weight=trainer.class_weights)
+    before = trainer.model.logit_bias.detach().clone()
+
+    update = trainer._run_finetune_update([sample])
+
+    assert update["optimizer_steps"] == 1
+    assert update["non_finite_loss_batches"] == 0
+    assert update["parameters_changed"] is True
+    assert trainer._resolve_mask_guided_policy(
+        training=True,
+        batch_target_in_mask_rate=0.0,
+        batch_samples=1,
+    ) == "soft"
+    assert trainer._resolve_mask_guided_policy(
+        training=False,
+        batch_target_in_mask_rate=0.0,
+        batch_samples=1,
+    ) == "hard"
+    assert torch.isfinite(trainer.model.logit_bias).all()
+    assert not torch.equal(before, trainer.model.logit_bias.detach())
+
+
 def test_trainer_target_labels_extraction_collated_by_pyg():
     trainer = ModelTrainer(
         xes_adapter=_DummyAdapter(),

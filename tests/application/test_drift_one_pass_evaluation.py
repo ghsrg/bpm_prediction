@@ -145,6 +145,14 @@ class _FakeTracker:
         _ = artifact_path
 
 
+class _GetOnlyGraphIndex(dict[int, list[tuple[int, Data]]]):
+    def __iter__(self):
+        raise AssertionError("Indexed graph selection must not scan all trace IDs.")
+
+    def items(self):
+        raise AssertionError("Indexed graph selection must not scan all trace IDs.")
+
+
 def _event(idx: int) -> EventRecord:
     return EventRecord(
         activity_id=f"A{idx}",
@@ -281,6 +289,18 @@ def _known_candidate_trainer(tmp_path) -> ModelTrainer:
     )
 
 
+def test_eval_drift_finetune_indexes_graphs_by_trace_without_full_dataset_scan(tmp_path):
+    trainer = _trainer(tmp_path)
+    samples = [_sample(trace_idx=idx, target=0, pred=0) for idx in range(6)]
+    samples.append(_sample(trace_idx=4, target=1, pred=1))
+
+    lookup = trainer._index_prebuilt_graphs_by_trace(samples)
+    guarded_lookup = _GetOnlyGraphIndex(lookup)
+    selected = trainer._select_indexed_graphs(guarded_lookup, (4, 1, 4))
+
+    assert [trainer._graph_trace_idx(graph) for graph in selected] == [1, 4, 4]
+
+
 def test_collect_drift_inference_records_is_compact(tmp_path):
     trainer = _trainer(tmp_path)
     loader = DataLoader(
@@ -345,6 +365,77 @@ def test_eval_drift_finetune_updates_after_released_window(tmp_path):
         if key == "finetune_update_index"
     ]
     assert logged_updates == [0.0, 1.0]
+
+
+def test_eval_drift_finetune_reuses_one_pass_records_before_adaptive_cut(tmp_path):
+    model = _TrainableThresholdModel()
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=model,
+        finetune_start_ratio=0.5,
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.finetune_epochs = 1
+    trainer.finetune_learning_rate = 0.1
+    trainer.tracker = _FakeTracker()
+    traces = [_trace(f"c{idx}", idx) for idx in range(6)]
+    dataset = [_sample(trace_idx=idx, target=1, pred=0) for idx in range(6)]
+    for sample in dataset:
+        sample.x_num = torch.tensor([[-0.2]], dtype=torch.float32)
+    collect_records = trainer._collect_drift_inference_records
+    inference_calls = 0
+
+    def counting_collect(loader):
+        nonlocal inference_calls
+        inference_calls += 1
+        return collect_records(loader)
+
+    trainer._collect_drift_inference_records = counting_collect  # type: ignore[method-assign]
+
+    metrics = trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        traces=traces,
+        prebuilt_test_dataset=dataset,
+    )
+
+    assert metrics is not None
+    assert inference_calls == 3
+    assert [row["window_index"] for row in metrics] == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert [row["finetune_update_index"] for row in metrics] == [0.0, 0.0, 0.0, 0.0, 1.0]
+    assert model.bias.detach().item() != pytest.approx(0.0)
+
+
+def test_eval_drift_finetune_logs_prequential_update_evidence(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=_TrainableThresholdModel(),
+        finetune_start_ratio=0.5,
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.finetune_epochs = 1
+    trainer.tracker = _FakeTracker()
+    traces = [_trace(f"c{idx}", idx) for idx in range(6)]
+    dataset = [_sample(trace_idx=idx, target=1, pred=0) for idx in range(6)]
+
+    trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        traces=traces,
+        prebuilt_test_dataset=dataset,
+    )
+
+    by_key = {key for key, _, _ in trainer.tracker.metrics}
+    assert {
+        "drift_window_macro_f1",
+        "finetune_update_index",
+        "finetune_optimizer_steps",
+        "finetune_skipped_optimizer_steps",
+        "finetune_update_applied",
+        "finetune_effective_start_trace",
+    } <= by_key
+    applied = [value for key, value, step in trainer.tracker.metrics if key == "finetune_update_applied"]
+    assert applied == [0.0, 0.0, 0.0, 1.0, 0.0]
 
 
 def test_eval_drift_finetune_graph_indexing_emits_progress(tmp_path, monkeypatch, capsys):
@@ -442,7 +533,7 @@ def test_eval_drift_finetune_start_ratio_skips_pre_cut_releases(tmp_path):
     assert logged_update_counts == [0.0, 0.0, 0.0, 1.0]
 
 
-def test_eval_drift_finetune_writes_sidecar_checkpoint_without_overwriting_source(tmp_path):
+def test_eval_drift_finetune_does_not_publish_sidecar_before_a_successful_update(tmp_path):
     trainer = _trainer(
         tmp_path,
         drift_window_size=2,
@@ -472,8 +563,9 @@ def test_eval_drift_finetune_writes_sidecar_checkpoint_without_overwriting_sourc
     )
 
     assert trainer.checkpoint_path.read_bytes() == b"source-checkpoint-sentinel"
-    assert trainer.finetune_checkpoint_path.exists()
-    assert trainer.finetune_checkpoint_path.name == "source_finetune.pth"
+    assert not trainer.finetune_checkpoint_path.exists()
+    assert trainer.finetune_checkpoint_path.name.startswith("source_")
+    assert trainer.finetune_checkpoint_path.name.endswith("_finetune.pth")
     assert result["finetune_checkpoint_path"] == str(trainer.finetune_checkpoint_path)
 
 

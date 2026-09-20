@@ -49,15 +49,27 @@ For drift-safe studies:
 1. If no eligible snapshot exists for requested `as_of`, runtime behavior is controlled by `experiment.on_missing_asof_snapshot`.
 2. Fallback policies (`disable_stats`, `use_base`) must be explicitly reported in experiment notes and treated as exploratory.
 3. For strict historical studies, ensure snapshots cover required timeline points.
-4. `eval_drift_finetune` is a prequential replay protocol: each window is
-   evaluated before any update from that window, and only traces released from
-   the current window before the next overlapping window may be used for the
-   next update. `experiment.finetune_start_ratio` further gates released traces:
-   traces released before `floor(n_traces * finetune_start_ratio)` are not used
-   for adaptive updates.
-5. `eval_drift_finetune` requires prebuilt graph samples with `trace_idx`
+4. `eval_drift_finetune` is a prequential replay protocol. Let
+   `cut_trace=floor(n_traces * experiment.finetune_start_ratio)` and align it
+   to the first drift-window start at or after the cut. Every generated window
+   before that boundary, including a window crossing the cut, is evaluated from
+   one immutable one-pass baseline inference. Each later window is evaluated
+   with the current adaptive model, then only the newly observed stride that
+   leaves the following forecast window is eligible for one update. No update
+   is performed before the aligned boundary and no trace is trained twice.
+   `experiment.train_ratio` remains the source-checkpoint training boundary;
+   it is not an adaptive-update control.
+5. Adaptive fixed-label updates use unweighted cross-entropy because eval mode
+   has no train split from which non-leaking class weights could be estimated.
+   An effective `hard` mask is softened only during adaptive training; the
+   configured drift-evaluation mask policy remains unchanged.
+6. An adaptive update is valid only when every trainable batch completes with
+   finite loss, gradients, and parameters, at least one optimizer step changes
+   a trainable parameter, and a run-scoped sidecar checkpoint is committed.
+   Otherwise the run fails with `incomplete or ineffective update`.
+7. `eval_drift_finetune` requires prebuilt graph samples with `trace_idx`
    metadata and must not rebuild raw-trace windows during adaptation.
-6. Positional release does not by itself prove real-time availability of labels;
+8. Positional release does not by itself prove real-time availability of labels;
    completion-time availability must be checked separately before making
    real-time deployment claims.
 

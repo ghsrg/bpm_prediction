@@ -969,18 +969,23 @@ UI preset accidentally stores the field as `0` or `1`.
 ## Runtime Update 2026-09-19: Prequential Drift Fine-Tuning
 
 `experiment.mode=eval_drift_finetune` is available as a prequential adaptive
-drift protocol. It loads the configured checkpoint like other eval modes,
-evaluates each drift window with the current model weights, then updates only
-from traces released from the current window before the next overlapping
-window.
+drift protocol. It loads the configured checkpoint read-only. Windows before
+the aligned `experiment.finetune_start_ratio` boundary are evaluated from one
+base-model one-pass inference, including the window crossing the raw cut. Each
+later window is evaluated with the current model, then fine-tuned once only on
+the newly observed stride that leaves the next forecast window.
 
 The mode requires prebuilt graph datasets with `trace_idx` metadata and fails
 instead of falling back to raw-trace window rebuilds. It logs the existing
 `drift_window_*` metric series and adds per-window adaptation counters:
 `finetune_update_index`, `finetune_unique_traces_seen`, and
-`finetune_traces_this_update`. `experiment.finetune_start_ratio` is the first
-chronological trace ratio eligible for released-window adaptive updates; traces
-released before that cutoff are evaluated but not used for fine-tuning.
+`finetune_traces_this_update`, `finetune_effective_start_trace`,
+`finetune_optimizer_steps`, `finetune_skipped_optimizer_steps`, and
+`finetune_update_applied`. `experiment.finetune_start_ratio` is distinct from
+`experiment.train_ratio`: the latter determines the source checkpoint while
+the former determines when adaptive updates begin. A run fails closed for an
+incomplete or ineffective update; only a successful update atomically creates
+the `_finetune` sidecar and never overwrites the source checkpoint.
 
 Configuration keys:
 

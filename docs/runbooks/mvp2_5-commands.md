@@ -832,6 +832,7 @@ C:/Users/korsr/PycharmProjects/eopkg_structural_drift_article/submissions/DATAK-
 - `fraction_strategy`: `temporal | versioned`
 - `version_scope_policy`: `all | train_cut`
 - `train_ratio`, `fraction`, `split_ratio`
+- `finetune_start_ratio`: adaptive drift-update cut; distinct from `train_ratio`
 - `graph_dataset_cache_policy`: `off | read | write | full`
 - `graph_dataset_cache_dir`
 - `graph_dataset_disk_spill_enabled`: enable sharded disk spill during graph build
@@ -841,6 +842,13 @@ C:/Users/korsr/PycharmProjects/eopkg_structural_drift_article/submissions/DATAK-
 - `on_missing_asof_snapshot`: `disable_stats | use_base | raise`
 - RS-01 common-mask auditing is automatic for every `eval_*` mode; no UI or
   YAML switch is required.
+
+For `eval_drift_finetune`, accept a run only when `finetune_update_applied=1`,
+`finetune_optimizer_steps` equals the trainable batches attempted after a
+window, and `finetune_skipped_optimizer_steps=0`. The metric step describes the
+window evaluated before that update. `finetune_effective_start_trace` records
+the aligned drift-window boundary. An `incomplete or ineffective update` is an
+invalid run, not a completed adaptation result.
 
 **Description (ukr):**
 

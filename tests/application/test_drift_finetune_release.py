@@ -3,9 +3,37 @@ from __future__ import annotations
 import pytest
 
 from src.application.services.drift_release_policy import (
+    adaptive_window_start_trace,
     eligible_released_trace_indices,
+    newly_observed_trace_indices,
     released_trace_indices,
 )
+
+
+def test_adaptive_window_start_aligns_cut_to_next_regular_boundary():
+    assert adaptive_window_start_trace(cut_trace=38, window_step=10) == 40
+
+
+def test_alignment_partitions_but_does_not_remove_evaluation_windows():
+    starts = (0, 10, 20, 30, 40, 50)
+    adaptive_start = adaptive_window_start_trace(cut_trace=38, window_step=10)
+
+    assert tuple(start for start in starts if start < adaptive_start) == (0, 10, 20, 30)
+    assert tuple(start for start in starts if start >= adaptive_start) == (40, 50)
+
+
+def test_observed_stride_is_the_prefix_that_leaves_next_forecast_window():
+    current = tuple(range(40, 140))
+    following = tuple(range(50, 150))
+
+    assert newly_observed_trace_indices(current, following, frozenset()) == tuple(range(40, 50))
+
+
+def test_observed_stride_never_reuses_an_already_trained_trace():
+    current = tuple(range(40, 140))
+    following = tuple(range(50, 150))
+
+    assert newly_observed_trace_indices(current, following, frozenset(range(40, 45))) == tuple(range(45, 50))
 
 
 def test_release_excludes_next_overlapping_window():

@@ -15,7 +15,7 @@ import math
 import random
 from pathlib import Path
 import tempfile
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 import warnings
@@ -1705,7 +1705,22 @@ class ModelTrainer:
             temporary_path = Path(temporary_file.name)
         try:
             torch.save(payload, temporary_path)
-            temporary_path.replace(self.finetune_checkpoint_path)
+            for attempt in range(5):
+                try:
+                    temporary_path.replace(self.finetune_checkpoint_path)
+                    break
+                except PermissionError:
+                    if attempt >= 4:
+                        raise
+                    delay_seconds = 0.2 * float(attempt + 1)
+                    logger.warning(
+                        "Fine-tune sidecar publish was temporarily locked; retrying in %.1fs "
+                        "(%d/5): %s",
+                        delay_seconds,
+                        attempt + 1,
+                        self.finetune_checkpoint_path,
+                    )
+                    sleep(delay_seconds)
         finally:
             if temporary_path.exists():
                 temporary_path.unlink()
@@ -4642,7 +4657,11 @@ class ModelTrainer:
 
     def _run_finetune_update(self, release_graphs: Sequence[Data]) -> Dict[str, Any]:
         """Run one fully-valid adaptive update without using future class weights."""
-        trainable_params = [param for param in self.model.parameters() if param.requires_grad]
+        trainable_params = [
+            param
+            for param in self.model.parameters()
+            if param.requires_grad and not isinstance(param, UninitializedParameter)
+        ]
         if not release_graphs or not trainable_params:
             return {
                 "optimizer_steps": 0,

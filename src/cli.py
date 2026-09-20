@@ -284,6 +284,8 @@ def _resolve_rs01_admissibility_policy(config: Mapping[str, Any]) -> Dict[str, A
     experiment_cfg = config.get("experiment", {})
     if not isinstance(experiment_cfg, Mapping):
         return None
+    if not _as_bool(experiment_cfg.get("rs01_enabled"), default=True):
+        return None
     mode = str(experiment_cfg.get("mode", "train")).strip().lower()
     if not mode.startswith("eval_"):
         return None
@@ -340,6 +342,8 @@ def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]
             graph_feature_mapping_cfg = {}
             mapping_cfg["graph_feature_mapping"] = graph_feature_mapping_cfg
         graph_feature_mapping_cfg["enabled"] = _as_bool(experiment_cfg.get("statistic_enabled"), default=False)
+    if "rs01_enabled" in experiment_cfg:
+        experiment_cfg["rs01_enabled"] = _as_bool(experiment_cfg.get("rs01_enabled"), default=True)
     rs01_policy = _resolve_rs01_admissibility_policy(config)
     experiment_cfg.pop("rs01_audit_enabled", None)
     experiment_cfg.pop("rs01_audit_batch_id", None)

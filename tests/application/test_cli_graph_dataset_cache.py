@@ -205,6 +205,26 @@ def test_eval_mode_mlflow_params_mark_automatic_rs01_audit():
     assert params["rs01.audit_enabled"] == "true"
 
 
+def test_eval_mode_rs01_disabled_by_config_returns_none_and_strips_policy():
+    config = {
+        "experiment": {
+            "mode": "eval_drift",
+            "rs01_enabled": "false",
+        },
+    }
+
+    assert _resolve_rs01_admissibility_policy(config) is None
+
+    patched = _apply_experiment_switch_overrides(config)
+    assert patched["experiment"]["rs01_enabled"] is False
+    assert "rs01_admissibility_policy" not in patched["experiment"]
+
+    params = _build_mlflow_params(
+        {"experiment": {"mode": "eval_drift", "rs01_enabled": False}, "model": {"type": "BaselineGATv2"}},
+    )
+    assert "rs01.audit_enabled" not in params
+
+
 def test_graph_dataset_cache_rejects_pre_fixed_vocab_bridge_schema(tmp_path: Path):
     cache_dir = tmp_path / "graph_cache"
     dataset_name = "bpi2012"

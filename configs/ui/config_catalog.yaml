@@ -288,6 +288,23 @@ fields:
       order: 232
       priority: 30
       tab: general
+  experiment.rs01_enabled:
+    affects: Controls whether canonical RS-01 v2 common-mask audit policy and payload are attached during evaluation modes.
+    default: 'true'
+    description: Enable or disable canonical RS-01 v2 admissibility audit during evaluation modes.
+    enum:
+    - 'false'
+    - 'true'
+    label: experiment.rs01_enabled
+    path: experiment.rs01_enabled
+    required_in_modes: []
+    required_when: {}
+    section: experiment
+    ui:
+      group: advanced
+      order: 233
+      priority: 30
+      tab: general
   experiment.max_ram_gb:
     affects: Upper bound of process memory during graph dataset preparation.
     default: 0.0

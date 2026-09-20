@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Iterator
 
 import numpy as np
@@ -567,6 +568,32 @@ def test_eval_drift_finetune_does_not_publish_sidecar_before_a_successful_update
     assert trainer.finetune_checkpoint_path.name.startswith("source_")
     assert trainer.finetune_checkpoint_path.name.endswith("_finetune.pth")
     assert result["finetune_checkpoint_path"] == str(trainer.finetune_checkpoint_path)
+
+
+def test_finetune_sidecar_retries_transient_windows_replace_lock(tmp_path, monkeypatch):
+    trainer = _trainer(tmp_path, model=_TrainableThresholdModel())
+    trainer.checkpoint_path = tmp_path / "source_best.pth"
+    trainer.finetune_checkpoint_path = tmp_path / "adaptive_finetune.pth"
+    original_replace = Path.replace
+    calls = 0
+
+    def transient_lock(path: Path, target: Path):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError(5, "Access is denied", str(path))
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", transient_lock)
+    trainer._save_finetune_checkpoint(
+        epoch=1,
+        val_loss=0.0,
+        checkpoint=None,
+        update_index=1,
+    )
+
+    assert calls == 2
+    assert trainer.finetune_checkpoint_path.exists()
 
 
 def test_eval_drift_finetune_run_does_not_enter_full_train_pipeline(tmp_path):

@@ -1124,6 +1124,7 @@ def test_finetune_update_uses_unweighted_loss_and_softens_hard_training_mask():
     )
     trainer.class_weights = torch.zeros(2, dtype=torch.float32)
     trainer.criterion = nn.CrossEntropyLoss(weight=trainer.class_weights)
+    trainer.model.unused_lazy_projection = nn.LazyLinear(1)
     before = trainer.model.logit_bias.detach().clone()
 
     update = trainer._run_finetune_update([sample])

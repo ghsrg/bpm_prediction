@@ -149,3 +149,15 @@ def test_preset_drawer_loads_legacy_presets(tmp_path: Path, monkeypatch):
     flat_values = loaded_values[0]
     assert flat_values["data.dataset_label"] == "bpi2012"
     assert flat_values["mapping.adapter"] == "xes"
+
+
+def test_eval_drift_finetune_presets_define_start_ratio():
+    presets_path = Path("configs/ui/experiment_ui_presets.json")
+    presets = json.loads(presets_path.read_text(encoding="utf-8"))
+
+    for name in ("EOPKG-drift-finetune", "GATv2+Mask-drift-finetune"):
+        preset = presets[name]
+
+        assert preset["mode"] == "eval_drift_finetune"
+        assert preset["values"]["experiment.finetune_start_ratio"] == "0.38"
+        assert preset["payload"]["general_training_form"]["experiment.finetune_start_ratio"] == "0.38"

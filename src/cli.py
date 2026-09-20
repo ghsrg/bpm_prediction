@@ -237,7 +237,7 @@ def _resolve_resume_mlflow_run_id(
 ) -> str | None:
     """Resolve MLflow run id for resume-train scenarios; eval modes always start a new run."""
     mode_key = str(mode).strip().lower()
-    if mode_key in {"eval_drift", "eval_cross_dataset"}:
+    if mode_key in {"eval_drift", "eval_drift_finetune", "eval_cross_dataset"}:
         return None
     if mode_key != "train" or bool(retrain):
         return None
@@ -332,6 +332,8 @@ def _apply_experiment_switch_overrides(config: Dict[str, Any]) -> Dict[str, Any]
         training_cfg["mask_guided_enabled"] = _as_bool(experiment_cfg.get("mask_guided_enabled"), default=False)
     if "retrain" in experiment_cfg:
         training_cfg["retrain"] = _as_bool(experiment_cfg.get("retrain"), default=False)
+    if "finetune_start_ratio" in experiment_cfg:
+        training_cfg.pop("finetune_start_ratio", None)
     if "statistic_enabled" in experiment_cfg:
         graph_feature_mapping_cfg = mapping_cfg.setdefault("graph_feature_mapping", {})
         if not isinstance(graph_feature_mapping_cfg, dict):
@@ -1918,7 +1920,7 @@ def prepare_data(config: Dict[str, Any], trace_adapter: IXESAdapter | None = Non
     split_ratio = _parse_split_ratio(experiment_cfg)
     train_ratio = float(experiment_cfg.get("train_ratio", 0.7))
     mode = str(config.get("experiment", {}).get("mode", "train")).strip().lower()
-    if mode in {"eval_cross_dataset", "eval_drift", TOPOLOGY_MASK_UNIFORM_MODE}:
+    if mode in {"eval_cross_dataset", "eval_drift", "eval_drift_finetune", TOPOLOGY_MASK_UNIFORM_MODE}:
         split_ratio = (0.0, 0.0, 1.0)
 
     prefix_policy = PrefixPolicy()
@@ -2797,7 +2799,7 @@ def main() -> None:
             )
         config["encoder_state"] = encoder_state
 
-    if mode in {"eval_drift", TOPOLOGY_MASK_UNIFORM_MODE}:
+    if mode in {"eval_drift", "eval_drift_finetune", TOPOLOGY_MASK_UNIFORM_MODE}:
         drift_window_size = int(experiment_cfg.get("drift_window_size", 500))
         if drift_window_size <= 0:
             raise ValueError("experiment.drift_window_size must be a positive integer.")
@@ -2914,7 +2916,7 @@ def main() -> None:
             )
             tracker.log_tag("resume_from_checkpoint", str(early_checkpoint_path))
             tracker.log_tag("resume_checkpoint_epoch", int(checkpoint_epoch_for_resume))
-        elif mode in {"eval_drift", "eval_cross_dataset"}:
+        elif mode in {"eval_drift", "eval_drift_finetune", "eval_cross_dataset"}:
             logger.info(
                 "MLflow eval mode (%s): using new experiment '%s' and starting a new run.",
                 mode,
@@ -2934,6 +2936,10 @@ def main() -> None:
     trainer_experiment_cfg = dict(experiment_cfg)
     trainer_experiment_cfg.update(prepared.get("experiment_split_config", {}))
     trainer_experiment_cfg["name"] = full_run_name
+    finetune_start_ratio = trainer_experiment_cfg.get(
+        "finetune_start_ratio",
+        training_cfg.get("finetune_start_ratio", 0.0),
+    )
 
     trainer_config: Dict[str, Any] = {
         **training_cfg,
@@ -2974,6 +2980,7 @@ def main() -> None:
         "mode": mode,
         "drift_window_size": int(experiment_cfg.get("drift_window_size", 500)),
         "drift_window_sliding": int(experiment_cfg.get("drift_window_sliding", 0) or 0),
+        "finetune_start_ratio": float(finetune_start_ratio or 0.0),
     }
 
     trainer = ModelTrainer(

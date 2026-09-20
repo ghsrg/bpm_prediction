@@ -1,4 +1,4 @@
-﻿# EVF_MVP2_5.MD
+# EVF_MVP2_5.MD
 
 Updated: 2026-05-20
 Status: ACTIVE
@@ -49,6 +49,17 @@ For drift-safe studies:
 1. If no eligible snapshot exists for requested `as_of`, runtime behavior is controlled by `experiment.on_missing_asof_snapshot`.
 2. Fallback policies (`disable_stats`, `use_base`) must be explicitly reported in experiment notes and treated as exploratory.
 3. For strict historical studies, ensure snapshots cover required timeline points.
+4. `eval_drift_finetune` is a prequential replay protocol: each window is
+   evaluated before any update from that window, and only traces released from
+   the current window before the next overlapping window may be used for the
+   next update. `experiment.finetune_start_ratio` further gates released traces:
+   traces released before `floor(n_traces * finetune_start_ratio)` are not used
+   for adaptive updates.
+5. `eval_drift_finetune` requires prebuilt graph samples with `trace_idx`
+   metadata and must not rebuild raw-trace windows during adaptation.
+6. Positional release does not by itself prove real-time availability of labels;
+   completion-time availability must be checked separately before making
+   real-time deployment claims.
 
 ## 6. Metrics
 Mandatory:

@@ -247,6 +247,7 @@ fields:
     active_when:
       experiment.mode:
       - eval_drift
+      - eval_drift_finetune
       - eval_cross_dataset
       - train
     affects: 'Забезпечує тестування правильних навчених ваг. UI інтегрує розумний
@@ -262,6 +263,7 @@ fields:
     required_when:
       experiment.mode:
       - eval_drift
+      - eval_drift_finetune
       - eval_cross_dataset
     section: experiment
     ui:
@@ -308,6 +310,7 @@ fields:
     enum:
     - train
     - eval_drift
+    - eval_drift_finetune
     - eval_cross_dataset
     - eval_topology_mask_uniform
     - sync-topology
@@ -318,6 +321,7 @@ fields:
     required_in_modes:
     - train
     - eval_drift
+    - eval_drift_finetune
     - eval_cross_dataset
     - sync-topology
     - sync-stats
@@ -3765,6 +3769,61 @@ fields:
     ui:
       group: advanced
       order: 1000
+      priority: 100
+      tab: general
+  training.finetune_epochs:
+    affects: Controls per-release optimizer updates in eval_drift_finetune.
+    default: 1
+    description: Fixed fine-tuning epochs after each released drift window.
+    enum: []
+    label: Fine-tune epochs
+    path: training.finetune_epochs
+    required_in_modes:
+    - eval_drift_finetune
+    required_when:
+      experiment.mode: eval_drift_finetune
+    section: training
+    type: int
+    ui:
+      group: advanced
+      order: 1001
+      priority: 100
+      tab: general
+  training.finetune_learning_rate:
+    affects: Controls per-release optimizer updates in eval_drift_finetune.
+    default: 0.0001
+    description: Learning rate for released-window updates in eval_drift_finetune.
+    enum: []
+    label: Fine-tune learning rate
+    path: training.finetune_learning_rate
+    required_in_modes:
+    - eval_drift_finetune
+    required_when:
+      experiment.mode: eval_drift_finetune
+    section: training
+    type: float
+    ui:
+      group: advanced
+      order: 1002
+      priority: 100
+      tab: general
+  experiment.finetune_start_ratio:
+    affects: Controls where adaptive fine-tuning may start in eval_drift_finetune.
+    default: 0.38
+    description: First eligible stream ratio for released-window fine-tuning; use
+      the checkpoint training cut to avoid updating on already-trained traces.
+    enum: []
+    label: Fine-tune start ratio
+    path: experiment.finetune_start_ratio
+    required_in_modes:
+    - eval_drift_finetune
+    required_when:
+      experiment.mode: eval_drift_finetune
+    section: experiment
+    type: float
+    ui:
+      group: advanced
+      order: 1003
       priority: 100
       tab: general
   training.learning_strategy:

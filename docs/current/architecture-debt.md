@@ -529,11 +529,22 @@ profile/report assembly into focused application-level services/helpers.
 Якщо змінювати правила split/fraction лише в одному місці, train/eval або cache
 fingerprint можуть працювати з іншою семантикою, ніж unit-тести trainer path.
 
+`eval_drift_finetune` adds a related boundary concern: `experiment.train_ratio`
+must remain the data/checkpoint training cut, not the adaptive update start
+control. Fine-tuning start must be controlled by a separate
+`experiment.finetune_start_ratio` policy so a checkpoint trained with
+`train_ratio=0.38` can begin adaptive updates only after the same stream cut.
+When the `eval_drift_finetune` runtime slice is merged, its trace-selection
+logic must explicitly treat this ratio as the first eligible released-window
+update point and must not reuse already-trained traces for adaptive updates.
+
 **Next direction:**
 
 Extract a focused application service for experiment trace selection:
 `fraction_strategy`, `version_scope_policy`, macro cut, and micro split should
-have one implementation and both CLI and trainer should delegate to it.
+have one implementation and both CLI and trainer should delegate to it. Include
+`eval_drift_finetune` in the same service and keep `experiment.finetune_start_ratio`
+separate from `experiment.train_ratio`.
 
 ---
 

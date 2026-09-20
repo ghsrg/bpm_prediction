@@ -262,7 +262,7 @@ def _classify_run_set_from_mode(params: dict[str, str], tags: dict[str, str]) ->
     mode = _experiment_mode(params, tags)
     if mode in {"train", "learn"}:
         return "learn"
-    if mode in {"eval_drift", "drift"}:
+    if mode in {"eval_drift", "eval_drift_finetune", "drift"}:
         return "drift"
     return ""
 

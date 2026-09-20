@@ -142,6 +142,20 @@ def test_resolve_resume_mlflow_run_id_returns_none_for_eval_modes():
     assert run_id is None
 
 
+def test_resolve_resume_mlflow_run_id_returns_none_for_eval_drift_finetune():
+    run_id = _resolve_resume_mlflow_run_id(
+        mode="eval_drift_finetune",
+        retrain=False,
+        checkpoint_payload={"epoch": 5, "mlflow_run_id": "abc123"},
+        checkpoint_epoch=5,
+        target_epochs=20,
+        experiment_name="bpm_prediction_mvp2_5",
+        run_name="AdaptiveEvalRun",
+        tracking_uri="file:./mlruns",
+    )
+    assert run_id is None
+
+
 def test_resolve_tracking_experiment_name_for_eval_mode_keeps_base_project():
     resolved = _resolve_tracking_experiment_name("bpm_prediction_mvp2_5", "eval_drift")
     assert resolved == "bpm_prediction_mvp2_5"

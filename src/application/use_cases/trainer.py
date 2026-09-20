@@ -38,6 +38,10 @@ from src.application.ports.trace_recorder_port import ITraceRecorder
 from src.application.ports.tracker_port import ITracker
 from src.application.ports.xes_adapter_port import IXESAdapter
 from src.application.services.learning_strategy_config import LearningStrategyConfig
+from src.application.services.drift_release_policy import (
+    eligible_released_trace_indices,
+    released_trace_indices,
+)
 from src.application.services.candidate_target_mapping import (
     candidate_target_mask_from_labels,
     candidate_predictions_to_global,
@@ -439,6 +443,21 @@ class ModelTrainer:
         self.batch_size = int(config.get("batch_size", 32))
         self.epochs = int(config.get("epochs", 10))
         self.learning_rate = float(config.get("learning_rate", 1e-3))
+        experiment_cfg = config.get("experiment_config", {})
+        experiment_finetune_start_ratio = (
+            experiment_cfg.get("finetune_start_ratio")
+            if isinstance(experiment_cfg, Mapping)
+            else None
+        )
+        self.finetune_epochs = max(1, int(config.get("finetune_epochs", 1) or 1))
+        self.finetune_learning_rate = max(1e-12, float(config.get("finetune_learning_rate", 1e-4) or 1e-4))
+        self.finetune_start_ratio = float(
+            experiment_finetune_start_ratio
+            if experiment_finetune_start_ratio is not None
+            else (config.get("finetune_start_ratio", 0.0) or 0.0)
+        )
+        if self.finetune_start_ratio < 0.0 or self.finetune_start_ratio > 1.0:
+            raise ValueError("finetune_start_ratio must be between 0.0 and 1.0.")
         self.device = torch.device(config.get("device", "cpu"))
         self.num_ece_bins = int(config.get("ece_bins", 10))
         self.class_weight_cap = float(config.get("class_weight_cap", 50.0))
@@ -551,7 +570,6 @@ class ModelTrainer:
 
         self.checkpoint_dir = str(config.get("checkpoint_dir", "checkpoints")).strip() or "checkpoints"
         checkpoint_override = str(config.get("checkpoint_path", "")).strip()
-        experiment_cfg = self.config.get("experiment_config", {})
         experiment_name = str(experiment_cfg.get("name", "default_experiment")).strip() or "default_experiment"
         safe_experiment_name = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in experiment_name)
         self.experiment_name = safe_experiment_name
@@ -563,6 +581,7 @@ class ModelTrainer:
             else self._derive_last_checkpoint_path(self.checkpoint_path)
         )
         self.last_checkpoint_path = self._derive_last_checkpoint_path(self.checkpoint_path)
+        self.finetune_checkpoint_path = self._derive_finetune_checkpoint_path(self.checkpoint_path)
 
         self._topology_nodes: List[int] = []
         self._topology_edges: List[int] = []
@@ -1082,7 +1101,8 @@ class ModelTrainer:
 
         is_eval_cross = self.mode == "eval_cross_dataset"
         is_eval_drift = self.mode == "eval_drift"
-        is_eval_mode = is_eval_cross or is_eval_drift
+        is_eval_drift_finetune = self.mode == "eval_drift_finetune"
+        is_eval_mode = is_eval_cross or is_eval_drift or is_eval_drift_finetune
         prebuilt_datasets = None
         if self.prepared_data is not None:
             logger.info("Using preloaded prepared data from CLI (single-read mode).")
@@ -1133,6 +1153,18 @@ class ModelTrainer:
             result = self._run_eval_drift(
                 split_data=split_data,
                 drift_traces=prepared_traces,
+                best_epoch=best_epoch,
+                best_val_loss=best_val_loss,
+                prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
+            )
+            pipeline_reporter.done(message=f"Pipeline completed mode={self.mode}", current=1, total=1)
+            return result
+
+        if is_eval_drift_finetune:
+            result = self._run_eval_drift_finetune(
+                split_data=split_data,
+                drift_traces=prepared_traces,
+                checkpoint=checkpoint,
                 best_epoch=best_epoch,
                 best_val_loss=best_val_loss,
                 prebuilt_test_dataset=(prebuilt_datasets or {}).get("test") if prebuilt_datasets else None,
@@ -1282,6 +1314,44 @@ class ModelTrainer:
             "best_epoch": best_epoch,
             "best_val_loss": float(best_val_loss),
             "mode": self.mode,
+        }
+
+    def _run_eval_drift_finetune(
+        self,
+        split_data: SplitData,
+        drift_traces: Sequence[RawTrace],
+        checkpoint: Optional[Dict[str, Any]],
+        best_epoch: int,
+        best_val_loss: float,
+        prebuilt_test_dataset: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Run prequential drift evaluation with released-window fine-tuning."""
+        self._save_finetune_checkpoint(
+            epoch=best_epoch,
+            val_loss=best_val_loss,
+            checkpoint=checkpoint,
+            update_index=0,
+        )
+        self._finetune_source_checkpoint = checkpoint
+        drift_metrics = self._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+            traces=drift_traces,
+            prebuilt_test_dataset=prebuilt_test_dataset,
+        )
+        if drift_metrics is None:
+            raise ValueError("eval_drift_finetune requires a prebuilt graph dataset with trace_idx metadata.")
+        self._log_topology_metrics_and_artifacts()
+        logger.info("Eval drift finetune windows completed: windows=%d", len(drift_metrics))
+        return {
+            "history": [],
+            "test_metrics": {},
+            "drift_metrics": drift_metrics,
+            "split_sizes": {"train": len(split_data.train), "val": len(split_data.val), "test": len(split_data.test)},
+            "drift_trace_count": len(drift_traces),
+            "best_epoch": best_epoch,
+            "best_val_loss": float(best_val_loss),
+            "mode": self.mode,
+            "adaptation_protocol": "prequential_released_unique_v1",
+            "finetune_checkpoint_path": str(self.finetune_checkpoint_path),
         }
 
     def _run_train_pipeline(
@@ -1586,6 +1656,43 @@ class ModelTrainer:
         if stem.endswith("_best"):
             return checkpoint_path.with_name(f"{stem[:-5]}_last{suffix}")
         return checkpoint_path.with_name(f"{stem}_last{suffix}")
+
+    @staticmethod
+    def _derive_finetune_checkpoint_path(checkpoint_path: Path) -> Path:
+        """Derive sidecar checkpoint path for adaptive fine-tuned weights."""
+        name = checkpoint_path.name
+        if name.endswith("_best.pth"):
+            return checkpoint_path.with_name(f"{name[:-9]}_finetune.pth")
+        stem = checkpoint_path.stem
+        suffix = checkpoint_path.suffix or ".pth"
+        if stem.endswith("_best"):
+            return checkpoint_path.with_name(f"{stem[:-5]}_finetune{suffix}")
+        return checkpoint_path.with_name(f"{stem}_finetune{suffix}")
+
+    def _save_finetune_checkpoint(
+        self,
+        *,
+        epoch: int,
+        val_loss: float,
+        checkpoint: Optional[Dict[str, Any]],
+        update_index: int,
+        optimizer: Optional[Adam] = None,
+    ) -> None:
+        """Persist adaptive fine-tune weights without modifying the source checkpoint."""
+        self.finetune_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        payload: Dict[str, Any] = dict(checkpoint or {})
+        payload["epoch"] = int(epoch)
+        payload["model_state_dict"] = self.model.state_dict()
+        payload["val_loss"] = float(val_loss)
+        payload["source_checkpoint_path"] = str(self.checkpoint_path)
+        payload["finetune_update_index"] = int(update_index)
+        payload["adaptation_protocol"] = "prequential_released_unique_v1"
+        if optimizer is not None:
+            payload["optimizer_state_dict"] = optimizer.state_dict()
+        feature_encoder = getattr(self.graph_builder, "feature_encoder", None)
+        if feature_encoder is not None and hasattr(feature_encoder, "get_state"):
+            payload["encoder_state"] = feature_encoder.get_state()
+        torch.save(payload, self.finetune_checkpoint_path)
 
     def _resolve_resume_checkpoint_path(self) -> Optional[Path]:
         """Resolve training-resume checkpoint path, preferring explicit resume/last checkpoint."""
@@ -4405,6 +4512,276 @@ class ModelTrainer:
             logger.warning("Unable to inspect prebuilt drift dataset trace metadata: %s", exc)
             return False
         return False
+
+    @staticmethod
+    def _graph_trace_idx(graph: Data) -> int:
+        raw_trace_idx = getattr(graph, "trace_idx", None)
+        if not isinstance(raw_trace_idx, torch.Tensor) or raw_trace_idx.numel() <= 0:
+            raise ValueError("prebuilt drift finetune dataset is missing required trace_idx metadata")
+        return int(raw_trace_idx.view(-1)[0].item())
+
+    def _iter_prebuilt_graphs(self, dataset: Any) -> List[Data]:
+        if isinstance(dataset, dict) and dataset.get("kind") == "sharded_cache_split":
+            source: Any = self._create_lazy_dataset_from_payload(dataset)
+        else:
+            source = dataset or []
+        if not (hasattr(source, "__len__") and hasattr(source, "__getitem__")):
+            raise ValueError("eval_drift_finetune requires an indexable prebuilt graph dataset.")
+        total = int(len(source))
+        reporter = ProgressReporter(
+            stage="eval_drift.one_pass_inference",
+            total=total,
+            min_interval_sec=0.8,
+        )
+        reporter.start(
+            message="Indexing adaptive drift graph stream",
+            current=0,
+            total=total,
+            payload={"graphs_total": total, "adaptive": True},
+        )
+        logger.info("Adaptive drift graph indexing started: graphs=%d", total)
+        graphs: List[Data] = []
+        try:
+            for idx in range(total):
+                graph = source[idx]
+                if not isinstance(graph, Data):
+                    raise ValueError("eval_drift_finetune prebuilt dataset must yield torch_geometric.data.Data samples.")
+                self._graph_trace_idx(graph)
+                graphs.append(graph)
+                reporter.update(
+                    message="Indexing adaptive drift graph stream",
+                    current=idx + 1,
+                    total=total,
+                    payload={"graphs_indexed": idx + 1},
+                )
+        except Exception as exc:
+            reporter.error(message=f"Adaptive drift graph indexing failed: {exc}")
+            raise
+        reporter.done(
+            message="Adaptive drift graph stream indexed",
+            current=total,
+            total=total,
+            payload={"graphs_indexed": len(graphs)},
+        )
+        logger.info("Adaptive drift graph indexing completed: graphs=%d", len(graphs))
+        return graphs
+
+    def _select_prebuilt_graphs_by_trace_indices(self, graphs: Sequence[Data], trace_indices: Iterable[int]) -> List[Data]:
+        wanted = {int(value) for value in trace_indices}
+        return [graph for graph in graphs if self._graph_trace_idx(graph) in wanted]
+
+    def _ensure_training_criterion(self) -> None:
+        if not hasattr(self, "criterion"):
+            class_weights = self.class_weights.to(self.device) if self.class_weights is not None else None
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    def _log_drift_window_metrics(
+        self,
+        *,
+        metrics: Dict[str, Any],
+        window_idx: int,
+        start_ts: float,
+        end_ts: float,
+        finetune_update_index: int,
+        finetune_unique_traces_seen: int,
+        finetune_traces_this_update: int,
+        finetune_start_ratio: float,
+        finetune_start_trace: int,
+    ) -> None:
+        if self.tracker is None:
+            return
+        metric_map = {
+            "drift_window_macro_f1": "test_macro_f1",
+            "drift_window_strict_macro_f1": "strict_test_macro_f1",
+            "drift_window_test_ece": "test_ece",
+            "drift_window_test_set_nll": "test_set_nll",
+            "drift_window_test_oos": "test_oos",
+            "drift_window_oos_confidence_mean": "test_oos_confidence_mean",
+            "drift_window_target_in_mask_rate": "test_target_in_mask_rate",
+            "drift_window_pred_in_mask_rate": "test_pred_in_mask_rate",
+            "drift_window_strict_error_but_allowed_rate": "test_strict_error_but_allowed_rate",
+            "drift_window_ambiguous_prefix_rate": "test_ambiguous_prefix_rate",
+            "drift_window_candidate_oos": "candidate_oos_rate",
+            "drift_window_candidate_invalid_probability_mass": "candidate_invalid_probability_mass",
+            "drift_window_candidate_valid_probability_mass": "candidate_valid_probability_mass",
+            "drift_window_candidate_valid_invalid_logit_margin": "candidate_valid_invalid_logit_margin",
+        }
+        for output_key, source_key in metric_map.items():
+            value = metrics.get(source_key)
+            if value is not None:
+                self.tracker.log_metric(output_key, float(value), step=window_idx)
+        self.tracker.log_metric("drift_window_start_ts", float(start_ts), step=window_idx)
+        self.tracker.log_metric("drift_window_end_ts", float(end_ts), step=window_idx)
+        self.tracker.log_metric("finetune_update_index", float(finetune_update_index), step=window_idx)
+        self.tracker.log_metric("finetune_unique_traces_seen", float(finetune_unique_traces_seen), step=window_idx)
+        self.tracker.log_metric("finetune_traces_this_update", float(finetune_traces_this_update), step=window_idx)
+        self.tracker.log_metric("finetune_start_ratio", float(finetune_start_ratio), step=window_idx)
+        self.tracker.log_metric("finetune_start_trace", float(finetune_start_trace), step=window_idx)
+
+    def _evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        self,
+        traces: Sequence[RawTrace],
+        prebuilt_test_dataset: Optional[Any],
+    ) -> Optional[List[Dict[str, float]]]:
+        """Evaluate each drift window with current weights, then train released traces."""
+        if not self._prebuilt_dataset_has_trace_idx(prebuilt_test_dataset):
+            return None
+        if self.drift_window_size <= 0:
+            raise ValueError("drift_window_size must be positive.")
+
+        graphs = self._iter_prebuilt_graphs(prebuilt_test_dataset)
+        windows = self._generate_drift_windows(traces)
+        total_windows = len(windows)
+        logger.info(
+            "Drift finetune windows prepared: size=%d, step=%d, keep_short_tail=false, windows=%d",
+            self.drift_window_size,
+            self._resolve_drift_step(),
+            total_windows,
+        )
+        finetune_start_trace = int(len(traces) * self.finetune_start_ratio)
+        logger.info(
+            "Drift finetune adaptive updates start at trace index %d (ratio=%.4f).",
+            finetune_start_trace,
+            self.finetune_start_ratio,
+        )
+        emit_progress_event(
+            stage="eval_drift.windows",
+            status="start",
+            message="Evaluating adaptive drift windows",
+            current=0,
+            total=total_windows,
+        )
+
+        drift_results: List[Dict[str, float]] = []
+        seen_trace_indices: set[int] = set()
+        completed_updates = 0
+        traces_this_completed_update = 0
+        self._ensure_training_criterion()
+
+        iterator = tqdm(
+            list(enumerate(windows)),
+            desc="Eval drift finetune",
+            leave=self.tqdm_leave,
+            disable=self._is_tqdm_disabled(),
+        )
+        for window_idx, (start, window_traces) in iterator:
+            current_trace_indices = tuple(range(int(start), int(start) + len(window_traces)))
+            window_graphs = self._select_prebuilt_graphs_by_trace_indices(graphs, current_trace_indices)
+            if not window_graphs:
+                raise ValueError(f"eval_drift_finetune found no graph samples for window {window_idx}.")
+            window_loader = self._build_loader_from_dataset(window_graphs, shuffle=False)
+            records = self._collect_drift_inference_records(window_loader)
+            idxs = np.arange(int(records.trace_idx.shape[0]), dtype=np.int64)
+            metrics = self._compute_test_metrics_from_records(records, idxs)
+            macro_f1 = float(metrics.get("test_macro_f1", 0.0))
+            strict_macro_f1 = float(metrics.get("strict_test_macro_f1", 0.0))
+            ece = float(metrics.get("test_ece", 0.0))
+            start_ts = float(window_traces[0].events[0].timestamp) if window_traces and window_traces[0].events else 0.0
+            end_ts = float(window_traces[-1].events[-1].timestamp) if window_traces and window_traces[-1].events else start_ts
+
+            self._log_drift_window_metrics(
+                metrics=metrics,
+                window_idx=window_idx,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                finetune_update_index=completed_updates,
+                finetune_unique_traces_seen=len(seen_trace_indices),
+                finetune_traces_this_update=traces_this_completed_update,
+                finetune_start_ratio=self.finetune_start_ratio,
+                finetune_start_trace=finetune_start_trace,
+            )
+            drift_results.append(
+                {
+                    "window_index": float(window_idx),
+                    "window_start_trace": float(start),
+                    "window_end_trace": float(max(current_trace_indices) if current_trace_indices else start),
+                    "window_start_ts": float(start_ts),
+                    "window_end_ts": float(end_ts),
+                    "window_macro_f1": macro_f1,
+                    "window_strict_macro_f1": strict_macro_f1,
+                    "window_test_ece": ece,
+                    "finetune_update_index": float(completed_updates),
+                    "finetune_unique_traces_seen": float(len(seen_trace_indices)),
+                    "finetune_traces_this_update": float(traces_this_completed_update),
+                    "finetune_start_ratio": float(self.finetune_start_ratio),
+                    "finetune_start_trace": float(finetune_start_trace),
+                }
+            )
+            iterator.set_postfix({"f1": f"{macro_f1:.4f}", "strict_f1": f"{strict_macro_f1:.4f}", "updates": completed_updates})
+            emit_progress_event(
+                stage="eval_drift.windows",
+                status="update",
+                message=f"Adaptive window {window_idx + 1}/{total_windows}",
+                current=int(window_idx + 1),
+                total=total_windows,
+                payload={
+                    "macro_f1": float(macro_f1),
+                    "strict_macro_f1": float(strict_macro_f1),
+                    "updates_completed": int(completed_updates),
+                    "window_graphs": int(len(window_graphs)),
+                },
+            )
+
+            traces_this_completed_update = 0
+            if window_idx >= total_windows - 1:
+                continue
+            next_start, next_window_traces = windows[window_idx + 1]
+            following_trace_indices = tuple(range(int(next_start), int(next_start) + len(next_window_traces)))
+            release_indices = released_trace_indices(
+                current_trace_indices,
+                following_trace_indices,
+                frozenset(seen_trace_indices),
+            )
+            eligible_release_indices = eligible_released_trace_indices(
+                release_indices,
+                start_trace_index=finetune_start_trace,
+            )
+            if not eligible_release_indices:
+                continue
+            release_graphs = self._select_prebuilt_graphs_by_trace_indices(graphs, eligible_release_indices)
+            trainable_params = [param for param in self.model.parameters() if param.requires_grad]
+            if not release_graphs or not trainable_params:
+                continue
+            optimizer = Adam(trainable_params, lr=self.finetune_learning_rate)
+            release_loader = self._build_loader_from_dataset(release_graphs, shuffle=True)
+            for epoch in range(1, int(self.finetune_epochs) + 1):
+                self._run_epoch(
+                    release_loader,
+                    optimizer=optimizer,
+                    training=True,
+                    epoch_index=epoch,
+                    total_epochs=int(self.finetune_epochs),
+                )
+            seen_trace_indices.update(int(idx) for idx in eligible_release_indices)
+            traces_this_completed_update = len(set(int(idx) for idx in eligible_release_indices))
+            completed_updates += 1
+            source_checkpoint = getattr(self, "_finetune_source_checkpoint", None)
+            source_val_loss = (
+                float(source_checkpoint.get("val_loss", 0.0))
+                if isinstance(source_checkpoint, dict)
+                else 0.0
+            )
+            source_epoch = (
+                int(source_checkpoint.get("epoch", completed_updates))
+                if isinstance(source_checkpoint, dict)
+                else completed_updates
+            )
+            self._save_finetune_checkpoint(
+                epoch=source_epoch,
+                val_loss=source_val_loss,
+                checkpoint=source_checkpoint if isinstance(source_checkpoint, dict) else None,
+                update_index=completed_updates,
+                optimizer=optimizer,
+            )
+
+        emit_progress_event(
+            stage="eval_drift.windows",
+            status="done",
+            message="Adaptive drift evaluation completed",
+            current=total_windows,
+            total=total_windows,
+        )
+        return drift_results
 
     def _evaluate_drift_windows_from_prebuilt_dataset(
         self,

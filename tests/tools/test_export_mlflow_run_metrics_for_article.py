@@ -175,6 +175,13 @@ def test_experiment_selection_rejects_unrecognized_modes(tmp_path: Path, monkeyp
     assert not (tmp_path / "all").exists()
 
 
+def test_eval_drift_finetune_is_classified_as_drift():
+    assert exporter._classify_run_set_from_mode(
+        {"experiment.mode": "eval_drift_finetune"},
+        {},
+    ) == "drift"
+
+
 def test_experiment_export_preserves_mou_metadata_and_metric_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     client = FakeMlflowClient(
         [

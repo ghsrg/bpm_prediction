@@ -965,3 +965,27 @@ model.impulse_state_channels:
 This prevents `EOPKGTopologyConditioned` runs from failing at model
 construction with `TypeError: 'int' object is not iterable` when an Experiment
 UI preset accidentally stores the field as `0` or `1`.
+
+## Runtime Update 2026-09-19: Prequential Drift Fine-Tuning
+
+`experiment.mode=eval_drift_finetune` is available as a prequential adaptive
+drift protocol. It loads the configured checkpoint like other eval modes,
+evaluates each drift window with the current model weights, then updates only
+from traces released from the current window before the next overlapping
+window.
+
+The mode requires prebuilt graph datasets with `trace_idx` metadata and fails
+instead of falling back to raw-trace window rebuilds. It logs the existing
+`drift_window_*` metric series and adds per-window adaptation counters:
+`finetune_update_index`, `finetune_unique_traces_seen`, and
+`finetune_traces_this_update`. `experiment.finetune_start_ratio` is the first
+chronological trace ratio eligible for released-window adaptive updates; traces
+released before that cutoff are evaluated but not used for fine-tuning.
+
+Configuration keys:
+
+```yaml
+training.finetune_epochs: 1
+training.finetune_learning_rate: 0.0001
+experiment.finetune_start_ratio: 0.38
+```

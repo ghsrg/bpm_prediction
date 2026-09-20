@@ -719,8 +719,26 @@ class ExperimentUI:
         defaults: Dict[str, Dict[str, Any]] = {
             "experiment.mode": {
                 "description": "Main run mode that selects CLI command path.",
-                "enum": ["train", "eval_drift", "eval_cross_dataset", "sync-topology", "sync-stats", "sync-stats-backfill"],
-                "required_in_modes": ["train", "eval_drift", "eval_cross_dataset", "sync-topology", "sync-stats", "sync-stats-backfill"],
+                "enum": [
+                    "train",
+                    "eval_drift",
+                    "eval_drift_finetune",
+                    "eval_cross_dataset",
+                    "eval_topology_mask_uniform",
+                    "sync-topology",
+                    "sync-stats",
+                    "sync-stats-backfill",
+                ],
+                "required_in_modes": [
+                    "train",
+                    "eval_drift",
+                    "eval_drift_finetune",
+                    "eval_cross_dataset",
+                    "eval_topology_mask_uniform",
+                    "sync-topology",
+                    "sync-stats",
+                    "sync-stats-backfill",
+                ],
                 "ui": {"tab": "general", "group": "core", "priority": 1, "order": 1},
             },
             "experiment.project": {
@@ -1299,7 +1317,7 @@ class ExperimentUI:
         self.mode_box = ttk.Combobox(
             core,
             textvariable=self.vars["mode"],
-            values=["train", "eval_drift", "eval_cross_dataset", "sync-topology", "sync-stats", "sync-stats-backfill"],
+            values=self._choices_for("experiment.mode"),
             state="readonly",
             width=28,
         )
@@ -2055,7 +2073,7 @@ class ExperimentUI:
                 disabled_prefixes=("experiment.mode",),
             )
         self.sync_stats_form.set_enabled_by_prefix(
-            enabled_prefixes=("sync_stats.",) if mode in {"sync-stats", "sync-stats-backfill", "train", "eval_drift", "eval_cross_dataset"} else tuple(),
+            enabled_prefixes=("sync_stats.",) if mode in {"sync-stats", "sync-stats-backfill", "train", "eval_drift", "eval_drift_finetune", "eval_cross_dataset"} else tuple(),
             disabled_prefixes=tuple(),
         )
         text_state = "normal" if not is_sync_mode else "disabled"

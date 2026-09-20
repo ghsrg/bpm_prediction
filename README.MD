@@ -16,7 +16,8 @@ tools so new hypotheses can be tested without rewriting the pipeline.
   `EOPKGTopologyConditioned`;
 - topology-native candidate scoring for process versions with added or removed
   activities;
-- version-aware train/eval/eval_drift workflows;
+- version-aware train/eval/eval_drift workflows, including prequential
+  `eval_drift_finetune` adaptation over released drift windows;
 - XES and Camunda-oriented ingestion paths;
 - offline topology and stats preparation through repository-backed artifacts;
 - MLflow-based metrics, calibration diagnostics, drift-window metrics, and
@@ -174,8 +175,8 @@ Recommended reproducibility checklist:
    `split_strategy`, and seed.
 3. Record model type, topology mode, gateway mode, mask settings, and candidate
    contract settings.
-4. Record checkpoint path and verify that eval/eval_drift uses the intended
-   checkpoint.
+4. Record checkpoint path and verify that eval/eval_drift/eval_drift_finetune
+   uses the intended checkpoint.
 5. Export MLflow metrics and drift-window metrics to `outputs/`.
 6. Keep generated figures, raw metric exports, and run tables as supplementary
    artifacts outside the Git repository.

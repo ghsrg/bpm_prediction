@@ -41,6 +41,7 @@ RUN_STAGE_ORDER = [
 MODE_STAGES: dict[str, list[str]] = {
     "train": ["run.pipeline", "prepare_data", "build_graph.train", "build_graph.validation", "trainer.dataloaders", "trainer.dry_run", "train.epochs", "test.eval"],
     "eval_drift": ["run.pipeline", "prepare_data", "build_graph.test", "eval_drift.one_pass_inference", "eval_drift.windows"],
+    "eval_drift_finetune": ["run.pipeline", "prepare_data", "build_graph.test", "eval_drift.one_pass_inference", "eval_drift.windows"],
     "sync-stats": ["run.pipeline", "prepare_data"],
     "sync-topology": ["run.pipeline", "prepare_data"],
     "sync-stats-backfill": ["run.pipeline", "prepare_data"],

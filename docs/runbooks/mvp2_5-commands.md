@@ -1,4 +1,4 @@
-﻿# MVP2.5 Commands Runbook
+# MVP2.5 Commands Runbook
 
 Operational command reference for MVP2.5 Stage 4.2.
 
@@ -53,6 +53,38 @@ Use the project virtual environment:
 ```powershell
 .\.venv-modern\Scripts\python.exe main.py --config configs/experiments/01_eval_drift_bpi2012.yaml
 ```
+
+### eval_drift_finetune
+
+```powershell
+.\.venv-modern\Scripts\python.exe main.py --config configs/experiments/<eval_drift_finetune>.yaml
+```
+
+Required config shape:
+
+```yaml
+experiment:
+  mode: eval_drift_finetune
+  load_checkpoint: checkpoints/<reference_train_run>_best.pth
+  drift_window_size: 500
+  drift_window_sliding: 100
+  finetune_start_ratio: 0.38
+training:
+  finetune_epochs: 1
+  finetune_learning_rate: 0.0001
+```
+
+This mode evaluates each drift window with the current weights, then fine-tunes
+only on graph samples whose `trace_idx` has left the next overlapping window.
+`experiment.finetune_start_ratio` is not a data split; it is the first
+chronological trace ratio eligible for adaptive released-window updates, so a
+checkpoint trained through `experiment.train_ratio=0.38` can skip pre-cut
+releases and begin updates from the matching stream point.
+It requires prebuilt graph datasets with `trace_idx` metadata and fails rather
+than rebuilding raw-trace windows during adaptation. It preserves
+`drift_window_*` metric names and adds `finetune_update_index`,
+`finetune_unique_traces_seen`, and `finetune_traces_this_update` at the drift
+window step.
 
 ### generic_train_eval
 
@@ -795,7 +827,7 @@ C:/Users/korsr/PycharmProjects/eopkg_structural_drift_article/submissions/DATAK-
 
 ### experiment
 
-- `mode`: `train | eval_drift | eval_cross_dataset`
+- `mode`: `train | eval_drift | eval_drift_finetune | eval_cross_dataset`
 - `split_strategy`: `temporal | versioned | none`
 - `fraction_strategy`: `temporal | versioned`
 - `version_scope_policy`: `all | train_cut`

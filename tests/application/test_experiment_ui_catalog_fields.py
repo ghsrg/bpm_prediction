@@ -142,6 +142,18 @@ def test_catalog_exposes_topology_mask_uniform_controls():
     assert catalog["experiment.uniform_mask_mc_draws"]["default"] == 200
 
 
+def test_catalog_exposes_eval_drift_finetune_controls():
+    catalog_path = Path("configs/ui/config_catalog.yaml")
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]
+
+    assert "eval_drift_finetune" in catalog["experiment.mode"]["enum"]
+    assert catalog["training.finetune_epochs"]["default"] == 1
+    assert catalog["training.finetune_learning_rate"]["default"] == 0.0001
+    assert catalog["experiment.finetune_start_ratio"]["section"] == "experiment"
+    assert catalog["experiment.finetune_start_ratio"]["default"] == 0.38
+    assert catalog["experiment.finetune_start_ratio"]["required_when"]["experiment.mode"] == "eval_drift_finetune"
+
+
 def test_catalog_includes_versioned_fraction_split_fields():
     catalog_path = Path("configs/ui/config_catalog.yaml")
     catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))["fields"]

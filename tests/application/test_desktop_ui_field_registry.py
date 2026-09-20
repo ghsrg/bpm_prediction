@@ -98,6 +98,7 @@ def test_experiment_run_uses_workflow_tabs_instead_of_one_large_frequently_chang
     assert "Learning" in groups
     assert "Checkpoint / Tracking" in groups
     assert "experiment.load_checkpoint" in {field.path for field in groups["Checkpoint / Tracking"]}
+    assert "experiment.finetune_start_ratio" in {field.path for field in groups["Learning"]}
 
 
 def test_project_setup_uses_workflow_tabs_instead_of_one_large_source_group():

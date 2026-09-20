@@ -97,6 +97,9 @@ EXPERIMENT_RUN_GROUP_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "training.device",
             "training.delta",
             "training.patience",
+            "training.finetune_epochs",
+            "training.finetune_learning_rate",
+            "experiment.finetune_start_ratio",
             "training.backend",
         ),
     ),
@@ -674,7 +677,7 @@ class DesktopPrototypeWindow:
         model_type = self.values.get("model.type", "")
 
         # 1. Temporal Drift Data Leakage Warning
-        if mode in ["eval_drift", "eval_cross_dataset"] and stats_policy == "latest":
+        if mode in ["eval_drift", "eval_drift_finetune", "eval_cross_dataset"] and stats_policy == "latest":
             QMessageBox.warning(
                 self.window,
                 "Validation Warning",

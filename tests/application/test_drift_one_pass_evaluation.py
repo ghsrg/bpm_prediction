@@ -15,7 +15,7 @@ from src.application.services.outcome_partition_audit import (
     aggregate_outcomes,
     classify_observation,
 )
-from src.application.use_cases.trainer import DriftInferenceRecords, ModelTrainer
+from src.application.use_cases.trainer import DriftInferenceRecords, ModelTrainer, SplitData
 from src.domain.entities.candidate_prediction import CandidatePredictionOutput
 from src.domain.entities.event_record import EventRecord
 from src.domain.entities.raw_trace import RawTrace
@@ -108,6 +108,20 @@ class _KnownCandidateModel(nn.Module):
         )
 
 
+class _TrainableThresholdModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.output_dim = 2
+        self.bias = nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
+
+    def forward(self, contract):
+        batch = contract["batch"]
+        num_graphs = int(batch.max().item()) + 1 if batch.numel() > 0 else 0
+        feature = contract["x_num"].view(num_graphs, -1)[:, 0]
+        class_one_logit = feature + self.bias
+        return torch.stack((-class_one_logit, class_one_logit), dim=1)
+
+
 class _FakeTracker:
     def __init__(self) -> None:
         self.metrics: list[tuple[str, float, int | None]] = []
@@ -181,6 +195,7 @@ def _trainer(
     drift_window_size: int = 2,
     drift_window_sliding: int = 1,
     model: nn.Module | None = None,
+    finetune_start_ratio: float = 0.0,
 ) -> ModelTrainer:
     return ModelTrainer(
         xes_adapter=_FailOnReadAdapter(),
@@ -203,6 +218,7 @@ def _trainer(
                 "mode": "eval_drift",
                 "drift_window_size": drift_window_size,
                 "drift_window_sliding": drift_window_sliding,
+                "finetune_start_ratio": finetune_start_ratio,
             },
         },
         prepared_data={"idx_to_version": {0: "v1"}},
@@ -287,6 +303,190 @@ def test_collect_drift_inference_records_is_compact(tmp_path):
     assert records.target_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert records.pred_in_mask_flags.tolist() == pytest.approx([1.0, 1.0])
     assert not hasattr(records, "y_prob")
+
+
+def test_eval_drift_finetune_updates_after_released_window(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=_TrainableThresholdModel(),
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.finetune_epochs = 8
+    trainer.finetune_learning_rate = 0.2
+    trainer.tracker = _FakeTracker()
+    traces = [_trace(f"c{i}", i) for i in range(3)]
+    dataset = [
+        _sample(trace_idx=0, target=1, pred=0),
+        _sample(trace_idx=1, target=1, pred=0),
+        _sample(trace_idx=2, target=1, pred=0),
+    ]
+    for sample in dataset:
+        sample.x_num = torch.tensor([[-0.2]], dtype=torch.float32)
+
+    drift_metrics = trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        traces=traces,
+        prebuilt_test_dataset=dataset,
+    )
+
+    assert drift_metrics is not None
+    assert [row["finetune_update_index"] for row in drift_metrics] == [0.0, 1.0]
+    assert [row["finetune_unique_traces_seen"] for row in drift_metrics] == [0.0, 1.0]
+    strict_f1_by_step = [
+        value
+        for key, value, step in trainer.tracker.metrics
+        if key == "drift_window_strict_macro_f1"
+    ]
+    assert strict_f1_by_step[0] < strict_f1_by_step[1]
+    logged_updates = [
+        value
+        for key, value, step in trainer.tracker.metrics
+        if key == "finetune_update_index"
+    ]
+    assert logged_updates == [0.0, 1.0]
+
+
+def test_eval_drift_finetune_graph_indexing_emits_progress(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
+    trainer = _trainer(tmp_path)
+
+    graphs = [
+        _sample(trace_idx=0, target=1, pred=0),
+        _sample(trace_idx=1, target=1, pred=0),
+    ]
+
+    indexed = trainer._iter_prebuilt_graphs(graphs)
+
+    assert indexed == graphs
+    events = [
+        json.loads(line[len(PROGRESS_EVENT_PREFIX) :])
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(PROGRESS_EVENT_PREFIX)
+    ]
+    indexing_events = [
+        event
+        for event in events
+        if event["stage"] == "eval_drift.one_pass_inference"
+    ]
+    assert [event["status"] for event in indexing_events] == ["start", "done"]
+    assert indexing_events[0]["message"] == "Indexing adaptive drift graph stream"
+    assert indexing_events[-1]["current"] == 2.0
+
+
+def test_eval_drift_finetune_windows_emit_progress_before_release_cut(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BPM_PROGRESS_EVENTS", "1")
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=_TrainableThresholdModel(),
+        finetune_start_ratio=1.0,
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.tracker = _FakeTracker()
+    traces = [_trace(f"c{i}", i) for i in range(4)]
+    dataset = [_sample(trace_idx=i, target=1, pred=0) for i in range(4)]
+    for sample in dataset:
+        sample.x_num = torch.tensor([[-0.2]], dtype=torch.float32)
+
+    drift_metrics = trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        traces=traces,
+        prebuilt_test_dataset=dataset,
+    )
+
+    assert drift_metrics is not None
+    events = [
+        json.loads(line[len(PROGRESS_EVENT_PREFIX) :])
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(PROGRESS_EVENT_PREFIX)
+    ]
+    window_events = [
+        event
+        for event in events
+        if event["stage"] == "eval_drift.windows"
+    ]
+    update_events = [event for event in window_events if event["status"] == "update"]
+    assert [event["current"] for event in update_events] == [1.0, 2.0, 3.0]
+    assert window_events[-1]["status"] == "done"
+    assert window_events[-1]["current"] == 3.0
+
+
+def test_eval_drift_finetune_start_ratio_skips_pre_cut_releases(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=_TrainableThresholdModel(),
+        finetune_start_ratio=0.5,
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.finetune_epochs = 1
+    trainer.finetune_learning_rate = 0.2
+    trainer.tracker = _FakeTracker()
+    traces = [_trace(f"c{i}", i) for i in range(5)]
+    dataset = [_sample(trace_idx=i, target=1, pred=0) for i in range(5)]
+    for sample in dataset:
+        sample.x_num = torch.tensor([[-0.2]], dtype=torch.float32)
+
+    drift_metrics = trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset(
+        traces=traces,
+        prebuilt_test_dataset=dataset,
+    )
+
+    assert drift_metrics is not None
+    assert [row["finetune_start_trace"] for row in drift_metrics] == [2.0, 2.0, 2.0, 2.0]
+    assert [row["finetune_update_index"] for row in drift_metrics] == [0.0, 0.0, 0.0, 1.0]
+    assert [row["finetune_unique_traces_seen"] for row in drift_metrics] == [0.0, 0.0, 0.0, 1.0]
+    logged_update_counts = [value for key, value, step in trainer.tracker.metrics if key == "finetune_update_index"]
+    assert logged_update_counts == [0.0, 0.0, 0.0, 1.0]
+
+
+def test_eval_drift_finetune_writes_sidecar_checkpoint_without_overwriting_source(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        drift_window_size=2,
+        drift_window_sliding=1,
+        model=_TrainableThresholdModel(),
+    )
+    trainer.mode = "eval_drift_finetune"
+    trainer.checkpoint_path = tmp_path / "source_best.pth"
+    trainer.finetune_checkpoint_path = trainer._derive_finetune_checkpoint_path(trainer.checkpoint_path)
+    trainer.checkpoint_path.write_bytes(b"source-checkpoint-sentinel")
+    checkpoint = {
+        "epoch": 7,
+        "model_state_dict": trainer.model.state_dict(),
+        "optimizer_state_dict": {},
+        "val_loss": 0.25,
+        "encoder_state": {"activity_vocab": {"A": 0}},
+    }
+    trainer._evaluate_drift_finetune_windows_from_prebuilt_dataset = lambda **kwargs: []  # type: ignore[method-assign]
+
+    result = trainer._run_eval_drift_finetune(
+        split_data=SplitData(train=[], val=[], test=[]),
+        drift_traces=[],
+        checkpoint=checkpoint,
+        best_epoch=7,
+        best_val_loss=0.25,
+        prebuilt_test_dataset=[],
+    )
+
+    assert trainer.checkpoint_path.read_bytes() == b"source-checkpoint-sentinel"
+    assert trainer.finetune_checkpoint_path.exists()
+    assert trainer.finetune_checkpoint_path.name == "source_finetune.pth"
+    assert result["finetune_checkpoint_path"] == str(trainer.finetune_checkpoint_path)
+
+
+def test_eval_drift_finetune_run_does_not_enter_full_train_pipeline(tmp_path):
+    trainer = _trainer(tmp_path)
+    trainer.mode = "eval_drift_finetune"
+    trainer._prepare_checkpoint_state = lambda *, is_eval_mode: ({}, 0, 0.0, 0)  # type: ignore[method-assign]
+    trainer._run_train_pipeline = lambda **kwargs: pytest.fail("eval_drift_finetune must not run the full train pipeline")  # type: ignore[method-assign]
+    trainer._run_eval_drift_finetune = lambda **kwargs: {"mode": "eval_drift_finetune"}  # type: ignore[method-assign]
+
+    result = trainer.run()
+
+    assert result == {"mode": "eval_drift_finetune"}
 
 
 def test_common_audit_uses_final_prediction_and_keeps_unseen_target(tmp_path):
